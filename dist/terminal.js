@@ -1,15 +1,16 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.4.0 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars)
+ *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
  *   - VS Code Workbench: Hierarchical File Tree, Decoupled Tabs, Command Palette (Cmd+Shift+P), Quick Open (Cmd+P), Breadcrumbs, Context Menus & Solution Diff Viewer
- *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, on, off, use, exportWorkspace)
+ *   - Zero-Auth Public GitHub Repository Cloning (git clone, workbench.cloneRepo, <code-lab repo="...">)
+ *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, cloneRepo, on, off, use, exportWorkspace)
  * ============================================================
  */
 (function (root) {

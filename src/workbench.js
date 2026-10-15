@@ -19,6 +19,8 @@
   const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine || CodeLabTerminal.createTerminal || CodeLabTerminal.PTYTerminalEngine || (root && (root.createPTYTerminalEngine || root.PTYTerminalEngine));
   const ansiToHtml = CodeLabTerminal.parseAnsiToHtml || CodeLabTerminal.ansiToHtml || (root && (root.parseAnsiToHtml || root.ansiToHtml));
   const createPosixShell = CodeLabShell.createPosixShell || (root && root.createPosixShell);
+  const parseGitHubRepoUrl = CodeLabShell.parseGitHubRepoUrl || (root && root.parseGitHubRepoUrl);
+  const cloneGitHubRepository = CodeLabShell.cloneGitHubRepository || (root && root.cloneGitHubRepository);
   const createVirtualPortTable = (root && root.createVirtualPortTable) ||
     (root && root.CodeLabRuntime && root.CodeLabRuntime.createVirtualPortTable) ||
     (shellModule && shellModule.createVirtualPortTable) ||
@@ -839,6 +841,14 @@ declare module 'bun:sqlite' {
         for (const plugin of options.plugins) {
           this.use(plugin);
         }
+      }
+
+      if (options.repo && typeof options.repo === 'string') {
+        this.cloneRepo(options.repo, {
+          intoRoot: options.cloneIntoRoot !== false,
+          branch: options.branch || undefined,
+          fetchImpl: options.fetchImpl || undefined
+        }).catch(() => {});
       }
     }
 
@@ -3174,10 +3184,15 @@ declare module 'bun:sqlite' {
         }
 
         // Additions & modifications
+        let newFilesCount = 0;
+        for (const [rel] of shellWorkspaceFiles.entries()) {
+          if (this.files[rel] === undefined) newFilesCount++;
+        }
+        const autoOpenTab = newFilesCount <= 5;
         for (const [rel, content] of shellWorkspaceFiles.entries()) {
           if (this.files[rel] === undefined || this.files[rel] !== content) {
             this.files[rel] = content;
-            if (!this.openTabs.includes(rel)) {
+            if (autoOpenTab && !this.openTabs.includes(rel)) {
               this.openTabs.push(rel);
             }
             changed = true;
@@ -3381,42 +3396,46 @@ declare module 'bun:sqlite' {
         });
 
         // Keyboard shortcuts inside Monaco
-        this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
-          if (this.mode === 'guided') {
-            this.verifyCurrentStep();
-          } else {
-            this.runTests();
+        if (m.KeyMod && m.KeyCode && typeof this.editor.addCommand === 'function') {
+          this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
+            if (this.mode === 'guided') {
+              this.verifyCurrentStep();
+            } else {
+              this.runTests();
+            }
+          });
+          this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter, () => {
+            this.runDemo();
+          });
+          if (m.KeyCode.KeyP) {
+            this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyP, () => {
+              this.openCommandPalette('commands');
+            });
+            this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyP, () => {
+              this.openCommandPalette('files');
+            });
           }
-        });
-        this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter, () => {
-          this.runDemo();
-        });
-        if (m.KeyCode.KeyP) {
-          this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyP, () => {
-            this.openCommandPalette('commands');
-          });
-          this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyP, () => {
-            this.openCommandPalette('files');
-          });
-        }
-        if (m.KeyCode.F1) {
-          this.editor.addCommand(m.KeyCode.F1, () => {
-            this.openCommandPalette('commands');
-          });
+          if (m.KeyCode.F1) {
+            this.editor.addCommand(m.KeyCode.F1, () => {
+              this.openCommandPalette('commands');
+            });
+          }
         }
 
-        this.editor.onDidChangeCursorPosition(e => {
-          if (e && e.position) {
-            this.cursorPos = {
-              lineNumber: e.position.lineNumber,
-              column: e.position.column,
-              ln: e.position.lineNumber,
-              col: e.position.column
-            };
-            this._updateStatusBar();
-            this._renderBreadcrumbs();
-          }
-        });
+        if (typeof this.editor.onDidChangeCursorPosition === 'function') {
+          this.editor.onDidChangeCursorPosition(e => {
+            if (e && e.position) {
+              this.cursorPos = {
+                lineNumber: e.position.lineNumber,
+                column: e.position.column,
+                ln: e.position.lineNumber,
+                col: e.position.column
+              };
+              this._updateStatusBar();
+              this._renderBreadcrumbs();
+            }
+          });
+        }
 
         if (fallbackWrap) fallbackWrap.style.display = 'none';
         this._syncActiveFileToView();
@@ -3453,18 +3472,26 @@ declare module 'bun:sqlite' {
     }
 
     _getOrCreateModel(filename) {
-      if (!filename || !this.monaco) return null;
-      const uri = this.monaco.Uri.parse(`file:///${this.labId}/${filename}`);
-      let model = this.monaco.editor.getModel(uri);
+      if (!filename || !this.monaco || !this.monaco.editor) return null;
+      const uriParser = (this.monaco.Uri && typeof this.monaco.Uri.parse === 'function')
+        ? this.monaco.Uri
+        : (this.monaco.editor.Uri && typeof this.monaco.editor.Uri.parse === 'function')
+          ? this.monaco.editor.Uri
+          : null;
+      const rawUri = `file:///${this.labId}/${filename}`;
+      const uri = uriParser ? uriParser.parse(rawUri) : { toString: () => rawUri };
+      let model = typeof this.monaco.editor.getModel === 'function' ? this.monaco.editor.getModel(uri) : null;
       const lang = filename.endsWith('.ts') ? 'typescript' : filename.endsWith('.json') ? 'json' : filename.endsWith('.md') ? 'markdown' : 'javascript';
       if (!model) {
         model = this.monaco.editor.createModel(this.files[filename] || '', lang, uri);
-        model.onDidChangeContent(() => {
-          const val = model.getValue();
-          this.files[filename] = val;
-          this._saveState();
-          this._notifyCodeChange(filename, val);
-        });
+        if (model && typeof model.onDidChangeContent === 'function') {
+          model.onDidChangeContent(() => {
+            const val = model.getValue();
+            this.files[filename] = val;
+            this._saveState();
+            this._notifyCodeChange(filename, val);
+          });
+        }
       } else if (model.getValue() !== (this.files[filename] || '')) {
         model.setValue(this.files[filename] || '');
       }
@@ -3524,7 +3551,7 @@ declare module 'bun:sqlite' {
           if (model && this.editor.getModel() !== model) {
             this.editor.setModel(model);
           }
-          const pos = this.editor.getPosition();
+          const pos = typeof this.editor.getPosition === 'function' ? this.editor.getPosition() : null;
           if (pos) {
             this.cursorPos = {
               lineNumber: pos.lineNumber,
@@ -3533,7 +3560,7 @@ declare module 'bun:sqlite' {
               col: pos.column
             };
           }
-          this.editor.layout();
+          if (typeof this.editor.layout === 'function') this.editor.layout();
         } else if (fallbackWrap && fallbackEl) {
           fallbackWrap.style.display = 'flex';
           fallbackEl.value = this.files[this.activeFile] || '';
@@ -3869,7 +3896,15 @@ declare module 'bun:sqlite' {
           } else if (action === 'export-workspace') {
             this.exportWorkspace({ download: true });
           } else if (action === 'open-packages') this.showPackagesModal();
-          else if (action === 'add-package') {
+          else if (action === 'open-clone-repo') this.showCloneRepoModal();
+          else if (action === 'confirm-clone-repo') {
+            const input = this.container.querySelector('#cl-clone-repo-input');
+            if (input && input.value.trim()) {
+              const repoVal = input.value.trim();
+              this.closeModal();
+              this.cloneRepo(repoVal, { intoRoot: true }).catch(() => {});
+            }
+          } else if (action === 'add-package') {
             const input = this.container.querySelector('#cl-pkg-input');
             if (input && input.value.trim()) {
               this.addNpmPackage(input.value.trim());
@@ -4039,7 +4074,8 @@ declare module 'bun:sqlite' {
           if (this.editor) setTimeout(() => this.editor.layout(), 50);
         } },
         { id: 'toggle-fullscreen', label: 'View: Toggle Fullscreen Workbench', action: () => this.toggleFullscreen() },
-        { id: 'open-packages', label: 'Packages: Manage NPM Dependencies & Runtime', action: () => this.showPackagesModal() }
+        { id: 'open-packages', label: 'Packages: Manage NPM Dependencies & Runtime', action: () => this.showPackagesModal() },
+        { id: 'git-clone', label: 'Git: Clone Public GitHub Repository...', action: () => this.showCloneRepoModal() }
       ];
     }
 
@@ -5242,6 +5278,165 @@ declare module 'bun:sqlite' {
       return Array.isArray(this.openTabs) ? [...this.openTabs] : [];
     }
 
+    showCloneRepoModal() {
+      const slot = this.container.querySelector('#cl-modal-slot');
+      if (!slot) return;
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Clone Public GitHub Repository">
+            <div class="codelab-modal__header">
+              <span style="display:inline-flex;align-items:center;gap:6px;">${CL_ICONS.terminal || CL_ICONS.folder}<span>Clone Public GitHub Repository</span></span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+            </div>
+            <div class="codelab-modal__body" style="font-family:var(--cl-font-sans);">
+              <p style="margin:0 0 12px;font-size:12.5px;color:var(--cl-fg-muted);">
+                Enter any public GitHub repository URL or <code>owner/repo</code> slug. Files will be cloned directly into the in-memory Virtual Filesystem (VFS) with zero authentication required.
+              </p>
+              <div style="display:flex;gap:8px;">
+                <input id="cl-clone-repo-input" type="text" placeholder="e.g. innovatorved/code-lab or https://github.com/owner/repo" style="flex:1;height:34px;padding:0 10px;background:var(--cl-bg);border:1px solid var(--cl-border-strong);border-radius:var(--cl-radius-sm);color:var(--cl-fg);font-family:var(--cl-font-mono);font-size:12px;outline:none;" />
+                <button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="confirm-clone-repo">Clone Repo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const input = slot.querySelector('#cl-clone-repo-input');
+      if (input) {
+        input.focus();
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && input.value.trim()) {
+            e.preventDefault();
+            const val = input.value.trim();
+            this.closeModal();
+            this.cloneRepo(val, { intoRoot: true }).catch(() => {});
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            this.closeModal();
+          }
+        });
+      }
+    }
+
+    async cloneRepo(repoInput, options = {}) {
+      if (!parseGitHubRepoUrl || !cloneGitHubRepository) {
+        throw new Error('CodeLabShell GitHub clone engine is not loaded');
+      }
+      const parsed = parseGitHubRepoUrl(repoInput);
+      if (!parsed) {
+        const errMsg = `fatal: repository '${repoInput}' does not exist or is not a valid GitHub repository URL`;
+        this.terminalLogs.push({ type: 'stderr', text: errMsg });
+        this._renderDrawerBody();
+        throw new Error(errMsg);
+      }
+
+      if (!this.shell) {
+        this._initShell();
+      }
+
+      const intoRoot = options.intoRoot !== false;
+      const targetDir = intoRoot ? '/workspace' : `/workspace/${parsed.repo}`;
+      const cmdDisplay = `git clone ${repoInput}${intoRoot ? ' .' : ''}`;
+      this.terminalLogs.push({ type: 'cmd', text: cmdDisplay });
+      this._renderDrawerBody();
+
+      try {
+        if (intoRoot && this.shell && this.shell.vfs) {
+          // Clear previous workspace files before cloning into root
+          if (this.shell.vfs.files instanceof Map) {
+            for (const k of Array.from(this.shell.vfs.files.keys())) {
+              if (k.startsWith('/workspace/')) this.shell.vfs.files.delete(k);
+            }
+          }
+          if (this.shell.vfs.dirs instanceof Set) {
+            for (const d of Array.from(this.shell.vfs.dirs)) {
+              if (d.startsWith('/workspace/')) this.shell.vfs.dirs.delete(d);
+            }
+          }
+        }
+
+        const result = await cloneGitHubRepository(repoInput, this.shell.vfs, {
+          targetDir,
+          branch: options.branch || parsed.branch || null,
+          maxFiles: options.maxFiles || 250,
+          maxFileSize: options.maxFileSize || 512 * 1024,
+          fetchImpl: options.fetchImpl || (this.shell && this.shell.options ? this.shell.options.fetchImpl : undefined)
+        });
+
+        if (this.shell && this.shell.gitState) {
+          const gs = this.shell.gitState;
+          gs.branch = result.branch;
+          if (!(gs.branches instanceof Set)) gs.branches = new Set();
+          gs.branches.add(result.branch);
+          gs.remoteUrl = result.url;
+          gs.remotes = { origin: result.url };
+          gs.repoRoot = targetDir;
+          gs.headSnapshot = Object.assign({}, result.headSnapshot);
+          gs.commits = result.commits;
+          gs.staged = new Set();
+        }
+
+        if (intoRoot) {
+          this.setFiles(result.headSnapshot);
+          const preferred = [
+            'README.md',
+            'readme.md',
+            'src/index.ts',
+            'src/index.js',
+            'index.ts',
+            'index.js',
+            'main.js',
+            'app.js',
+            'package.json'
+          ];
+          const allNames = Object.keys(this.files);
+          const pick = preferred.find((p) => this.files[p] !== undefined) || allNames[0] || null;
+          if (pick) {
+            this.activeFile = pick;
+          }
+          this.openTabs = allNames.slice(0, 5);
+          if (pick && !this.openTabs.includes(pick)) {
+            this.openTabs.unshift(pick);
+          }
+          this._saveState();
+          this._syncAllModels();
+          this._syncActiveFileToView();
+        } else {
+          this._syncVfsSnapshot(null, false);
+        }
+
+        const count = Math.max(1, result.filesWritten);
+        const kb = Math.max(0.1, result.totalBytes / 1024).toFixed(1);
+        this.terminalLogs.push({
+          type: 'stdout',
+          text:
+            `Cloning into '${intoRoot ? '.' : parsed.repo}'...\n` +
+            `remote: Enumerating objects: ${count}, done.\n` +
+            `remote: Counting objects: 100% (${count}/${count}), done.\n` +
+            `Receiving objects: 100% (${count}/${count}), ${kb} KiB, done.`
+        });
+        this._renderDrawerBody();
+
+        const eventDetail = {
+          owner: result.owner,
+          repo: result.repo,
+          branch: result.branch,
+          url: result.url,
+          targetDir: result.targetDir,
+          count: result.filesWritten,
+          fileCount: result.filesWritten,
+          totalBytes: result.totalBytes
+        };
+        this._emitEvent('repo-clone', eventDetail);
+        this._emitEvent('repo:cloned', eventDetail);
+        return result;
+      } catch (err) {
+        const msg = err && err.message ? err.message : String(err);
+        this.terminalLogs.push({ type: 'stderr', text: msg });
+        this._renderDrawerBody();
+        throw err;
+      }
+    }
+
     reset() {
       return this.resetLab();
     }
@@ -5303,7 +5498,7 @@ declare module 'bun:sqlite' {
   if (typeof HTMLElement !== 'undefined') {
     CodeLabElementClass = class CodeLabElement extends HTMLElement {
       static get observedAttributes() {
-        return ['theme', 'mode', 'language', 'lang', 'title'];
+        return ['theme', 'mode', 'language', 'lang', 'title', 'repo'];
       }
 
       attributeChangedCallback(name, oldVal, newVal) {
@@ -5318,6 +5513,8 @@ declare module 'bun:sqlite' {
           this._instance.switchLang(newVal);
         } else if (name === 'title' && newVal) {
           this._instance.title = newVal;
+        } else if (name === 'repo' && newVal) {
+          this._instance.cloneRepo(newVal, { intoRoot: true }).catch(() => {});
         }
       }
 
@@ -5353,6 +5550,8 @@ declare module 'bun:sqlite' {
           theme: this.getAttribute('theme') || inlineConfig.theme || undefined,
           entry: this.getAttribute('entry') || inlineConfig.entry || undefined,
           testEntry: this.getAttribute('test-entry') || inlineConfig.testEntry || undefined,
+          repo: this.getAttribute('repo') || inlineConfig.repo || undefined,
+          branch: this.getAttribute('branch') || inlineConfig.branch || undefined,
           ...(attrFiles ? { files: attrFiles } : {})
         });
       }
@@ -5372,6 +5571,7 @@ declare module 'bun:sqlite' {
       getOpenTabs() { return this._instance ? this._instance.getOpenTabs() : []; }
       openCommandPalette(mode) { if (this._instance) this._instance.openCommandPalette(mode); }
       showDiffModal(file, target) { if (this._instance) this._instance.showDiffModal(file, target); }
+      cloneRepo(repoInput, opts) { return this._instance ? this._instance.cloneRepo(repoInput, opts) : Promise.reject(new Error('Workbench not mounted')); }
       runDemo() { return this._instance ? this._instance.runDemo() : Promise.resolve(); }
       runTests(filter) { return this._instance ? this._instance.runTests(filter) : Promise.resolve(); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
@@ -5408,13 +5608,15 @@ declare module 'bun:sqlite' {
   }
 
   const CodeLabSDK = {
-    version: '1.3.2',
+    version: '1.4.0',
     Workbench: CodeLabWorkbench,
     CodeLabWorkbench,
     CodeLabElement: CodeLabElementClass,
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,
+    parseGitHubRepoUrl,
+    cloneRepo: cloneGitHubRepository,
     mount: mountCodeLab,
     create: mountCodeLab,
     unmount(container) {

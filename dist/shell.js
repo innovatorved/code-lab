@@ -1,15 +1,16 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.4.0 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars)
+ *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
  *   - VS Code Workbench: Hierarchical File Tree, Decoupled Tabs, Command Palette (Cmd+Shift+P), Quick Open (Cmd+P), Breadcrumbs, Context Menus & Solution Diff Viewer
- *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, on, off, use, exportWorkspace)
+ *   - Zero-Auth Public GitHub Repository Cloning (git clone, workbench.cloneRepo, <code-lab repo="...">)
+ *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, cloneRepo, on, off, use, exportWorkspace)
  * ============================================================
  */
 (function (root) {
@@ -1886,6 +1887,14 @@
     let branch = null;
     let subpath = null;
 
+    // Extract optional #branch fragment (e.g. https://github.com/owner/repo#branch or owner/repo#branch)
+    const hashIdx = raw.indexOf('#');
+    if (hashIdx !== -1) {
+      const hashBranch = raw.slice(hashIdx + 1).trim();
+      raw = raw.slice(0, hashIdx).trim();
+      if (hashBranch) branch = hashBranch;
+    }
+
     // 1. SSH format: git@github.com:owner/repo(.git)
     const sshMatch = raw.match(/^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/);
     if (sshMatch) {
@@ -1894,8 +1903,11 @@
       return {
         owner,
         repo,
-        branch: null,
+        branch,
         subpath: null,
+        fullName: `${owner}/${repo}`,
+        httpsUrl: `https://github.com/${owner}/${repo}`,
+        gitUrl: `https://github.com/${owner}/${repo}.git`,
         url: `https://github.com/${owner}/${repo}.git`
       };
     }
@@ -1905,13 +1917,16 @@
     if (httpMatch) {
       owner = httpMatch[1];
       repo = httpMatch[2];
-      branch = httpMatch[4] || null;
+      branch = httpMatch[4] || branch || null;
       subpath = httpMatch[5] ? httpMatch[5].replace(/^\/+|\/+$/g, '') : null;
       return {
         owner,
         repo,
         branch,
         subpath,
+        fullName: `${owner}/${repo}`,
+        httpsUrl: `https://github.com/${owner}/${repo}`,
+        gitUrl: `https://github.com/${owner}/${repo}.git`,
         url: `https://github.com/${owner}/${repo}.git`
       };
     }
@@ -1921,12 +1936,15 @@
     if (shortMatch && !shortMatch[1].startsWith('-')) {
       owner = shortMatch[1];
       repo = shortMatch[2];
-      branch = shortMatch[3] || null;
+      branch = shortMatch[3] || branch || null;
       return {
         owner,
         repo,
         branch,
         subpath: null,
+        fullName: `${owner}/${repo}`,
+        httpsUrl: `https://github.com/${owner}/${repo}`,
+        gitUrl: `https://github.com/${owner}/${repo}.git`,
         url: `https://github.com/${owner}/${repo}.git`
       };
     }
@@ -2220,6 +2238,8 @@
       branch: resolvedBranch,
       url: parsed.url,
       targetDir,
+      count: filesWritten,
+      fileCount: filesWritten,
       filesWritten,
       totalBytes,
       commits,
@@ -4261,54 +4281,289 @@
     },
 
     // -----------------------------------------------------------------------
-    // Mock VCS Engine: git
+    // Full-Fledged VCS & Public GitHub Clone Engine: git
     // -----------------------------------------------------------------------
     async git(args, ctx) {
       const subcmd = args[0] || 'status';
       const gitState = ctx.shell.gitState;
+      if (!(gitState.branches instanceof Set)) {
+        gitState.branches = new Set(Array.isArray(gitState.branches) ? gitState.branches : [gitState.branch || 'main']);
+      }
+      if (!gitState.headSnapshot) {
+        gitState.headSnapshot = snapshotWorktree(ctx.vfs, gitState.repoRoot || ctx.cwd);
+      }
+      if (!gitState.remotes) {
+        gitState.remotes = gitState.remoteUrl ? { origin: gitState.remoteUrl } : {};
+      }
+
+      const repoRoot = PosixPath.normalize(gitState.repoRoot || ctx.cwd);
+      const toRepoRel = (p) => {
+        const abs = ctx.resolvePath(p);
+        const prefix = repoRoot === '/' ? '/' : repoRoot + '/';
+        if (abs === repoRoot) return '.';
+        if (abs.startsWith(prefix)) return abs.slice(prefix.length);
+        return p.replace(/^\.\//, '');
+      };
+
+      if (subcmd === 'clone') {
+        let branchOpt = null;
+        const positional = [];
+        for (let i = 1; i < args.length; i++) {
+          const a = args[i];
+          if ((a === '-b' || a === '--branch') && i + 1 < args.length) {
+            branchOpt = args[++i];
+          } else if (a.startsWith('--branch=')) {
+            branchOpt = a.slice('--branch='.length);
+          } else if ((a === '--depth' || a === '-o' || a === '--origin') && i + 1 < args.length) {
+            i++;
+          } else if (a.startsWith('-')) {
+            // ignore other flags like --single-branch, -q
+          } else {
+            positional.push(a);
+          }
+        }
+
+        const repoArg = positional[0];
+        const dirArg = positional[1];
+        if (!repoArg) {
+          return { code: 128, stdout: '', stderr: 'fatal: You must specify a repository to clone.\n' };
+        }
+
+        const parsed = parseGitHubRepoUrl(repoArg);
+        if (!parsed) {
+          return {
+            code: 128,
+            stdout: '',
+            stderr: `fatal: repository '${repoArg}' does not exist or is not a valid GitHub repository URL\n`
+          };
+        }
+
+        let targetDir;
+        let dirDisplayName;
+        if (dirArg === '.') {
+          targetDir = ctx.cwd;
+          dirDisplayName = '.';
+        } else if (dirArg) {
+          targetDir = ctx.resolvePath(dirArg);
+          dirDisplayName = dirArg;
+        } else {
+          targetDir = PosixPath.join(ctx.cwd, parsed.repo);
+          dirDisplayName = parsed.repo;
+        }
+
+        try {
+          const result = await cloneGitHubRepository(repoArg, ctx.vfs, {
+            targetDir,
+            branch: branchOpt,
+            fetchImpl: ctx.shell && ctx.shell.options ? ctx.shell.options.fetchImpl : undefined,
+            onFile: (absPath) => ctx.emitMutation('create', absPath)
+          });
+
+          gitState.branch = result.branch;
+          gitState.branches.add(result.branch);
+          gitState.remoteUrl = result.url;
+          gitState.remotes.origin = result.url;
+          gitState.repoRoot = targetDir;
+          gitState.headSnapshot = Object.assign({}, result.headSnapshot);
+          gitState.commits = result.commits;
+          gitState.staged.clear();
+
+          const count = Math.max(1, result.filesWritten);
+          const kb = Math.max(0.1, result.totalBytes / 1024).toFixed(1);
+          const stdout =
+            `Cloning into '${dirDisplayName}'...\n` +
+            `remote: Enumerating objects: ${count}, done.\n` +
+            `remote: Counting objects: 100% (${count}/${count}), done.\n` +
+            `Receiving objects: 100% (${count}/${count}), ${kb} KiB, done.\n`;
+          return { code: 0, stdout, stderr: '' };
+        } catch (err) {
+          const msg = err && err.message ? err.message : String(err);
+          return { code: 128, stdout: '', stderr: (msg.endsWith('\n') ? msg : msg + '\n') };
+        }
+      }
+
+      if (subcmd === 'init') {
+        const initDir = args[1] && !args[1].startsWith('-') ? ctx.resolvePath(args[1]) : ctx.cwd;
+        const gitDir = PosixPath.join(initDir, '.git');
+        ensureDirSync(ctx.vfs, gitDir, ctx.emitMutation);
+        const branchName = gitState.branch || 'main';
+        ctx.vfs.writeFileSync(PosixPath.join(gitDir, 'HEAD'), `ref: refs/heads/${branchName}\n`);
+        ctx.vfs.writeFileSync(
+          PosixPath.join(gitDir, 'config'),
+          `[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n`
+        );
+        ctx.emitMutation('create', PosixPath.join(gitDir, 'HEAD'));
+        gitState.repoRoot = initDir;
+        gitState.headSnapshot = snapshotWorktree(ctx.vfs, initDir);
+        gitState.staged.clear();
+        return { code: 0, stdout: `Initialized empty Git repository in ${gitDir}/\n`, stderr: '' };
+      }
 
       if (subcmd === 'status') {
+        const isShort = args.includes('-s') || args.includes('--short');
+        const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+        const headFiles = gitState.headSnapshot || {};
+
+        const stagedList = [];
+        for (const relPath of gitState.staged) {
+          const inHead = Object.prototype.hasOwnProperty.call(headFiles, relPath);
+          const inLive = Object.prototype.hasOwnProperty.call(liveFiles, relPath);
+          if (!inHead && inLive) {
+            stagedList.push({ status: 'new file', short: 'A ', path: relPath });
+          } else if (inHead && !inLive) {
+            stagedList.push({ status: 'deleted', short: 'D ', path: relPath });
+          } else {
+            stagedList.push({ status: 'modified', short: 'M ', path: relPath });
+          }
+        }
+
+        const unstagedList = [];
+        for (const relPath of Object.keys(headFiles).sort()) {
+          if (gitState.staged.has(relPath)) continue;
+          if (!Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
+            unstagedList.push({ status: 'deleted', short: ' D', path: relPath });
+          } else if (liveFiles[relPath] !== headFiles[relPath]) {
+            unstagedList.push({ status: 'modified', short: ' M', path: relPath });
+          }
+        }
+
+        const untrackedList = [];
+        for (const relPath of Object.keys(liveFiles).sort()) {
+          if (!Object.prototype.hasOwnProperty.call(headFiles, relPath) && !gitState.staged.has(relPath)) {
+            untrackedList.push(relPath);
+          }
+        }
+
+        if (isShort) {
+          let sOut = '';
+          for (const item of stagedList) sOut += `${item.short} ${item.path}\n`;
+          for (const item of unstagedList) sOut += `${item.short} ${item.path}\n`;
+          for (const p of untrackedList) sOut += `?? ${p}\n`;
+          return { code: 0, stdout: sOut, stderr: '' };
+        }
+
         let stdout = `On branch ${gitState.branch}\n`;
-        if (gitState.staged.size === 0) {
-          stdout += 'nothing to commit, working tree clean\n';
-        } else {
+        if (gitState.remoteUrl) {
+          stdout += `Your branch is up to date with 'origin/${gitState.branch}'.\n\n`;
+        }
+        if (stagedList.length > 0) {
           stdout += 'Changes to be committed:\n';
-          for (const s of gitState.staged) {
-            stdout += `\tmodified:   ${s}\n`;
+          for (const item of stagedList) {
+            stdout += `\t${item.status}:   ${item.path}\n`;
+          }
+          stdout += '\n';
+        }
+        if (unstagedList.length > 0) {
+          stdout += 'Changes not staged for commit:\n';
+          for (const item of unstagedList) {
+            stdout += `\t${item.status}:   ${item.path}\n`;
+          }
+          stdout += '\n';
+        }
+        if (untrackedList.length > 0) {
+          stdout += 'Untracked files:\n';
+          for (const p of untrackedList) {
+            stdout += `\t${p}\n`;
+          }
+          stdout += '\n';
+        }
+        if (stagedList.length === 0 && unstagedList.length === 0 && untrackedList.length === 0) {
+          stdout += 'nothing to commit, working tree clean\n';
+        }
+        return { code: 0, stdout, stderr: '' };
+      }
+
+      if (subcmd === 'diff') {
+        const isStaged = args.includes('--staged') || args.includes('--cached');
+        const fileFilters = args.slice(1).filter((a) => !a.startsWith('-')).map(toRepoRel);
+        const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+        const headFiles = gitState.headSnapshot || {};
+        const allKeys = Array.from(new Set([...Object.keys(headFiles), ...Object.keys(liveFiles)])).sort();
+
+        let stdout = '';
+        for (const relPath of allKeys) {
+          if (fileFilters.length > 0 && !fileFilters.includes(relPath)) continue;
+          if (isStaged && !gitState.staged.has(relPath)) continue;
+          if (!isStaged && !Object.prototype.hasOwnProperty.call(headFiles, relPath) && !gitState.staged.has(relPath)) {
+            continue;
+          }
+          const oldText = Object.prototype.hasOwnProperty.call(headFiles, relPath) ? headFiles[relPath] : '';
+          const newText = Object.prototype.hasOwnProperty.call(liveFiles, relPath) ? liveFiles[relPath] : '';
+          if (oldText !== newText) {
+            const uDiff = computeUnifiedDiff(`a/${relPath}`, `b/${relPath}`, oldText, newText);
+            if (uDiff) {
+              stdout += `diff --git a/${relPath} b/${relPath}\n${uDiff}`;
+            }
           }
         }
         return { code: 0, stdout, stderr: '' };
       }
 
-      if (subcmd === 'branch') {
-        let stdout = '';
-        for (const b of gitState.branches) {
-          stdout += (b === gitState.branch ? `* ${b}\n` : `  ${b}\n`);
-        }
-        return { code: 0, stdout, stderr: '' };
-      }
-
-      if (subcmd === 'log') {
-        let stdout = '';
-        for (const c of gitState.commits) {
-          stdout += `commit ${c.hash}\n`;
-          stdout += `Author: ${c.author}\n`;
-          stdout += `Date:   ${c.date}\n\n`;
-          stdout += `    ${c.message}\n\n`;
-        }
-        return { code: 0, stdout, stderr: '' };
-      }
-
       if (subcmd === 'add') {
-        const files = args.slice(1);
-        for (const f of files) gitState.staged.add(f);
+        const targets = args.slice(1);
+        const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+        const headFiles = gitState.headSnapshot || {};
+
+        if (targets.includes('.') || targets.includes('-A') || targets.includes('--all') || targets.includes('-u')) {
+          const includeUntracked = !targets.includes('-u');
+          for (const relPath of Object.keys(liveFiles)) {
+            const inHead = Object.prototype.hasOwnProperty.call(headFiles, relPath);
+            if (!inHead && includeUntracked) {
+              gitState.staged.add(relPath);
+            } else if (inHead && liveFiles[relPath] !== headFiles[relPath]) {
+              gitState.staged.add(relPath);
+            }
+          }
+          for (const relPath of Object.keys(headFiles)) {
+            if (!Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
+              gitState.staged.add(relPath);
+            }
+          }
+        } else {
+          for (const f of targets) {
+            if (f.startsWith('-')) continue;
+            const rel = toRepoRel(f);
+            if (rel === '.') {
+              for (const k of Object.keys(liveFiles)) {
+                if (liveFiles[k] !== headFiles[k]) gitState.staged.add(k);
+              }
+            } else {
+              const dirPrefix = rel.replace(/\/+$/, '') + '/';
+              const matchedSubfiles = Object.keys(liveFiles).filter((k) => k.startsWith(dirPrefix));
+              if (matchedSubfiles.length > 0) {
+                for (const k of matchedSubfiles) gitState.staged.add(k);
+              } else {
+                gitState.staged.add(rel);
+              }
+            }
+          }
+        }
         return { code: 0, stdout: '', stderr: '' };
       }
 
       if (subcmd === 'commit') {
+        const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+        const headFiles = gitState.headSnapshot || {};
+        if (args.includes('-a') || args.includes('-am')) {
+          for (const relPath of Object.keys(headFiles)) {
+            if (liveFiles[relPath] !== headFiles[relPath]) {
+              gitState.staged.add(relPath);
+            }
+          }
+        }
+
         let msg = 'Commit changes';
-        const mIdx = args.indexOf('-m');
+        const mIdx = args.findIndex((a) => a === '-m' || a === '-am');
         if (mIdx !== -1 && mIdx + 1 < args.length) msg = args[mIdx + 1];
+
+        for (const relPath of gitState.staged) {
+          if (Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
+            gitState.headSnapshot[relPath] = liveFiles[relPath];
+          } else {
+            delete gitState.headSnapshot[relPath];
+          }
+        }
+
         const hash = Math.random().toString(16).slice(2, 9);
         gitState.commits.unshift({
           hash,
@@ -4321,8 +4576,166 @@
         return { code: 0, stdout: `[${gitState.branch} ${hash}] ${msg}\n ${count} file changed\n`, stderr: '' };
       }
 
-      if (subcmd === 'diff') {
+      if (subcmd === 'branch') {
+        const dIdx = args.findIndex((a) => a === '-d' || a === '-D');
+        if (dIdx !== -1 && dIdx + 1 < args.length) {
+          const target = args[dIdx + 1];
+          if (target === gitState.branch) {
+            return { code: 1, stdout: '', stderr: `error: Cannot delete branch '${target}' checked out\n` };
+          }
+          gitState.branches.delete(target);
+          return { code: 0, stdout: `Deleted branch ${target}.\n`, stderr: '' };
+        }
+        const mIdx = args.findIndex((a) => a === '-m' || a === '-M');
+        if (mIdx !== -1 && mIdx + 1 < args.length) {
+          const newName = args[mIdx + 1];
+          gitState.branches.delete(gitState.branch);
+          gitState.branch = newName;
+          gitState.branches.add(newName);
+          return { code: 0, stdout: '', stderr: '' };
+        }
+        const nonFlags = args.slice(1).filter((a) => !a.startsWith('-'));
+        if (nonFlags.length > 0) {
+          for (const bName of nonFlags) {
+            gitState.branches.add(bName);
+          }
+          return { code: 0, stdout: '', stderr: '' };
+        }
+
+        const showAll = args.includes('-a') || args.includes('--all');
+        let stdout = '';
+        for (const b of gitState.branches) {
+          stdout += b === gitState.branch ? `* ${b}\n` : `  ${b}\n`;
+        }
+        if (showAll && gitState.remoteUrl) {
+          stdout += `  remotes/origin/${gitState.branch}\n`;
+        }
+        return { code: 0, stdout, stderr: '' };
+      }
+
+      if (subcmd === 'checkout' || subcmd === 'switch') {
+        const bIdx = args.findIndex((a) => a === '-b' || a === '-B' || a === '-c' || a === '-C');
+        if (bIdx !== -1 && bIdx + 1 < args.length) {
+          const newBranch = args[bIdx + 1];
+          gitState.branches.add(newBranch);
+          gitState.branch = newBranch;
+          return { code: 0, stdout: `Switched to a new branch '${newBranch}'\n`, stderr: '' };
+        }
+
+        const target = args.slice(1).find((a) => a !== '--' && !a.startsWith('-'));
+        if (!target) {
+          return { code: 1, stdout: '', stderr: 'error: branch or path required\n' };
+        }
+
+        if (gitState.branches.has(target) && !args.includes('--')) {
+          gitState.branch = target;
+          return { code: 0, stdout: `Switched to branch '${target}'\n`, stderr: '' };
+        }
+
+        const rel = toRepoRel(target);
+        if (gitState.headSnapshot && Object.prototype.hasOwnProperty.call(gitState.headSnapshot, rel)) {
+          const abs = PosixPath.join(repoRoot, rel);
+          ctx.vfs.writeFileSync(abs, gitState.headSnapshot[rel]);
+          ctx.emitMutation('change', abs);
+          return { code: 0, stdout: `Updated 1 path from the index\n`, stderr: '' };
+        }
+
+        return { code: 1, stdout: '', stderr: `error: pathspec '${target}' did not match any file(s) known to git\n` };
+      }
+
+      if (subcmd === 'restore') {
+        const isStaged = args.includes('--staged') || args.includes('-S');
+        const targets = args.slice(1).filter((a) => !a.startsWith('-'));
+        for (const t of targets) {
+          const rel = toRepoRel(t);
+          if (isStaged) {
+            gitState.staged.delete(rel);
+          } else if (gitState.headSnapshot && Object.prototype.hasOwnProperty.call(gitState.headSnapshot, rel)) {
+            const abs = PosixPath.join(repoRoot, rel);
+            ctx.vfs.writeFileSync(abs, gitState.headSnapshot[rel]);
+            ctx.emitMutation('change', abs);
+          }
+        }
         return { code: 0, stdout: '', stderr: '' };
+      }
+
+      if (subcmd === 'remote') {
+        const sub = args[1];
+        if (!sub) {
+          const names = Object.keys(gitState.remotes);
+          return { code: 0, stdout: names.length > 0 ? names.join('\n') + '\n' : '', stderr: '' };
+        }
+        if (sub === '-v' || sub === '--verbose') {
+          let stdout = '';
+          for (const [rName, rUrl] of Object.entries(gitState.remotes)) {
+            stdout += `${rName}\t${rUrl} (fetch)\n${rName}\t${rUrl} (push)\n`;
+          }
+          return { code: 0, stdout, stderr: '' };
+        }
+        if ((sub === 'add' || sub === 'set-url') && args[2] && args[3]) {
+          gitState.remotes[args[2]] = args[3];
+          if (args[2] === 'origin') gitState.remoteUrl = args[3];
+          return { code: 0, stdout: '', stderr: '' };
+        }
+        if (sub === 'get-url' && args[2]) {
+          const u = gitState.remotes[args[2]];
+          if (!u) return { code: 2, stdout: '', stderr: `fatal: No such remote '${args[2]}'\n` };
+          return { code: 0, stdout: `${u}\n`, stderr: '' };
+        }
+        if ((sub === 'remove' || sub === 'rm') && args[2]) {
+          delete gitState.remotes[args[2]];
+          if (args[2] === 'origin') gitState.remoteUrl = null;
+          return { code: 0, stdout: '', stderr: '' };
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      }
+
+      if (subcmd === 'pull' || subcmd === 'fetch') {
+        const remoteUrl = gitState.remoteUrl || gitState.remotes.origin;
+        if (!remoteUrl) {
+          return { code: 1, stdout: '', stderr: 'fatal: No remote repository specified.\n' };
+        }
+        if (subcmd === 'fetch') {
+          return { code: 0, stdout: `From ${remoteUrl.replace(/\.git$/, '')}\n * branch            ${gitState.branch} -> FETCH_HEAD\n`, stderr: '' };
+        }
+        try {
+          const result = await cloneGitHubRepository(remoteUrl, ctx.vfs, {
+            targetDir: repoRoot,
+            branch: gitState.branch,
+            fetchImpl: ctx.shell && ctx.shell.options ? ctx.shell.options.fetchImpl : undefined,
+            onFile: (absPath) => ctx.emitMutation('change', absPath)
+          });
+          gitState.headSnapshot = Object.assign({}, result.headSnapshot);
+          return {
+            code: 0,
+            stdout: `From ${remoteUrl.replace(/\.git$/, '')}\n * branch            ${result.branch} -> FETCH_HEAD\nAlready up to date.\n`,
+            stderr: ''
+          };
+        } catch (err) {
+          const msg = err && err.message ? err.message : String(err);
+          return { code: 1, stdout: '', stderr: (msg.endsWith('\n') ? msg : msg + '\n') };
+        }
+      }
+
+      if (subcmd === 'log') {
+        const oneline = args.includes('--oneline');
+        let limit = gitState.commits.length;
+        for (let i = 1; i < args.length; i++) {
+          if (args[i] === '-n' && args[i + 1]) limit = parseInt(args[++i], 10) || limit;
+          else if (/^-\d+$/.test(args[i])) limit = parseInt(args[i].slice(1), 10) || limit;
+        }
+        let stdout = '';
+        for (const c of gitState.commits.slice(0, limit)) {
+          if (oneline) {
+            stdout += `${c.hash} ${c.message}\n`;
+          } else {
+            stdout += `commit ${c.hash}\n`;
+            stdout += `Author: ${c.author}\n`;
+            stdout += `Date:   ${c.date}\n\n`;
+            stdout += `    ${c.message}\n\n`;
+          }
+        }
+        return { code: 0, stdout, stderr: '' };
       }
 
       return { code: 0, stdout: `git: '${subcmd}' executed\n`, stderr: '' };
@@ -4892,7 +5305,11 @@
 
       this.gitState = {
         branch: 'main',
-        branches: ['main'],
+        branches: new Set(['main']),
+        remoteUrl: null,
+        remotes: {},
+        repoRoot: this.cwd,
+        headSnapshot: snapshotWorktree(this.vfs, this.cwd),
         staged: new Set(),
         commits: [
           {
@@ -5363,7 +5780,9 @@
     COREUTILS,
     PosixPath,
     expandGlob,
-    createVirtualPortTable
+    createVirtualPortTable,
+    parseGitHubRepoUrl,
+    cloneGitHubRepository
   };
 });
 

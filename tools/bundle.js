@@ -29,16 +29,17 @@ const cssPath = path.join(SRC_DIR, 'code-lab.css');
 
 const BANNER = `/**
  * ============================================================
- * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.4.0 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars)
+ *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
  *   - VS Code Workbench: Hierarchical File Tree, Decoupled Tabs, Command Palette (Cmd+Shift+P), Quick Open (Cmd+P), Breadcrumbs, Context Menus & Solution Diff Viewer
- *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, on, off, use, exportWorkspace)
+ *   - Zero-Auth Public GitHub Repository Cloning (git clone, workbench.cloneRepo, <code-lab repo="...">)
+ *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, cloneRepo, on, off, use, exportWorkspace)
  * ============================================================
  */
 `;
@@ -86,6 +87,8 @@ ${workbenchCode}
       CodeLabShell: CodeLabShell,
       CodeLabTerminal: CodeLabTerminal,
       createPosixShell: CodeLabShell ? CodeLabShell.createPosixShell : null,
+      cloneGitHubRepository: CodeLabShell ? CodeLabShell.cloneGitHubRepository : null,
+      parseGitHubRepoUrl: CodeLabShell ? CodeLabShell.parseGitHubRepoUrl : null,
       createTerminal: CodeLabTerminal ? CodeLabTerminal.createTerminal : null,
       createPTYTerminalEngine: CodeLabTerminal ? CodeLabTerminal.createPTYTerminalEngine : null,
       PTYTerminalEngine: CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : null,
@@ -143,6 +146,8 @@ const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
 const createPosixShell = CodeLabShell ? CodeLabShell.createPosixShell : null;
+const cloneGitHubRepository = CodeLabShell ? CodeLabShell.cloneGitHubRepository : null;
+const parseGitHubRepoUrl = CodeLabShell ? CodeLabShell.parseGitHubRepoUrl : null;
 const createTerminal = CodeLabTerminal ? CodeLabTerminal.createTerminal : null;
 const createPTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.createPTYTerminalEngine : null;
 const PTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : null;
@@ -150,7 +155,7 @@ const PTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : 
 const mount = CodeLab ? CodeLab.mount : null;
 const create = CodeLab ? CodeLab.create : null;
 const unmount = CodeLab ? CodeLab.unmount : null;
-const version = CodeLab ? CodeLab.version : '1.3.2';
+const version = CodeLab ? CodeLab.version : '1.4.0';
 
 export {
   CodeLab,
@@ -168,6 +173,8 @@ export {
   unmount,
   version,
   createPosixShell,
+  cloneGitHubRepository,
+  parseGitHubRepoUrl,
   createTerminal,
   createPTYTerminalEngine,
   PTYTerminalEngine,
@@ -253,6 +260,8 @@ const COREUTILS = CodeLabShell.COREUTILS;
 const PosixPath = CodeLabShell.PosixPath;
 const expandGlob = CodeLabShell.expandGlob;
 const createVirtualPortTable = CodeLabShell.createVirtualPortTable;
+const parseGitHubRepoUrl = CodeLabShell.parseGitHubRepoUrl;
+const cloneGitHubRepository = CodeLabShell.cloneGitHubRepository;
 
 export {
   CodeLabShell,
@@ -263,7 +272,9 @@ export {
   COREUTILS,
   PosixPath,
   expandGlob,
-  createVirtualPortTable
+  createVirtualPortTable,
+  parseGitHubRepoUrl,
+  cloneGitHubRepository
 };
 export default CodeLabShell;
 `;
@@ -304,7 +315,7 @@ export default CodeLabTerminal;
 `;
 
 const DTS_CONTENT = `/**
- * TypeScript Definitions for @innovatorved/code-lab v1.3.2
+ * TypeScript Definitions for @innovatorved/code-lab v1.4.0
  */
 
 export interface CodeLabStep {
@@ -400,6 +411,17 @@ export interface CodeLabExecutionResult {
   replResult?: string;
 }
 
+export interface CodeLabCloneOptions {
+  intoRoot?: boolean;
+  targetDir?: string;
+  branch?: string;
+  depth?: number;
+  maxFiles?: number;
+  maxFileSize?: number;
+  concurrency?: number;
+  clearExisting?: boolean;
+}
+
 export interface CodeLabOptions {
   /** Unique identifier used for localStorage persistence */
   id?: string;
@@ -418,6 +440,11 @@ export interface CodeLabOptions {
   theme?: 'dark' | 'light' | 'auto';
   /** Set to false to disable localStorage persistence and use in-memory state only */
   persistState?: boolean;
+  /** Public GitHub repository URL or owner/repo shorthand to automatically clone on mount */
+  repo?: string;
+  githubRepo?: string;
+  /** Optional GitHub branch/tag/SHA to clone when repo is specified */
+  branch?: string;
   /** Reference/solution files map (filename -> source content) */
   files?: Record<string, string>;
   /** Explicit reference solution files map (JavaScript) */
@@ -514,6 +541,8 @@ export declare class CodeLabWorkbench {
   closeContextMenu(): void;
   showPackagesModal(): void;
   addNpmPackage(rawSpec: string): void;
+  showCloneRepoModal(): void;
+  cloneRepo(repoUrlOrSlug: string, options?: CodeLabCloneOptions): Promise<any>;
   showSolutionModal(): void;
   showDiffModal(targetFile?: string, compareTarget?: 'solution' | 'starter'): void;
   applyReferenceSolution(): void;
@@ -552,6 +581,7 @@ export declare class CodeLabElement extends HTMLElement {
   showDiffModal(targetFile?: string, compareTarget?: 'solution' | 'starter'): void;
   exportWorkspace(options?: { download?: boolean }): Record<string, any> | null;
   importWorkspace(snapshotOrJson: string | Record<string, any>): boolean;
+  cloneRepo(repoUrlOrSlug: string, options?: CodeLabCloneOptions): Promise<any>;
 }
 
 export interface CodeLabRuntimeAPI {
@@ -586,6 +616,16 @@ export interface CodeLabShellAPI {
   PosixPath: any;
   expandGlob(pattern: string, cwd: string, vfs: any): string[];
   createVirtualPortTable(): any;
+  parseGitHubRepoUrl(input: string): {
+    owner: string;
+    repo: string;
+    branch: string | null;
+    subpath: string;
+    fullName: string;
+    httpsUrl: string;
+    gitUrl: string;
+  } | null;
+  cloneGitHubRepository(repoInput: string, vfs: any, options?: CodeLabCloneOptions): Promise<any>;
 }
 
 export interface CodeLabTerminalAPI {
@@ -599,11 +639,14 @@ export interface CodeLabTerminalAPI {
 export declare const CodeLabShell: CodeLabShellAPI;
 export declare const CodeLabTerminal: CodeLabTerminalAPI;
 export declare const createPosixShell: CodeLabShellAPI['createPosixShell'];
+export declare const parseGitHubRepoUrl: CodeLabShellAPI['parseGitHubRepoUrl'];
+export declare const cloneGitHubRepository: CodeLabShellAPI['cloneGitHubRepository'];
 export declare const createTerminal: CodeLabTerminalAPI['createTerminal'];
 export declare const createPTYTerminalEngine: CodeLabTerminalAPI['createPTYTerminalEngine'];
 export declare const PTYTerminalEngine: any;
 
 export interface CodeLabStatic {
+  version: string;
   Workbench: typeof CodeLabWorkbench;
   CodeLabWorkbench: typeof CodeLabWorkbench;
   CodeLabElement: typeof CodeLabElement;
@@ -613,6 +656,8 @@ export interface CodeLabStatic {
   create(container: HTMLElement | string, options?: CodeLabOptions): CodeLabWorkbench | null;
   mount(container: HTMLElement | string, options?: CodeLabOptions): CodeLabWorkbench | null;
   unmount(container: HTMLElement | string): void;
+  cloneRepo(vfsOrWorkbench: any, repoInput: string, options?: CodeLabCloneOptions): Promise<any>;
+  parseGitHubRepoUrl: CodeLabShellAPI['parseGitHubRepoUrl'];
 }
 
 export declare const CodeLab: CodeLabStatic;
