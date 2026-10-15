@@ -7,8 +7,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const shellModule = require('./src/shell.js');
-const runtime = require('./src/runtime.js');
+const shellModule = require('../src/shell.js');
+const runtime = require('../src/runtime.js');
 
 const results = {
   total: 0,

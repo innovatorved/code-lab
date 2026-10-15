@@ -25,7 +25,7 @@ const fs = require('node:fs');
 const EventEmitter = require('node:events');
 
 // Load virtual runtime
-const runtime = require('./src/runtime.js');
+const runtime = require('../src/runtime.js');
 const {
   executeInVirtualRuntime,
   createWorkerRuntimeSource,
@@ -37,7 +37,7 @@ const {
 // Resolve shell module (created in Milestone 1 or exposed via runtime)
 let shellModule = null;
 try {
-  shellModule = require('./src/shell.js');
+  shellModule = require('../src/shell.js');
 } catch (err) {
   if (runtime.createPosixShell || runtime.Shell) {
     shellModule = runtime;

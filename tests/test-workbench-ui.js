@@ -576,7 +576,7 @@ const mockMonaco = {
 globalThis.monaco = mockMonaco;
 
 // Require CodeLabWorkbench
-const wbPath = path.resolve(__dirname, 'src/workbench.js');
+const wbPath = path.resolve(__dirname, '../src/workbench.js');
 const CodeLabModule = require(wbPath);
 const CodeLabWorkbench = CodeLabModule.CodeLabWorkbench || CodeLabModule.Workbench;
 
@@ -991,10 +991,10 @@ async function runTier1() {
 
   // ── F8: Geist Monochrome Styling & System Validation (R4) ───────────────────
   const resolveCssPath = () => [
-    path.resolve(__dirname, 'dist/code-lab.css'),
-    path.resolve(__dirname, '../../css/code-lab.css'),
-    path.resolve(__dirname, 'css/code-lab.css')
-  ].find(p => fs.existsSync(p)) || path.resolve(__dirname, 'dist/code-lab.css');
+    path.resolve(__dirname, '../dist/code-lab.css'),
+    path.resolve(__dirname, '../src/styles.css'),
+    path.resolve(__dirname, '../../../css/code-lab.css')
+  ].find(p => fs.existsSync(p)) || path.resolve(__dirname, '../dist/code-lab.css');
 
   await registerTest('tier1', 'T1.F8.1', 'R4: Stylesheet css/code-lab.css defines Geist monochrome dark tokens', () => {
     const cssPath = resolveCssPath();

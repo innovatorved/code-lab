@@ -11,8 +11,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createPosixShell, COREUTILS } = require('./src/shell.js');
-const { createVirtualFs } = require('./src/runtime.js');
+const { createPosixShell, COREUTILS } = require('../src/shell.js');
+const { createVirtualFs } = require('../src/runtime.js');
 
 const results = {
   total: 0,

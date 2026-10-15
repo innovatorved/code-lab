@@ -33,6 +33,8 @@
     root.tokenizeShell = exports.tokenizeShell;
     root.COREUTILS = exports.COREUTILS;
     root.createVirtualPortTable = exports.createVirtualPortTable;
+    root.parseGitHubRepoUrl = exports.parseGitHubRepoUrl;
+    root.cloneGitHubRepository = exports.cloneGitHubRepository;
   }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = exports;
@@ -1852,6 +1854,360 @@
       else if (e.type === 'removed') diffOutput += `-${e.line}\n`;
     }
     return diffOutput;
+  }
+
+  // =========================================================================
+  // 6b. GIT & PUBLIC GITHUB CLONE ENGINE (Zero-Auth CORS-Friendly API + CDN)
+  // =========================================================================
+  function parseGitHubRepoUrl(input) {
+    if (!input || typeof input !== 'string') return null;
+    let raw = input.trim();
+    if (!raw) return null;
+
+    let owner = null;
+    let repo = null;
+    let branch = null;
+    let subpath = null;
+
+    // 1. SSH format: git@github.com:owner/repo(.git)
+    const sshMatch = raw.match(/^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/);
+    if (sshMatch) {
+      owner = sshMatch[1];
+      repo = sshMatch[2];
+      return {
+        owner,
+        repo,
+        branch: null,
+        subpath: null,
+        url: `https://github.com/${owner}/${repo}.git`
+      };
+    }
+
+    // 2. HTTPS / HTTP / github.com format
+    const httpMatch = raw.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:\/(tree|blob)\/([^/]+)(?:\/(.+?))?)?\/?$/);
+    if (httpMatch) {
+      owner = httpMatch[1];
+      repo = httpMatch[2];
+      branch = httpMatch[4] || null;
+      subpath = httpMatch[5] ? httpMatch[5].replace(/^\/+|\/+$/g, '') : null;
+      return {
+        owner,
+        repo,
+        branch,
+        subpath,
+        url: `https://github.com/${owner}/${repo}.git`
+      };
+    }
+
+    // 3. Shorthand format: owner/repo or owner/repo@branch (where owner has no dots)
+    const shortMatch = raw.match(/^([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:@([A-Za-z0-9_./-]+))?$/);
+    if (shortMatch && !shortMatch[1].startsWith('-')) {
+      owner = shortMatch[1];
+      repo = shortMatch[2];
+      branch = shortMatch[3] || null;
+      return {
+        owner,
+        repo,
+        branch,
+        subpath: null,
+        url: `https://github.com/${owner}/${repo}.git`
+      };
+    }
+
+    return null;
+  }
+
+  function snapshotWorktree(vfs, rootDir) {
+    const snap = {};
+    if (!vfs || !rootDir || !vfs.existsSync(rootDir)) return snap;
+    const base = PosixPath.normalize(rootDir);
+
+    function walk(currDir) {
+      let entries = [];
+      try {
+        entries = vfs.readdirSync(currDir);
+      } catch (_) {
+        return;
+      }
+      for (const name of entries) {
+        if (name === '.git' || name === 'node_modules') continue;
+        const full = PosixPath.join(currDir, name);
+        let st;
+        try {
+          st = vfs.statSync(full);
+        } catch (_) {
+          continue;
+        }
+        if (st.isDirectory()) {
+          walk(full);
+        } else {
+          const rel = full.startsWith(base === '/' ? '/' : base + '/')
+            ? full.slice(base === '/' ? 1 : base.length + 1)
+            : name;
+          try {
+            snap[rel] = String(vfs.readFileSync(full, 'utf8'));
+          } catch (_) {}
+        }
+      }
+    }
+
+    walk(base);
+    return snap;
+  }
+
+  const BINARY_OR_HEAVY_EXT_RE = /\.(png|jpg|jpeg|gif|webp|ico|bmp|tiff|woff|woff2|ttf|eot|otf|mp3|mp4|wav|ogg|webm|avi|mov|pdf|zip|tar|gz|tgz|bz2|7z|rar|exe|dll|so|dylib|wasm|pyc|pyo|class|jar|war|ear|bin|dat|iso|dmg|pkg|deb|rpm|o|a|lib|DS_Store)$/i;
+
+  function scoreRepoFilePriority(relPath) {
+    const lower = relPath.toLowerCase();
+    const base = PosixPath.basename(lower);
+    const depth = relPath.split('/').length;
+    if (base === 'readme.md' || base === 'package.json' || base === 'cargo.toml' || base === 'go.mod' || base === 'pyproject.toml') return 0;
+    if (depth === 1 && /\.(js|ts|jsx|tsx|mjs|cjs|py|go|rs|json|md|yml|yaml|toml|sh)$/.test(lower)) return 1;
+    if (lower.startsWith('src/') || lower.startsWith('lib/') || lower.startsWith('app/')) return 2 + depth * 0.1;
+    if (lower.startsWith('test/') || lower.startsWith('tests/') || lower.startsWith('examples/')) return 5 + depth * 0.1;
+    return 10 + depth * 0.1;
+  }
+
+  async function cloneGitHubRepository(repoInput, vfs, options = {}) {
+    const parsed = parseGitHubRepoUrl(repoInput);
+    if (!parsed) {
+      throw new Error(`fatal: repository '${repoInput}' does not exist or is not a valid GitHub repository URL`);
+    }
+    if (!vfs) {
+      throw new Error('fatal: virtual filesystem (vfs) is required to clone repository');
+    }
+
+    const fetchFn = options.fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+    if (!fetchFn) {
+      throw new Error('fatal: global fetch API is unavailable in this environment');
+    }
+
+    const targetDir = PosixPath.normalize(options.targetDir || '/workspace');
+    const maxFiles = options.maxFiles || 250;
+    const maxFileSize = options.maxFileSize || 512 * 1024;
+    const requestedBranch = options.branch || parsed.branch || null;
+    const { owner, repo } = parsed;
+
+    let resolvedBranch = requestedBranch;
+    let rawTreeEntries = null;
+    let repoNotFound = false;
+
+    // Strategy A: GitHub REST API (with automatic fallback if rate-limited)
+    try {
+      if (!resolvedBranch) {
+        const metaRes = await fetchFn(`https://api.github.com/repos/${owner}/${repo}`, {
+          headers: { Accept: 'application/vnd.github.v3+json' }
+        });
+        if (metaRes.status === 404) {
+          repoNotFound = true;
+        } else if (metaRes.ok) {
+          const metaJson = await metaRes.json();
+          if (metaJson && metaJson.default_branch) {
+            resolvedBranch = metaJson.default_branch;
+          }
+        }
+      }
+
+      if (!repoNotFound) {
+        const branchCandidates = requestedBranch
+          ? [requestedBranch]
+          : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
+
+        for (const cand of branchCandidates) {
+          const treeRes = await fetchFn(
+            `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(cand)}?recursive=1`,
+            { headers: { Accept: 'application/vnd.github.v3+json' } }
+          );
+          if (treeRes.ok) {
+            const treeJson = await treeRes.json();
+            if (treeJson && Array.isArray(treeJson.tree)) {
+              resolvedBranch = cand;
+              rawTreeEntries = treeJson.tree
+                .filter((item) => item && item.type === 'blob' && item.path)
+                .map((item) => ({ path: item.path.replace(/^\/+/, ''), size: item.size || 0 }));
+              break;
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Network or rate limit error on api.github.com; proceed to Strategy B
+    }
+
+    // Strategy B: jsDelivr Data API (Zero rate limits, fast global edge cache)
+    if (!rawTreeEntries && !repoNotFound) {
+      try {
+        const branchCandidates = requestedBranch
+          ? [requestedBranch]
+          : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
+
+        for (const cand of branchCandidates) {
+          const flatRes = await fetchFn(
+            `https://data.jsdelivr.com/v1/package/gh/${owner}/${repo}@${encodeURIComponent(cand)}/flat`
+          );
+          if (flatRes && flatRes.ok) {
+            const flatJson = await flatRes.json();
+            if (flatJson && Array.isArray(flatJson.files) && flatJson.files.length > 0) {
+              resolvedBranch = cand;
+              rawTreeEntries = flatJson.files
+                .filter((f) => f && f.name)
+                .map((f) => ({ path: f.name.replace(/^\/+/, ''), size: f.size || 0 }));
+              break;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (repoNotFound || !rawTreeEntries) {
+      throw new Error(`fatal: repository '${parsed.url}' not found or could not be fetched`);
+    }
+
+    // Filter subpath if specified (e.g. /tree/main/examples)
+    const subPrefix = parsed.subpath ? parsed.subpath.replace(/^\/+|\/+$/g, '') + '/' : null;
+    const filtered = [];
+    for (const item of rawTreeEntries) {
+      let destPath = item.path;
+      if (subPrefix) {
+        if (item.path === parsed.subpath) {
+          destPath = PosixPath.basename(item.path);
+        } else if (item.path.startsWith(subPrefix)) {
+          destPath = item.path.slice(subPrefix.length);
+        } else {
+          continue;
+        }
+      }
+      if (!destPath || destPath.startsWith('.git/') || destPath.includes('/node_modules/') || destPath.startsWith('node_modules/')) {
+        continue;
+      }
+      if (BINARY_OR_HEAVY_EXT_RE.test(destPath)) {
+        continue;
+      }
+      if (item.size && item.size > maxFileSize) {
+        continue;
+      }
+      filtered.push({
+        repoPath: item.path,
+        destPath,
+        size: item.size || 0,
+        priority: scoreRepoFilePriority(destPath)
+      });
+    }
+
+    filtered.sort((a, b) => a.priority - b.priority || a.destPath.localeCompare(b.destPath));
+    const selectedFiles = filtered.slice(0, maxFiles);
+
+    if (!vfs.existsSync(targetDir)) {
+      vfs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const headSnapshot = {};
+    let filesWritten = 0;
+    let totalBytes = 0;
+    const BATCH_SIZE = 12;
+
+    for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
+      const batch = selectedFiles.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (entry) => {
+          const encodedPath = entry.repoPath.split('/').map(encodeURIComponent).join('/');
+          const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
+          const cdnUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
+
+          let text = null;
+          try {
+            const r1 = await fetchFn(rawUrl);
+            if (r1 && r1.ok) {
+              text = await r1.text();
+            }
+          } catch (_) {}
+
+          if (text === null) {
+            try {
+              const r2 = await fetchFn(cdnUrl);
+              if (r2 && r2.ok) {
+                text = await r2.text();
+              }
+            } catch (_) {}
+          }
+
+          if (text !== null && text.length <= maxFileSize) {
+            const absPath = PosixPath.join(targetDir, entry.destPath);
+            const parentDir = PosixPath.dirname(absPath);
+            if (!vfs.existsSync(parentDir)) {
+              vfs.mkdirSync(parentDir, { recursive: true });
+            }
+            vfs.writeFileSync(absPath, text);
+            headSnapshot[entry.destPath] = text;
+            filesWritten++;
+            totalBytes += text.length;
+            if (typeof options.onFile === 'function') {
+              options.onFile(absPath, text, entry.destPath);
+            }
+          }
+        })
+      );
+    }
+
+    // Write .git metadata inside targetDir
+    const gitDir = PosixPath.join(targetDir, '.git');
+    if (!vfs.existsSync(gitDir)) {
+      vfs.mkdirSync(gitDir, { recursive: true });
+    }
+    vfs.writeFileSync(PosixPath.join(gitDir, 'HEAD'), `ref: refs/heads/${resolvedBranch}\n`);
+    vfs.writeFileSync(
+      PosixPath.join(gitDir, 'config'),
+      `[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n[remote "origin"]\n\turl = ${parsed.url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[branch "${resolvedBranch}"]\n\tremote = origin\n\tmerge = refs/heads/${resolvedBranch}\n`
+    );
+
+    // Fetch recent commits (best-effort)
+    let commits = [];
+    try {
+      const commitsRes = await fetchFn(
+        `https://api.github.com/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(resolvedBranch)}&per_page=10`,
+        { headers: { Accept: 'application/vnd.github.v3+json' } }
+      );
+      if (commitsRes && commitsRes.ok) {
+        const commitsJson = await commitsRes.json();
+        if (Array.isArray(commitsJson) && commitsJson.length > 0) {
+          commits = commitsJson.map((c) => ({
+            hash: String(c.sha || 'a1b2c3d').slice(0, 7),
+            author:
+              c.commit && c.commit.author
+                ? `${c.commit.author.name || owner} <${c.commit.author.email || `${owner}@users.noreply.github.com`}>`
+                : `${owner} <${owner}@users.noreply.github.com>`,
+            date:
+              c.commit && c.commit.author && c.commit.author.date
+                ? new Date(c.commit.author.date).toUTCString()
+                : new Date().toUTCString(),
+            message: c.commit && c.commit.message ? String(c.commit.message).split('\n')[0] : 'Commit'
+          }));
+        }
+      }
+    } catch (_) {}
+
+    if (commits.length === 0) {
+      commits = [
+        {
+          hash: 'a1b2c3d',
+          author: `${owner} <${owner}@users.noreply.github.com>`,
+          date: new Date().toUTCString(),
+          message: `Clone ${owner}/${repo} (${resolvedBranch})`
+        }
+      ];
+    }
+
+    return {
+      owner,
+      repo,
+      branch: resolvedBranch,
+      url: parsed.url,
+      targetDir,
+      filesWritten,
+      totalBytes,
+      commits,
+      headSnapshot
+    };
   }
 
   // =========================================================================
