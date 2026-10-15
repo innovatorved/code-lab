@@ -1,10 +1,27 @@
 # @innovatorved/code-lab
 
-> **Note:** This project is in active early development. APIs and sandbox internals may change between releases.
+> **Note:** This project is in active development. APIs and sandbox internals are stable for production use.
 
-A small browser IDE and Web Worker runtime for running multi-file JavaScript and TypeScript labs without a backend server.
+Browser-native code IDE workbench, step-by-step guided challenge engine, POSIX shell with 40+ UNIX coreutils, and Web Worker execution runtime for **Node.js** and **Bun** (JavaScript & TypeScript) with zero backend server dependencies.
 
-We built this to run the 15 from-scratch implementations in [System Design In Depth](https://system-design-in-depth.vedgupta.in), where labs need Node built-ins (`node:fs`, `node:http`, `node:net`, `node:crypto`) and unit tests running directly in the browser.
+Built to run the from-scratch distributed system implementations in [System Design In Depth](https://system-design-in-depth.vedgupta.in).
+
+---
+
+## Features
+
+- **Interactive IDE Workbench**: Multi-file Monaco editor, collapsible hierarchical file tree with drag-and-drop, decoupled editor tabs, Command Palette (`Cmd+Shift+P`), Quick Open (`Cmd+P`), breadcrumbs, and line-by-line solution diff viewer.
+- **Interactive PTY Terminal**: Inline prompt (`codelab:/workspace$ `), cursor navigation, history (`Up`/`Down`), `Tab` auto-completion, `Ctrl+C` interrupt, `Ctrl+L` clear, and 256 ANSI color codes.
+- **POSIX Shell & 40+ Coreutils**: Full pure-JS AST interpreter supporting pipelines (`|`), redirects (`>`, `>>`, `2>&1`), logical operators (`&&`, `||`, `;`), background jobs (`&`), globs (`*.js`), environment variables, and 40+ UNIX commands (`ls`, `cat`, `grep`, `find`, `sed`, `awk`, `cut`, `sort`, `uniq`, `diff`, `curl`, `tree`, etc.).
+- **Dual Runtime Engines (Node.js & Bun)**:
+  - **Node.js**: 24 built-in modules (`fs`, `fs/promises`, `http`, `net`, `stream`, `events`, `crypto`, `buffer`, `util`, `url`, `timers`, `node:test`, `assert`).
+  - **Bun**: Native `.ts` transpilation, `Bun.serve()`, `Bun.file()`, `Bun.write()`, `Bun.sleep()`, `Bun.hash()`, `bun:test`, and in-memory `bun:sqlite`.
+- **Persistent HTTP/TCP Servers & Port Preview**: Start background servers (`node server.js &` or `bun run server.ts &`), query them with `curl http://localhost:3000` or global `fetch()`, and preview live responses in the Ports / HTTP Preview tab.
+- **NPM & Bun Package Management**: `npm i <pkg>` and `bun add <pkg>` resolve dependencies from npm / esm.sh into virtual `/workspace/node_modules/<pkg>` and update `package.json`.
+- **Guided Step-by-Step Challenges**: TutorialKit / Codedamn-style curriculum with targeted instructions, hints, automated test verification per step, and reference solutions.
+- **Headless Runtime**: Programmatic execution engine (`@innovatorved/code-lab/runtime`) for grading, testing, or automated evaluation with zero UI.
+
+---
 
 ## Install
 
@@ -12,24 +29,26 @@ We built this to run the 15 from-scratch implementations in [System Design In De
 npm install @innovatorved/code-lab
 ```
 
-Or load from a static script tag:
+Or load from a static script tag via CDN:
 
 ```html
-<link rel="stylesheet" href="https://unpkg.com/@innovatorved/code-lab/dist/code-lab.css" />
-<script src="https://unpkg.com/@innovatorved/code-lab/dist/code-lab.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.css" />
+<script src="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.js"></script>
 ```
+
+---
 
 ## Usage
 
-### 1. JavaScript API
+### 1. Mount Workbench in DOM
 
 ```js
-import { CodeLab } from '@innovatorved/code-lab';
+import CodeLab from '@innovatorved/code-lab';
 import '@innovatorved/code-lab/code-lab.css';
 
 const lab = CodeLab.mount('#editor', {
   id: 'rate-limiter',
-  title: 'Token Bucket',
+  title: 'Token Bucket Rate Limiter',
   mode: 'guided',
   language: 'js',
   entry: 'demo.js',
@@ -59,10 +78,10 @@ const lab = CodeLab.mount('#editor', {
   <script type="application/json">
     {
       "id": "demo-lab",
-      "title": "Demo",
-      "entry": "demo.ts",
+      "title": "Bun HTTP Demo",
+      "entry": "server.ts",
       "files": {
-        "demo.ts": "const msg: string = 'hello';\nconsole.log(msg);\n"
+        "server.ts": "Bun.serve({ port: 3000, fetch: () => Response.json({ ok: true }) }); console.log('Listening on :3000');"
       }
     }
   </script>
@@ -70,8 +89,6 @@ const lab = CodeLab.mount('#editor', {
 ```
 
 ### 3. Headless Runtime (No UI)
-
-Run untrusted JS/TS files and `node:test` suites inside the virtual runtime without mounting the editor:
 
 ```js
 import { executeInWorker } from '@innovatorved/code-lab/runtime';
@@ -88,50 +105,39 @@ const res = await executeInWorker({
 console.log(res.ok, res.testResults);
 ```
 
-## What Works in the Sandbox
+---
 
-Code runs inside a dedicated Web Worker with an in-memory virtual filesystem (`/workspace` and `/tmp`) and loopback network stack:
+## Documentation & Wiki
 
-- **Shimmed Node modules:** `fs`, `fs/promises`, `path`, `os`, `buffer`, `crypto` (SHA-256, MD5, HMAC, UUID), `zlib` (CRC-32), `events`, `stream`, `util`, `url`, `querystring`, `http` (in-memory loopback server/client), `net` (in-memory TCP sockets), `timers`, `perf_hooks`, `assert`, `node:test`, `child_process` (`execSync` for `node <script>`).
-- **TypeScript:** Strips types and compiles TS `enum`, parameter properties, and ES modules to CommonJS in the worker.
-- **Strict CSP fallback:** Works on sites without `'unsafe-eval'` by falling back to `Blob` + `importScripts` inside the worker.
-- **Built-in terminal:** Supports basic shell commands (`ls`, `cd`, `pwd`, `cat`, `head`, `tail`, `wc`, `mkdir`, `touch`, `rm`, `cp`, `mv`, `clear`, `node <file>`, `npm test`) alongside JS/TS expression evaluation.
+Detailed guides and API references are available in the [`wiki/`](./wiki/Home.md):
 
-## Key Options (`CodeLab.mount(container, options)`)
+- **[Quick Start Guide](./wiki/Quick-Start.md)**: Setup and quick examples.
+- **[Integration Guide](./wiki/Integration-Guide.md)**: Embedding in React, Next.js, Vite, and plain HTML.
+- **[Workbench Configuration](./wiki/Workbench-Configuration.md)**: Complete reference of options, methods, events, and keyboard shortcuts.
+- **[POSIX Shell & Coreutils Reference](./wiki/POSIX-Shell-and-Coreutils.md)**: Pipelines, redirects, background jobs, and 40+ UNIX commands.
+- **[Runtime APIs (Node & Bun)](./wiki/Runtime-APIs.md)**: 24 Node.js built-ins, Bun APIs, `bun:test`, `bun:sqlite`, and package installation.
+- **[HTTP Servers & Networking](./wiki/HTTP-Servers-and-Networking.md)**: Virtual port table, background servers, `curl`, and live Port Preview.
+- **[Headless Runtime Reference](./wiki/Headless-Runtime.md)**: Headless execution for automated graders, test runners, and evaluation pipelines.
+- **[Authoring Guided Labs](./wiki/Authoring-Guided-Labs.md)**: Schema and invariants for creating interactive coding challenges.
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `string` | `'custom-lab'` | Key used to save edits in `localStorage`. |
-| `title` | `string` | `id` | Header title. |
-| `mode` | `'guided' \| 'sandbox'` | `'sandbox'` | `'guided'` shows step instructions; `'sandbox'` shows full files. |
-| `language` | `'js' \| 'ts'` | `'js'` | Initial language tab. |
-| `files` | `Record<string, string>` | `{}` | Reference / solution files. |
-| `starterFiles` | `Record<string, string>` | `{}` | Initial files loaded in `'guided'` mode. |
-| `steps` | `Array<Step>` | `[]` | Step definitions (`{ id, title, instructions, targetFile, targetSymbol, hint, testNames }`). |
-| `entry` | `string` | `'demo.js'` | Entry file for **Run**. |
-| `testEntry` | `string` | `'test.js'` | Entry file for **Verify / Run Tests**. |
-| `onClose` | `() => void` | `null` | Shows the Close/Back button and runs when clicked. |
+---
 
-## Useful Instance Methods
-
-- `lab.runDemo()` / `lab.runTests()` / `lab.stopExecution()`
-- `lab.getFiles()` / `lab.setFiles(files)` / `lab.getFile(path)` / `lab.setFile(path, content)`
-- `lab.openFile(path)` / `lab.closeTab(path)` / `lab.resetLab()`
-- `lab.toggleFullscreen()` / `lab.destroy()`
-
-## Local Development
+## Local Development & Testing
 
 ```bash
-# Rebuild dist/ bundles and system-design/js/code-lab.js
+# Rebuild all distribution bundles and site assets
 node tools/bundle.js
 
-# Run tests
-node test-all-builds.js
-node test-runtime-advanced.js
-node test-workbench-ui.js
+# Run the complete test suite
+node test-all-builds.js             # 15/15 builds & 226 unit tests
+node test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
+node test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports
+node test-coreutils-adversarial.js  # Adversarial stress tests on 40+ coreutils
+node test-stress-shell.js           # Deep pipelines, redirections, large stdout
+node test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for details on how the worker runtime and VFS work.
+---
 
 ## License
 

@@ -6,6 +6,36 @@
 (function (root) {
   'use strict';
 
+  let terminalModule = null;
+  let shellModule = null;
+  let runtimeModule = null;
+  if (typeof require === 'function') {
+    try { terminalModule = require('./terminal.js'); } catch (_) {}
+    try { shellModule = require('./shell.js'); } catch (_) {}
+    try { runtimeModule = require('./runtime.js'); } catch (_) {}
+  }
+  const CodeLabTerminal = (root && root.CodeLabTerminal) || terminalModule || {};
+  const CodeLabShell = (root && root.CodeLabShell) || shellModule || {};
+  const createPTYTerminalEngine = CodeLabTerminal.PTYTerminalEngine || (root && root.PTYTerminalEngine);
+  const ansiToHtml = CodeLabTerminal.ansiToHtml || (root && root.ansiToHtml);
+  const createPosixShell = CodeLabShell.createPosixShell || (root && root.createPosixShell);
+  const createVirtualPortTable = (root && root.createVirtualPortTable) ||
+    (root && root.CodeLabRuntime && root.CodeLabRuntime.createVirtualPortTable) ||
+    (shellModule && shellModule.createVirtualPortTable) ||
+    (runtimeModule && runtimeModule.createVirtualPortTable) || null;
+
+  function findCommonPrefix(arr) {
+    if (!arr || arr.length === 0) return '';
+    let prefix = arr[0];
+    for (let i = 1; i < arr.length; i++) {
+      while (!arr[i].startsWith(prefix)) {
+        prefix = prefix.slice(0, -1);
+        if (!prefix) return '';
+      }
+    }
+    return prefix;
+  }
+
   const MONACO_BASE = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs';
   const STORAGE_PREFIX = 'sd-codelab-v1:';
 
@@ -556,7 +586,11 @@ declare module 'buffer' { export { Buffer }; }
     search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
     diff: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><path d="M8 8H4v8h4"/><path d="M16 8h4v8h-4"/></svg>',
     command: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>',
-    download: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+    download: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+    refresh: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+    send: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    activity: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+    radio: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>'
   };
 
   let _workbenchInstanceCounter = 0;
@@ -698,6 +732,42 @@ declare module 'buffer' { export { Buffer }; }
       this.lastFsSnapshot = [];
       this.lastHttpTrace = [];
 
+      // Milestone 4: Ports, HTTP Client, Network Trace, PTY state
+      this.portTable = options.portTable || (typeof createVirtualPortTable === 'function' ? createVirtualPortTable() : null);
+      this.inRepl = false;
+      this._ptyInputBeforeCursor = '';
+      this._ptyInputAfterCursor = '';
+
+      this.httpClientState = {
+        method: 'GET',
+        url: 'http://localhost:3000/',
+        headers: 'Content-Type: application/json',
+        body: '',
+        activeResponseTab: 'preview',
+        lastResponse: null,
+        loading: false
+      };
+
+      this.networkFilter = {
+        search: '',
+        method: 'ALL',
+        status: 'ALL',
+        selectedTraceId: null
+      };
+
+      this.ptyEngine = null;
+      if (typeof createPTYTerminalEngine === 'function') {
+        try {
+          this.ptyEngine = new createPTYTerminalEngine({
+            cwd: this.cwd,
+            onCommand: (cmd) => this._handleReplCommand(cmd)
+          });
+        } catch (_) {}
+      }
+
+      this.shell = null;
+      this._initShell();
+
       // Editor instances
       this.monaco = null;
       this.editor = null;
@@ -711,6 +781,26 @@ declare module 'buffer' { export { Buffer }; }
         for (const plugin of options.plugins) {
           this.use(plugin);
         }
+      }
+    }
+
+    _initShell() {
+      if (typeof createPosixShell === 'function') {
+        try {
+          this.shell = createPosixShell({
+            cwd: this.cwd,
+            files: this.files,
+            portTable: this.portTable,
+            env: {
+              TERM: 'xterm-256color',
+              COLORTERM: 'truecolor',
+              USER: 'codelab',
+              HOME: '/home/codelab',
+              NODE_ENV: 'development',
+              PATH: '/usr/local/bin:/usr/bin:/bin:/workspace/node_modules/.bin'
+            }
+          });
+        } catch (_) {}
       }
     }
 
@@ -1103,6 +1193,16 @@ declare module 'buffer' { export { Buffer }; }
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal">
                       ${CL_ICONS.terminal}
                       <span>Terminal &amp; REPL</span>
+                    </button>
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports">
+                      ${CL_ICONS.radio}
+                      <span>Ports</span>
+                      <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
+                    </button>
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network">
+                      ${CL_ICONS.activity}
+                      <span>Network</span>
+                      <span class="codelab-drawer__pill" id="cl-network-pill">${(this.lastHttpTrace || []).length} reqs</span>
                     </button>
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector">
                       ${CL_ICONS.database}
@@ -1981,6 +2081,8 @@ declare module 'buffer' { export { Buffer }; }
       const bodyEl = this.container.querySelector('#cl-drawer-body');
       const testPill = this.container.querySelector('#cl-test-pill');
       const vfsPill = this.container.querySelector('#cl-vfs-pill');
+      const portsPill = this.container.querySelector('#cl-ports-pill');
+      const networkPill = this.container.querySelector('#cl-network-pill');
       if (!bodyEl) return;
 
       // Update drawer tab active state
@@ -2001,6 +2103,16 @@ declare module 'buffer' { export { Buffer }; }
           testPill.textContent = `${passed}/${total} Passed`;
           testPill.className = `codelab-drawer__pill ${passed === total ? 'pass' : 'fail'}`;
         }
+      }
+      if (portsPill) {
+        const portCount = (this.portTable && typeof this.portTable.listServers === 'function')
+          ? this.portTable.listServers().length
+          : 0;
+        portsPill.textContent = `${portCount} open`;
+      }
+      if (networkPill) {
+        const netCount = (this.lastHttpTrace || []).length;
+        networkPill.textContent = `${netCount} reqs`;
       }
       if (vfsPill) {
         const diskCount = this.lastFsSnapshot.length;
@@ -2051,11 +2163,14 @@ declare module 'buffer' { export { Buffer }; }
 
       if (this.drawerTab === 'terminal') {
         const logsHtml = this.terminalLogs
-          .map(item => `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${escapeHtml(item.text)}</div>`)
+          .map(item => {
+            const html = ansiToHtml ? ansiToHtml(item.text || '') : escapeHtml(item.text || '');
+            return `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${html}</div>`;
+          })
           .join('');
         const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
-        const promptLabel = cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`;
-        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><form class="codelab-repl" id="cl-repl-form"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
+        const promptLabel = this.inRepl ? '> ' : (cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`);
+        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface" tabindex="0"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><div class="codelab-pty__active-line" id="cl-pty-active-line"><span class="codelab-pty__prompt">${escapeHtml(promptLabel)} </span><span class="codelab-pty__before">${escapeHtml(this._ptyInputBeforeCursor || '')}</span><span class="codelab-pty__cursor blink">&#x2588;</span><span class="codelab-pty__after">${escapeHtml(this._ptyInputAfterCursor || '')}</span></div><form class="codelab-repl" id="cl-repl-form" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
         bodyEl.scrollTop = bodyEl.scrollHeight;
         const termSurface = bodyEl.querySelector('#cl-terminal-surface');
         const input = bodyEl.querySelector('#cl-repl-input');
@@ -2063,33 +2178,101 @@ declare module 'buffer' { export { Buffer }; }
           termSurface.addEventListener('click', e => {
             if (e.target === input) return;
             const sel = typeof window !== 'undefined' && window.getSelection ? String(window.getSelection()) : '';
-            if (!sel) input.focus();
+            if (!sel && typeof input.focus === 'function') input.focus();
           });
         }
         if (input) {
+          input.value = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
+          input.addEventListener('input', () => {
+            const val = input.value || '';
+            const pos = (input.selectionStart !== undefined && input.selectionStart !== null) ? input.selectionStart : val.length;
+            this._ptyInputBeforeCursor = val.slice(0, pos);
+            this._ptyInputAfterCursor = val.slice(pos);
+            this._updatePtyActiveLine();
+          });
           input.addEventListener('keydown', e => {
-            if (e.key === 'ArrowUp') {
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              this._handlePtyTabCompletion(input);
+            } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               if (!this.replHistory.length) return;
               if (this.replHistoryIdx < 0) this.replHistoryIdx = this.replHistory.length - 1;
               else if (this.replHistoryIdx > 0) this.replHistoryIdx--;
-              input.value = this.replHistory[this.replHistoryIdx] || '';
+              const histVal = this.replHistory[this.replHistoryIdx] || '';
+              input.value = histVal;
+              this._ptyInputBeforeCursor = histVal;
+              this._ptyInputAfterCursor = '';
+              this._updatePtyActiveLine();
             } else if (e.key === 'ArrowDown') {
               e.preventDefault();
               if (!this.replHistory.length || this.replHistoryIdx < 0) return;
               if (this.replHistoryIdx < this.replHistory.length - 1) {
                 this.replHistoryIdx++;
-                input.value = this.replHistory[this.replHistoryIdx] || '';
+                const histVal = this.replHistory[this.replHistoryIdx] || '';
+                input.value = histVal;
+                this._ptyInputBeforeCursor = histVal;
+                this._ptyInputAfterCursor = '';
+                this._updatePtyActiveLine();
               } else {
                 this.replHistoryIdx = -1;
                 input.value = '';
+                this._ptyInputBeforeCursor = '';
+                this._ptyInputAfterCursor = '';
+                this._updatePtyActiveLine();
+              }
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+              e.preventDefault();
+              if (this.inRepl) {
+                this.inRepl = false;
+                this.terminalLogs.push({ type: 'stdout', text: '^C\nExiting REPL...' });
+              } else {
+                this.terminalLogs.push({ type: 'stdout', text: `${promptLabel} ^C` });
+              }
+              input.value = '';
+              this._ptyInputBeforeCursor = '';
+              this._ptyInputAfterCursor = '';
+              this._renderDrawerBody();
+              const nextInput = this.container.querySelector('#cl-repl-input');
+              if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+              e.preventDefault();
+              if (this.inRepl) {
+                this.inRepl = false;
+                this.terminalLogs.push({ type: 'stdout', text: 'Exiting REPL...' });
+                this._renderDrawerBody();
+                const nextInput = this.container.querySelector('#cl-repl-input');
+                if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
               }
             } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
               e.preventDefault();
               this.terminalLogs = [];
               this._renderDrawerBody();
               const nextInput = this.container.querySelector('#cl-repl-input');
-              if (nextInput) nextInput.focus();
+              if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
+            } else if (e.ctrlKey && e.key.toLowerCase() === 'u') {
+              e.preventDefault();
+              this._ptyInputBeforeCursor = '';
+              input.value = this._ptyInputAfterCursor || '';
+              this._updatePtyActiveLine();
+            } else if (e.ctrlKey && e.key.toLowerCase() === 'k') {
+              e.preventDefault();
+              this._ptyInputAfterCursor = '';
+              input.value = this._ptyInputBeforeCursor || '';
+              this._updatePtyActiveLine();
+            } else if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+              e.preventDefault();
+              this._ptyInputAfterCursor = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
+              this._ptyInputBeforeCursor = '';
+              if (input && typeof input.setSelectionRange === 'function') input.setSelectionRange(0, 0);
+              this._updatePtyActiveLine();
+            } else if (e.ctrlKey && e.key.toLowerCase() === 'e') {
+              e.preventDefault();
+              this._ptyInputBeforeCursor = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
+              this._ptyInputAfterCursor = '';
+              const len = this._ptyInputBeforeCursor.length;
+              if (input && typeof input.setSelectionRange === 'function') input.setSelectionRange(len, len);
+              this._updatePtyActiveLine();
             }
           });
         }
@@ -2097,15 +2280,30 @@ declare module 'buffer' { export { Buffer }; }
         if (replForm) {
           replForm.addEventListener('submit', e => {
             e.preventDefault();
-            if (!input || !input.value.trim()) return;
-            const cmd = input.value.trim();
-            input.value = '';
+            const rawCmd = (input && input.value !== undefined ? input.value : '') ||
+              ((this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || ''));
+            const cmd = rawCmd.trim();
+            if (!cmd) return;
+            if (input) input.value = '';
+            this._ptyInputBeforeCursor = '';
+            this._ptyInputAfterCursor = '';
+            this._updatePtyActiveLine();
             this._handleReplCommand(cmd).then(() => {
               const nextInput = this.container.querySelector('#cl-repl-input');
-              if (nextInput) nextInput.focus();
+              if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
             });
           });
         }
+        return;
+      }
+
+      if (this.drawerTab === 'ports') {
+        this._renderPortsPanel(bodyEl);
+        return;
+      }
+
+      if (this.drawerTab === 'network') {
+        this._renderNetworkPanel(bodyEl);
         return;
       }
 
@@ -2150,6 +2348,674 @@ declare module 'buffer' { export { Buffer }; }
             </div>
           </div>
         `;
+      }
+    }
+
+    _updatePtyActiveLine() {
+      if (!this.container) return;
+      const beforeEl = this.container.querySelector('.codelab-pty__before');
+      const afterEl = this.container.querySelector('.codelab-pty__after');
+      const promptEl = this.container.querySelector('.codelab-pty__prompt');
+      const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
+      const promptLabel = this.inRepl ? '> ' : (cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`);
+
+      if (promptEl) promptEl.textContent = promptLabel + ' ';
+      if (beforeEl) beforeEl.textContent = this._ptyInputBeforeCursor || '';
+      if (afterEl) afterEl.textContent = this._ptyInputAfterCursor || '';
+    }
+
+    _handlePtyTabCompletion(input) {
+      const currentInput = (input && input.value !== undefined) ? input.value : ((this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || ''));
+      const candidates = this._getCompletionCandidates(currentInput);
+      if (!candidates || candidates.length === 0) return;
+
+      const lastSpaceIdx = currentInput.lastIndexOf(' ');
+      const prefix = lastSpaceIdx === -1 ? '' : currentInput.slice(0, lastSpaceIdx + 1);
+      const token = lastSpaceIdx === -1 ? currentInput : currentInput.slice(lastSpaceIdx + 1);
+
+      if (candidates.length === 1) {
+        const completed = prefix + candidates[0] + (candidates[0].endsWith('/') ? '' : ' ');
+        if (input) input.value = completed;
+        this._ptyInputBeforeCursor = completed;
+        this._ptyInputAfterCursor = '';
+        this._updatePtyActiveLine();
+      } else {
+        const common = findCommonPrefix(candidates);
+        if (common && common.length > token.length) {
+          const completed = prefix + common;
+          if (input) input.value = completed;
+          this._ptyInputBeforeCursor = completed;
+          this._ptyInputAfterCursor = '';
+          this._updatePtyActiveLine();
+        } else {
+          const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
+          const promptLabel = this.inRepl ? '> ' : (cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`);
+          this.terminalLogs.push({ type: 'system', text: `${promptLabel} ${currentInput}` });
+          this.terminalLogs.push({ type: 'stdout', text: candidates.join('  ') });
+          this._renderDrawerBody();
+          const nextInput = this.container.querySelector('#cl-repl-input');
+          if (nextInput) {
+            nextInput.value = currentInput;
+            this._ptyInputBeforeCursor = currentInput;
+            this._ptyInputAfterCursor = '';
+            this._updatePtyActiveLine();
+            if (typeof nextInput.focus === 'function') nextInput.focus();
+          }
+        }
+      }
+    }
+
+    _getCompletionCandidates(currentInput) {
+      const line = currentInput || '';
+      const lastSpaceIdx = line.lastIndexOf(' ');
+      const token = lastSpaceIdx === -1 ? line : line.slice(lastSpaceIdx + 1);
+      const isFirstToken = lastSpaceIdx === -1;
+
+      if (isFirstToken) {
+        const commands = [
+          'cat', 'cd', 'clear', 'cp', 'curl', 'echo', 'env', 'export', 'find',
+          'grep', 'head', 'help', 'history', 'jobs', 'kill', 'ls', 'mkdir', 'mv',
+          'node', 'npm', 'npx', 'ps', 'pwd', 'rm', 'sed', 'sort', 'tail', 'touch',
+          'uniq', 'unset', 'wc', 'which', 'bun'
+        ];
+        return commands.filter(c => c.startsWith(token));
+      } else {
+        const vfsPaths = [];
+        const cwd = this.cwd || '/workspace';
+        const normCwd = cwd.endsWith('/') ? cwd : cwd + '/';
+
+        for (const p of Object.keys(this.files || {})) {
+          const fullPath = p.startsWith('/') ? p : normCwd + p;
+          if (token.startsWith('/')) {
+            vfsPaths.push(fullPath);
+          } else if (fullPath.startsWith(normCwd)) {
+            vfsPaths.push(fullPath.slice(normCwd.length));
+          } else {
+            vfsPaths.push(p);
+          }
+        }
+        for (const folder of (this.folders || [])) {
+          const fullFolder = folder.startsWith('/') ? folder : normCwd + folder;
+          if (token.startsWith('/')) {
+            vfsPaths.push(fullFolder + '/');
+          } else if (fullFolder.startsWith(normCwd)) {
+            vfsPaths.push(fullFolder.slice(normCwd.length) + '/');
+          } else {
+            vfsPaths.push(folder + '/');
+          }
+        }
+        const unique = Array.from(new Set(vfsPaths));
+        return unique.filter(p => p.startsWith(token));
+      }
+    }
+
+    _renderPortsPanel(bodyEl) {
+      if (!bodyEl) return;
+      const servers = (this.portTable && typeof this.portTable.listServers === 'function')
+        ? this.portTable.listServers()
+        : [];
+      const httpState = this.httpClientState;
+      const lastRes = httpState.lastResponse;
+
+      let serversHtml = '';
+      if (servers.length === 0) {
+        serversHtml = `
+          <div class="codelab-ports-empty">
+            <p style="margin:0 0 6px 0;font-weight:500;">No active port listeners</p>
+            <span style="font-size:12px;color:var(--cl-fg-muted);">
+              Run an HTTP or WebSocket server in the terminal (e.g. <code>node server.js &amp;</code> or <code>bun run server.ts &amp;</code>) to bind a virtual port.
+            </span>
+          </div>
+        `;
+      } else {
+        serversHtml = `
+          <div class="codelab-ports-table-wrapper">
+            <table class="codelab-ports-table">
+              <thead>
+                <tr>
+                  <th>Port</th>
+                  <th>Host / URL</th>
+                  <th>Protocol</th>
+                  <th>Process / Service</th>
+                  <th>Status</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${servers.map(s => `
+                  <tr>
+                    <td><span class="codelab-port-tag">${s.port}</span></td>
+                    <td><a href="http://127.0.0.1:${s.port}/" target="_blank" class="codelab-port-link">http://127.0.0.1:${s.port}/</a></td>
+                    <td><span class="codelab-badge">${escapeHtml(s.protocol || 'HTTP/1.1')}</span></td>
+                    <td><code>${escapeHtml(s.service || (s.pid ? `PID ${s.pid}` : 'node'))}</code></td>
+                    <td><span class="codelab-port-status codelab-port-status--listening"><span class="codelab-port-status-dot"></span>LISTENING</span></td>
+                    <td style="text-align:right;white-space:nowrap;">
+                      <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="open-port-client" data-port="${s.port}">Open in Client</button>
+                      <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--danger" data-cl-action="stop-port" data-port="${s.port}">Stop</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+      const methodOptions = methods.map(m => `<option value="${m}" ${httpState.method === m ? 'selected' : ''}>${m}</option>`).join('');
+
+      let responseBodyView = '';
+      if (httpState.loading) {
+        responseBodyView = `<div class="codelab-response-placeholder">Sending virtual loopback request...</div>`;
+      } else if (!lastRes) {
+        responseBodyView = `<div class="codelab-response-placeholder">No response received yet. Send a request above to inspect loopback traffic.</div>`;
+      } else if (httpState.activeResponseTab === 'preview') {
+        const isHtml = lastRes.headers && Object.entries(lastRes.headers).some(([k, v]) => k.toLowerCase() === 'content-type' && String(v).includes('text/html'));
+        if (isHtml || lastRes.body.includes('<html') || lastRes.body.includes('<!DOCTYPE') || lastRes.body.includes('<div') || lastRes.body.includes('<body')) {
+          responseBodyView = `<iframe class="codelab-response-iframe" sandbox="allow-same-origin" srcdoc="${escapeHtml(lastRes.body)}"></iframe>`;
+        } else {
+          responseBodyView = `<pre class="codelab-response-raw"><code>${escapeHtml(lastRes.formattedBody || lastRes.body)}</code></pre>`;
+        }
+      } else if (httpState.activeResponseTab === 'raw') {
+        responseBodyView = `<pre class="codelab-response-raw"><code>${escapeHtml(lastRes.formattedBody || lastRes.body)}</code></pre>`;
+      } else if (httpState.activeResponseTab === 'headers') {
+        const headerRows = Object.entries(lastRes.headers || {})
+          .map(([k, v]) => `<tr><td class="codelab-header-key">${escapeHtml(k)}:</td><td class="codelab-header-val">${escapeHtml(String(v))}</td></tr>`)
+          .join('');
+        responseBodyView = `
+          <table class="codelab-headers-table">
+            <tbody>
+              ${headerRows || '<tr><td colspan="2" style="color:var(--cl-fg-muted);">No headers present</td></tr>'}
+            </tbody>
+          </table>
+        `;
+      }
+
+      let responseHeaderMeta = '';
+      if (lastRes) {
+        const statusClass = lastRes.status < 300 ? 'status-2xx' : (lastRes.status < 400 ? 'status-3xx' : (lastRes.status < 500 ? 'status-4xx' : 'status-5xx'));
+        responseHeaderMeta = `
+          <div class="codelab-response-meta">
+            <span class="codelab-status-badge ${statusClass}">HTTP ${lastRes.status} ${escapeHtml(lastRes.statusText || '')}</span>
+            <span class="codelab-meta-item">${(lastRes.durationMs || 0).toFixed(1)} ms</span>
+            <span class="codelab-meta-item">${lastRes.size} bytes</span>
+          </div>
+        `;
+      }
+
+      bodyEl.innerHTML = `
+        <div class="codelab-ports-panel">
+          <div class="codelab-panel-section">
+            <div class="codelab-section-title">
+              <span>${CL_ICONS.radio || ''} Active Port Listeners</span>
+              <span class="codelab-badge">${servers.length} listening</span>
+            </div>
+            ${serversHtml}
+          </div>
+
+          <div class="codelab-panel-section">
+            <div class="codelab-section-title">
+              <span>${CL_ICONS.send || ''} Mini HTTP Client</span>
+              <span style="font-size:11px;color:var(--cl-fg-muted);">Virtual Loopback (127.0.0.1)</span>
+            </div>
+            <div class="codelab-http-client">
+              <div class="codelab-http-url-bar">
+                <select class="codelab-select" id="cl-http-method" aria-label="HTTP Method">${methodOptions}</select>
+                <input type="text" class="codelab-input" id="cl-http-url" value="${escapeHtml(httpState.url)}" placeholder="http://localhost:3000/" aria-label="Request URL">
+                <button type="button" class="codelab-btn codelab-btn--primary" id="cl-http-send-btn" data-cl-action="http-send">${CL_ICONS.send || ''} <span>Send</span></button>
+              </div>
+              <div class="codelab-http-editors">
+                <div class="codelab-http-editor-group">
+                  <label for="cl-http-headers" class="codelab-label">Headers (Key: Value):</label>
+                  <textarea class="codelab-textarea" id="cl-http-headers" rows="2" placeholder="Content-Type: application/json">${escapeHtml(httpState.headers)}</textarea>
+                </div>
+                <div class="codelab-http-editor-group">
+                  <label for="cl-http-body" class="codelab-label">Request Body:</label>
+                  <textarea class="codelab-textarea" id="cl-http-body" rows="2" placeholder='{"key":"value"}'>${escapeHtml(httpState.body)}</textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="codelab-panel-section" style="flex:1;display:flex;flex-direction:column;min-height:200px;">
+            <div class="codelab-section-title" style="justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span>Response Viewer</span>
+                <div class="codelab-subtabs" role="tablist">
+                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'preview' ? 'active' : ''}" data-cl-action="http-tab" data-tab="preview">Preview</button>
+                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'raw' ? 'active' : ''}" data-cl-action="http-tab" data-tab="raw">Raw / JSON</button>
+                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'headers' ? 'active' : ''}" data-cl-action="http-tab" data-tab="headers">Headers</button>
+                </div>
+              </div>
+              ${responseHeaderMeta}
+            </div>
+            <div class="codelab-response-body-wrapper">
+              ${responseBodyView}
+            </div>
+          </div>
+        </div>
+      `;
+
+      this._bindPortsEvents(bodyEl);
+    }
+
+    _bindPortsEvents(bodyEl) {
+      if (!bodyEl) return;
+      const methodSelect = bodyEl.querySelector('#cl-http-method');
+      if (methodSelect) {
+        methodSelect.addEventListener('change', e => {
+          this.httpClientState.method = e.target.value;
+        });
+      }
+      const urlInput = bodyEl.querySelector('#cl-http-url');
+      if (urlInput) {
+        urlInput.addEventListener('input', e => {
+          this.httpClientState.url = e.target.value;
+        });
+      }
+      const headersArea = bodyEl.querySelector('#cl-http-headers');
+      if (headersArea) {
+        headersArea.addEventListener('input', e => {
+          this.httpClientState.headers = e.target.value;
+        });
+      }
+      const bodyArea = bodyEl.querySelector('#cl-http-body');
+      if (bodyArea) {
+        bodyArea.addEventListener('input', e => {
+          this.httpClientState.body = e.target.value;
+        });
+      }
+    }
+
+    _renderNetworkPanel(bodyEl) {
+      if (!bodyEl) return;
+      const traces = Array.isArray(this.lastHttpTrace) ? this.lastHttpTrace : [];
+      const filter = this.networkFilter;
+
+      const filtered = traces.filter(t => {
+        if (filter.method && filter.method !== 'ALL' && (t.method || 'GET').toUpperCase() !== filter.method) return false;
+        if (filter.status && filter.status !== 'ALL') {
+          const s = Number(t.status || 0);
+          if (filter.status === '2xx' && (s < 200 || s >= 300)) return false;
+          if (filter.status === '3xx' && (s < 300 || s >= 400)) return false;
+          if (filter.status === '4xx' && (s < 400 || s >= 500)) return false;
+          if (filter.status === '5xx' && (s < 500 || s >= 600)) return false;
+        }
+        if (filter.search) {
+          const query = filter.search.toLowerCase();
+          const urlMatch = String(t.url || '').toLowerCase().includes(query);
+          const methodMatch = String(t.method || '').toLowerCase().includes(query);
+          const portMatch = String(t.port || '').includes(query);
+          if (!urlMatch && !methodMatch && !portMatch) return false;
+        }
+        return true;
+      });
+
+      const selectedTrace = traces.find(t => String(t.id) === String(filter.selectedTraceId)) || null;
+
+      let rowsHtml = '';
+      if (filtered.length === 0) {
+        rowsHtml = `
+          <tr>
+            <td colspan="7" style="text-align:center;padding:32px;color:var(--cl-fg-muted);">
+              ${traces.length === 0 ? 'No network requests recorded yet. Run a demo, tests, or send an HTTP request to inspect traffic.' : 'No network requests match the active filters.'}
+            </td>
+          </tr>
+        `;
+      } else {
+        const maxDuration = Math.max(1, ...filtered.map(t => t.durationMs || 1));
+        rowsHtml = filtered.map(t => {
+          const status = Number(t.status || 200);
+          const statusClass = status < 300 ? 'status-2xx' : (status < 400 ? 'status-3xx' : (status < 500 ? 'status-4xx' : 'status-5xx'));
+          const widthPct = Math.min(100, Math.max(8, Math.round(((t.durationMs || 1) / maxDuration) * 100)));
+          const isSelected = selectedTrace && String(selectedTrace.id) === String(t.id);
+          return `
+            <tr class="codelab-net-row ${isSelected ? 'selected' : ''}" data-cl-action="select-net-trace" data-trace-id="${escapeHtml(t.id || '')}">
+              <td><span class="codelab-status-badge ${statusClass}">${status}</span></td>
+              <td><span class="codelab-method-badge codelab-method-${(t.method || 'GET').toLowerCase()}">${escapeHtml(t.method || 'GET')}</span></td>
+              <td class="codelab-net-path" title="${escapeHtml(t.url || '/')}">${escapeHtml(t.url || '/')}</td>
+              <td><code>${t.port || 3000}</code></td>
+              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${(t.durationMs || 0).toFixed(1)} ms</td>
+              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${t.size != null ? t.size : 0} B</td>
+              <td class="codelab-waterfall-cell">
+                <div class="codelab-waterfall-track">
+                  <div class="codelab-waterfall-bar" style="width:${widthPct}%;"></div>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      let detailHtml = '';
+      if (selectedTrace) {
+        const reqHeaders = typeof selectedTrace.requestHeaders === 'string'
+          ? selectedTrace.requestHeaders
+          : JSON.stringify(selectedTrace.requestHeaders || {}, null, 2);
+        const resHeaders = typeof selectedTrace.responseHeaders === 'string'
+          ? selectedTrace.responseHeaders
+          : JSON.stringify(selectedTrace.responseHeaders || {}, null, 2);
+        detailHtml = `
+          <div class="codelab-net-detail">
+            <div class="codelab-net-detail__head">
+              <span style="font-weight:600;display:flex;align-items:center;gap:8px;">
+                <span class="codelab-method-badge codelab-method-${(selectedTrace.method || 'GET').toLowerCase()}">${escapeHtml(selectedTrace.method || 'GET')}</span>
+                <span>${escapeHtml(selectedTrace.url || '/')}</span>
+              </span>
+              <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="close-net-detail">Close</button>
+            </div>
+            <div class="codelab-net-detail__body">
+              <div class="codelab-net-detail__section">
+                <div class="codelab-detail-label">General</div>
+                <div class="codelab-detail-kv"><strong>URL:</strong> 127.0.0.1:${selectedTrace.port}${escapeHtml(selectedTrace.url || '/')}</div>
+                <div class="codelab-detail-kv"><strong>Status:</strong> ${selectedTrace.status} ${escapeHtml(selectedTrace.statusText || '')}</div>
+                <div class="codelab-detail-kv"><strong>Duration:</strong> ${(selectedTrace.durationMs || 0).toFixed(2)} ms</div>
+                <div class="codelab-detail-kv"><strong>Size:</strong> ${selectedTrace.size || 0} bytes</div>
+              </div>
+              <div class="codelab-net-detail__section">
+                <div class="codelab-detail-label">Request Headers</div>
+                <pre class="codelab-detail-pre"><code>${escapeHtml(reqHeaders || '(empty)')}</code></pre>
+              </div>
+              ${selectedTrace.requestBody ? `
+                <div class="codelab-net-detail__section">
+                  <div class="codelab-detail-label">Request Body</div>
+                  <pre class="codelab-detail-pre"><code>${escapeHtml(selectedTrace.requestBody)}</code></pre>
+                </div>
+              ` : ''}
+              <div class="codelab-net-detail__section">
+                <div class="codelab-detail-label">Response Headers</div>
+                <pre class="codelab-detail-pre"><code>${escapeHtml(resHeaders || '(empty)')}</code></pre>
+              </div>
+              <div class="codelab-net-detail__section">
+                <div class="codelab-detail-label">Response Body</div>
+                <pre class="codelab-detail-pre"><code>${escapeHtml(selectedTrace.formattedBody || selectedTrace.responseBody || '(empty)')}</code></pre>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      bodyEl.innerHTML = `
+        <div class="codelab-network-panel ${selectedTrace ? 'has-detail' : ''}">
+          <div class="codelab-net-toolbar">
+            <input type="text" class="codelab-input" id="cl-net-search" placeholder="Filter URL or method..." value="${escapeHtml(filter.search)}" aria-label="Filter network traces">
+            <select class="codelab-select" id="cl-net-method" aria-label="Filter by method">
+              <option value="ALL" ${filter.method === 'ALL' ? 'selected' : ''}>All Methods</option>
+              <option value="GET" ${filter.method === 'GET' ? 'selected' : ''}>GET</option>
+              <option value="POST" ${filter.method === 'POST' ? 'selected' : ''}>POST</option>
+              <option value="PUT" ${filter.method === 'PUT' ? 'selected' : ''}>PUT</option>
+              <option value="DELETE" ${filter.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
+              <option value="PATCH" ${filter.method === 'PATCH' ? 'selected' : ''}>PATCH</option>
+            </select>
+            <select class="codelab-select" id="cl-net-status" aria-label="Filter by status">
+              <option value="ALL" ${filter.status === 'ALL' ? 'selected' : ''}>All Status</option>
+              <option value="2xx" ${filter.status === '2xx' ? 'selected' : ''}>2xx Success</option>
+              <option value="3xx" ${filter.status === '3xx' ? 'selected' : ''}>3xx Redirect</option>
+              <option value="4xx" ${filter.status === '4xx' ? 'selected' : ''}>4xx Client Error</option>
+              <option value="5xx" ${filter.status === '5xx' ? 'selected' : ''}>5xx Server Error</option>
+            </select>
+            <button type="button" class="codelab-btn" data-cl-action="clear-net-traces">Clear</button>
+            <span style="margin-left:auto;font-size:11.5px;color:var(--cl-fg-muted);">${filtered.length} of ${traces.length} requests</span>
+          </div>
+          <div class="codelab-net-main">
+            <div class="codelab-net-table-container">
+              <table class="codelab-net-table">
+                <thead>
+                  <tr>
+                    <th style="width:55px;">Status</th>
+                    <th style="width:65px;">Method</th>
+                    <th>Path</th>
+                    <th style="width:60px;">Port</th>
+                    <th style="width:75px;">Time</th>
+                    <th style="width:70px;">Size</th>
+                    <th style="width:140px;">Waterfall</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rowsHtml}
+                </tbody>
+              </table>
+            </div>
+            ${detailHtml}
+          </div>
+        </div>
+      `;
+
+      this._bindNetworkEvents(bodyEl);
+    }
+
+    _bindNetworkEvents(bodyEl) {
+      if (!bodyEl) return;
+      const searchInput = bodyEl.querySelector('#cl-net-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', e => {
+          this.networkFilter.search = e.target.value;
+          this._renderDrawerBody();
+        });
+      }
+      const methodSelect = bodyEl.querySelector('#cl-net-method');
+      if (methodSelect) {
+        methodSelect.addEventListener('change', e => {
+          this.networkFilter.method = e.target.value;
+          this._renderDrawerBody();
+        });
+      }
+      const statusSelect = bodyEl.querySelector('#cl-net-status');
+      if (statusSelect) {
+        statusSelect.addEventListener('change', e => {
+          this.networkFilter.status = e.target.value;
+          this._renderDrawerBody();
+        });
+      }
+    }
+
+    async dispatchHttpClientRequest() {
+      const method = this.httpClientState.method || 'GET';
+      let url = this.httpClientState.url || 'http://localhost:3000/';
+      const headersRaw = this.httpClientState.headers || '';
+      const body = this.httpClientState.body || '';
+
+      this.httpClientState.loading = true;
+      this._renderDrawerBody();
+
+      const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      let status = 0;
+      let statusText = '';
+      let responseHeaders = {};
+      let responseBody = '';
+      let parsedPort = 3000;
+      let reqPath = '/';
+
+      try {
+        if (!/^https?:\/\//i.test(url)) {
+          url = `http://127.0.0.1:3000${url.startsWith('/') ? '' : '/'}${url}`;
+        }
+        const parsedUrl = new URL(url);
+        parsedPort = Number(parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80));
+        reqPath = parsedUrl.pathname + (parsedUrl.search || '');
+
+        const reqHeaders = {};
+        for (const line of headersRaw.split('\n')) {
+          const idx = line.indexOf(':');
+          if (idx > 0) {
+            const k = line.slice(0, idx).trim();
+            const v = line.slice(idx + 1).trim();
+            if (k) reqHeaders[k] = v;
+          }
+        }
+
+        const init = {
+          method,
+          headers: reqHeaders
+        };
+        if (['POST', 'PUT', 'PATCH'].includes(method) && body) {
+          init.body = body;
+        }
+
+        let response = null;
+        if (this.portTable && typeof this.portTable.dispatchRequest === 'function') {
+          response = await this.portTable.dispatchRequest(url, init);
+        } else {
+          const err = new Error(`connect ECONNREFUSED 127.0.0.1:${parsedPort}`);
+          err.code = 'ECONNREFUSED';
+          throw err;
+        }
+
+        status = response.status;
+        statusText = response.statusText || (status >= 200 && status < 300 ? 'OK' : 'Error');
+        if (response.headers && typeof response.headers.forEach === 'function') {
+          response.headers.forEach((v, k) => { responseHeaders[k] = v; });
+        } else if (response.headers) {
+          responseHeaders = { ...response.headers };
+        }
+        responseBody = await response.text();
+      } catch (err) {
+        status = 502;
+        statusText = 'Bad Gateway / Connection Refused';
+        responseBody = String(err.message || err);
+        responseHeaders = { 'content-type': 'text/plain' };
+      }
+
+      const durationMs = Math.max(0.1, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+      const size = responseBody.length;
+
+      let formattedBody = responseBody;
+      try {
+        const parsed = JSON.parse(responseBody);
+        formattedBody = JSON.stringify(parsed, null, 2);
+      } catch (_) {}
+
+      const traceId = 'trace_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      const traceItem = {
+        id: traceId,
+        timestamp: new Date().toLocaleTimeString(),
+        method,
+        url: reqPath,
+        fullUrl: url,
+        port: parsedPort,
+        status,
+        statusText,
+        durationMs,
+        size,
+        requestHeaders: headersRaw,
+        requestBody: body,
+        responseHeaders,
+        responseBody,
+        formattedBody
+      };
+
+      if (!Array.isArray(this.lastHttpTrace)) {
+        this.lastHttpTrace = [];
+      }
+      this.lastHttpTrace.push(traceItem);
+
+      this.httpClientState.lastResponse = {
+        status,
+        statusText,
+        durationMs,
+        size,
+        headers: responseHeaders,
+        body: responseBody,
+        formattedBody
+      };
+      this.httpClientState.loading = false;
+      this._renderDrawerBody();
+    }
+
+    _syncVfsSnapshot(fsSnapshot) {
+      let changed = false;
+
+      // 1. Sync from this.shell.vfs if available
+      if (this.shell && this.shell.vfs && this.shell.vfs.files instanceof Map) {
+        const shellWorkspaceFiles = new Map();
+        for (const [p, fileObj] of this.shell.vfs.files.entries()) {
+          if (p.startsWith('/workspace/')) {
+            const rel = p.slice('/workspace/'.length);
+            if (rel) {
+              const content = typeof fileObj.data === 'string'
+                ? fileObj.data
+                : (fileObj.data ? (fileObj.data.toString ? fileObj.data.toString('utf8') : String(fileObj.data)) : '');
+              shellWorkspaceFiles.set(rel, content);
+            }
+          }
+        }
+
+        // Additions & modifications
+        for (const [rel, content] of shellWorkspaceFiles.entries()) {
+          if (this.files[rel] === undefined || this.files[rel] !== content) {
+            this.files[rel] = content;
+            changed = true;
+            const parts = rel.split('/');
+            let cur = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+              cur = cur ? `${cur}/${parts[i]}` : parts[i];
+              this.folders.add(cur);
+            }
+            const model = this.models.get(rel);
+            if (model && typeof model.getValue === 'function') {
+              if (model.getValue() !== content) {
+                model.setValue(content);
+              }
+            } else {
+              this._getOrCreateModel(rel);
+            }
+          }
+        }
+
+        // Deletions
+        for (const rel of Object.keys(this.files)) {
+          if (!shellWorkspaceFiles.has(rel)) {
+            delete this.files[rel];
+            changed = true;
+            const model = this.models.get(rel);
+            if (model) {
+              model.dispose();
+              this.models.delete(rel);
+            }
+            if (Array.isArray(this.openTabs)) {
+              const tabIdx = this.openTabs.indexOf(rel);
+              if (tabIdx !== -1) {
+                this.openTabs.splice(tabIdx, 1);
+                if (this.activeFile === rel) {
+                  this.activeFile = this.openTabs[Math.max(0, tabIdx - 1)] || null;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Also sync from snapshot array if provided
+      if (Array.isArray(fsSnapshot) && fsSnapshot.length > 0) {
+        for (const item of fsSnapshot) {
+          if (!item || !item.path) continue;
+          if (item.path.startsWith('/workspace/')) {
+            const rel = item.path.slice('/workspace/'.length);
+            if (!rel) continue;
+            if (item.isDirectory) {
+              this.folders.add(rel);
+            } else if (item.content !== undefined || item.preview !== undefined) {
+              const content = item.content !== undefined ? item.content : (item.preview || '');
+              if (this.files[rel] !== content) {
+                this.files[rel] = content;
+                changed = true;
+                const model = this.models.get(rel);
+                if (model && typeof model.getValue === 'function') {
+                  if (model.getValue() !== content) model.setValue(content);
+                } else {
+                  this._getOrCreateModel(rel);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        this._saveState();
+        this._renderFileLists();
+        this._renderTabs();
+        this._syncActiveFileToView();
       }
     }
 
