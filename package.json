@@ -45,7 +45,9 @@
     },
     "./css": "./dist/code-lab.css",
     "./code-lab.css": "./dist/code-lab.css",
-    "./dist/code-lab.css": "./dist/code-lab.css"
+    "./dist/code-lab.css": "./dist/code-lab.css",
+    "./sample.html": "./dist/sample.html",
+    "./sample": "./dist/sample.html"
   },
   "files": [
     "dist",
