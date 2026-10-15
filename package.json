@@ -42,7 +42,8 @@
     "build": "node tools/bundle.js",
     "test": "node test-all-builds.js",
     "test:all": "node test-all-builds.js && node test-runtime-advanced.js && node test-option1-shell-bun-http.js && node test-coreutils-adversarial.js && node test-stress-shell.js && node test-workbench-ui.js",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "wiki:push": "node tools/push-wiki.js"
   },
   "keywords": [
     "ide",
