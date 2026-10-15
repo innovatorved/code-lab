@@ -4,3 +4,5 @@ node_modules/
 *.log
 wiki/
 .wrangler/
+.astro/
+examples/cloud-ide/dist/
