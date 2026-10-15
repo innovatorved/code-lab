@@ -18445,6 +18445,15 @@ declare module 'bun:sqlite' {
       this._syncAllModels();
       this._syncActiveFileToView();
       this._renderGuidePane();
+
+      const shell = this.container.querySelector('.codelab');
+      if (shell) {
+        const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
+        shell.classList.toggle('guide-collapsed', isGuideCollapsed);
+      }
+      if (this.editor) {
+        setTimeout(() => this.editor.layout(), 60);
+      }
     }
 
     setLanguage(newLang) {
@@ -18491,6 +18500,11 @@ declare module 'bun:sqlite' {
       }
       if (typeof stepIndex === 'number' && !Number.isNaN(stepIndex)) {
         this.selectStep(stepIndex, true);
+      }
+      const shell = this.container.querySelector('.codelab');
+      if (shell) {
+        const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
+        shell.classList.toggle('guide-collapsed', isGuideCollapsed);
       }
       if (this.editor) {
         setTimeout(() => this.editor.layout(), 60);

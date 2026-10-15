@@ -487,12 +487,23 @@ code-lab,
   overflow: hidden;
 }
 
-.codelab.guide-collapsed .codelab-body {
-  grid-template-columns: 0px 0px 1fr;
+.codelab.guide-collapsed .codelab-body,
+.codelab-workbench.guide-collapsed .codelab-body,
+.guide-collapsed .codelab-body {
+  grid-template-columns: 1fr;
+}
+
+.codelab.guide-collapsed .codelab-main,
+.codelab-workbench.guide-collapsed .codelab-main,
+.guide-collapsed .codelab-main {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .codelab.guide-collapsed .codelab-splitter-v,
 .codelab.guide-collapsed .codelab-guide,
+.codelab-workbench.guide-collapsed .codelab-splitter-v,
+.codelab-workbench.guide-collapsed .codelab-guide,
 .codelab-guide.collapsed {
   display: none !important;
 }
