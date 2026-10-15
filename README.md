@@ -107,18 +107,18 @@ console.log(res.ok, res.testResults);
 
 ---
 
-## Documentation & Wiki
+## Documentation
 
-Detailed guides and API references are available in the [`wiki/`](./wiki/Home.md):
+Complete documentation is published on the [GitHub Wiki](https://github.com/innovatorved/code-lab/wiki) (and mirrored in [`wiki/`](./wiki/Home.md)):
 
-- **[Quick Start Guide](./wiki/Quick-Start.md)**: Setup and quick examples.
-- **[Integration Guide](./wiki/Integration-Guide.md)**: Embedding in React, Next.js, Vite, and plain HTML.
-- **[Workbench Configuration](./wiki/Workbench-Configuration.md)**: Complete reference of options, methods, events, and keyboard shortcuts.
-- **[POSIX Shell & Coreutils Reference](./wiki/POSIX-Shell-and-Coreutils.md)**: Pipelines, redirects, background jobs, and 40+ UNIX commands.
-- **[Runtime APIs (Node & Bun)](./wiki/Runtime-APIs.md)**: 24 Node.js built-ins, Bun APIs, `bun:test`, `bun:sqlite`, and package installation.
-- **[HTTP Servers & Networking](./wiki/HTTP-Servers-and-Networking.md)**: Virtual port table, background servers, `curl`, and live Port Preview.
-- **[Headless Runtime Reference](./wiki/Headless-Runtime.md)**: Headless execution for automated graders, test runners, and evaluation pipelines.
-- **[Authoring Guided Labs](./wiki/Authoring-Guided-Labs.md)**: Schema and invariants for creating interactive coding challenges.
+- **[Quick Start](https://github.com/innovatorved/code-lab/wiki/Quick-Start)**: Setup, CDN, and quick examples.
+- **[Integration Guide](https://github.com/innovatorved/code-lab/wiki/Integration-Guide)**: Embedding in React, Next.js, Vite, and HTML.
+- **[Workbench Configuration](https://github.com/innovatorved/code-lab/wiki/Workbench-Configuration)**: Complete reference of options, methods, events, and shortcuts.
+- **[POSIX Shell & Coreutils](https://github.com/innovatorved/code-lab/wiki/POSIX-Shell-and-Coreutils)**: Pipelines, redirects, background jobs, and 40+ UNIX commands.
+- **[Runtime APIs (Node & Bun)](https://github.com/innovatorved/code-lab/wiki/Runtime-APIs)**: 24 Node.js built-ins, Bun APIs, `bun:test`, `bun:sqlite`, and npm install.
+- **[HTTP Servers & Networking](https://github.com/innovatorved/code-lab/wiki/HTTP-Servers-and-Networking)**: Virtual port table, background servers, `curl`, and Port Preview.
+- **[Headless Runtime](https://github.com/innovatorved/code-lab/wiki/Headless-Runtime)**: Run code and tests programmatically with zero UI.
+- **[Authoring Guided Labs](https://github.com/innovatorved/code-lab/wiki/Authoring-Guided-Labs)**: Schema and invariants for creating interactive coding challenges.
 
 ---
 
