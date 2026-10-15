@@ -1849,6 +1849,80 @@ async function runTier4() {
     offCreate();
     offDelete();
   });
+
+  await registerTest('tier4', 'T4.13', 'VSCode-7: Public GitHub Repository Cloning via workbench.cloneRepo() & Clone Modal', async () => {
+    const { workbench } = createTestLab({ persistState: false });
+
+    // Verify Command Palette includes Git Clone command
+    workbench.openCommandPalette('commands');
+    workbench._renderPaletteList('> Clone');
+    assert.ok(
+      workbench._currentPaletteItems.some(i => i.id === 'git-clone'),
+      'Command Palette should include Git: Clone Public GitHub Repository...'
+    );
+    workbench.closeModal();
+
+    // Verify showCloneRepoModal renders modal
+    workbench.showCloneRepoModal();
+    const modalSlot = workbench.container.querySelector('#cl-modal-slot');
+    assert.ok(modalSlot.innerHTML.includes('Clone Public GitHub Repository'), 'Clone Repo modal should render');
+    workbench.closeModal();
+
+    // Mock fetch for deterministic cloneRepo verification
+    const mockFetch = async (url) => {
+      const u = String(url);
+      if (u.includes('api.github.com/repos/acme/starter-kit/git/trees/')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            tree: [
+              { path: 'README.md', type: 'blob', size: 42 },
+              { path: 'index.js', type: 'blob', size: 55 },
+              { path: 'src/helper.js', type: 'blob', size: 40 }
+            ]
+          })
+        };
+      }
+      if (u.includes('api.github.com/repos/acme/starter-kit')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ default_branch: 'main' })
+        };
+      }
+      if (u.endsWith('/README.md')) {
+        return { ok: true, status: 200, text: async () => '# Starter Kit\nLoaded from GitHub!' };
+      }
+      if (u.endsWith('/index.js')) {
+        return { ok: true, status: 200, text: async () => 'const { greet } = require("./src/helper");\nconsole.log(greet("CodeLab"));\n' };
+      }
+      if (u.endsWith('/src/helper.js')) {
+        return { ok: true, status: 200, text: async () => 'exports.greet = (name) => `Hello, ${name}!`;\n' };
+      }
+      return { ok: false, status: 404, text: async () => 'Not Found' };
+    };
+
+    let cloneEventDetail = null;
+    workbench.on('repo-clone', (detail) => {
+      cloneEventDetail = detail;
+    });
+
+    const res = await workbench.cloneRepo('acme/starter-kit', {
+      intoRoot: true,
+      clearExisting: true,
+      fetchImpl: mockFetch
+    });
+
+    assert.equal(res.owner, 'acme');
+    assert.equal(res.repo, 'starter-kit');
+    assert.equal(res.branch, 'main');
+    assert.equal(res.count, 3);
+    assert.ok(workbench.getFile('index.js').includes('greet("CodeLab")'), 'Cloned index.js should be in workbench files');
+    assert.ok(workbench.getFile('src/helper.js').includes('exports.greet'), 'Cloned nested file src/helper.js should be in workbench files');
+    assert.ok(workbench.folders.has('src'), 'Cloned folder hierarchy should be registered in workbench.folders');
+    assert.ok(cloneEventDetail && cloneEventDetail.repo === 'starter-kit', 'repo-clone event should be emitted');
+  });
 }
 
 // ── Main Test Runner Execution & Reporting ───────────────────────────────────

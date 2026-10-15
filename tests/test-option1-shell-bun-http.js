@@ -660,21 +660,113 @@ async function main() {
       assert.ok(!resPsAfter.stdout.includes(`sleep 5`) || resPsAfter.stdout.includes('defunct'));
     });
 
-    await test('2.13 Git Shim: git status, git diff, git log, git branch', async () => {
+    await test('2.13 Git Engine: git init, status, add, commit, diff, branch, checkout, remote, log', async () => {
       const vfs = createVirtualFs({
-        '/workspace/.git/HEAD': 'ref: refs/heads/main\n',
         '/workspace/file.js': 'console.log("git test");\n'
       });
       const shell = getShellEngine({ vfs });
 
-      const resStatus = await executeShell(shell, 'git status');
-      assert.ok(resStatus.stdout.includes('On branch main') || resStatus.stdout.includes('branch'));
+      const resInit = await executeShell(shell, 'git init');
+      assert.strictEqual(resInit.code, 0);
+      assert.ok(resInit.stdout.includes('Initialized') || resInit.stdout.includes('Reinitialized'));
 
-      const resBranch = await executeShell(shell, 'git branch');
-      assert.ok(resBranch.stdout.includes('main'));
+      const resStatusClean = await executeShell(shell, 'git status');
+      assert.ok(resStatusClean.stdout.includes('On branch main'));
+      assert.ok(resStatusClean.stdout.includes('working tree clean'));
 
-      const resLog = await executeShell(shell, 'git log');
-      assert.ok(resLog.stdout.includes('commit') || resLog.stdout.length > 0);
+      // Modify tracked file and create untracked file
+      await executeShell(shell, 'echo "console.log(\\"updated\\");" >> /workspace/file.js');
+      await executeShell(shell, 'echo "new module" > /workspace/new.js');
+
+      const resStatusDirty = await executeShell(shell, 'git status -s');
+      assert.ok(resStatusDirty.stdout.includes('file.js'));
+      assert.ok(resStatusDirty.stdout.includes('?? new.js'));
+
+      const resDiff = await executeShell(shell, 'git diff');
+      assert.ok(resDiff.stdout.includes('--- a/file.js') && resDiff.stdout.includes('+++ b/file.js'));
+      assert.ok(resDiff.stdout.includes('+console.log("updated");'));
+
+      await executeShell(shell, 'git add .');
+      const resCommit = await executeShell(shell, 'git commit -m "feat: add new module and update file"');
+      assert.strictEqual(resCommit.code, 0);
+      assert.ok(resCommit.stdout.includes('feat: add new module and update file'));
+
+      const resBranch = await executeShell(shell, 'git checkout -b feature/auth && git branch');
+      assert.strictEqual(resBranch.code, 0);
+      assert.ok(resBranch.stdout.includes('* feature/auth'));
+
+      await executeShell(shell, 'git remote add origin https://github.com/innovatorved/code-lab.git');
+      const resRemote = await executeShell(shell, 'git remote -v');
+      assert.ok(resRemote.stdout.includes('origin') && resRemote.stdout.includes('innovatorved/code-lab'));
+
+      const resLog = await executeShell(shell, 'git log --oneline -n 2');
+      assert.ok(resLog.stdout.includes('feat: add new module and update file'));
+    });
+
+    await test('2.13b Git Clone Engine: parseGitHubRepoUrl & git clone public GitHub repository into VFS', async () => {
+      if (shellModule && typeof shellModule.parseGitHubRepoUrl === 'function') {
+        const p1 = shellModule.parseGitHubRepoUrl('https://github.com/sindresorhus/is/tree/main/source');
+        assert.strictEqual(p1.owner, 'sindresorhus');
+        assert.strictEqual(p1.repo, 'is');
+        assert.strictEqual(p1.branch, 'main');
+        assert.strictEqual(p1.subpath, 'source');
+
+        const p2 = shellModule.parseGitHubRepoUrl('git@github.com:innovatorved/code-lab.git');
+        assert.strictEqual(p2.owner, 'innovatorved');
+        assert.strictEqual(p2.repo, 'code-lab');
+
+        const p3 = shellModule.parseGitHubRepoUrl('https://github.com/lukeed/clsx#master');
+        assert.strictEqual(p3.owner, 'lukeed');
+        assert.strictEqual(p3.repo, 'clsx');
+        assert.strictEqual(p3.branch, 'master');
+      }
+
+      const vfs = createVirtualFs();
+      const mockFetch = async (url) => {
+        const u = String(url);
+        if (u.includes('api.github.com/repos/acme/demo-repo/git/trees/')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              tree: [
+                { path: 'package.json', type: 'blob', size: 64 },
+                { path: 'README.md', type: 'blob', size: 32 },
+                { path: 'src/index.js', type: 'blob', size: 48 }
+              ]
+            })
+          };
+        }
+        if (u.includes('api.github.com/repos/acme/demo-repo')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ default_branch: 'main' })
+          };
+        }
+        if (u.endsWith('/package.json')) {
+          return { ok: true, status: 200, text: async () => '{"name":"acme-demo","version":"1.0.0"}' };
+        }
+        if (u.endsWith('/README.md')) {
+          return { ok: true, status: 200, text: async () => '# Acme Demo Repo\nCloned in VFS!' };
+        }
+        if (u.endsWith('/src/index.js')) {
+          return { ok: true, status: 200, text: async () => 'console.log("Hello from cloned repo!");\n' };
+        }
+        return { ok: false, status: 404, text: async () => 'Not found' };
+      };
+
+      const shell = getShellEngine({ vfs, fetchImpl: mockFetch });
+      const resClone = await executeShell(shell, 'git clone https://github.com/acme/demo-repo.git');
+      assert.strictEqual(resClone.code, 0, resClone.stderr);
+      assert.ok(resClone.stdout.includes("Cloning into 'demo-repo'"));
+      assert.ok(vfs.existsSync('/workspace/demo-repo/package.json'));
+      assert.ok(vfs.existsSync('/workspace/demo-repo/src/index.js'));
+      assert.ok(vfs.existsSync('/workspace/demo-repo/.git/config'));
+
+      const resRun = await executeShell(shell, 'node /workspace/demo-repo/src/index.js');
+      assert.strictEqual(resRun.code, 0, resRun.stderr);
+      assert.strictEqual(resRun.stdout.trim(), 'Hello from cloned repo!');
     });
 
     await test('2.14 VFS Sync: Shell file operations trigger VFS mutation events', async () => {
