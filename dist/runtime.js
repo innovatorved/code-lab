@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v1.3.1 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -208,6 +208,13 @@ function __initVirtualRuntime(rootScope) {
         } else if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
           bytes = new Uint8Array(value.length);
           for (let i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i) & 0xff;
+        } else if (enc === 'utf16le' || enc === 'utf-16le' || enc === 'ucs2' || enc === 'ucs-2') {
+          bytes = new Uint8Array(value.length * 2);
+          for (let i = 0; i < value.length; i++) {
+            const c = value.charCodeAt(i);
+            bytes[i * 2] = c & 0xff;
+            bytes[i * 2 + 1] = (c >>> 8) & 0xff;
+          }
         } else {
           bytes = utf8Encode(value);
         }
@@ -288,6 +295,7 @@ function __initVirtualRuntime(rootScope) {
       const enc = (encoding || 'utf8').toLowerCase();
       if (enc === 'utf8' || enc === 'utf-8') return utf8Encode(stringOrBuf).length;
       if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') return stringOrBuf.length;
+      if (enc === 'utf16le' || enc === 'utf-16le' || enc === 'ucs2' || enc === 'ucs-2') return stringOrBuf.length * 2;
       if (enc === 'hex') return stringOrBuf.length >>> 1;
       if (enc === 'base64' || enc === 'base64url') return base64Decode(stringOrBuf).length;
       return utf8Encode(stringOrBuf).length;
@@ -390,6 +398,13 @@ function __initVirtualRuntime(rootScope) {
       if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
         let s = '';
         for (let i = 0; i < sub.length; i++) s += String.fromCharCode(sub[i]);
+        return s;
+      }
+      if (enc === 'utf16le' || enc === 'utf-16le' || enc === 'ucs2' || enc === 'ucs-2') {
+        let s = '';
+        for (let i = 0; i + 1 < sub.length; i += 2) {
+          s += String.fromCharCode(sub[i] | (sub[i + 1] << 8));
+        }
         return s;
       }
       return utf8Decode(sub);
@@ -615,9 +630,70 @@ function __initVirtualRuntime(rootScope) {
     return out;
   }
 
+  function sha1Raw(inputBytes) {
+    const len = inputBytes.length;
+    const bitLenHi = Math.floor(len / 0x20000000);
+    const bitLenLo = (len << 3) >>> 0;
+    const padLen = ((len + 8) & ~63) + 64;
+    const msg = new Uint8Array(padLen);
+    msg.set(inputBytes);
+    msg[len] = 0x80;
+    const dv = new DataView(msg.buffer);
+    dv.setUint32(padLen - 8, bitLenHi, false);
+    dv.setUint32(padLen - 4, bitLenLo, false);
+
+    let H0 = 0x67452301, H1 = 0xefcdab89, H2 = 0x98badcfe, H3 = 0x10325476, H4 = 0xc3d2e1f0;
+    const W = new Uint32Array(80);
+
+    for (let off = 0; off < padLen; off += 64) {
+      for (let t = 0; t < 16; t++) W[t] = dv.getUint32(off + t * 4, false);
+      for (let t = 16; t < 80; t++) {
+        const x = W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16];
+        W[t] = ((x << 1) | (x >>> 31)) >>> 0;
+      }
+      let a = H0, b = H1, c = H2, d = H3, e = H4;
+      for (let t = 0; t < 80; t++) {
+        let f, k;
+        if (t < 20) {
+          f = (b & c) | (~b & d);
+          k = 0x5a827999;
+        } else if (t < 40) {
+          f = b ^ c ^ d;
+          k = 0x6ed9eba1;
+        } else if (t < 60) {
+          f = (b & c) | (b & d) | (c & d);
+          k = 0x8f1bbcdc;
+        } else {
+          f = b ^ c ^ d;
+          k = 0xca62c1d6;
+        }
+        const temp = ((((a << 5) | (a >>> 27)) >>> 0) + (f >>> 0) + e + k + W[t]) >>> 0;
+        e = d;
+        d = c;
+        c = ((b << 30) | (b >>> 2)) >>> 0;
+        b = a;
+        a = temp;
+      }
+      H0 = (H0 + a) >>> 0;
+      H1 = (H1 + b) >>> 0;
+      H2 = (H2 + c) >>> 0;
+      H3 = (H3 + d) >>> 0;
+      H4 = (H4 + e) >>> 0;
+    }
+
+    const out = VirtualBuffer.alloc(20);
+    out.writeUInt32BE(H0, 0);
+    out.writeUInt32BE(H1, 4);
+    out.writeUInt32BE(H2, 8);
+    out.writeUInt32BE(H3, 12);
+    out.writeUInt32BE(H4, 16);
+    return out;
+  }
+
   function hashBytes(alg, bytes) {
     const a = String(alg).toLowerCase().replace('-', '');
     if (a === 'md5') return md5Raw(bytes);
+    if (a === 'sha1') return sha1Raw(bytes);
     if (a === 'sha256') return sha256Raw(bytes);
     throw new Error(`Unsupported hash algorithm: ${alg}`);
   }
@@ -756,6 +832,8 @@ function __initVirtualRuntime(rootScope) {
   // =========================================================================
   // 4. PATH & OS SHIMS
   // =========================================================================
+  let _activeCwdGetter = () => '/workspace';
+
   const VirtualPath = {
     sep: '/',
     delimiter: ':',
@@ -797,10 +875,24 @@ function __initVirtualRuntime(rootScope) {
         resolved = resolved ? `${seg}/${resolved}` : seg;
       }
       if (!resolved.startsWith('/')) {
-        resolved = `/workspace/${resolved}`;
+        const baseCwd = typeof _activeCwdGetter === 'function' ? _activeCwdGetter() : '/workspace';
+        resolved = `${baseCwd}/${resolved}`;
       }
       const norm = VirtualPath.normalize(resolved);
       return norm.length > 1 && norm.endsWith('/') ? norm.slice(0, -1) : norm;
+    },
+    relative(from, to) {
+      const f = VirtualPath.resolve(from);
+      const t = VirtualPath.resolve(to);
+      if (f === t) return '';
+      const fParts = f.split('/').filter(Boolean);
+      const tParts = t.split('/').filter(Boolean);
+      let common = 0;
+      while (common < fParts.length && common < tParts.length && fParts[common] === tParts[common]) {
+        common++;
+      }
+      const up = new Array(fParts.length - common).fill('..');
+      return [...up, ...tParts.slice(common)].join('/');
     },
     dirname(p) {
       if (typeof p !== 'string') throw new TypeError('Path must be a string');
@@ -827,6 +919,22 @@ function __initVirtualRuntime(rootScope) {
       if (idx <= 0) return '';
       return base.slice(idx);
     },
+    parse(p) {
+      if (typeof p !== 'string') throw new TypeError('Path must be a string');
+      const root = p.startsWith('/') ? '/' : '';
+      const dir = p ? VirtualPath.dirname(p) : '';
+      const base = p ? VirtualPath.basename(p) : '';
+      const ext = p ? VirtualPath.extname(p) : '';
+      const name = ext ? base.slice(0, base.length - ext.length) : base;
+      return { root, dir: dir === '.' && !p.startsWith('./') ? '' : dir, base, ext, name };
+    },
+    format(pathObject) {
+      if (!pathObject || typeof pathObject !== 'object') throw new TypeError('pathObject must be an object');
+      const dir = pathObject.dir || pathObject.root || '';
+      const base = pathObject.base || `${pathObject.name || ''}${pathObject.ext || ''}`;
+      if (!dir) return base;
+      return dir === pathObject.root ? `${dir}${base}` : `${dir}/${base}`;
+    },
     isAbsolute(p) {
       return typeof p === 'string' && p.startsWith('/');
     }
@@ -847,7 +955,7 @@ function __initVirtualRuntime(rootScope) {
   // 5. VIRTUAL IN-MEMORY POSIX FILESYSTEM (node:fs)
   // =========================================================================
   function createVirtualFs(initialFiles = {}) {
-    const dirs = new Set(['/', '/tmp', '/workspace']);
+    const dirs = new Set(['/', '/tmp', '/workspace', '/home', '/home/user']);
     const files = new Map();       // normalizedPath -> { data: Uint8Array, mtimeMs, ctimeMs, ino }
     const deletedInspectorCache = new Map(); // normalizedPath -> { data: Uint8Array, mtimeMs, deletedAtMs }
     const fdTable = new Map();     // fd -> { inode, path, flags, pos, isDirectory }
@@ -861,7 +969,8 @@ function __initVirtualRuntime(rootScope) {
         err.code = 'ERR_INVALID_ARG_TYPE';
         throw err;
       }
-      const abs = p.startsWith('/') ? VirtualPath.normalize(p) : VirtualPath.resolve('/workspace', p);
+      const baseCwd = typeof _activeCwdGetter === 'function' ? _activeCwdGetter() : '/workspace';
+      const abs = p.startsWith('/') ? VirtualPath.normalize(p) : VirtualPath.resolve(baseCwd, p);
       return abs.length > 1 && abs.endsWith('/') ? abs.slice(0, -1) : abs;
     }
 
@@ -1161,12 +1270,17 @@ function __initVirtualRuntime(rootScope) {
           : (data instanceof Uint8Array ? data.slice() : new Uint8Array( VirtualBuffer.from(String(data), encoding) ));
         let inode = files.get(np);
         if (!inode) {
-          const modeVal = (opts && typeof opts === 'object' && opts.mode !== undefined) ? Number(opts.mode) : 0o100644;
+          const modeVal = (opts && typeof opts === 'object' && opts.mode !== undefined)
+            ? (0o100000 | (Number(opts.mode) & 0o777))
+            : 0o100644;
           inode = { data: bytes, mtimeMs: Date.now(), ctimeMs: Date.now(), ino: nextIno++, mode: modeVal };
           files.set(np, inode);
         } else {
           inode.data = bytes;
           inode.mtimeMs = Date.now();
+          if (opts && typeof opts === 'object' && opts.mode !== undefined) {
+            inode.mode = 0o100000 | (Number(opts.mode) & 0o777);
+          }
         }
         deletedInspectorCache.set(np, { data: bytes.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: null });
       },
@@ -1189,7 +1303,7 @@ function __initVirtualRuntime(rootScope) {
           : (data instanceof Uint8Array ? data : new Uint8Array(VirtualBuffer.from(String(data), encoding)));
         let inode = files.get(np);
         if (!inode) {
-          fsShim.writeFileSync(np, chunk);
+          fsShim.writeFileSync(np, chunk, opts);
           return;
         }
         const combined = new Uint8Array(inode.data.byteLength + chunk.byteLength);
@@ -5151,9 +5265,10 @@ function __initVirtualRuntime(rootScope) {
 
     let syncExecDepth = 0;
     let currentCwd = '/workspace';
+    _activeCwdGetter = () => currentCwd;
 
     const sandboxProcess = Object.assign(new EventEmitter(), {
-      env: { NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/coder' },
+      env: { NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/user' },
       argv: argv || ['node', entry.startsWith('/') ? entry : `/workspace/${entry}`],
       argv0: 'node',
       execArgv: [],
@@ -5219,11 +5334,19 @@ function __initVirtualRuntime(rootScope) {
     });
 
     // Built-in `node:test` runner (`test`, `describe`, `it`, `before`, `after`, `beforeEach`, `afterEach`, `mock`)
+    const rootSuite = {
+      prefix: '',
+      pendingBefore: [],
+      afterCallbacks: [],
+      beforeEach: [],
+      afterEach: []
+    };
     const suiteStack = [];
     function currentSuite() {
-      return suiteStack.length > 0 ? suiteStack[suiteStack.length - 1] : null;
+      return suiteStack.length > 0 ? suiteStack[suiteStack.length - 1] : rootSuite;
     }
 
+    const activeMocks = [];
     function createMockFn(impl = () => undefined) {
       const calls = [];
       let currentImpl = impl;
@@ -5250,6 +5373,7 @@ function __initVirtualRuntime(rootScope) {
         mockImplementationOnce: (onceImpl) => { onceQueue.push(onceImpl); },
         restore: () => {}
       };
+      activeMocks.push(mockFn.mock);
       return mockFn;
     }
 
@@ -5262,8 +5386,18 @@ function __initVirtualRuntime(rootScope) {
         obj[methodName] = wrapped;
         return wrapped;
       },
-      reset: () => {},
-      restoreAll: () => {}
+      reset: () => {
+        for (const m of activeMocks) {
+          m.resetCalls();
+          m.restore();
+        }
+        activeMocks.length = 0;
+      },
+      restoreAll: () => {
+        for (const m of activeMocks) {
+          m.restore();
+        }
+      }
     };
 
     let nodeTestChain = Promise.resolve();
@@ -5314,7 +5448,7 @@ function __initVirtualRuntime(rootScope) {
       const opts = typeof optsOrFn === 'object' && optsOrFn !== null ? optsOrFn : {};
       if (opts.skip || typeof fn !== 'function') return Promise.resolve();
       const suite = currentSuite();
-      const fullName = suite ? `${suite.prefix} > ${name}` : name;
+      const fullName = suite && suite.prefix ? `${suite.prefix} > ${name}` : name;
       const hooksSnapshot = {
         beforeToRun: suite ? suite.pendingBefore : [],
         afterToRun: [],
@@ -5329,7 +5463,7 @@ function __initVirtualRuntime(rootScope) {
       const opts = typeof optsOrFn === 'object' && optsOrFn !== null ? optsOrFn : {};
       if (opts.skip || typeof suiteFn !== 'function') return;
       const parent = currentSuite();
-      const prefix = parent ? `${parent.prefix} > ${suiteName}` : suiteName;
+      const prefix = parent && parent.prefix ? `${parent.prefix} > ${suiteName}` : suiteName;
       const suiteCtx = {
         prefix,
         pendingBefore: [],
@@ -5855,6 +5989,12 @@ function __initVirtualRuntime(rootScope) {
           return { changes: 0, lastInsertRowid: 0 };
         }
 
+        if (/^DROP\s+TABLE/i.test(stmt)) {
+          const match = stmt.match(/^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
+          if (match) this.tables.delete(match[1]);
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
         if (/^INSERT\s+INTO/i.test(stmt)) {
           const match = stmt.match(/^INSERT\s+INTO\s+([a-zA-Z0-9_]+)(?:\s*\(([^)]+)\))?\s*VALUES\s*\((.*)\)/is);
           if (match) {
@@ -5889,7 +6029,78 @@ function __initVirtualRuntime(rootScope) {
             return { changes: 1, lastInsertRowid: table.autoInc };
           }
         }
+
+        if (/^DELETE\s+FROM/i.test(stmt)) {
+          const match = stmt.match(/^DELETE\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*))?$/is);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (!table) throw new Error(`no such table: ${match[1]}`);
+            const whereClause = match[2] ? match[2].trim() : null;
+            const pList = Array.isArray(params) ? [...params] : [params];
+            const beforeLen = table.rows.length;
+            if (!whereClause) {
+              table.rows = [];
+            } else {
+              table.rows = table.rows.filter(r => !this._matchWhere(r, whereClause, pList));
+            }
+            return { changes: beforeLen - table.rows.length, lastInsertRowid: table.autoInc };
+          }
+        }
+
+        if (/^UPDATE\s+/i.test(stmt)) {
+          const match = stmt.match(/^UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+(.*?)(?:\s+WHERE\s+(.*))?$/is);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (!table) throw new Error(`no such table: ${match[1]}`);
+            const setParts = match[2].split(',').map(s => s.trim());
+            const whereClause = match[3] ? match[3].trim() : null;
+            const pList = Array.isArray(params) ? [...params] : [params];
+            let changes = 0;
+            for (const row of table.rows) {
+              const rowParams = [...pList];
+              const setUpdates = [];
+              for (const sp of setParts) {
+                const eqIdx = sp.indexOf('=');
+                const col = sp.slice(0, eqIdx).trim();
+                let valExpr = sp.slice(eqIdx + 1).trim();
+                let val = valExpr === '?' ? rowParams.shift() : (/^['"].*['"]$/.test(valExpr) ? valExpr.slice(1, -1) : (!isNaN(Number(valExpr)) ? Number(valExpr) : valExpr));
+                setUpdates.push([col, val]);
+              }
+              if (!whereClause || this._matchWhere(row, whereClause, rowParams)) {
+                for (const [col, val] of setUpdates) row[col] = val;
+                changes++;
+              }
+            }
+            return { changes, lastInsertRowid: table.autoInc };
+          }
+        }
+
         return { changes: 0, lastInsertRowid: 0 };
+      }
+
+      _matchWhere(row, whereClause, pList) {
+        if (!whereClause) return true;
+        const eqMatch = whereClause.match(/^([a-zA-Z0-9_]+)\s*(=|!=|<>|>=|<=|>|<)\s*(.*)$/);
+        if (eqMatch) {
+          const col = eqMatch[1].trim();
+          const op = eqMatch[2];
+          let expected = eqMatch[3].trim();
+          if (expected === '?') {
+            expected = pList.shift();
+          } else if (/^['"].*['"]$/.test(expected)) {
+            expected = expected.slice(1, -1);
+          } else if (!isNaN(Number(expected))) {
+            expected = Number(expected);
+          }
+          const actual = row[col];
+          if (op === '=') return String(actual) === String(expected);
+          if (op === '!=' || op === '<>') return String(actual) !== String(expected);
+          if (op === '>') return Number(actual) > Number(expected);
+          if (op === '<') return Number(actual) < Number(expected);
+          if (op === '>=') return Number(actual) >= Number(expected);
+          if (op === '<=') return Number(actual) <= Number(expected);
+        }
+        return true;
       }
 
       exec(sql) {
@@ -5898,6 +6109,12 @@ function __initVirtualRuntime(rootScope) {
           this.run(s);
         }
       }
+
+      transaction(fn) {
+        return (...args) => fn(...args);
+      }
+
+      close() {}
 
       query(sql) {
         const db = this;
@@ -5916,7 +6133,9 @@ function __initVirtualRuntime(rootScope) {
             return rows.map(r => Object.values(r));
           },
           run(...args) {
-            return db.run(sql, args);
+            let params = args;
+            if (args.length === 1 && Array.isArray(args[0])) params = args[0];
+            return db.run(sql, params);
           }
         };
       }
@@ -5927,35 +6146,28 @@ function __initVirtualRuntime(rootScope) {
 
       _executeSelect(sql, params = []) {
         const s = sql.trim().replace(/;$/, '');
-        const match = s.match(/^SELECT\s+(.*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*?))?(?:\s+GROUP\s+BY\s+(.*?))?(?:\s+ORDER\s+BY\s+(.*?))?$/is);
+        const match = s.match(/^SELECT\s+(.*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*?))?(?:\s+GROUP\s+BY\s+(.*?))?(?:\s+ORDER\s+BY\s+(.*?))?(?:\s+LIMIT\s+(\d+|\?)(?:\s+OFFSET\s+(\d+|\?))?)?$/is);
         if (!match) return [];
         const selectColsRaw = match[1].trim();
         const tableName = match[2].trim();
         const whereClause = match[3] ? match[3].trim() : null;
         const groupByClause = match[4] ? match[4].trim() : null;
         const orderByClause = match[5] ? match[5].trim() : null;
+        const limitRaw = match[6] ? match[6].trim() : null;
+        const offsetRaw = match[7] ? match[7].trim() : null;
 
         const table = this.tables.get(tableName);
         if (!table) return [];
 
         let pList = Array.isArray(params) ? [...params] : [params];
         let filteredRows = table.rows.filter(row => {
-          if (!whereClause) return true;
-          const eqMatch = whereClause.match(/^([a-zA-Z0-9_]+)\s*=\s*(.*)$/);
-          if (eqMatch) {
-            const col = eqMatch[1].trim();
-            let expected = eqMatch[2].trim();
-            if (expected === '?') {
-              expected = pList.shift();
-            } else if (/^['"].*['"]$/.test(expected)) {
-              expected = expected.slice(1, -1);
-            } else if (!isNaN(Number(expected))) {
-              expected = Number(expected);
-            }
-            return String(row[col]) === String(expected);
-          }
-          return true;
+          const rowParams = [...pList];
+          return this._matchWhere(row, whereClause, rowParams);
         });
+        if (whereClause && whereClause.includes('?')) {
+          const qCount = (whereClause.match(/\?/g) || []).length;
+          pList.splice(0, qCount);
+        }
 
         const colSpecs = [];
         if (selectColsRaw !== '*') {
@@ -6038,17 +6250,18 @@ function __initVirtualRuntime(rootScope) {
           });
         }
 
+        if (limitRaw !== null) {
+          const limitVal = limitRaw === '?' ? Number(pList.shift() || 0) : Number(limitRaw);
+          const offsetVal = offsetRaw !== null ? (offsetRaw === '?' ? Number(pList.shift() || 0) : Number(offsetRaw)) : 0;
+          outputRows = outputRows.slice(offsetVal, offsetVal + limitVal);
+        }
+
         return outputRows;
       }
     }
 
     function crc32Hash(str) {
-      const s = String(str);
-      let crc = 0 ^ (-1);
-      for (let i = 0; i < s.length; i++) {
-        crc = (crc >>> 8) ^ ((crc ^ s.charCodeAt(i)) & 0xFF);
-      }
-      return (crc ^ (-1)) >>> 0;
+      return VirtualZlib.crc32( typeof str === 'string' || str instanceof Uint8Array ? str : String(str) );
     }
 
     const bunHashFn = function hash(val) {
@@ -6057,30 +6270,12 @@ function __initVirtualRuntime(rootScope) {
     bunHashFn.crc32 = (val) => crc32Hash(val);
     bunHashFn.cityHash64 = (val) => {
       const h1 = crc32Hash(val);
-      const h2 = crc32Hash(val + ':seed64');
+      const h2 = crc32Hash(String(val) + ':seed64');
       return (BigInt(h1) << 32n) | BigInt(h2);
     };
 
     function deepEquals(a, b) {
-      if (a === b) return true;
-      if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
-        return false;
-      }
-      if (a instanceof Date && b instanceof Date) {
-        return a.getTime() === b.getTime();
-      }
-      if (a instanceof RegExp && b instanceof RegExp) {
-        return a.toString() === b.toString();
-      }
-      if (Array.isArray(a) !== Array.isArray(b)) return false;
-      const keysA = Object.keys(a);
-      const keysB = Object.keys(b);
-      if (keysA.length !== keysB.length) return false;
-      for (const k of keysA) {
-        if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-        if (!deepEquals(a[k], b[k])) return false;
-      }
-      return true;
+      return isDeepEqual(a, b, true);
     }
 
     const BunObj = {
@@ -6234,7 +6429,10 @@ function __initVirtualRuntime(rootScope) {
           },
           toHaveBeenCalledWith(...args) {
             const calls = (actual && actual.mock && actual.mock.calls) || [];
-            const found = calls.some(callArgs => deepEquals(callArgs, args));
+            const found = calls.some(callEntry => {
+              const callArgs = Array.isArray(callEntry) ? callEntry : (callEntry && Array.isArray(callEntry.arguments) ? callEntry.arguments : []);
+              return deepEquals(callArgs, args);
+            });
             pass(found, `Expected mock to have been called with ${JSON.stringify(args)}`);
           }
         };
@@ -6275,10 +6473,10 @@ function __initVirtualRuntime(rootScope) {
         it: (testName, fn) => nodeTestFn(testName, fn),
         expect: (actual) => makeExpect(actual),
         mock: (impl) => mockFn(impl),
-        beforeAll: () => {},
-        afterAll: () => {},
-        beforeEach: () => {},
-        afterEach: () => {}
+        beforeAll: (fn) => nodeTestFn.before(fn),
+        afterAll: (fn) => nodeTestFn.after(fn),
+        beforeEach: (fn) => nodeTestFn.beforeEach(fn),
+        afterEach: (fn) => nodeTestFn.afterEach(fn)
       };
     })();
 
@@ -7078,7 +7276,13 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         testFilter: options.testFilter,
         timeoutMs: options.timeoutMs,
         maxOutputBytes: options.maxOutputBytes,
-        maxConsoleCalls: options.maxConsoleCalls
+        maxConsoleCalls: options.maxConsoleCalls,
+        packages: options.packages,
+        npmModules: options.npmModules,
+        argv: options.argv,
+        pid: options.pid,
+        isBackground: options.isBackground,
+        printReplResult: options.printReplResult
       }
     });
   });

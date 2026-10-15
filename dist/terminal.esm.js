@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v1.3.1 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -31,18 +31,21 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
  */
 
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
-  } else {
-    const exports = factory();
+  const exports = factory();
+  if (root) {
     root.CodeLabTerminal = exports;
     root.PTYTerminalEngine = exports.PTYTerminalEngine;
+    root.createPTYTerminalEngine = exports.createPTYTerminalEngine;
     root.createTerminal = exports.createTerminal;
     root.ansiToHtml = exports.ansiToHtml;
+    root.parseAnsiToHtml = exports.parseAnsiToHtml;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exports;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return exports; });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function () {
   'use strict';
 
   const ANSI_CODE_MAP = {
@@ -73,8 +76,37 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     44: 'cl-ansi-bg-blue',
     45: 'cl-ansi-bg-magenta',
     46: 'cl-ansi-bg-cyan',
-    47: 'cl-ansi-bg-white'
+    47: 'cl-ansi-bg-white',
+    100: 'cl-ansi-bg-bright-black',
+    101: 'cl-ansi-bg-bright-red',
+    102: 'cl-ansi-bg-bright-green',
+    103: 'cl-ansi-bg-bright-yellow',
+    104: 'cl-ansi-bg-bright-blue',
+    105: 'cl-ansi-bg-bright-magenta',
+    106: 'cl-ansi-bg-bright-cyan',
+    107: 'cl-ansi-bg-bright-white'
   };
+
+  const ANSI_256_PALETTE = [
+    '#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5',
+    '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff'
+  ];
+
+  function ansi256ToColor(n) {
+    const idx = Number(n);
+    if (!Number.isFinite(idx) || idx < 0 || idx > 255) return null;
+    if (idx < 16) return ANSI_256_PALETTE[idx];
+    if (idx < 232) {
+      const c = idx - 16;
+      const r = Math.floor(c / 36);
+      const g = Math.floor((c % 36) / 6);
+      const b = c % 6;
+      const toChannel = v => (v === 0 ? 0 : 55 + v * 40);
+      return `rgb(${toChannel(r)}, ${toChannel(g)}, ${toChannel(b)})`;
+    }
+    const gray = 8 + (idx - 232) * 10;
+    return `rgb(${gray}, ${gray}, ${gray})`;
+  }
 
   function escapeHtml(str) {
     if (str == null) return '';
@@ -94,61 +126,162 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     }
 
     // Strip non-color cursor control sequences
-    const cleaned = s.replace(/\x1b\[[0-9;]*[A-LN-Za-z]/g, '');
+    const cleaned = s.replace(/\x1b\[[0-9;?]*[A-LN-Za-z]/g, '');
 
     const tokenRegex = /\x1b\[([0-9;]*)m/g;
     let result = '';
     let lastIdx = 0;
-    let openSpans = 0;
     let match;
+
+    const state = {
+      bold: false,
+      dim: false,
+      italic: false,
+      underline: false,
+      fgClass: null,
+      bgClass: null,
+      fgColor: null,
+      bgColor: null
+    };
+
+    const resetState = () => {
+      state.bold = false;
+      state.dim = false;
+      state.italic = false;
+      state.underline = false;
+      state.fgClass = null;
+      state.bgClass = null;
+      state.fgColor = null;
+      state.bgColor = null;
+    };
+
+    const renderChunk = (rawText) => {
+      if (!rawText) return '';
+      const escaped = escapeHtml(rawText);
+      const classes = [];
+      if (state.bold) classes.push('cl-ansi-bold');
+      if (state.dim) classes.push('cl-ansi-dim');
+      if (state.italic) classes.push('cl-ansi-italic');
+      if (state.underline) classes.push('cl-ansi-underline');
+      if (state.fgClass) classes.push(state.fgClass);
+      if (state.bgClass) classes.push(state.bgClass);
+
+      const styles = [];
+      if (state.fgColor) styles.push(`color:${state.fgColor}`);
+      if (state.bgColor) styles.push(`background-color:${state.bgColor}`);
+
+      if (classes.length === 0 && styles.length === 0) {
+        return escaped;
+      }
+      const classAttr = classes.length > 0 ? ` class="${classes.join(' ')}"` : '';
+      const styleAttr = styles.length > 0 ? ` style="${styles.join(';')}"` : '';
+      return `<span${classAttr}${styleAttr}>${escaped}</span>`;
+    };
 
     while ((match = tokenRegex.exec(cleaned)) !== null) {
       const rawText = cleaned.slice(lastIdx, match.index);
-      if (rawText) result += escapeHtml(rawText);
+      if (rawText) result += renderChunk(rawText);
       lastIdx = tokenRegex.lastIndex;
 
       const codes = match[1] ? match[1].split(';').map(Number) : [0];
-      for (const code of codes) {
-        if (code === 0) {
-          while (openSpans > 0) {
-            result += '</span>';
-            openSpans--;
+      for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
+        if (code === 0 || Number.isNaN(code)) {
+          resetState();
+        } else if (code === 1) {
+          state.bold = true;
+        } else if (code === 2) {
+          state.dim = true;
+        } else if (code === 3) {
+          state.italic = true;
+        } else if (code === 4) {
+          state.underline = true;
+        } else if (code === 22) {
+          state.bold = false;
+          state.dim = false;
+        } else if (code === 23) {
+          state.italic = false;
+        } else if (code === 24) {
+          state.underline = false;
+        } else if (code === 39) {
+          state.fgClass = null;
+          state.fgColor = null;
+        } else if (code === 49) {
+          state.bgClass = null;
+          state.bgColor = null;
+        } else if ((code === 38 || code === 48) && codes[i + 1] === 5 && i + 2 < codes.length) {
+          const color = ansi256ToColor(codes[i + 2]);
+          if (color) {
+            if (code === 38) {
+              state.fgClass = null;
+              state.fgColor = color;
+            } else {
+              state.bgClass = null;
+              state.bgColor = color;
+            }
           }
-        } else {
-          const cls = ANSI_CODE_MAP[code];
-          if (cls) {
-            result += `<span class="${cls}">`;
-            openSpans++;
+          i += 2;
+        } else if ((code === 38 || code === 48) && codes[i + 1] === 2 && i + 4 < codes.length) {
+          const r = Math.max(0, Math.min(255, Number(codes[i + 2]) || 0));
+          const g = Math.max(0, Math.min(255, Number(codes[i + 3]) || 0));
+          const b = Math.max(0, Math.min(255, Number(codes[i + 4]) || 0));
+          const color = `rgb(${r}, ${g}, ${b})`;
+          if (code === 38) {
+            state.fgClass = null;
+            state.fgColor = color;
+          } else {
+            state.bgClass = null;
+            state.bgColor = color;
           }
+          i += 4;
+        } else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+          state.fgClass = ANSI_CODE_MAP[code] || null;
+          state.fgColor = null;
+        } else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+          state.bgClass = ANSI_CODE_MAP[code] || null;
+          state.bgColor = null;
         }
       }
     }
 
     const remaining = cleaned.slice(lastIdx);
-    if (remaining) result += escapeHtml(remaining);
-    while (openSpans > 0) {
-      result += '</span>';
-      openSpans--;
-    }
+    if (remaining) result += renderChunk(remaining);
     return result;
   }
 
+  const parseAnsiToHtml = ansiToHtml;
+
   class PTYTerminalEngine {
     constructor(container, options = {}) {
+      if (
+        container &&
+        typeof container === 'object' &&
+        typeof container.querySelector !== 'function' &&
+        typeof container.appendChild !== 'function' &&
+        arguments.length === 1
+      ) {
+        options = container;
+        container = options.container || null;
+      }
       this.container = container || null;
-      this.options = options;
-      this.logs = Array.isArray(options.logs) ? options.logs : [];
-      this.cwd = options.cwd || '/workspace';
-      this.replMode = Boolean(options.replMode);
-      this.promptOverride = options.prompt || null;
-      this.history = Array.isArray(options.history) ? options.history : [];
+      this.options = options || {};
+      this.logs = Array.isArray(this.options.logs) ? this.options.logs : [];
+      this.cwd = this.options.cwd || '/workspace';
+      this.replMode = Boolean(this.options.replMode);
+      this.promptOverride = this.options.prompt || null;
+      this.history = Array.isArray(this.options.history) ? this.options.history : [];
       this.historyIdx = -1;
       this.savedBuffer = '';
       this.buffer = '';
       this.cursor = 0;
-      this.onCommand = typeof options.onCommand === 'function' ? options.onCommand : null;
-      this.getCompletions = typeof options.getCompletions === 'function' ? options.getCompletions : null;
-      this.onKey = typeof options.onKey === 'function' ? options.onKey : null;
+      this.searchMode = false;
+      this.searchQuery = '';
+      this.searchMatchIdx = -1;
+      this._readLineQueue = [];
+      this.onCommand = typeof this.options.onCommand === 'function' ? this.options.onCommand : null;
+      this.getCompletions = typeof this.options.getCompletions === 'function' ? this.options.getCompletions : null;
+      this.onKey = typeof this.options.onKey === 'function' ? this.options.onKey : null;
+      this.onInterrupt = typeof this.options.onInterrupt === 'function' ? this.options.onInterrupt : null;
 
       this._mounted = false;
       this._listeners = [];
@@ -199,8 +332,22 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       return [...this.history];
     }
 
+    readLine(promptText = '') {
+      const prevPrompt = this.promptOverride;
+      if (promptText) {
+        this.setPrompt(promptText);
+      }
+      return new Promise((resolve) => {
+        this._readLineQueue.push((line) => {
+          this.promptOverride = prevPrompt;
+          this.updateActiveLine();
+          resolve(line);
+        });
+      });
+    }
+
     focus() {
-      if (!this.container) return;
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
       const input = this.container.querySelector('#cl-repl-input');
       if (input && typeof input.focus === 'function') {
         try { input.focus(); } catch (_) {}
@@ -208,19 +355,35 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     }
 
     mount(container) {
-      this.container = container;
+      if (typeof container === 'string' && typeof document !== 'undefined') {
+        container = document.querySelector(container);
+      }
+      this.container = container || null;
+      if (!this.container || typeof this.container.querySelector !== 'function') {
+        this._mounted = false;
+        return;
+      }
       this._mounted = true;
       this.render();
-      this._bindEvents();
     }
 
-    destroy() {
-      for (const { target, type, handler } of this._listeners) {
-        if (target && typeof target.removeEventListener === 'function') {
-          try { target.removeEventListener(type, handler); } catch (_) {}
+    _cleanupListeners() {
+      if (!Array.isArray(this._listeners)) {
+        this._listeners = [];
+        return;
+      }
+      for (const entry of this._listeners) {
+        if (typeof entry === 'function') {
+          try { entry(); } catch (_) {}
+        } else if (entry && entry.target && typeof entry.target.removeEventListener === 'function') {
+          try { entry.target.removeEventListener(entry.type, entry.handler); } catch (_) {}
         }
       }
       this._listeners = [];
+    }
+
+    destroy() {
+      this._cleanupListeners();
       this._mounted = false;
     }
 
@@ -232,7 +395,8 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     }
 
     _bindEvents() {
-      if (!this.container) return;
+      this._cleanupListeners();
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
       const termSurface = this.container.querySelector('#cl-terminal-surface') || this.container;
       const input = this.container.querySelector('#cl-repl-input');
       const form = this.container.querySelector('#cl-repl-form');
@@ -250,7 +414,7 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
         this._addListener(input, 'input', () => {
           if (input.value !== this.buffer) {
             this.buffer = input.value;
-            this.cursor = this.buffer.length;
+            this.cursor = typeof input.selectionStart === 'number' ? input.selectionStart : this.buffer.length;
             this.updateActiveLine();
           }
         });
@@ -264,6 +428,17 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       }
     }
 
+    _findReverseSearchMatch(query, startIdx) {
+      if (!query || !this.history.length) return -1;
+      const from = typeof startIdx === 'number' ? Math.min(startIdx, this.history.length - 1) : this.history.length - 1;
+      for (let i = from; i >= 0; i--) {
+        if (this.history[i] && this.history[i].includes(query)) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
     handleKeyDown(e) {
       if (!e) return;
       if (this.onKey) {
@@ -274,7 +449,72 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       }
 
       const key = e.key;
-      const isCtrl = e.ctrlKey || e.metaKey;
+      const isCtrl = Boolean(e.ctrlKey || e.metaKey);
+
+      if (isCtrl && (key === 'r' || key === 'R')) {
+        if (e.preventDefault) e.preventDefault();
+        if (!this.searchMode) {
+          this.searchMode = true;
+          this.searchQuery = '';
+          this.searchMatchIdx = -1;
+        } else if (this.searchQuery) {
+          const nextStart = this.searchMatchIdx > 0 ? this.searchMatchIdx - 1 : this.history.length - 1;
+          const matchIdx = this._findReverseSearchMatch(this.searchQuery, nextStart);
+          if (matchIdx !== -1) {
+            this.searchMatchIdx = matchIdx;
+            this.buffer = this.history[matchIdx];
+            this.cursor = this.buffer.length;
+          }
+        }
+        this.updateActiveLine();
+        return;
+      }
+
+      if (this.searchMode) {
+        if (key === 'Escape' || (isCtrl && (key === 'g' || key === 'G'))) {
+          if (e.preventDefault) e.preventDefault();
+          this.searchMode = false;
+          this.searchQuery = '';
+          this.searchMatchIdx = -1;
+          this.updateActiveLine();
+          return;
+        }
+        if (key === 'Backspace') {
+          if (e.preventDefault) e.preventDefault();
+          this.searchQuery = this.searchQuery.slice(0, -1);
+          const matchIdx = this._findReverseSearchMatch(this.searchQuery, this.history.length - 1);
+          this.searchMatchIdx = matchIdx;
+          if (matchIdx !== -1) {
+            this.buffer = this.history[matchIdx];
+            this.cursor = this.buffer.length;
+          }
+          this.updateActiveLine();
+          return;
+        }
+        if (key === 'Enter') {
+          if (e.preventDefault) e.preventDefault();
+          this.searchMode = false;
+          this.searchQuery = '';
+          this.searchMatchIdx = -1;
+          this.submitLine();
+          return;
+        }
+        if (key && key.length === 1 && !isCtrl && !e.altKey) {
+          if (e.preventDefault) e.preventDefault();
+          this.searchQuery += key;
+          const matchIdx = this._findReverseSearchMatch(this.searchQuery, this.history.length - 1);
+          this.searchMatchIdx = matchIdx;
+          if (matchIdx !== -1) {
+            this.buffer = this.history[matchIdx];
+            this.cursor = this.buffer.length;
+          }
+          this.updateActiveLine();
+          return;
+        }
+        this.searchMode = false;
+        this.searchQuery = '';
+        this.searchMatchIdx = -1;
+      }
 
       if (key === 'ArrowLeft') {
         if (e.preventDefault) e.preventDefault();
@@ -357,6 +597,9 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
         if (this.replMode) {
           this.replMode = false;
         }
+        if (this.onInterrupt) {
+          try { this.onInterrupt(); } catch (_) {}
+        }
         this.render();
         return;
       }
@@ -418,6 +661,7 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
 
       // Printable character
       if (key && key.length === 1 && !isCtrl && !e.altKey) {
+        if (e.preventDefault) e.preventDefault();
         this.buffer = this.buffer.slice(0, this.cursor) + key + this.buffer.slice(this.cursor);
         this.cursor++;
         this.updateActiveLine();
@@ -469,6 +713,9 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       this.buffer = '';
       this.cursor = 0;
       this.historyIdx = -1;
+      this.searchMode = false;
+      this.searchQuery = '';
+      this.searchMatchIdx = -1;
 
       if (line.trim()) {
         if (this.history[this.history.length - 1] !== line.trim()) {
@@ -476,13 +723,21 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
         }
       }
 
+      if (this._readLineQueue && this._readLineQueue.length > 0) {
+        const resolver = this._readLineQueue.shift();
+        this.updateActiveLine();
+        resolver(line);
+        return;
+      }
+
+      this.updateActiveLine();
       if (this.onCommand) {
         this.onCommand(line);
       }
     }
 
     updateActiveLine() {
-      if (!this.container) return;
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
       const input = this.container.querySelector('#cl-repl-input');
       if (input && input.value !== this.buffer) {
         input.value = this.buffer;
@@ -490,7 +745,9 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       const lineEl = this.container.querySelector('#cl-pty-active-line');
       if (!lineEl) return;
 
-      const prompt = this.getPrompt();
+      const prompt = this.searchMode
+        ? `(reverse-i-search)\`${this.searchQuery}\`: `
+        : this.getPrompt();
       const before = this.buffer.slice(0, this.cursor);
       const cursorChar = this.cursor < this.buffer.length ? this.buffer[this.cursor] : ' ';
       const after = this.cursor < this.buffer.length ? this.buffer.slice(this.cursor + 1) : '';
@@ -499,12 +756,21 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     }
 
     render() {
-      if (!this.container) return;
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
+      const prevInput = this.container.querySelector('#cl-repl-input');
+      const hadFocus = Boolean(
+        prevInput &&
+        typeof document !== 'undefined' &&
+        document.activeElement === prevInput
+      );
+
       const logsHtml = this.logs
         .map(item => `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${ansiToHtml(item.text)}</div>`)
         .join('');
 
-      const prompt = this.getPrompt();
+      const prompt = this.searchMode
+        ? `(reverse-i-search)\`${this.searchQuery}\`: `
+        : this.getPrompt();
       const before = this.buffer.slice(0, this.cursor);
       const cursorChar = this.cursor < this.buffer.length ? this.buffer[this.cursor] : ' ';
       const after = this.cursor < this.buffer.length ? this.buffer.slice(this.cursor + 1) : '';
@@ -526,6 +792,18 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       }
 
       this._bindEvents();
+
+      if (hadFocus) {
+        const nextInput = this.container.querySelector('#cl-repl-input');
+        if (nextInput && typeof nextInput.focus === 'function') {
+          try {
+            nextInput.focus();
+            if (typeof nextInput.setSelectionRange === 'function') {
+              nextInput.setSelectionRange(this.cursor, this.cursor);
+            }
+          } catch (_) {}
+        }
+      }
     }
   }
 
@@ -533,10 +811,14 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     return new PTYTerminalEngine(container, options);
   }
 
+  const createPTYTerminalEngine = createTerminal;
+
   return {
     PTYTerminalEngine,
+    createPTYTerminalEngine,
     createTerminal,
     ansiToHtml,
+    parseAnsiToHtml,
     escapeHtml,
     ANSI_CODE_MAP
   };
@@ -547,12 +829,16 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
 const CodeLabTerminal = _root.CodeLabTerminal;
 const PTYTerminalEngine = CodeLabTerminal.PTYTerminalEngine;
 const createTerminal = CodeLabTerminal.createTerminal;
+const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine;
 const ansiToHtml = CodeLabTerminal.ansiToHtml;
+const parseAnsiToHtml = CodeLabTerminal.parseAnsiToHtml;
 
 export {
   CodeLabTerminal,
   PTYTerminalEngine,
   createTerminal,
-  ansiToHtml
+  createPTYTerminalEngine,
+  ansiToHtml,
+  parseAnsiToHtml
 };
 export default CodeLabTerminal;

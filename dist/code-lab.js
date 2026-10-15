@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v1.3.1 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -210,6 +210,13 @@ function __initVirtualRuntime(rootScope) {
         } else if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
           bytes = new Uint8Array(value.length);
           for (let i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i) & 0xff;
+        } else if (enc === 'utf16le' || enc === 'utf-16le' || enc === 'ucs2' || enc === 'ucs-2') {
+          bytes = new Uint8Array(value.length * 2);
+          for (let i = 0; i < value.length; i++) {
+            const c = value.charCodeAt(i);
+            bytes[i * 2] = c & 0xff;
+            bytes[i * 2 + 1] = (c >>> 8) & 0xff;
+          }
         } else {
           bytes = utf8Encode(value);
         }
@@ -290,6 +297,7 @@ function __initVirtualRuntime(rootScope) {
       const enc = (encoding || 'utf8').toLowerCase();
       if (enc === 'utf8' || enc === 'utf-8') return utf8Encode(stringOrBuf).length;
       if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') return stringOrBuf.length;
+      if (enc === 'utf16le' || enc === 'utf-16le' || enc === 'ucs2' || enc === 'ucs-2') return stringOrBuf.length * 2;
       if (enc === 'hex') return stringOrBuf.length >>> 1;
       if (enc === 'base64' || enc === 'base64url') return base64Decode(stringOrBuf).length;
       return utf8Encode(stringOrBuf).length;
@@ -392,6 +400,13 @@ function __initVirtualRuntime(rootScope) {
       if (enc === 'ascii' || enc === 'latin1' || enc === 'binary') {
         let s = '';
         for (let i = 0; i < sub.length; i++) s += String.fromCharCode(sub[i]);
+        return s;
+      }
+      if (enc === 'utf16le' || enc === 'utf-16le' || enc === 'ucs2' || enc === 'ucs-2') {
+        let s = '';
+        for (let i = 0; i + 1 < sub.length; i += 2) {
+          s += String.fromCharCode(sub[i] | (sub[i + 1] << 8));
+        }
         return s;
       }
       return utf8Decode(sub);
@@ -617,9 +632,70 @@ function __initVirtualRuntime(rootScope) {
     return out;
   }
 
+  function sha1Raw(inputBytes) {
+    const len = inputBytes.length;
+    const bitLenHi = Math.floor(len / 0x20000000);
+    const bitLenLo = (len << 3) >>> 0;
+    const padLen = ((len + 8) & ~63) + 64;
+    const msg = new Uint8Array(padLen);
+    msg.set(inputBytes);
+    msg[len] = 0x80;
+    const dv = new DataView(msg.buffer);
+    dv.setUint32(padLen - 8, bitLenHi, false);
+    dv.setUint32(padLen - 4, bitLenLo, false);
+
+    let H0 = 0x67452301, H1 = 0xefcdab89, H2 = 0x98badcfe, H3 = 0x10325476, H4 = 0xc3d2e1f0;
+    const W = new Uint32Array(80);
+
+    for (let off = 0; off < padLen; off += 64) {
+      for (let t = 0; t < 16; t++) W[t] = dv.getUint32(off + t * 4, false);
+      for (let t = 16; t < 80; t++) {
+        const x = W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16];
+        W[t] = ((x << 1) | (x >>> 31)) >>> 0;
+      }
+      let a = H0, b = H1, c = H2, d = H3, e = H4;
+      for (let t = 0; t < 80; t++) {
+        let f, k;
+        if (t < 20) {
+          f = (b & c) | (~b & d);
+          k = 0x5a827999;
+        } else if (t < 40) {
+          f = b ^ c ^ d;
+          k = 0x6ed9eba1;
+        } else if (t < 60) {
+          f = (b & c) | (b & d) | (c & d);
+          k = 0x8f1bbcdc;
+        } else {
+          f = b ^ c ^ d;
+          k = 0xca62c1d6;
+        }
+        const temp = ((((a << 5) | (a >>> 27)) >>> 0) + (f >>> 0) + e + k + W[t]) >>> 0;
+        e = d;
+        d = c;
+        c = ((b << 30) | (b >>> 2)) >>> 0;
+        b = a;
+        a = temp;
+      }
+      H0 = (H0 + a) >>> 0;
+      H1 = (H1 + b) >>> 0;
+      H2 = (H2 + c) >>> 0;
+      H3 = (H3 + d) >>> 0;
+      H4 = (H4 + e) >>> 0;
+    }
+
+    const out = VirtualBuffer.alloc(20);
+    out.writeUInt32BE(H0, 0);
+    out.writeUInt32BE(H1, 4);
+    out.writeUInt32BE(H2, 8);
+    out.writeUInt32BE(H3, 12);
+    out.writeUInt32BE(H4, 16);
+    return out;
+  }
+
   function hashBytes(alg, bytes) {
     const a = String(alg).toLowerCase().replace('-', '');
     if (a === 'md5') return md5Raw(bytes);
+    if (a === 'sha1') return sha1Raw(bytes);
     if (a === 'sha256') return sha256Raw(bytes);
     throw new Error(`Unsupported hash algorithm: ${alg}`);
   }
@@ -758,6 +834,8 @@ function __initVirtualRuntime(rootScope) {
   // =========================================================================
   // 4. PATH & OS SHIMS
   // =========================================================================
+  let _activeCwdGetter = () => '/workspace';
+
   const VirtualPath = {
     sep: '/',
     delimiter: ':',
@@ -799,10 +877,24 @@ function __initVirtualRuntime(rootScope) {
         resolved = resolved ? `${seg}/${resolved}` : seg;
       }
       if (!resolved.startsWith('/')) {
-        resolved = `/workspace/${resolved}`;
+        const baseCwd = typeof _activeCwdGetter === 'function' ? _activeCwdGetter() : '/workspace';
+        resolved = `${baseCwd}/${resolved}`;
       }
       const norm = VirtualPath.normalize(resolved);
       return norm.length > 1 && norm.endsWith('/') ? norm.slice(0, -1) : norm;
+    },
+    relative(from, to) {
+      const f = VirtualPath.resolve(from);
+      const t = VirtualPath.resolve(to);
+      if (f === t) return '';
+      const fParts = f.split('/').filter(Boolean);
+      const tParts = t.split('/').filter(Boolean);
+      let common = 0;
+      while (common < fParts.length && common < tParts.length && fParts[common] === tParts[common]) {
+        common++;
+      }
+      const up = new Array(fParts.length - common).fill('..');
+      return [...up, ...tParts.slice(common)].join('/');
     },
     dirname(p) {
       if (typeof p !== 'string') throw new TypeError('Path must be a string');
@@ -829,6 +921,22 @@ function __initVirtualRuntime(rootScope) {
       if (idx <= 0) return '';
       return base.slice(idx);
     },
+    parse(p) {
+      if (typeof p !== 'string') throw new TypeError('Path must be a string');
+      const root = p.startsWith('/') ? '/' : '';
+      const dir = p ? VirtualPath.dirname(p) : '';
+      const base = p ? VirtualPath.basename(p) : '';
+      const ext = p ? VirtualPath.extname(p) : '';
+      const name = ext ? base.slice(0, base.length - ext.length) : base;
+      return { root, dir: dir === '.' && !p.startsWith('./') ? '' : dir, base, ext, name };
+    },
+    format(pathObject) {
+      if (!pathObject || typeof pathObject !== 'object') throw new TypeError('pathObject must be an object');
+      const dir = pathObject.dir || pathObject.root || '';
+      const base = pathObject.base || `${pathObject.name || ''}${pathObject.ext || ''}`;
+      if (!dir) return base;
+      return dir === pathObject.root ? `${dir}${base}` : `${dir}/${base}`;
+    },
     isAbsolute(p) {
       return typeof p === 'string' && p.startsWith('/');
     }
@@ -849,7 +957,7 @@ function __initVirtualRuntime(rootScope) {
   // 5. VIRTUAL IN-MEMORY POSIX FILESYSTEM (node:fs)
   // =========================================================================
   function createVirtualFs(initialFiles = {}) {
-    const dirs = new Set(['/', '/tmp', '/workspace']);
+    const dirs = new Set(['/', '/tmp', '/workspace', '/home', '/home/user']);
     const files = new Map();       // normalizedPath -> { data: Uint8Array, mtimeMs, ctimeMs, ino }
     const deletedInspectorCache = new Map(); // normalizedPath -> { data: Uint8Array, mtimeMs, deletedAtMs }
     const fdTable = new Map();     // fd -> { inode, path, flags, pos, isDirectory }
@@ -863,7 +971,8 @@ function __initVirtualRuntime(rootScope) {
         err.code = 'ERR_INVALID_ARG_TYPE';
         throw err;
       }
-      const abs = p.startsWith('/') ? VirtualPath.normalize(p) : VirtualPath.resolve('/workspace', p);
+      const baseCwd = typeof _activeCwdGetter === 'function' ? _activeCwdGetter() : '/workspace';
+      const abs = p.startsWith('/') ? VirtualPath.normalize(p) : VirtualPath.resolve(baseCwd, p);
       return abs.length > 1 && abs.endsWith('/') ? abs.slice(0, -1) : abs;
     }
 
@@ -1163,12 +1272,17 @@ function __initVirtualRuntime(rootScope) {
           : (data instanceof Uint8Array ? data.slice() : new Uint8Array( VirtualBuffer.from(String(data), encoding) ));
         let inode = files.get(np);
         if (!inode) {
-          const modeVal = (opts && typeof opts === 'object' && opts.mode !== undefined) ? Number(opts.mode) : 0o100644;
+          const modeVal = (opts && typeof opts === 'object' && opts.mode !== undefined)
+            ? (0o100000 | (Number(opts.mode) & 0o777))
+            : 0o100644;
           inode = { data: bytes, mtimeMs: Date.now(), ctimeMs: Date.now(), ino: nextIno++, mode: modeVal };
           files.set(np, inode);
         } else {
           inode.data = bytes;
           inode.mtimeMs = Date.now();
+          if (opts && typeof opts === 'object' && opts.mode !== undefined) {
+            inode.mode = 0o100000 | (Number(opts.mode) & 0o777);
+          }
         }
         deletedInspectorCache.set(np, { data: bytes.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: null });
       },
@@ -1191,7 +1305,7 @@ function __initVirtualRuntime(rootScope) {
           : (data instanceof Uint8Array ? data : new Uint8Array(VirtualBuffer.from(String(data), encoding)));
         let inode = files.get(np);
         if (!inode) {
-          fsShim.writeFileSync(np, chunk);
+          fsShim.writeFileSync(np, chunk, opts);
           return;
         }
         const combined = new Uint8Array(inode.data.byteLength + chunk.byteLength);
@@ -5153,9 +5267,10 @@ function __initVirtualRuntime(rootScope) {
 
     let syncExecDepth = 0;
     let currentCwd = '/workspace';
+    _activeCwdGetter = () => currentCwd;
 
     const sandboxProcess = Object.assign(new EventEmitter(), {
-      env: { NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/coder' },
+      env: { NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/user' },
       argv: argv || ['node', entry.startsWith('/') ? entry : `/workspace/${entry}`],
       argv0: 'node',
       execArgv: [],
@@ -5221,11 +5336,19 @@ function __initVirtualRuntime(rootScope) {
     });
 
     // Built-in `node:test` runner (`test`, `describe`, `it`, `before`, `after`, `beforeEach`, `afterEach`, `mock`)
+    const rootSuite = {
+      prefix: '',
+      pendingBefore: [],
+      afterCallbacks: [],
+      beforeEach: [],
+      afterEach: []
+    };
     const suiteStack = [];
     function currentSuite() {
-      return suiteStack.length > 0 ? suiteStack[suiteStack.length - 1] : null;
+      return suiteStack.length > 0 ? suiteStack[suiteStack.length - 1] : rootSuite;
     }
 
+    const activeMocks = [];
     function createMockFn(impl = () => undefined) {
       const calls = [];
       let currentImpl = impl;
@@ -5252,6 +5375,7 @@ function __initVirtualRuntime(rootScope) {
         mockImplementationOnce: (onceImpl) => { onceQueue.push(onceImpl); },
         restore: () => {}
       };
+      activeMocks.push(mockFn.mock);
       return mockFn;
     }
 
@@ -5264,8 +5388,18 @@ function __initVirtualRuntime(rootScope) {
         obj[methodName] = wrapped;
         return wrapped;
       },
-      reset: () => {},
-      restoreAll: () => {}
+      reset: () => {
+        for (const m of activeMocks) {
+          m.resetCalls();
+          m.restore();
+        }
+        activeMocks.length = 0;
+      },
+      restoreAll: () => {
+        for (const m of activeMocks) {
+          m.restore();
+        }
+      }
     };
 
     let nodeTestChain = Promise.resolve();
@@ -5316,7 +5450,7 @@ function __initVirtualRuntime(rootScope) {
       const opts = typeof optsOrFn === 'object' && optsOrFn !== null ? optsOrFn : {};
       if (opts.skip || typeof fn !== 'function') return Promise.resolve();
       const suite = currentSuite();
-      const fullName = suite ? `${suite.prefix} > ${name}` : name;
+      const fullName = suite && suite.prefix ? `${suite.prefix} > ${name}` : name;
       const hooksSnapshot = {
         beforeToRun: suite ? suite.pendingBefore : [],
         afterToRun: [],
@@ -5331,7 +5465,7 @@ function __initVirtualRuntime(rootScope) {
       const opts = typeof optsOrFn === 'object' && optsOrFn !== null ? optsOrFn : {};
       if (opts.skip || typeof suiteFn !== 'function') return;
       const parent = currentSuite();
-      const prefix = parent ? `${parent.prefix} > ${suiteName}` : suiteName;
+      const prefix = parent && parent.prefix ? `${parent.prefix} > ${suiteName}` : suiteName;
       const suiteCtx = {
         prefix,
         pendingBefore: [],
@@ -5857,6 +5991,12 @@ function __initVirtualRuntime(rootScope) {
           return { changes: 0, lastInsertRowid: 0 };
         }
 
+        if (/^DROP\s+TABLE/i.test(stmt)) {
+          const match = stmt.match(/^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
+          if (match) this.tables.delete(match[1]);
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
         if (/^INSERT\s+INTO/i.test(stmt)) {
           const match = stmt.match(/^INSERT\s+INTO\s+([a-zA-Z0-9_]+)(?:\s*\(([^)]+)\))?\s*VALUES\s*\((.*)\)/is);
           if (match) {
@@ -5891,7 +6031,78 @@ function __initVirtualRuntime(rootScope) {
             return { changes: 1, lastInsertRowid: table.autoInc };
           }
         }
+
+        if (/^DELETE\s+FROM/i.test(stmt)) {
+          const match = stmt.match(/^DELETE\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*))?$/is);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (!table) throw new Error(`no such table: ${match[1]}`);
+            const whereClause = match[2] ? match[2].trim() : null;
+            const pList = Array.isArray(params) ? [...params] : [params];
+            const beforeLen = table.rows.length;
+            if (!whereClause) {
+              table.rows = [];
+            } else {
+              table.rows = table.rows.filter(r => !this._matchWhere(r, whereClause, pList));
+            }
+            return { changes: beforeLen - table.rows.length, lastInsertRowid: table.autoInc };
+          }
+        }
+
+        if (/^UPDATE\s+/i.test(stmt)) {
+          const match = stmt.match(/^UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+(.*?)(?:\s+WHERE\s+(.*))?$/is);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (!table) throw new Error(`no such table: ${match[1]}`);
+            const setParts = match[2].split(',').map(s => s.trim());
+            const whereClause = match[3] ? match[3].trim() : null;
+            const pList = Array.isArray(params) ? [...params] : [params];
+            let changes = 0;
+            for (const row of table.rows) {
+              const rowParams = [...pList];
+              const setUpdates = [];
+              for (const sp of setParts) {
+                const eqIdx = sp.indexOf('=');
+                const col = sp.slice(0, eqIdx).trim();
+                let valExpr = sp.slice(eqIdx + 1).trim();
+                let val = valExpr === '?' ? rowParams.shift() : (/^['"].*['"]$/.test(valExpr) ? valExpr.slice(1, -1) : (!isNaN(Number(valExpr)) ? Number(valExpr) : valExpr));
+                setUpdates.push([col, val]);
+              }
+              if (!whereClause || this._matchWhere(row, whereClause, rowParams)) {
+                for (const [col, val] of setUpdates) row[col] = val;
+                changes++;
+              }
+            }
+            return { changes, lastInsertRowid: table.autoInc };
+          }
+        }
+
         return { changes: 0, lastInsertRowid: 0 };
+      }
+
+      _matchWhere(row, whereClause, pList) {
+        if (!whereClause) return true;
+        const eqMatch = whereClause.match(/^([a-zA-Z0-9_]+)\s*(=|!=|<>|>=|<=|>|<)\s*(.*)$/);
+        if (eqMatch) {
+          const col = eqMatch[1].trim();
+          const op = eqMatch[2];
+          let expected = eqMatch[3].trim();
+          if (expected === '?') {
+            expected = pList.shift();
+          } else if (/^['"].*['"]$/.test(expected)) {
+            expected = expected.slice(1, -1);
+          } else if (!isNaN(Number(expected))) {
+            expected = Number(expected);
+          }
+          const actual = row[col];
+          if (op === '=') return String(actual) === String(expected);
+          if (op === '!=' || op === '<>') return String(actual) !== String(expected);
+          if (op === '>') return Number(actual) > Number(expected);
+          if (op === '<') return Number(actual) < Number(expected);
+          if (op === '>=') return Number(actual) >= Number(expected);
+          if (op === '<=') return Number(actual) <= Number(expected);
+        }
+        return true;
       }
 
       exec(sql) {
@@ -5900,6 +6111,12 @@ function __initVirtualRuntime(rootScope) {
           this.run(s);
         }
       }
+
+      transaction(fn) {
+        return (...args) => fn(...args);
+      }
+
+      close() {}
 
       query(sql) {
         const db = this;
@@ -5918,7 +6135,9 @@ function __initVirtualRuntime(rootScope) {
             return rows.map(r => Object.values(r));
           },
           run(...args) {
-            return db.run(sql, args);
+            let params = args;
+            if (args.length === 1 && Array.isArray(args[0])) params = args[0];
+            return db.run(sql, params);
           }
         };
       }
@@ -5929,35 +6148,28 @@ function __initVirtualRuntime(rootScope) {
 
       _executeSelect(sql, params = []) {
         const s = sql.trim().replace(/;$/, '');
-        const match = s.match(/^SELECT\s+(.*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*?))?(?:\s+GROUP\s+BY\s+(.*?))?(?:\s+ORDER\s+BY\s+(.*?))?$/is);
+        const match = s.match(/^SELECT\s+(.*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*?))?(?:\s+GROUP\s+BY\s+(.*?))?(?:\s+ORDER\s+BY\s+(.*?))?(?:\s+LIMIT\s+(\d+|\?)(?:\s+OFFSET\s+(\d+|\?))?)?$/is);
         if (!match) return [];
         const selectColsRaw = match[1].trim();
         const tableName = match[2].trim();
         const whereClause = match[3] ? match[3].trim() : null;
         const groupByClause = match[4] ? match[4].trim() : null;
         const orderByClause = match[5] ? match[5].trim() : null;
+        const limitRaw = match[6] ? match[6].trim() : null;
+        const offsetRaw = match[7] ? match[7].trim() : null;
 
         const table = this.tables.get(tableName);
         if (!table) return [];
 
         let pList = Array.isArray(params) ? [...params] : [params];
         let filteredRows = table.rows.filter(row => {
-          if (!whereClause) return true;
-          const eqMatch = whereClause.match(/^([a-zA-Z0-9_]+)\s*=\s*(.*)$/);
-          if (eqMatch) {
-            const col = eqMatch[1].trim();
-            let expected = eqMatch[2].trim();
-            if (expected === '?') {
-              expected = pList.shift();
-            } else if (/^['"].*['"]$/.test(expected)) {
-              expected = expected.slice(1, -1);
-            } else if (!isNaN(Number(expected))) {
-              expected = Number(expected);
-            }
-            return String(row[col]) === String(expected);
-          }
-          return true;
+          const rowParams = [...pList];
+          return this._matchWhere(row, whereClause, rowParams);
         });
+        if (whereClause && whereClause.includes('?')) {
+          const qCount = (whereClause.match(/\?/g) || []).length;
+          pList.splice(0, qCount);
+        }
 
         const colSpecs = [];
         if (selectColsRaw !== '*') {
@@ -6040,17 +6252,18 @@ function __initVirtualRuntime(rootScope) {
           });
         }
 
+        if (limitRaw !== null) {
+          const limitVal = limitRaw === '?' ? Number(pList.shift() || 0) : Number(limitRaw);
+          const offsetVal = offsetRaw !== null ? (offsetRaw === '?' ? Number(pList.shift() || 0) : Number(offsetRaw)) : 0;
+          outputRows = outputRows.slice(offsetVal, offsetVal + limitVal);
+        }
+
         return outputRows;
       }
     }
 
     function crc32Hash(str) {
-      const s = String(str);
-      let crc = 0 ^ (-1);
-      for (let i = 0; i < s.length; i++) {
-        crc = (crc >>> 8) ^ ((crc ^ s.charCodeAt(i)) & 0xFF);
-      }
-      return (crc ^ (-1)) >>> 0;
+      return VirtualZlib.crc32( typeof str === 'string' || str instanceof Uint8Array ? str : String(str) );
     }
 
     const bunHashFn = function hash(val) {
@@ -6059,30 +6272,12 @@ function __initVirtualRuntime(rootScope) {
     bunHashFn.crc32 = (val) => crc32Hash(val);
     bunHashFn.cityHash64 = (val) => {
       const h1 = crc32Hash(val);
-      const h2 = crc32Hash(val + ':seed64');
+      const h2 = crc32Hash(String(val) + ':seed64');
       return (BigInt(h1) << 32n) | BigInt(h2);
     };
 
     function deepEquals(a, b) {
-      if (a === b) return true;
-      if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
-        return false;
-      }
-      if (a instanceof Date && b instanceof Date) {
-        return a.getTime() === b.getTime();
-      }
-      if (a instanceof RegExp && b instanceof RegExp) {
-        return a.toString() === b.toString();
-      }
-      if (Array.isArray(a) !== Array.isArray(b)) return false;
-      const keysA = Object.keys(a);
-      const keysB = Object.keys(b);
-      if (keysA.length !== keysB.length) return false;
-      for (const k of keysA) {
-        if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-        if (!deepEquals(a[k], b[k])) return false;
-      }
-      return true;
+      return isDeepEqual(a, b, true);
     }
 
     const BunObj = {
@@ -6236,7 +6431,10 @@ function __initVirtualRuntime(rootScope) {
           },
           toHaveBeenCalledWith(...args) {
             const calls = (actual && actual.mock && actual.mock.calls) || [];
-            const found = calls.some(callArgs => deepEquals(callArgs, args));
+            const found = calls.some(callEntry => {
+              const callArgs = Array.isArray(callEntry) ? callEntry : (callEntry && Array.isArray(callEntry.arguments) ? callEntry.arguments : []);
+              return deepEquals(callArgs, args);
+            });
             pass(found, `Expected mock to have been called with ${JSON.stringify(args)}`);
           }
         };
@@ -6277,10 +6475,10 @@ function __initVirtualRuntime(rootScope) {
         it: (testName, fn) => nodeTestFn(testName, fn),
         expect: (actual) => makeExpect(actual),
         mock: (impl) => mockFn(impl),
-        beforeAll: () => {},
-        afterAll: () => {},
-        beforeEach: () => {},
-        afterEach: () => {}
+        beforeAll: (fn) => nodeTestFn.before(fn),
+        afterAll: (fn) => nodeTestFn.after(fn),
+        beforeEach: (fn) => nodeTestFn.beforeEach(fn),
+        afterEach: (fn) => nodeTestFn.afterEach(fn)
       };
     })();
 
@@ -7080,7 +7278,13 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         testFilter: options.testFilter,
         timeoutMs: options.timeoutMs,
         maxOutputBytes: options.maxOutputBytes,
-        maxConsoleCalls: options.maxConsoleCalls
+        maxConsoleCalls: options.maxConsoleCalls,
+        packages: options.packages,
+        npmModules: options.npmModules,
+        argv: options.argv,
+        pid: options.pid,
+        isBackground: options.isBackground,
+        printReplResult: options.printReplResult
       }
     });
   });
@@ -7130,12 +7334,8 @@ if (typeof module !== 'undefined' && module.exports) {
  */
 
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
-  } else {
-    const exports = factory();
+  const exports = factory(root);
+  if (root) {
     root.CodeLabShell = exports;
     root.createPosixShell = exports.createPosixShell;
     root.PosixShell = exports.PosixShell;
@@ -7144,18 +7344,55 @@ if (typeof module !== 'undefined' && module.exports) {
     root.COREUTILS = exports.COREUTILS;
     root.createVirtualPortTable = exports.createVirtualPortTable;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exports;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return exports; });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
 
-  let runtimeModule = null;
-  try {
-    if (typeof require !== 'undefined') {
-      runtimeModule = require('./runtime.js');
-    }
-  } catch (_) {}
+  function getRuntimeModule() {
+    if (typeof root !== 'undefined' && root && root.CodeLabRuntime) return root.CodeLabRuntime;
+    if (typeof globalThis !== 'undefined' && globalThis.CodeLabRuntime) return globalThis.CodeLabRuntime;
+    try {
+      if (typeof require !== 'undefined') return require('./runtime.js');
+    } catch (_) {}
+    return null;
+  }
 
-  const executeInVirtualRuntime = (runtimeModule && runtimeModule.executeInVirtualRuntime) || null;
-  const createVirtualPortTable = (runtimeModule && runtimeModule.createVirtualPortTable) || null;
+  function hasVirtualRuntime() {
+    const rm = getRuntimeModule();
+    return Boolean(rm && typeof rm.executeInVirtualRuntime === 'function');
+  }
+
+  function executeInVirtualRuntime(...args) {
+    const rm = getRuntimeModule();
+    if (rm && typeof rm.executeInVirtualRuntime === 'function') {
+      return rm.executeInVirtualRuntime(...args);
+    }
+    throw new Error('Virtual runtime engine is not available');
+  }
+
+  function createVirtualPortTable(...args) {
+    const rm = getRuntimeModule();
+    if (rm && typeof rm.createVirtualPortTable === 'function') {
+      return rm.createVirtualPortTable(...args);
+    }
+    return null;
+  }
+
+  function transpileTS(code, filename) {
+    const rm = getRuntimeModule();
+    if (rm && typeof rm.transpileTS === 'function') {
+      return rm.transpileTS(code, filename);
+    }
+    return String(code)
+      .replace(/^\s*import\s+type\s+[^\n;]+;?\s*$/gm, '')
+      .replace(/^\s*export\s+(?:interface|type)\s+[A-Za-z0-9_$]+[\s\S]*?(?:^\}|\n)/gm, '')
+      .replace(/^\s*(?:interface|type)\s+[A-Za-z0-9_$]+[^;{]*\{[^}]*\}/gm, '')
+      .replace(/:\s*[A-Za-z0-9_$<>\[\]|&\s]+(?=[,=)\n;{])/g, '');
+  }
 
   // =========================================================================
   // 1. POSIX PATH UTILITIES (Virtual Filesystem Path Normalizer)
@@ -7219,7 +7456,7 @@ if (typeof module !== 'undefined' && module.exports) {
   };
 
   // =========================================================================
-  // 2. GLOB PATTERN MATCHING & VFS DIRECTORY EXPANSION
+  // 2. GLOB, BRACE & ARITHMETIC EXPANSION UTILITIES (Zero-eval Pure JS)
   // =========================================================================
   function globToRegExp(glob, isPath = true) {
     let regStr = '^';
@@ -7241,7 +7478,9 @@ if (typeof module !== 'undefined' && module.exports) {
       } else if (c === '[') {
         const close = glob.indexOf(']', i + 1);
         if (close !== -1) {
-          regStr += glob.slice(i, close + 1);
+          let inner = glob.slice(i + 1, close);
+          if (inner.startsWith('!')) inner = '^' + inner.slice(1);
+          regStr += '[' + inner + ']';
           i = close + 1;
         } else {
           regStr += '\\[';
@@ -7257,6 +7496,425 @@ if (typeof module !== 'undefined' && module.exports) {
     }
     regStr += '$';
     return new RegExp(regStr);
+  }
+
+  function expandBraces(str) {
+    if (typeof str !== 'string' || !str.includes('{') || !str.includes('}')) {
+      return [str];
+    }
+
+    // Find first top-level balanced brace pair that contains a comma or range '..'
+    let openIdx = -1;
+    let closeIdx = -1;
+    let depth = 0;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '\\') { i++; continue; }
+      if (str[i] === '{') {
+        if (depth === 0) openIdx = i;
+        depth++;
+      } else if (str[i] === '}') {
+        if (depth > 0) {
+          depth--;
+          if (depth === 0) {
+            const inner = str.slice(openIdx + 1, i);
+            if (hasTopLevelComma(inner) || /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(inner) || /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(inner)) {
+              closeIdx = i;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (openIdx === -1 || closeIdx === -1) return [str];
+
+    const prefix = str.slice(0, openIdx);
+    const body = str.slice(openIdx + 1, closeIdx);
+    const suffix = str.slice(closeIdx + 1);
+
+    let options = [];
+    const numMatch = body.match(/^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/);
+    const charMatch = body.match(/^([a-zA-Z])\.\.([a-zA-Z])(?:\.\.(-?\d+))?$/);
+
+    if (numMatch && !hasTopLevelComma(body)) {
+      const rawStart = numMatch[1];
+      const rawEnd = numMatch[2];
+      const start = parseInt(rawStart, 10);
+      const end = parseInt(rawEnd, 10);
+      let step = numMatch[3] !== undefined ? parseInt(numMatch[3], 10) : (start <= end ? 1 : -1);
+      if (step === 0) step = 1;
+      if ((start <= end && step < 0) || (start > end && step > 0)) step = -step;
+      const padWidth = (rawStart.startsWith('0') && rawStart.length > 1) || (rawEnd.startsWith('0') && rawEnd.length > 1)
+        ? Math.max(rawStart.length, rawEnd.length)
+        : 0;
+      for (let v = start; step > 0 ? v <= end : v >= end; v += step) {
+        let s = String(Math.abs(v));
+        if (padWidth > 0) s = s.padStart(padWidth - (v < 0 ? 1 : 0), '0');
+        options.push(v < 0 ? '-' + s : s);
+      }
+    } else if (charMatch && !hasTopLevelComma(body)) {
+      const startCode = charMatch[1].charCodeAt(0);
+      const endCode = charMatch[2].charCodeAt(0);
+      let step = charMatch[3] !== undefined ? Math.abs(parseInt(charMatch[3], 10)) || 1 : 1;
+      if (startCode > endCode) step = -step;
+      for (let c = startCode; step > 0 ? c <= endCode : c >= endCode; c += step) {
+        options.push(String.fromCharCode(c));
+      }
+    } else {
+      options = splitTopLevelComma(body);
+    }
+
+    const results = [];
+    for (const opt of options) {
+      for (const expandedOpt of expandBraces(opt)) {
+        for (const expandedRest of expandBraces(suffix)) {
+          results.push(prefix + expandedOpt + expandedRest);
+        }
+      }
+    }
+    return results;
+  }
+
+  function hasTopLevelComma(s) {
+    let d = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\\') { i++; continue; }
+      if (s[i] === '{') d++;
+      else if (s[i] === '}') d = Math.max(0, d - 1);
+      else if (s[i] === ',' && d === 0) return true;
+    }
+    return false;
+  }
+
+  function splitTopLevelComma(s) {
+    const parts = [];
+    let cur = '';
+    let d = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\\' && i + 1 < s.length) {
+        cur += s[i] + s[i + 1];
+        i++;
+        continue;
+      }
+      if (s[i] === '{') { d++; cur += s[i]; }
+      else if (s[i] === '}') { d = Math.max(0, d - 1); cur += s[i]; }
+      else if (s[i] === ',' && d === 0) {
+        parts.push(cur);
+        cur = '';
+      } else {
+        cur += s[i];
+      }
+    }
+    parts.push(cur);
+    return parts;
+  }
+
+  /**
+   * Pure-JS CSP-safe arithmetic evaluator for $(( ... ))
+   */
+  function evaluateArithmetic(exprStr, env = {}, shellEnv = null) {
+    const src = String(exprStr || '').trim();
+    if (!src) return 0;
+
+    // Tokenize arithmetic expression
+    const tokens = [];
+    let i = 0;
+    const len = src.length;
+
+    while (i < len) {
+      const ch = src[i];
+      if (/\s/.test(ch)) { i++; continue; }
+
+      // Multi-char operators
+      const three = src.slice(i, i + 3);
+      if (three === '<<=' || three === '>>=') {
+        tokens.push({ type: 'OP', value: three });
+        i += 3;
+        continue;
+      }
+      const two = src.slice(i, i + 2);
+      if (['**', '++', '--', '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', '+=', '-=', '*=', '/=', '%=', '&=', '^=', '|='].includes(two)) {
+        tokens.push({ type: 'OP', value: two });
+        i += 2;
+        continue;
+      }
+      if ('+-*/%<>&|^!~?:=,()'.includes(ch)) {
+        tokens.push({ type: 'OP', value: ch });
+        i++;
+        continue;
+      }
+
+      // Variable with leading $: ${VAR} or $VAR
+      if (ch === '$') {
+        i++;
+        let vName = '';
+        if (src[i] === '{') {
+          i++;
+          while (i < len && src[i] !== '}') vName += src[i++];
+          if (src[i] === '}') i++;
+        } else {
+          while (i < len && /[a-zA-Z0-9_?#]/.test(src[i])) vName += src[i++];
+        }
+        const rawVal = env[vName] !== undefined ? env[vName] : (shellEnv && shellEnv[vName] !== undefined ? shellEnv[vName] : '0');
+        const parsed = Number(rawVal);
+        tokens.push({ type: 'NUM', value: Number.isFinite(parsed) ? Math.trunc(parsed) : 0, name: vName });
+        continue;
+      }
+
+      // Number literal (hex, octal, binary, decimal)
+      if (/[0-9]/.test(ch)) {
+        let numStr = '';
+        while (i < len && /[0-9a-fA-FxXbBoO_]/.test(src[i])) {
+          if (src[i] !== '_') numStr += src[i];
+          i++;
+        }
+        let val = 0;
+        if (/^0[xX]/.test(numStr)) val = parseInt(numStr.slice(2), 16) || 0;
+        else if (/^0[bB]/.test(numStr)) val = parseInt(numStr.slice(2), 2) || 0;
+        else if (/^0[oO]/.test(numStr)) val = parseInt(numStr.slice(2), 8) || 0;
+        else if (numStr.length > 1 && numStr.startsWith('0') && /^[0-7]+$/.test(numStr)) val = parseInt(numStr, 8) || 0;
+        else val = parseInt(numStr, 10) || 0;
+        tokens.push({ type: 'NUM', value: val });
+        continue;
+      }
+
+      // Identifier (variable name)
+      if (/[a-zA-Z_]/.test(ch)) {
+        let ident = '';
+        while (i < len && /[a-zA-Z0-9_]/.test(src[i])) ident += src[i++];
+        tokens.push({ type: 'IDENT', name: ident });
+        continue;
+      }
+
+      i++;
+    }
+
+    let pos = 0;
+    const peek = () => tokens[pos] || null;
+    const next = () => tokens[pos++] || null;
+
+    function getVar(name) {
+      const v = env[name] !== undefined ? env[name] : (shellEnv && shellEnv[name] !== undefined ? shellEnv[name] : 0);
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.trunc(n) : 0;
+    }
+
+    function setVar(name, val) {
+      const iv = Math.trunc(Number(val) || 0);
+      env[name] = String(iv);
+      if (shellEnv) shellEnv[name] = String(iv);
+      return iv;
+    }
+
+    function parseComma() {
+      let v = parseAssign();
+      while (peek() && peek().type === 'OP' && peek().value === ',') {
+        next();
+        v = parseAssign();
+      }
+      return v;
+    }
+
+    function parseAssign() {
+      if (peek() && (peek().type === 'IDENT' || (peek().type === 'NUM' && peek().name))) {
+        const nextTok = tokens[pos + 1];
+        if (nextTok && nextTok.type === 'OP' && ['=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '|='].includes(nextTok.value)) {
+          const ident = next().name;
+          const op = next().value;
+          const rhs = parseAssign();
+          const cur = getVar(ident);
+          if (op === '=') return setVar(ident, rhs);
+          if (op === '+=') return setVar(ident, cur + rhs);
+          if (op === '-=') return setVar(ident, cur - rhs);
+          if (op === '*=') return setVar(ident, cur * rhs);
+          if (op === '/=') return setVar(ident, rhs === 0 ? 0 : Math.trunc(cur / rhs));
+          if (op === '%=') return setVar(ident, rhs === 0 ? 0 : cur % rhs);
+          if (op === '<<=') return setVar(ident, cur << rhs);
+          if (op === '>>=') return setVar(ident, cur >> rhs);
+          if (op === '&=') return setVar(ident, cur & rhs);
+          if (op === '^=') return setVar(ident, cur ^ rhs);
+          if (op === '|=') return setVar(ident, cur | rhs);
+        }
+      }
+      return parseTernary();
+    }
+
+    function parseTernary() {
+      const cond = parseLogicalOr();
+      if (peek() && peek().type === 'OP' && peek().value === '?') {
+        next();
+        const yes = parseAssign();
+        if (peek() && peek().type === 'OP' && peek().value === ':') next();
+        const no = parseAssign();
+        return cond !== 0 ? yes : no;
+      }
+      return cond;
+    }
+
+    function parseLogicalOr() {
+      let left = parseLogicalAnd();
+      while (peek() && peek().type === 'OP' && peek().value === '||') {
+        next();
+        const right = parseLogicalAnd();
+        left = (left !== 0 || right !== 0) ? 1 : 0;
+      }
+      return left;
+    }
+
+    function parseLogicalAnd() {
+      let left = parseBitOr();
+      while (peek() && peek().type === 'OP' && peek().value === '&&') {
+        next();
+        const right = parseBitOr();
+        left = (left !== 0 && right !== 0) ? 1 : 0;
+      }
+      return left;
+    }
+
+    function parseBitOr() {
+      let left = parseBitXor();
+      while (peek() && peek().type === 'OP' && peek().value === '|') {
+        next();
+        left = left | parseBitXor();
+      }
+      return left;
+    }
+
+    function parseBitXor() {
+      let left = parseBitAnd();
+      while (peek() && peek().type === 'OP' && peek().value === '^') {
+        next();
+        left = left ^ parseBitAnd();
+      }
+      return left;
+    }
+
+    function parseBitAnd() {
+      let left = parseEquality();
+      while (peek() && peek().type === 'OP' && peek().value === '&') {
+        next();
+        left = left & parseEquality();
+      }
+      return left;
+    }
+
+    function parseEquality() {
+      let left = parseRelational();
+      while (peek() && peek().type === 'OP' && (peek().value === '==' || peek().value === '!=')) {
+        const op = next().value;
+        const right = parseRelational();
+        left = op === '==' ? (left === right ? 1 : 0) : (left !== right ? 1 : 0);
+      }
+      return left;
+    }
+
+    function parseRelational() {
+      let left = parseShift();
+      while (peek() && peek().type === 'OP' && ['<', '<=', '>', '>='].includes(peek().value)) {
+        const op = next().value;
+        const right = parseShift();
+        if (op === '<') left = left < right ? 1 : 0;
+        else if (op === '<=') left = left <= right ? 1 : 0;
+        else if (op === '>') left = left > right ? 1 : 0;
+        else if (op === '>=') left = left >= right ? 1 : 0;
+      }
+      return left;
+    }
+
+    function parseShift() {
+      let left = parseAdd();
+      while (peek() && peek().type === 'OP' && (peek().value === '<<' || peek().value === '>>')) {
+        const op = next().value;
+        const right = parseAdd();
+        left = op === '<<' ? (left << right) : (left >> right);
+      }
+      return left;
+    }
+
+    function parseAdd() {
+      let left = parseMul();
+      while (peek() && peek().type === 'OP' && (peek().value === '+' || peek().value === '-')) {
+        const op = next().value;
+        const right = parseMul();
+        left = op === '+' ? (left + right) : (left - right);
+      }
+      return left;
+    }
+
+    function parseMul() {
+      let left = parsePow();
+      while (peek() && peek().type === 'OP' && ['*', '/', '%'].includes(peek().value)) {
+        const op = next().value;
+        const right = parsePow();
+        if (op === '*') left = left * right;
+        else if (op === '/') left = right === 0 ? 0 : Math.trunc(left / right);
+        else if (op === '%') left = right === 0 ? 0 : (left % right);
+      }
+      return left;
+    }
+
+    function parsePow() {
+      const base = parseUnary();
+      if (peek() && peek().type === 'OP' && peek().value === '**') {
+        next();
+        const exp = parsePow();
+        return Math.trunc(Math.pow(base, exp));
+      }
+      return base;
+    }
+
+    function parseUnary() {
+      const t = peek();
+      if (t && t.type === 'OP') {
+        if (t.value === '+') { next(); return +parseUnary(); }
+        if (t.value === '-') { next(); return -parseUnary(); }
+        if (t.value === '!') { next(); return parseUnary() === 0 ? 1 : 0; }
+        if (t.value === '~') { next(); return ~parseUnary(); }
+        if (t.value === '++' || t.value === '--') {
+          const op = next().value;
+          const target = peek();
+          if (target && (target.type === 'IDENT' || target.name)) {
+            next();
+            const cur = getVar(target.name);
+            return setVar(target.name, op === '++' ? cur + 1 : cur - 1);
+          }
+          return parseUnary();
+        }
+      }
+      return parsePostfix();
+    }
+
+    function parsePostfix() {
+      const t = peek();
+      if (!t) return 0;
+      if (t.type === 'OP' && t.value === '(') {
+        next();
+        const val = parseComma();
+        if (peek() && peek().type === 'OP' && peek().value === ')') next();
+        return val;
+      }
+      if (t.type === 'IDENT') {
+        next();
+        const cur = getVar(t.name);
+        if (peek() && peek().type === 'OP' && (peek().value === '++' || peek().value === '--')) {
+          const op = next().value;
+          setVar(t.name, op === '++' ? cur + 1 : cur - 1);
+        }
+        return cur;
+      }
+      if (t.type === 'NUM') {
+        next();
+        if (t.name && peek() && peek().type === 'OP' && (peek().value === '++' || peek().value === '--')) {
+          const op = next().value;
+          setVar(t.name, op === '++' ? t.value + 1 : t.value - 1);
+        }
+        return t.value;
+      }
+      next();
+      return 0;
+    }
+
+    return Math.trunc(parseComma() || 0);
   }
 
   function expandGlob(pattern, cwd, vfs) {
@@ -7336,24 +7994,30 @@ if (typeof module !== 'undefined' && module.exports) {
   // =========================================================================
   /**
    * Tokenizes a POSIX shell command string into structured tokens:
-   * Words with segment types (literal, single-quoted, double-quoted, var, subshell)
-   * Operators: &&, ||, |, ;, &, >, >>, <, 2>, 2>>, 2>&1, 1>&2, &>
+   * Words with segment types (literal, single_quoted, double_quoted, variable, subshell, arith)
+   * Operators: &&, ||, |, ;, ;;, &, >, >>, <, <<, <<-, <<<, 2>, 2>>, 2>&1, 1>&2, &>, (, )
    */
   function tokenizeShell(commandLine) {
     if (typeof commandLine !== 'string') return [];
     const tokens = [];
     const len = commandLine.length;
     let i = 0;
+    let pendingHeredocEnd = -1;
 
     while (i < len) {
       const ch = commandLine[i];
 
-      // Newline: treated as command separator (equivalent to semicolon)
+      // Newline: treated as command separator (equivalent to semicolon), jumping over consumed heredocs
       if (ch === '\n') {
-        i++;
+        if (pendingHeredocEnd > i) {
+          i = pendingHeredocEnd;
+          pendingHeredocEnd = -1;
+        } else {
+          i++;
+        }
         if (tokens.length > 0) {
           const lastType = tokens[tokens.length - 1].type;
-          if (lastType !== 'SEMICOLON' && lastType !== 'AND' && lastType !== 'OR' && lastType !== 'PIPE') {
+          if (lastType !== 'SEMICOLON' && lastType !== 'DSEMI' && lastType !== 'AND' && lastType !== 'OR' && lastType !== 'PIPE' && lastType !== 'LPAREN') {
             tokens.push({ type: 'SEMICOLON', raw: ';' });
           }
         }
@@ -7369,6 +8033,32 @@ if (typeof module !== 'undefined' && module.exports) {
       // Comments: # until end of line
       if (ch === '#') {
         while (i < len && commandLine[i] !== '\n') i++;
+        continue;
+      }
+
+      // Double semicolon ';;' (for case clauses)
+      if (ch === ';' && commandLine[i + 1] === ';') {
+        tokens.push({ type: 'DSEMI', raw: ';;' });
+        i += 2;
+        continue;
+      }
+
+      // Semicolon ';'
+      if (ch === ';') {
+        tokens.push({ type: 'SEMICOLON', raw: ';' });
+        i++;
+        continue;
+      }
+
+      // Subshell / grouping / function parens '(' and ')'
+      if (ch === '(') {
+        tokens.push({ type: 'LPAREN', raw: '(' });
+        i++;
+        continue;
+      }
+      if (ch === ')') {
+        tokens.push({ type: 'RPAREN', raw: ')' });
+        i++;
         continue;
       }
 
@@ -7393,16 +8083,9 @@ if (typeof module !== 'undefined' && module.exports) {
         continue;
       }
 
-      // Semicolon ';'
-      if (ch === ';') {
-        tokens.push({ type: 'SEMICOLON', raw: ';' });
-        i++;
-        continue;
-      }
-
       // Both stdout & stderr redirect '&>'
       if (ch === '&' && commandLine[i + 1] === '>') {
-        tokens.push({ type: 'REDIRECT', op: '&>', sourceFd: 'all' });
+        tokens.push({ type: 'REDIRECT', op: '&>', sourceFd: 'all', raw: '&>' });
         i += 2;
         continue;
       }
@@ -7437,7 +8120,7 @@ if (typeof module !== 'undefined' && module.exports) {
         continue;
       }
 
-      // Redirection: >> or >&1 or >&2 or > or <
+      // Redirection: >> or >&1 or >&2 or >
       if (ch === '>') {
         if (commandLine[i + 1] === '&' && (commandLine[i + 2] === '1' || commandLine[i + 2] === '2')) {
           const targetFd = parseInt(commandLine[i + 2], 10);
@@ -7455,21 +8138,83 @@ if (typeof module !== 'undefined' && module.exports) {
         continue;
       }
 
+      // Input redirection: <<< (here-string), <<- / << (here-document), or <
       if (ch === '<') {
+        if (commandLine[i + 1] === '<' && commandLine[i + 2] === '<') {
+          tokens.push({ type: 'REDIRECT', op: '<<<', sourceFd: 0, raw: '<<<' });
+          i += 3;
+          continue;
+        }
+        if (commandLine[i + 1] === '<') {
+          const stripTabs = commandLine[i + 2] === '-';
+          i += stripTabs ? 3 : 2;
+          while (i < len && (commandLine[i] === ' ' || commandLine[i] === '\t')) i++;
+
+          let delim = '';
+          let quoted = false;
+          while (i < len && !/[\s;|&<>()]/.test(commandLine[i])) {
+            if (commandLine[i] === "'" || commandLine[i] === '"') {
+              const q = commandLine[i++];
+              quoted = true;
+              while (i < len && commandLine[i] !== q) delim += commandLine[i++];
+              if (i < len && commandLine[i] === q) i++;
+            } else if (commandLine[i] === '\\' && i + 1 < len) {
+              quoted = true;
+              i++;
+              delim += commandLine[i++];
+            } else {
+              delim += commandLine[i++];
+            }
+          }
+
+          const searchStart = pendingHeredocEnd > i ? pendingHeredocEnd : commandLine.indexOf('\n', i);
+          let body = '';
+          if (searchStart !== -1 && searchStart < len) {
+            let lineStart = searchStart + 1;
+            while (lineStart <= len) {
+              let lineEnd = commandLine.indexOf('\n', lineStart);
+              if (lineEnd === -1) lineEnd = len;
+              const rawLine = commandLine.slice(lineStart, lineEnd).replace(/\r$/, '');
+              const checkLine = stripTabs ? rawLine.replace(/^\t+/, '') : rawLine;
+              if (checkLine === delim) {
+                pendingHeredocEnd = lineEnd < len ? lineEnd + 1 : len;
+                break;
+              }
+              body += (stripTabs ? rawLine.replace(/^\t+/, '') : rawLine) + '\n';
+              if (lineEnd === len) {
+                pendingHeredocEnd = len;
+                break;
+              }
+              lineStart = lineEnd + 1;
+            }
+          }
+
+          tokens.push({
+            type: 'REDIRECT',
+            op: '<<',
+            sourceFd: 0,
+            stripTabs,
+            quoted,
+            body,
+            delim,
+            raw: stripTabs ? '<<-' : '<<'
+          });
+          continue;
+        }
         tokens.push({ type: 'REDIRECT', op: '<', sourceFd: 0, raw: '<' });
         i++;
         continue;
       }
 
-      // Otherwise, parse a WORD token (may contain quotes, variables, escapes, subshells)
+      // Otherwise, parse a WORD token (may contain quotes, variables, escapes, subshells, arith)
       const segments = [];
       let rawWord = '';
       let hasWildcard = false;
+      let hasBraces = false;
 
       while (i < len) {
         const c = commandLine[i];
-        if (/\s/.test(c) || c === '|' || c === '&' || c === ';' || c === '<' || c === '>') {
-          // Lookahead: digit immediately preceding > or < is a redirect, not part of word
+        if (/\s/.test(c) || c === '|' || c === '&' || c === ';' || c === '<' || c === '>' || c === '(' || c === ')') {
           break;
         }
 
@@ -7489,6 +8234,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
         // Double quotes "..."
         if (c === '"') {
+          const dqStart = i;
           i++;
           const dqParts = [];
           let currentLit = '';
@@ -7508,7 +8254,35 @@ if (typeof module !== 'undefined' && module.exports) {
               continue;
             }
 
-            // Command substitution inside double quotes: $(...) or `...`
+            // Arithmetic expansion inside double quotes: $((...))
+            if (dc === '$' && commandLine[i + 1] === '(' && commandLine[i + 2] === '(') {
+              if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
+              i += 3;
+              let depth = 2;
+              let expr = '';
+              while (i < len && depth > 0) {
+                if (commandLine[i] === '(') {
+                  depth++;
+                  expr += '(';
+                  i++;
+                } else if (commandLine[i] === ')') {
+                  if (depth === 2 && commandLine[i + 1] === ')') {
+                    depth = 0;
+                    i += 2;
+                    break;
+                  }
+                  depth--;
+                  if (depth > 0) expr += ')';
+                  i++;
+                } else {
+                  expr += commandLine[i++];
+                }
+              }
+              dqParts.push({ type: 'arith', expr });
+              continue;
+            }
+
+            // Command substitution inside double quotes: $(...)
             if (dc === '$' && commandLine[i + 1] === '(') {
               if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
               i += 2;
@@ -7524,6 +8298,19 @@ if (typeof module !== 'undefined' && module.exports) {
               continue;
             }
 
+            // Backtick substitution inside double quotes: `...`
+            if (dc === '`') {
+              if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
+              i++;
+              let subCmd = '';
+              while (i < len && commandLine[i] !== '`') {
+                subCmd += commandLine[i++];
+              }
+              if (i < len && commandLine[i] === '`') i++;
+              dqParts.push({ type: 'subshell', command: subCmd });
+              continue;
+            }
+
             // Variable inside double quotes: ${VAR} or $VAR
             if (dc === '$') {
               if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
@@ -7531,21 +8318,21 @@ if (typeof module !== 'undefined' && module.exports) {
               if (commandLine[i] === '{') {
                 i++;
                 let varName = '';
-                while (i < len && commandLine[i] !== '}') {
-                  varName += commandLine[i];
+                let bDepth = 1;
+                while (i < len && bDepth > 0) {
+                  if (commandLine[i] === '{') bDepth++;
+                  else if (commandLine[i] === '}') bDepth--;
+                  if (bDepth > 0) varName += commandLine[i];
                   i++;
                 }
-                if (i < len && commandLine[i] === '}') i++;
                 dqParts.push({ type: 'variable', name: varName });
-              } else if (/[a-zA-Z0-9_?!$#@]/.test(commandLine[i])) {
+              } else if (/[0-9?!$#@*]/.test(commandLine[i])) {
+                const varName = commandLine[i++];
+                dqParts.push({ type: 'variable', name: varName });
+              } else if (/[a-zA-Z_]/.test(commandLine[i])) {
                 let varName = '';
                 while (i < len && /[a-zA-Z0-9_]/.test(commandLine[i])) {
-                  varName += commandLine[i];
-                  i++;
-                }
-                if (!varName && /[?!$#@]/.test(commandLine[i])) {
-                  varName = commandLine[i];
-                  i++;
+                  varName += commandLine[i++];
                 }
                 dqParts.push({ type: 'variable', name: varName });
               } else {
@@ -7560,15 +8347,43 @@ if (typeof module !== 'undefined' && module.exports) {
           if (i < len && commandLine[i] === '"') i++;
           if (currentLit) dqParts.push({ type: 'literal', value: currentLit });
           segments.push({ type: 'double_quoted', parts: dqParts });
-          rawWord += `"${currentLit}"`;
+          rawWord += commandLine.slice(dqStart, i);
           continue;
         }
 
         // Backslash outside quotes
         if (c === '\\' && i + 1 < len) {
-          segments.push({ type: 'literal', value: commandLine[i + 1] });
-          rawWord += commandLine[i + 1];
+          segments.push({ type: 'literal', value: commandLine[i + 1], escaped: true });
+          rawWord += '\\' + commandLine[i + 1];
           i += 2;
+          continue;
+        }
+
+        // Arithmetic expansion $((...)) outside quotes
+        if (c === '$' && commandLine[i + 1] === '(' && commandLine[i + 2] === '(') {
+          i += 3;
+          let depth = 2;
+          let expr = '';
+          while (i < len && depth > 0) {
+            if (commandLine[i] === '(') {
+              depth++;
+              expr += '(';
+              i++;
+            } else if (commandLine[i] === ')') {
+              if (depth === 2 && commandLine[i + 1] === ')') {
+                depth = 0;
+                i += 2;
+                break;
+              }
+              depth--;
+              if (depth > 0) expr += ')';
+              i++;
+            } else {
+              expr += commandLine[i++];
+            }
+          }
+          segments.push({ type: 'arith', expr });
+          rawWord += `$((${expr}))`;
           continue;
         }
 
@@ -7608,23 +8423,23 @@ if (typeof module !== 'undefined' && module.exports) {
           if (commandLine[i] === '{') {
             i++;
             let varName = '';
-            while (i < len && commandLine[i] !== '}') {
-              varName += commandLine[i];
+            let bDepth = 1;
+            while (i < len && bDepth > 0) {
+              if (commandLine[i] === '{') bDepth++;
+              else if (commandLine[i] === '}') bDepth--;
+              if (bDepth > 0) varName += commandLine[i];
               i++;
             }
-            if (i < len && commandLine[i] === '}') i++;
             segments.push({ type: 'variable', name: varName });
             rawWord += `\${${varName}}`;
-          } else if (/[a-zA-Z0-9_?!$#@]/.test(commandLine[i])) {
+          } else if (/[0-9?!$#@*]/.test(commandLine[i])) {
+            const varName = commandLine[i++];
+            segments.push({ type: 'variable', name: varName });
+            rawWord += `$${varName}`;
+          } else if (/[a-zA-Z_]/.test(commandLine[i])) {
             let varName = '';
-            if (/[?!$#@]/.test(commandLine[i])) {
-              varName = commandLine[i];
-              i++;
-            } else {
-              while (i < len && /[a-zA-Z0-9_]/.test(commandLine[i])) {
-                varName += commandLine[i];
-                i++;
-              }
+            while (i < len && /[a-zA-Z0-9_]/.test(commandLine[i])) {
+              varName += commandLine[i++];
             }
             segments.push({ type: 'variable', name: varName });
             rawWord += `$${varName}`;
@@ -7635,9 +8450,12 @@ if (typeof module !== 'undefined' && module.exports) {
           continue;
         }
 
-        // Wildcard detection
+        // Wildcard and brace detection
         if (c === '*' || c === '?' || c === '[') {
           hasWildcard = true;
+        }
+        if (c === '{' || c === '}') {
+          hasBraces = true;
         }
 
         // Normal character outside quotes
@@ -7650,7 +8468,8 @@ if (typeof module !== 'undefined' && module.exports) {
         type: 'WORD',
         segments,
         raw: rawWord,
-        hasWildcard
+        hasWildcard,
+        hasBraces
       });
     }
 
@@ -7662,7 +8481,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // =========================================================================
   /**
    * Parses token stream into an executable AST:
-   * Sequence -> Logical (&&, ||) -> Pipeline (|) -> SimpleCommand (args, redirects, env)
+   * Sequence -> Logical (&&, ||) -> Pipeline (|) -> Compound / SimpleCommand
    */
   function parseShellCommand(input) {
     const tokens = typeof input === 'string' ? tokenizeShell(input) : input;
@@ -7676,16 +8495,24 @@ if (typeof module !== 'undefined' && module.exports) {
       return tokens[pos++] || null;
     }
 
-    // Sequence: cmd1 ; cmd2 & cmd3
-    function parseSequence() {
+    function isWord(tok, ...vals) {
+      return Boolean(tok && tok.type === 'WORD' && vals.includes(tok.raw));
+    }
+
+    function skipSeps() {
+      while (peek() && peek().type === 'SEMICOLON') next();
+    }
+
+    function parseSequence(stopWords = []) {
       const items = [];
       while (pos < tokens.length) {
-        if (peek() && peek().type === 'SEMICOLON') {
-          next();
-          continue;
-        }
+        skipSeps();
+        const t = peek();
+        if (!t) break;
+        if (t.type === 'RPAREN' || t.type === 'DSEMI') break;
+        if (stopWords.length > 0 && isWord(t, ...stopWords)) break;
 
-        const logicalNode = parseLogical();
+        const logicalNode = parseLogical(stopWords);
         if (!logicalNode) break;
 
         let background = false;
@@ -7705,14 +8532,14 @@ if (typeof module !== 'undefined' && module.exports) {
       };
     }
 
-    // Logical: pipeline1 && pipeline2 || pipeline3
-    function parseLogical() {
-      let left = parsePipeline();
+    function parseLogical(stopWords = []) {
+      let left = parsePipeline(stopWords);
       if (!left) return null;
 
       while (peek() && (peek().type === 'AND' || peek().type === 'OR')) {
         const opToken = next();
-        const right = parsePipeline();
+        skipSeps();
+        const right = parsePipeline(stopWords);
         if (!right) break;
         left = {
           type: 'Logical',
@@ -7725,28 +8552,231 @@ if (typeof module !== 'undefined' && module.exports) {
       return left;
     }
 
-    // Pipeline: cmd1 | cmd2 | cmd3
-    function parsePipeline() {
+    function parsePipeline(stopWords = []) {
+      let negated = false;
+      if (isWord(peek(), '!')) {
+        next();
+        negated = true;
+      }
+
       const commands = [];
-      const first = parseCommand();
+      const first = parseCommand(stopWords);
       if (!first) return null;
       commands.push(first);
 
       while (peek() && peek().type === 'PIPE') {
-        next(); // consume '|'
-        const nextCmd = parseCommand();
+        next();
+        skipSeps();
+        const nextCmd = parseCommand(stopWords);
         if (nextCmd) commands.push(nextCmd);
       }
 
-      if (commands.length === 1) return commands[0];
+      if (commands.length === 1 && !negated) return commands[0];
       return {
         type: 'Pipeline',
+        negated,
         commands
       };
     }
 
-    // Simple Command: leading ENV=val, name, args, redirections
-    function parseCommand() {
+    function parseTrailingRedirects() {
+      const redirects = [];
+      while (peek() && (peek().type === 'REDIRECT' || peek().type === 'REDIRECT_FD')) {
+        const token = next();
+        if (token.type === 'REDIRECT') {
+          if (token.op === '<<') {
+            redirects.push({
+              type: '<<',
+              sourceFd: token.sourceFd,
+              body: token.body,
+              quoted: token.quoted,
+              stripTabs: token.stripTabs
+            });
+          } else {
+            let target = null;
+            if (peek() && peek().type === 'WORD') target = next();
+            redirects.push({
+              type: token.op,
+              sourceFd: token.sourceFd,
+              target
+            });
+          }
+        } else {
+          redirects.push({
+            type: '>&',
+            sourceFd: token.sourceFd,
+            targetFd: token.targetFd
+          });
+        }
+      }
+      return redirects;
+    }
+
+    function parseCommand(stopWords = []) {
+      const tok = peek();
+      if (!tok) return null;
+      if (tok.type === 'RPAREN' || tok.type === 'DSEMI') return null;
+      if (stopWords.length > 0 && isWord(tok, ...stopWords)) return null;
+
+      // 1. Subshell: ( list )
+      if (tok.type === 'LPAREN') {
+        next();
+        const body = parseSequence([]);
+        if (peek() && peek().type === 'RPAREN') next();
+        return {
+          type: 'Subshell',
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 2. Brace group: { list; }
+      if (isWord(tok, '{')) {
+        next();
+        const body = parseSequence(['}']);
+        if (isWord(peek(), '}')) next();
+        return {
+          type: 'BraceGroup',
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 3. If / elif / else / fi
+      if (isWord(tok, 'if')) {
+        next();
+        const branches = [];
+        const cond = parseSequence(['then']);
+        if (isWord(peek(), 'then')) next();
+        const body = parseSequence(['elif', 'else', 'fi']);
+        branches.push({ cond, body });
+
+        while (isWord(peek(), 'elif')) {
+          next();
+          const elifCond = parseSequence(['then']);
+          if (isWord(peek(), 'then')) next();
+          const elifBody = parseSequence(['elif', 'else', 'fi']);
+          branches.push({ cond: elifCond, body: elifBody });
+        }
+
+        let elseBody = null;
+        if (isWord(peek(), 'else')) {
+          next();
+          elseBody = parseSequence(['fi']);
+        }
+        if (isWord(peek(), 'fi')) next();
+        return {
+          type: 'If',
+          branches,
+          elseBody,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 4. For loop: for var [in words...]; do list; done
+      if (isWord(tok, 'for')) {
+        next();
+        const varTok = next();
+        const varName = varTok ? varTok.raw : 'i';
+        let items = null;
+        if (isWord(peek(), 'in')) {
+          next();
+          items = [];
+          while (peek() && peek().type === 'WORD' && !isWord(peek(), 'do')) {
+            items.push(next());
+          }
+        }
+        skipSeps();
+        if (isWord(peek(), 'do')) next();
+        const body = parseSequence(['done']);
+        if (isWord(peek(), 'done')) next();
+        return {
+          type: 'For',
+          varName,
+          items,
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 5. While / Until loop: while cond; do list; done
+      if (isWord(tok, 'while', 'until')) {
+        const kw = next().raw;
+        const cond = parseSequence(['do']);
+        if (isWord(peek(), 'do')) next();
+        const body = parseSequence(['done']);
+        if (isWord(peek(), 'done')) next();
+        return {
+          type: kw === 'while' ? 'While' : 'Until',
+          cond,
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 6. Case statement: case word in [ ( ] pat [ | pat ] ) list ;; ... esac
+      if (isWord(tok, 'case')) {
+        next();
+        const word = next();
+        skipSeps();
+        if (isWord(peek(), 'in')) next();
+        skipSeps();
+        const clauses = [];
+        while (pos < tokens.length && !isWord(peek(), 'esac')) {
+          skipSeps();
+          if (isWord(peek(), 'esac')) break;
+          if (peek() && peek().type === 'LPAREN') next();
+          const patterns = [];
+          while (pos < tokens.length && peek().type !== 'RPAREN' && !isWord(peek(), 'esac')) {
+            if (peek().type === 'PIPE') { next(); continue; }
+            patterns.push(next());
+          }
+          if (peek() && peek().type === 'RPAREN') next();
+          const body = parseSequence(['esac']);
+          if (peek() && peek().type === 'DSEMI') next();
+          skipSeps();
+          clauses.push({ patterns, body });
+        }
+        if (isWord(peek(), 'esac')) next();
+        return {
+          type: 'Case',
+          word,
+          clauses,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 7. Function definition: function name[()] { ... } or name() { ... }
+      if (isWord(tok, 'function')) {
+        next();
+        const nameTok = next();
+        const fnName = nameTok ? nameTok.raw : '';
+        if (peek() && peek().type === 'LPAREN') {
+          next();
+          if (peek() && peek().type === 'RPAREN') next();
+        }
+        skipSeps();
+        const body = parseCommand(stopWords);
+        return {
+          type: 'FunctionDef',
+          name: fnName,
+          body
+        };
+      }
+      if (tok.type === 'WORD' && tokens[pos + 1] && tokens[pos + 1].type === 'LPAREN' && tokens[pos + 2] && tokens[pos + 2].type === 'RPAREN') {
+        const fnName = next().raw;
+        next(); // (
+        next(); // )
+        skipSeps();
+        const body = parseCommand(stopWords);
+        return {
+          type: 'FunctionDef',
+          name: fnName,
+          body
+        };
+      }
+
+      // 8. Simple Command: leading ENV=val, name, args, redirections
       const envVars = [];
       const words = [];
       const redirects = [];
@@ -7755,14 +8785,42 @@ if (typeof module !== 'undefined' && module.exports) {
         const token = peek();
         if (!token) break;
 
+        // Special handling inside [[ ... ]]: consume operators as literal word tokens until ]]
+        if (words.length >= 1 && words[0].raw === '[[') {
+          if (token.type === 'WORD' && token.raw === ']]') {
+            words.push(next());
+            break;
+          }
+          if (token.type === 'SEMICOLON') break;
+          const t = next();
+          if (t.type === 'WORD') {
+            words.push(t);
+          } else {
+            const rawOp = t.raw || t.op || '';
+            words.push({ type: 'WORD', segments: [{ type: 'literal', value: rawOp }], raw: rawOp, hasWildcard: false });
+          }
+          continue;
+        }
+
         if (token.type === 'PIPE' || token.type === 'AND' || token.type === 'OR' ||
-            token.type === 'SEMICOLON' || token.type === 'BACKGROUND') {
+            token.type === 'SEMICOLON' || token.type === 'DSEMI' || token.type === 'BACKGROUND' ||
+            token.type === 'LPAREN' || token.type === 'RPAREN') {
           break;
         }
 
-        // Redirection with file target: >, >>, <, 2>, 2>>
+        // Redirection: >, >>, <, <<, <<<, 2>, 2>>
         if (token.type === 'REDIRECT') {
           next();
+          if (token.op === '<<') {
+            redirects.push({
+              type: '<<',
+              sourceFd: token.sourceFd,
+              body: token.body,
+              quoted: token.quoted,
+              stripTabs: token.stripTabs
+            });
+            continue;
+          }
           const targetToken = peek();
           let target = null;
           if (targetToken && targetToken.type === 'WORD') {
@@ -7804,7 +8862,6 @@ if (typeof module !== 'undefined' && module.exports) {
           continue;
         }
 
-        // Unrecognized token, advance
         next();
       }
 
@@ -7821,7 +8878,7 @@ if (typeof module !== 'undefined' && module.exports) {
       };
     }
 
-    return parseSequence();
+    return parseSequence([]);
   }
 
   // =========================================================================
@@ -7829,7 +8886,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // =========================================================================
   function createFallbackVfs() {
     const files = new Map();
-    const dirs = new Set(['/', '/tmp', '/workspace', '/home', '/home/user']);
+    const dirs = new Set(['/', '/tmp', '/workspace', '/etc', '/home', '/home/user']);
 
     function norm(p) {
       return PosixPath.normalize(p.startsWith('/') ? p : '/workspace/' + p);
@@ -7856,15 +8913,32 @@ if (typeof module !== 'undefined' && module.exports) {
       statSync(p) {
         const np = norm(p);
         if (dirs.has(np)) {
-          return { size: 0, mtimeMs: Date.now(), isDirectory: () => true, isFile: () => false, mode: 0o40755 };
+          return { size: 0, mtimeMs: Date.now(), isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false, mode: 0o40755 };
         }
         const f = files.get(np);
         if (f) {
-          return { size: f.data.length, mtimeMs: f.mtimeMs, isDirectory: () => false, isFile: () => true, mode: f.mode !== undefined ? f.mode : 0o100644 };
+          return {
+            size: f.data.length,
+            mtimeMs: f.mtimeMs,
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => Boolean(f.symlinkTarget),
+            symlinkTarget: f.symlinkTarget || null,
+            mode: f.mode !== undefined ? f.mode : 0o100644
+          };
         }
         const err = new Error(`ENOENT: no such file or directory, stat '${p}'`);
         err.code = 'ENOENT';
         throw err;
+      },
+      lstatSync(p) {
+        return this.statSync(p);
+      },
+      symlinkSync(target, p) {
+        const np = norm(p);
+        const targetAbs = norm(target);
+        const content = files.has(targetAbs) ? files.get(targetAbs).data : '';
+        files.set(np, { data: content, mtimeMs: Date.now(), mode: 0o120777, symlinkTarget: target });
       },
       chmodSync(p, mode) {
         const np = norm(p);
@@ -7902,7 +8976,7 @@ if (typeof module !== 'undefined' && module.exports) {
         }
         return Array.from(children).sort();
       },
-      readFileSync(p, enc = 'utf8') {
+      readFileSync(p) {
         const np = norm(p);
         const f = files.get(np);
         if (!f) {
@@ -7910,7 +8984,7 @@ if (typeof module !== 'undefined' && module.exports) {
           err.code = 'ENOENT';
           throw err;
         }
-        return typeof enc === 'string' ? f.data : f.data;
+        return f.data;
       },
       writeFileSync(p, data) {
         const np = norm(p);
@@ -7945,7 +9019,33 @@ if (typeof module !== 'undefined' && module.exports) {
         }
         dirs.add(np);
       },
-      rmdirSync(p, opts) {
+      rmdirSync(p, opts = {}) {
+        const np = norm(p);
+        const recursive = Boolean(opts && opts.recursive);
+        if (!dirs.has(np)) {
+          const err = new Error(`ENOENT: no such file or directory, rmdir '${p}'`);
+          err.code = 'ENOENT';
+          throw err;
+        }
+        if (!recursive) {
+          const prefix = np === '/' ? '/' : np + '/';
+          for (const f of files.keys()) {
+            if (f.startsWith(prefix)) {
+              const err = new Error(`ENOTEMPTY: directory not empty, rmdir '${p}'`);
+              err.code = 'ENOTEMPTY';
+              throw err;
+            }
+          }
+          for (const d of dirs) {
+            if (d !== np && d.startsWith(prefix)) {
+              const err = new Error(`ENOTEMPTY: directory not empty, rmdir '${p}'`);
+              err.code = 'ENOTEMPTY';
+              throw err;
+            }
+          }
+          if (np !== '/' && np !== '/workspace' && np !== '/tmp') dirs.delete(np);
+          return;
+        }
         this.rmSync(p, { ...opts, recursive: true });
       },
       unlinkSync(p) {
@@ -7959,6 +9059,11 @@ if (typeof module !== 'undefined' && module.exports) {
         const force = Boolean(opts && opts.force);
         if (files.has(np)) { files.delete(np); return; }
         if (dirs.has(np)) {
+          if (!recursive) {
+            const err = new Error(`EISDIR: illegal operation on a directory, rm '${p}'`);
+            err.code = 'EISDIR';
+            throw err;
+          }
           const prefix = np === '/' ? '/' : np + '/';
           for (const f of Array.from(files.keys())) {
             if (f.startsWith(prefix)) files.delete(f);
@@ -7978,8 +9083,21 @@ if (typeof module !== 'undefined' && module.exports) {
           files.set(dst, files.get(src));
           files.delete(src);
         } else if (dirs.has(src)) {
+          const prefix = src === '/' ? '/' : src + '/';
           dirs.add(dst);
-          dirs.delete(src);
+          if (src !== '/' && src !== '/workspace' && src !== '/tmp') dirs.delete(src);
+          for (const d of Array.from(dirs)) {
+            if (d.startsWith(prefix)) {
+              dirs.add(dst + '/' + d.slice(prefix.length));
+              dirs.delete(d);
+            }
+          }
+          for (const [f, val] of Array.from(files.entries())) {
+            if (f.startsWith(prefix)) {
+              files.set(dst + '/' + f.slice(prefix.length), val);
+              files.delete(f);
+            }
+          }
         } else {
           throw new Error(`ENOENT: no such file or directory, rename '${oldP}' -> '${newP}'`);
         }
@@ -8110,7 +9228,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function installPackage(pkgSpec, ctx) {
     const parts = pkgSpec.split('@').filter(Boolean);
     const pkgName = pkgSpec.startsWith('@') ? '@' + parts[0] : parts[0];
-    const pkgVersion = (pkgSpec.startsWith('@') ? parts[1] : parts[1]) || '^1.0.0';
+    const pkgVersion = parts[1] || '^1.0.0';
 
     const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
     if (!pkgData.dependencies) pkgData.dependencies = {};
@@ -8166,7 +9284,7 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   function listDependencies(ctx) {
-    const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+    const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
     const deps = Object.assign({}, pkgData.dependencies || {});
     let out = `${pkgData.name || 'project'}@${pkgData.version || '1.0.0'} ${ctx.cwd || '/workspace'}\n`;
     const keys = Object.keys(deps);
@@ -8293,44 +9411,18 @@ if (typeof module !== 'undefined' && module.exports) {
       let stderr = '';
       let exitCode = 0;
 
-      for (let pIdx = 0; pIdx < paths.length; pIdx++) {
-        const rawP = paths[pIdx];
-        const absP = ctx.resolvePath(rawP);
-
-        if (!ctx.vfs.existsSync(absP)) {
-          stderr += `ls: cannot access '${rawP}': No such file or directory\n`;
-          exitCode = 2;
-          continue;
+      function listDir(rawP, absP, showHeader) {
+        if (showHeader) {
+          stdout += (stdout.length > 0 ? '\n' : '') + `${rawP}:\n`;
         }
 
-        let stat;
-        try { stat = ctx.vfs.statSync(absP); } catch (e) {
-          stderr += `ls: cannot access '${rawP}': ${e.message}\n`;
-          exitCode = 2;
-          continue;
-        }
-
-        if (paths.length > 1 && stat.isDirectory() && !dirOnly) {
-          stdout += (pIdx > 0 ? '\n' : '') + `${rawP}:\n`;
-        }
-
-        if (stat.isFile() || dirOnly) {
-          if (longFormat) {
-            stdout += `-rw-r--r-- 1 ${ctx.env.USER || 'codelab'} ${ctx.env.USER || 'codelab'} ${formatSize(stat.size)} ${formatDate(stat.mtimeMs)} ${rawP}\n`;
-          } else {
-            stdout += `${rawP}\n`;
-          }
-          continue;
-        }
-
-        // Directory listing
         let entries = [];
         try {
           entries = ctx.vfs.readdirSync(absP);
         } catch (err) {
           stderr += `ls: cannot open directory '${rawP}': ${err.message}\n`;
           exitCode = 2;
-          continue;
+          return;
         }
 
         if (showAll) {
@@ -8350,7 +9442,7 @@ if (typeof module !== 'undefined' && module.exports) {
             size = st.size;
             mtimeMs = st.mtimeMs || Date.now();
           } catch (_) {}
-          return { name, isDirectory, size, mtimeMs };
+          return { name, isDirectory, size, mtimeMs, absPath: itemPath };
         });
 
         if (sortByTime) {
@@ -8374,6 +9466,44 @@ if (typeof module !== 'undefined' && module.exports) {
         } else {
           stdout += items.map(it => it.name).join('  ') + (items.length > 0 ? '\n' : '');
         }
+
+        if (recursive) {
+          for (const it of items) {
+            if (it.isDirectory && it.name !== '.' && it.name !== '..') {
+              const childRaw = rawP === '/' ? '/' + it.name : rawP.replace(/\/+$/, '') + '/' + it.name;
+              listDir(childRaw, it.absPath, true);
+            }
+          }
+        }
+      }
+
+      for (let pIdx = 0; pIdx < paths.length; pIdx++) {
+        const rawP = paths[pIdx];
+        const absP = ctx.resolvePath(rawP);
+
+        if (!ctx.vfs.existsSync(absP)) {
+          stderr += `ls: cannot access '${rawP}': No such file or directory\n`;
+          exitCode = 2;
+          continue;
+        }
+
+        let stat;
+        try { stat = ctx.vfs.statSync(absP); } catch (e) {
+          stderr += `ls: cannot access '${rawP}': ${e.message}\n`;
+          exitCode = 2;
+          continue;
+        }
+
+        if (stat.isFile() || dirOnly) {
+          if (longFormat) {
+            stdout += `-rw-r--r-- 1 ${ctx.env.USER || 'codelab'} ${ctx.env.USER || 'codelab'} ${formatSize(stat.size)} ${formatDate(stat.mtimeMs)} ${rawP}\n`;
+          } else {
+            stdout += `${rawP}\n`;
+          }
+          continue;
+        }
+
+        listDir(rawP, absP, paths.length > 1 || recursive);
       }
 
       return { code: exitCode, stdout, stderr };
@@ -8831,7 +9961,8 @@ if (typeof module !== 'undefined' && module.exports) {
         } else if (opt === '-type' && i + 1 < args.length) {
           typeFilter = args[++i];
         } else if (opt === '-maxdepth' && i + 1 < args.length) {
-          maxDepth = parseInt(args[++i], 10) || Infinity;
+          const parsedDepth = parseInt(args[++i], 10);
+          maxDepth = isNaN(parsedDepth) ? Infinity : parsedDepth;
         }
         i++;
       }
@@ -8913,7 +10044,9 @@ if (typeof module !== 'undefined' && module.exports) {
       function countText(text) {
         const lines = text.length === 0 ? 0 : (text.match(/\n/g) || []).length;
         const words = (text.trim().match(/\S+/g) || []).length;
-        const bytes = Buffer.byteLength(text, 'utf8');
+        const bytes = typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(text, 'utf8')
+          : (typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(text).length : text.length);
         return { lines, words, bytes };
       }
 
@@ -9349,16 +10482,17 @@ if (typeof module !== 'undefined' && module.exports) {
         }
       }
 
-      const selectedCols = [];
-      if (fields) {
-        for (const part of fields.split(',')) {
+      function parseRanges(spec) {
+        return spec.split(',').map(part => {
           if (part.includes('-')) {
-            const [start, end] = part.split('-').map(Number);
-            for (let c = start; c <= end; c++) selectedCols.push(c - 1);
-          } else {
-            selectedCols.push(parseInt(part, 10) - 1);
+            const [sStr, eStr] = part.split('-');
+            const start = sStr ? Math.max(1, parseInt(sStr, 10)) - 1 : 0;
+            const end = eStr ? parseInt(eStr, 10) : Infinity;
+            return { start, end };
           }
-        }
+          const idx = Math.max(1, parseInt(part, 10)) - 1;
+          return { start: idx, end: idx + 1 };
+        });
       }
 
       let text = ctx.stdin || '';
@@ -9385,28 +10519,29 @@ if (typeof module !== 'undefined' && module.exports) {
       if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
 
       if (chars) {
-        const ranges = chars.split(',').map(part => {
-          if (part.includes('-')) {
-            const [start, end] = part.split('-').map(Number);
-            return { start: start - 1, end: end };
-          }
-          const idx = parseInt(part, 10) - 1;
-          return { start: idx, end: idx + 1 };
-        });
+        const ranges = parseRanges(chars);
         const out = lines.map(line => {
           let res = '';
           for (const r of ranges) {
-            res += line.slice(r.start, r.end);
+            res += line.slice(r.start, r.end === Infinity ? undefined : r.end);
           }
           return res;
         });
         return { code: 0, stdout: out.join('\n') + (out.length > 0 ? '\n' : ''), stderr: '' };
       }
 
+      const fieldRanges = fields ? parseRanges(fields) : [];
       const out = lines.map(line => {
+        if (fieldRanges.length === 0) return line;
         const parts = line.split(delim);
-        if (selectedCols.length === 0) return line;
-        return selectedCols.map(c => parts[c] || '').join(delim);
+        const chosen = [];
+        for (const r of fieldRanges) {
+          const endIdx = Math.min(parts.length, r.end);
+          for (let c = r.start; c < endIdx; c++) {
+            chosen.push(parts[c] !== undefined ? parts[c] : '');
+          }
+        }
+        return chosen.join(delim);
       });
 
       return { code: 0, stdout: out.join('\n') + (out.length > 0 ? '\n' : ''), stderr: '' };
@@ -9421,31 +10556,51 @@ if (typeof module !== 'undefined' && module.exports) {
       for (const a of args) {
         if (a === '-d') deleteMode = true;
         else if (a === '-s') squeezeMode = true;
+        else if (a === '-ds' || a === '-sd') { deleteMode = true; squeezeMode = true; }
         else if (!set1) set1 = a;
         else if (!set2) set2 = a;
       }
 
       function expandSet(s) {
-        if (s === '[:lower:]' || s === 'a-z') return 'abcdefghijklmnopqrstuvwxyz';
-        if (s === '[:upper:]' || s === 'A-Z') return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        if (s === '[:digit:]' || s === '0-9') return '0123456789';
-        return s;
+        if (!s) return '';
+        if (s === '[:lower:]') return 'abcdefghijklmnopqrstuvwxyz';
+        if (s === '[:upper:]') return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        if (s === '[:digit:]') return '0123456789';
+        if (s === '[:space:]') return ' \t\n\r\f\v';
+        let res = s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
+        res = res.replace(/(.)-(.)/g, (_, start, end) => {
+          const c1 = start.charCodeAt(0);
+          const c2 = end.charCodeAt(0);
+          if (c1 > c2) return start + '-' + end;
+          let r = '';
+          for (let c = c1; c <= c2; c++) r += String.fromCharCode(c);
+          return r;
+        });
+        return res;
       }
 
       const fromChars = expandSet(set1);
       const toChars = expandSet(set2);
+      const squeezeChars = squeezeMode ? (toChars || fromChars) : '';
       const text = ctx.stdin || '';
       let out = '';
+      let lastOutChar = '';
 
       for (let i = 0; i < text.length; i++) {
         const c = text[i];
         const idx = fromChars.indexOf(c);
+        let mapped = c;
         if (idx !== -1) {
           if (deleteMode) continue;
-          out += toChars[idx] || toChars[toChars.length - 1] || c;
-        } else {
-          out += c;
+          if (toChars.length > 0) {
+            mapped = toChars[idx] || toChars[toChars.length - 1];
+          }
         }
+        if (squeezeMode && squeezeChars.includes(mapped) && mapped === lastOutChar) {
+          continue;
+        }
+        out += mapped;
+        lastOutChar = mapped;
       }
 
       return { code: 0, stdout: out, stderr: '' };
@@ -9797,7 +10952,7 @@ if (typeof module !== 'undefined' && module.exports) {
     async export(args, ctx) {
       const targetEnv = ctx.shell ? ctx.shell.env : ctx.env;
       if (args.length === 0) {
-        const keys = Object.keys(targetEnv).sort();
+        const keys = Object.keys(targetEnv).filter(k => k !== '?' && !k.startsWith('__')).sort();
         let stdout = '';
         for (const k of keys) {
           stdout += `declare -x ${k}="${targetEnv[k]}"\n`;
@@ -9920,7 +11075,8 @@ if (typeof module !== 'undefined' && module.exports) {
     async jobs(args, ctx) {
       let stdout = '';
       for (const [id, job] of ctx.shell.jobs.entries()) {
-        stdout += `[${id}]+  ${job.status}                       ${job.command} &\n`;
+        const cleanCmd = String(job.command || '').replace(/\s*&\s*$/, '');
+        stdout += `[${id}]+  ${job.status}                       ${cleanCmd} &\n`;
       }
       return { code: 0, stdout, stderr: '' };
     },
@@ -10156,11 +11312,12 @@ if (typeof module !== 'undefined' && module.exports) {
     // Language Runtimes & Package Managers: node, bun, npm, npx, bunx
     // -----------------------------------------------------------------------
     async node(args, ctx) {
-      if (!executeInVirtualRuntime) {
+      if (!hasVirtualRuntime()) {
         return { code: 1, stdout: '', stderr: 'node: Virtual runtime engine is not available\n' };
       }
-      if (args.length === 0) {
-        return { code: 0, stdout: 'Welcome to Node.js v20.10.0.\nType ".help" for more information.\n', stderr: '' };
+      if (args.length === 0 || args[0] === '-v' || args[0] === '--version') {
+        if (args[0] === '-v' || args[0] === '--version') return { code: 0, stdout: 'v22.0.0\n', stderr: '' };
+        return { code: 0, stdout: 'Welcome to Node.js v22.0.0.\nType ".help" for more information.\n', stderr: '' };
       }
 
       if (args[0] === '-e' || args[0] === '--eval') {
@@ -10251,7 +11408,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
     async bun(args, ctx) {
       if (args.length === 0) {
-        return { code: 0, stdout: 'Bun v1.1.0\n', stderr: '' };
+        return { code: 0, stdout: 'Bun v1.1.20\n', stderr: '' };
       }
 
       const sub = args[0];
@@ -10656,6 +11813,14 @@ if (typeof module !== 'undefined' && module.exports) {
         '?': '0'
       }, options.env || {});
       this.cwd = this.env.PWD || '/workspace';
+      if (options.files && typeof options.files === 'object') {
+        for (const [k, v] of Object.entries(options.files)) {
+          const abs = PosixPath.resolve(this.cwd, k);
+          if (typeof this.vfs.writeFileSync === 'function') {
+            this.vfs.writeFileSync(abs, String(v ?? ''));
+          }
+        }
+      }
       this.history = [];
       this.jobs = new Map();
       this.nextJobId = 1;
@@ -10708,12 +11873,15 @@ if (typeof module !== 'undefined' && module.exports) {
           result += seg.value;
         } else if (seg.type === 'variable') {
           result += this._expandVariable(seg.name, env);
+        } else if (seg.type === 'arith') {
+          result += evaluateArithmetic(seg.expr, env, this.env);
         } else if (seg.type === 'subshell') {
           result += await this._executeSubshell(seg.command, env);
         } else if (seg.type === 'double_quoted') {
           for (const part of seg.parts) {
             if (part.type === 'literal') result += part.value;
             else if (part.type === 'variable') result += this._expandVariable(part.name, env);
+            else if (part.type === 'arith') result += evaluateArithmetic(part.expr, env, this.env);
             else if (part.type === 'subshell') result += await this._executeSubshell(part.command, env);
           }
         }
@@ -10736,15 +11904,50 @@ if (typeof module !== 'undefined' && module.exports) {
       if (name === 'PWD') return this.cwd;
       if (name === 'OLDPWD') return env.OLDPWD || this.cwd;
 
-      // Handle parameter expansion defaults: ${VAR:-default} or ${VAR:=default}
+      if (name.startsWith('#') && name.length > 1) {
+        const k = name.slice(1);
+        const val = env[k] !== undefined ? String(env[k]) : '';
+        return String(val.length);
+      }
+
+      // Handle parameter expansion defaults: ${VAR:=default}, ${VAR:-default}, ${VAR:+alt}, ${VAR-default}, ${VAR=default}
+      if (name.includes(':=')) {
+        const idx = name.indexOf(':=');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 2);
+        if (env[k] === undefined || env[k] === '') {
+          env[k] = def;
+          this.env[k] = def;
+        }
+        return String(env[k]);
+      }
       if (name.includes(':-')) {
-        const [k, def] = name.split(':-');
-        return env[k] || def || '';
+        const idx = name.indexOf(':-');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 2);
+        return (env[k] !== undefined && env[k] !== '') ? String(env[k]) : def;
+      }
+      if (name.includes(':+')) {
+        const idx = name.indexOf(':+');
+        const k = name.slice(0, idx);
+        const alt = name.slice(idx + 2);
+        return (env[k] !== undefined && env[k] !== '') ? alt : '';
       }
       if (name.includes('=')) {
-        const [k, def] = name.split('=');
-        if (!env[k]) env[k] = def;
-        return env[k];
+        const idx = name.indexOf('=');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 1);
+        if (env[k] === undefined) {
+          env[k] = def;
+          this.env[k] = def;
+        }
+        return String(env[k]);
+      }
+      if (name.includes('-')) {
+        const idx = name.indexOf('-');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 1);
+        return env[k] !== undefined ? String(env[k]) : def;
       }
 
       return env[name] !== undefined ? String(env[name]) : '';
@@ -11124,18 +12327,21 @@ if (typeof module !== 'undefined' && module.exports) {
  */
 
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
-  } else {
-    const exports = factory();
+  const exports = factory();
+  if (root) {
     root.CodeLabTerminal = exports;
     root.PTYTerminalEngine = exports.PTYTerminalEngine;
+    root.createPTYTerminalEngine = exports.createPTYTerminalEngine;
     root.createTerminal = exports.createTerminal;
     root.ansiToHtml = exports.ansiToHtml;
+    root.parseAnsiToHtml = exports.parseAnsiToHtml;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exports;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return exports; });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function () {
   'use strict';
 
   const ANSI_CODE_MAP = {
@@ -11166,8 +12372,37 @@ if (typeof module !== 'undefined' && module.exports) {
     44: 'cl-ansi-bg-blue',
     45: 'cl-ansi-bg-magenta',
     46: 'cl-ansi-bg-cyan',
-    47: 'cl-ansi-bg-white'
+    47: 'cl-ansi-bg-white',
+    100: 'cl-ansi-bg-bright-black',
+    101: 'cl-ansi-bg-bright-red',
+    102: 'cl-ansi-bg-bright-green',
+    103: 'cl-ansi-bg-bright-yellow',
+    104: 'cl-ansi-bg-bright-blue',
+    105: 'cl-ansi-bg-bright-magenta',
+    106: 'cl-ansi-bg-bright-cyan',
+    107: 'cl-ansi-bg-bright-white'
   };
+
+  const ANSI_256_PALETTE = [
+    '#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5',
+    '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff'
+  ];
+
+  function ansi256ToColor(n) {
+    const idx = Number(n);
+    if (!Number.isFinite(idx) || idx < 0 || idx > 255) return null;
+    if (idx < 16) return ANSI_256_PALETTE[idx];
+    if (idx < 232) {
+      const c = idx - 16;
+      const r = Math.floor(c / 36);
+      const g = Math.floor((c % 36) / 6);
+      const b = c % 6;
+      const toChannel = v => (v === 0 ? 0 : 55 + v * 40);
+      return `rgb(${toChannel(r)}, ${toChannel(g)}, ${toChannel(b)})`;
+    }
+    const gray = 8 + (idx - 232) * 10;
+    return `rgb(${gray}, ${gray}, ${gray})`;
+  }
 
   function escapeHtml(str) {
     if (str == null) return '';
@@ -11187,61 +12422,162 @@ if (typeof module !== 'undefined' && module.exports) {
     }
 
     // Strip non-color cursor control sequences
-    const cleaned = s.replace(/\x1b\[[0-9;]*[A-LN-Za-z]/g, '');
+    const cleaned = s.replace(/\x1b\[[0-9;?]*[A-LN-Za-z]/g, '');
 
     const tokenRegex = /\x1b\[([0-9;]*)m/g;
     let result = '';
     let lastIdx = 0;
-    let openSpans = 0;
     let match;
+
+    const state = {
+      bold: false,
+      dim: false,
+      italic: false,
+      underline: false,
+      fgClass: null,
+      bgClass: null,
+      fgColor: null,
+      bgColor: null
+    };
+
+    const resetState = () => {
+      state.bold = false;
+      state.dim = false;
+      state.italic = false;
+      state.underline = false;
+      state.fgClass = null;
+      state.bgClass = null;
+      state.fgColor = null;
+      state.bgColor = null;
+    };
+
+    const renderChunk = (rawText) => {
+      if (!rawText) return '';
+      const escaped = escapeHtml(rawText);
+      const classes = [];
+      if (state.bold) classes.push('cl-ansi-bold');
+      if (state.dim) classes.push('cl-ansi-dim');
+      if (state.italic) classes.push('cl-ansi-italic');
+      if (state.underline) classes.push('cl-ansi-underline');
+      if (state.fgClass) classes.push(state.fgClass);
+      if (state.bgClass) classes.push(state.bgClass);
+
+      const styles = [];
+      if (state.fgColor) styles.push(`color:${state.fgColor}`);
+      if (state.bgColor) styles.push(`background-color:${state.bgColor}`);
+
+      if (classes.length === 0 && styles.length === 0) {
+        return escaped;
+      }
+      const classAttr = classes.length > 0 ? ` class="${classes.join(' ')}"` : '';
+      const styleAttr = styles.length > 0 ? ` style="${styles.join(';')}"` : '';
+      return `<span${classAttr}${styleAttr}>${escaped}</span>`;
+    };
 
     while ((match = tokenRegex.exec(cleaned)) !== null) {
       const rawText = cleaned.slice(lastIdx, match.index);
-      if (rawText) result += escapeHtml(rawText);
+      if (rawText) result += renderChunk(rawText);
       lastIdx = tokenRegex.lastIndex;
 
       const codes = match[1] ? match[1].split(';').map(Number) : [0];
-      for (const code of codes) {
-        if (code === 0) {
-          while (openSpans > 0) {
-            result += '</span>';
-            openSpans--;
+      for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
+        if (code === 0 || Number.isNaN(code)) {
+          resetState();
+        } else if (code === 1) {
+          state.bold = true;
+        } else if (code === 2) {
+          state.dim = true;
+        } else if (code === 3) {
+          state.italic = true;
+        } else if (code === 4) {
+          state.underline = true;
+        } else if (code === 22) {
+          state.bold = false;
+          state.dim = false;
+        } else if (code === 23) {
+          state.italic = false;
+        } else if (code === 24) {
+          state.underline = false;
+        } else if (code === 39) {
+          state.fgClass = null;
+          state.fgColor = null;
+        } else if (code === 49) {
+          state.bgClass = null;
+          state.bgColor = null;
+        } else if ((code === 38 || code === 48) && codes[i + 1] === 5 && i + 2 < codes.length) {
+          const color = ansi256ToColor(codes[i + 2]);
+          if (color) {
+            if (code === 38) {
+              state.fgClass = null;
+              state.fgColor = color;
+            } else {
+              state.bgClass = null;
+              state.bgColor = color;
+            }
           }
-        } else {
-          const cls = ANSI_CODE_MAP[code];
-          if (cls) {
-            result += `<span class="${cls}">`;
-            openSpans++;
+          i += 2;
+        } else if ((code === 38 || code === 48) && codes[i + 1] === 2 && i + 4 < codes.length) {
+          const r = Math.max(0, Math.min(255, Number(codes[i + 2]) || 0));
+          const g = Math.max(0, Math.min(255, Number(codes[i + 3]) || 0));
+          const b = Math.max(0, Math.min(255, Number(codes[i + 4]) || 0));
+          const color = `rgb(${r}, ${g}, ${b})`;
+          if (code === 38) {
+            state.fgClass = null;
+            state.fgColor = color;
+          } else {
+            state.bgClass = null;
+            state.bgColor = color;
           }
+          i += 4;
+        } else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+          state.fgClass = ANSI_CODE_MAP[code] || null;
+          state.fgColor = null;
+        } else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+          state.bgClass = ANSI_CODE_MAP[code] || null;
+          state.bgColor = null;
         }
       }
     }
 
     const remaining = cleaned.slice(lastIdx);
-    if (remaining) result += escapeHtml(remaining);
-    while (openSpans > 0) {
-      result += '</span>';
-      openSpans--;
-    }
+    if (remaining) result += renderChunk(remaining);
     return result;
   }
 
+  const parseAnsiToHtml = ansiToHtml;
+
   class PTYTerminalEngine {
     constructor(container, options = {}) {
+      if (
+        container &&
+        typeof container === 'object' &&
+        typeof container.querySelector !== 'function' &&
+        typeof container.appendChild !== 'function' &&
+        arguments.length === 1
+      ) {
+        options = container;
+        container = options.container || null;
+      }
       this.container = container || null;
-      this.options = options;
-      this.logs = Array.isArray(options.logs) ? options.logs : [];
-      this.cwd = options.cwd || '/workspace';
-      this.replMode = Boolean(options.replMode);
-      this.promptOverride = options.prompt || null;
-      this.history = Array.isArray(options.history) ? options.history : [];
+      this.options = options || {};
+      this.logs = Array.isArray(this.options.logs) ? this.options.logs : [];
+      this.cwd = this.options.cwd || '/workspace';
+      this.replMode = Boolean(this.options.replMode);
+      this.promptOverride = this.options.prompt || null;
+      this.history = Array.isArray(this.options.history) ? this.options.history : [];
       this.historyIdx = -1;
       this.savedBuffer = '';
       this.buffer = '';
       this.cursor = 0;
-      this.onCommand = typeof options.onCommand === 'function' ? options.onCommand : null;
-      this.getCompletions = typeof options.getCompletions === 'function' ? options.getCompletions : null;
-      this.onKey = typeof options.onKey === 'function' ? options.onKey : null;
+      this.searchMode = false;
+      this.searchQuery = '';
+      this.searchMatchIdx = -1;
+      this._readLineQueue = [];
+      this.onCommand = typeof this.options.onCommand === 'function' ? this.options.onCommand : null;
+      this.getCompletions = typeof this.options.getCompletions === 'function' ? this.options.getCompletions : null;
+      this.onKey = typeof this.options.onKey === 'function' ? this.options.onKey : null;
+      this.onInterrupt = typeof this.options.onInterrupt === 'function' ? this.options.onInterrupt : null;
 
       this._mounted = false;
       this._listeners = [];
@@ -11292,8 +12628,22 @@ if (typeof module !== 'undefined' && module.exports) {
       return [...this.history];
     }
 
+    readLine(promptText = '') {
+      const prevPrompt = this.promptOverride;
+      if (promptText) {
+        this.setPrompt(promptText);
+      }
+      return new Promise((resolve) => {
+        this._readLineQueue.push((line) => {
+          this.promptOverride = prevPrompt;
+          this.updateActiveLine();
+          resolve(line);
+        });
+      });
+    }
+
     focus() {
-      if (!this.container) return;
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
       const input = this.container.querySelector('#cl-repl-input');
       if (input && typeof input.focus === 'function') {
         try { input.focus(); } catch (_) {}
@@ -11301,19 +12651,35 @@ if (typeof module !== 'undefined' && module.exports) {
     }
 
     mount(container) {
-      this.container = container;
+      if (typeof container === 'string' && typeof document !== 'undefined') {
+        container = document.querySelector(container);
+      }
+      this.container = container || null;
+      if (!this.container || typeof this.container.querySelector !== 'function') {
+        this._mounted = false;
+        return;
+      }
       this._mounted = true;
       this.render();
-      this._bindEvents();
     }
 
-    destroy() {
-      for (const { target, type, handler } of this._listeners) {
-        if (target && typeof target.removeEventListener === 'function') {
-          try { target.removeEventListener(type, handler); } catch (_) {}
+    _cleanupListeners() {
+      if (!Array.isArray(this._listeners)) {
+        this._listeners = [];
+        return;
+      }
+      for (const entry of this._listeners) {
+        if (typeof entry === 'function') {
+          try { entry(); } catch (_) {}
+        } else if (entry && entry.target && typeof entry.target.removeEventListener === 'function') {
+          try { entry.target.removeEventListener(entry.type, entry.handler); } catch (_) {}
         }
       }
       this._listeners = [];
+    }
+
+    destroy() {
+      this._cleanupListeners();
       this._mounted = false;
     }
 
@@ -11325,7 +12691,8 @@ if (typeof module !== 'undefined' && module.exports) {
     }
 
     _bindEvents() {
-      if (!this.container) return;
+      this._cleanupListeners();
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
       const termSurface = this.container.querySelector('#cl-terminal-surface') || this.container;
       const input = this.container.querySelector('#cl-repl-input');
       const form = this.container.querySelector('#cl-repl-form');
@@ -11343,7 +12710,7 @@ if (typeof module !== 'undefined' && module.exports) {
         this._addListener(input, 'input', () => {
           if (input.value !== this.buffer) {
             this.buffer = input.value;
-            this.cursor = this.buffer.length;
+            this.cursor = typeof input.selectionStart === 'number' ? input.selectionStart : this.buffer.length;
             this.updateActiveLine();
           }
         });
@@ -11357,6 +12724,17 @@ if (typeof module !== 'undefined' && module.exports) {
       }
     }
 
+    _findReverseSearchMatch(query, startIdx) {
+      if (!query || !this.history.length) return -1;
+      const from = typeof startIdx === 'number' ? Math.min(startIdx, this.history.length - 1) : this.history.length - 1;
+      for (let i = from; i >= 0; i--) {
+        if (this.history[i] && this.history[i].includes(query)) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
     handleKeyDown(e) {
       if (!e) return;
       if (this.onKey) {
@@ -11367,7 +12745,72 @@ if (typeof module !== 'undefined' && module.exports) {
       }
 
       const key = e.key;
-      const isCtrl = e.ctrlKey || e.metaKey;
+      const isCtrl = Boolean(e.ctrlKey || e.metaKey);
+
+      if (isCtrl && (key === 'r' || key === 'R')) {
+        if (e.preventDefault) e.preventDefault();
+        if (!this.searchMode) {
+          this.searchMode = true;
+          this.searchQuery = '';
+          this.searchMatchIdx = -1;
+        } else if (this.searchQuery) {
+          const nextStart = this.searchMatchIdx > 0 ? this.searchMatchIdx - 1 : this.history.length - 1;
+          const matchIdx = this._findReverseSearchMatch(this.searchQuery, nextStart);
+          if (matchIdx !== -1) {
+            this.searchMatchIdx = matchIdx;
+            this.buffer = this.history[matchIdx];
+            this.cursor = this.buffer.length;
+          }
+        }
+        this.updateActiveLine();
+        return;
+      }
+
+      if (this.searchMode) {
+        if (key === 'Escape' || (isCtrl && (key === 'g' || key === 'G'))) {
+          if (e.preventDefault) e.preventDefault();
+          this.searchMode = false;
+          this.searchQuery = '';
+          this.searchMatchIdx = -1;
+          this.updateActiveLine();
+          return;
+        }
+        if (key === 'Backspace') {
+          if (e.preventDefault) e.preventDefault();
+          this.searchQuery = this.searchQuery.slice(0, -1);
+          const matchIdx = this._findReverseSearchMatch(this.searchQuery, this.history.length - 1);
+          this.searchMatchIdx = matchIdx;
+          if (matchIdx !== -1) {
+            this.buffer = this.history[matchIdx];
+            this.cursor = this.buffer.length;
+          }
+          this.updateActiveLine();
+          return;
+        }
+        if (key === 'Enter') {
+          if (e.preventDefault) e.preventDefault();
+          this.searchMode = false;
+          this.searchQuery = '';
+          this.searchMatchIdx = -1;
+          this.submitLine();
+          return;
+        }
+        if (key && key.length === 1 && !isCtrl && !e.altKey) {
+          if (e.preventDefault) e.preventDefault();
+          this.searchQuery += key;
+          const matchIdx = this._findReverseSearchMatch(this.searchQuery, this.history.length - 1);
+          this.searchMatchIdx = matchIdx;
+          if (matchIdx !== -1) {
+            this.buffer = this.history[matchIdx];
+            this.cursor = this.buffer.length;
+          }
+          this.updateActiveLine();
+          return;
+        }
+        this.searchMode = false;
+        this.searchQuery = '';
+        this.searchMatchIdx = -1;
+      }
 
       if (key === 'ArrowLeft') {
         if (e.preventDefault) e.preventDefault();
@@ -11450,6 +12893,9 @@ if (typeof module !== 'undefined' && module.exports) {
         if (this.replMode) {
           this.replMode = false;
         }
+        if (this.onInterrupt) {
+          try { this.onInterrupt(); } catch (_) {}
+        }
         this.render();
         return;
       }
@@ -11511,6 +12957,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
       // Printable character
       if (key && key.length === 1 && !isCtrl && !e.altKey) {
+        if (e.preventDefault) e.preventDefault();
         this.buffer = this.buffer.slice(0, this.cursor) + key + this.buffer.slice(this.cursor);
         this.cursor++;
         this.updateActiveLine();
@@ -11562,6 +13009,9 @@ if (typeof module !== 'undefined' && module.exports) {
       this.buffer = '';
       this.cursor = 0;
       this.historyIdx = -1;
+      this.searchMode = false;
+      this.searchQuery = '';
+      this.searchMatchIdx = -1;
 
       if (line.trim()) {
         if (this.history[this.history.length - 1] !== line.trim()) {
@@ -11569,13 +13019,21 @@ if (typeof module !== 'undefined' && module.exports) {
         }
       }
 
+      if (this._readLineQueue && this._readLineQueue.length > 0) {
+        const resolver = this._readLineQueue.shift();
+        this.updateActiveLine();
+        resolver(line);
+        return;
+      }
+
+      this.updateActiveLine();
       if (this.onCommand) {
         this.onCommand(line);
       }
     }
 
     updateActiveLine() {
-      if (!this.container) return;
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
       const input = this.container.querySelector('#cl-repl-input');
       if (input && input.value !== this.buffer) {
         input.value = this.buffer;
@@ -11583,7 +13041,9 @@ if (typeof module !== 'undefined' && module.exports) {
       const lineEl = this.container.querySelector('#cl-pty-active-line');
       if (!lineEl) return;
 
-      const prompt = this.getPrompt();
+      const prompt = this.searchMode
+        ? `(reverse-i-search)\`${this.searchQuery}\`: `
+        : this.getPrompt();
       const before = this.buffer.slice(0, this.cursor);
       const cursorChar = this.cursor < this.buffer.length ? this.buffer[this.cursor] : ' ';
       const after = this.cursor < this.buffer.length ? this.buffer.slice(this.cursor + 1) : '';
@@ -11592,12 +13052,21 @@ if (typeof module !== 'undefined' && module.exports) {
     }
 
     render() {
-      if (!this.container) return;
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
+      const prevInput = this.container.querySelector('#cl-repl-input');
+      const hadFocus = Boolean(
+        prevInput &&
+        typeof document !== 'undefined' &&
+        document.activeElement === prevInput
+      );
+
       const logsHtml = this.logs
         .map(item => `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${ansiToHtml(item.text)}</div>`)
         .join('');
 
-      const prompt = this.getPrompt();
+      const prompt = this.searchMode
+        ? `(reverse-i-search)\`${this.searchQuery}\`: `
+        : this.getPrompt();
       const before = this.buffer.slice(0, this.cursor);
       const cursorChar = this.cursor < this.buffer.length ? this.buffer[this.cursor] : ' ';
       const after = this.cursor < this.buffer.length ? this.buffer.slice(this.cursor + 1) : '';
@@ -11619,6 +13088,18 @@ if (typeof module !== 'undefined' && module.exports) {
       }
 
       this._bindEvents();
+
+      if (hadFocus) {
+        const nextInput = this.container.querySelector('#cl-repl-input');
+        if (nextInput && typeof nextInput.focus === 'function') {
+          try {
+            nextInput.focus();
+            if (typeof nextInput.setSelectionRange === 'function') {
+              nextInput.setSelectionRange(this.cursor, this.cursor);
+            }
+          } catch (_) {}
+        }
+      }
     }
   }
 
@@ -11626,10 +13107,14 @@ if (typeof module !== 'undefined' && module.exports) {
     return new PTYTerminalEngine(container, options);
   }
 
+  const createPTYTerminalEngine = createTerminal;
+
   return {
     PTYTerminalEngine,
+    createPTYTerminalEngine,
     createTerminal,
     ansiToHtml,
+    parseAnsiToHtml,
     escapeHtml,
     ANSI_CODE_MAP
   };
@@ -11659,8 +13144,8 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   const CodeLabTerminal = (root && root.CodeLabTerminal) || terminalModule || {};
   const CodeLabShell = (root && root.CodeLabShell) || shellModule || {};
-  const createPTYTerminalEngine = CodeLabTerminal.PTYTerminalEngine || (root && root.PTYTerminalEngine);
-  const ansiToHtml = CodeLabTerminal.ansiToHtml || (root && root.ansiToHtml);
+  const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine || CodeLabTerminal.createTerminal || CodeLabTerminal.PTYTerminalEngine || (root && (root.createPTYTerminalEngine || root.PTYTerminalEngine));
+  const ansiToHtml = CodeLabTerminal.parseAnsiToHtml || CodeLabTerminal.ansiToHtml || (root && (root.parseAnsiToHtml || root.ansiToHtml));
   const createPosixShell = CodeLabShell.createPosixShell || (root && root.createPosixShell);
   const createVirtualPortTable = (root && root.createVirtualPortTable) ||
     (root && root.CodeLabRuntime && root.CodeLabRuntime.createVirtualPortTable) ||
@@ -12332,7 +13817,7 @@ declare module 'bun:sqlite' {
       this.monacoUrl = options.monacoUrl || MONACO_BASE;
       this.themeOption = options.theme || 'auto'; // 'dark' | 'light' | 'auto'
       this.explicitEntry = options.entry || null;
-      this.explicitTestEntry = options.testEntry || null;
+      this.explicitTestEntry = options.testEntry || options.testFile || null;
       this.backLabel = options.backLabel || 'Back to Build Guide';
       this._eventListeners = new Map();
 
@@ -12356,7 +13841,7 @@ declare module 'bun:sqlite' {
         ...(options.guided || {}),
         ...(options.starterFiles ? { starterFiles: options.starterFiles } : {}),
         ...(options.tsStarterFiles ? { tsStarterFiles: options.tsStarterFiles } : {}),
-        ...(options.tsSolutionFiles ? { tsSolutionFiles: options.tsSolutionFiles } : {})
+        ...((options.tsSolutionFiles || options.tsFiles) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles } : {})
       };
       this.steps = options.steps || this.guidedConfig?.steps || [];
 
@@ -12459,7 +13944,7 @@ declare module 'bun:sqlite' {
       this.ptyEngine = null;
       if (typeof createPTYTerminalEngine === 'function') {
         try {
-          this.ptyEngine = new createPTYTerminalEngine({
+          this.ptyEngine = createPTYTerminalEngine(null, {
             cwd: this.cwd,
             onCommand: (cmd) => this._handleReplCommand(cmd)
           });
@@ -12486,6 +13971,7 @@ declare module 'bun:sqlite' {
     }
 
     _initShell() {
+      this._wrapPortTable();
       if (typeof createPosixShell === 'function') {
         try {
           this.shell = createPosixShell({
@@ -12493,6 +13979,7 @@ declare module 'bun:sqlite' {
             files: this.files,
             portTable: this.portTable,
             env: {
+              PWD: this.cwd || '/workspace',
               TERM: 'xterm-256color',
               COLORTERM: 'truecolor',
               USER: 'codelab',
@@ -12501,8 +13988,107 @@ declare module 'bun:sqlite' {
               PATH: '/usr/local/bin:/usr/bin:/bin:/workspace/node_modules/.bin'
             }
           });
+          this._syncFilesToShellVfs();
         } catch (_) {}
       }
+    }
+
+    _wrapPortTable() {
+      if (!this.portTable || this.portTable._clWrapped) return;
+      this.portTable._clWrapped = true;
+      const origDispatch = typeof this.portTable.dispatchRequest === 'function'
+        ? this.portTable.dispatchRequest.bind(this.portTable)
+        : null;
+      if (origDispatch) {
+        this.portTable.dispatchRequest = async (url, init = {}) => {
+          if (this._inHttpClientDispatch) {
+            return origDispatch(url, init);
+          }
+          const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          let parsedPort = 3000;
+          let reqPath = '/';
+          let fullUrl = String(url || 'http://127.0.0.1:3000/');
+          if (!/^https?:\/\//i.test(fullUrl)) {
+            fullUrl = `http://127.0.0.1:3000${fullUrl.startsWith('/') ? '' : '/'}${fullUrl}`;
+          }
+          try {
+            const u = new URL(fullUrl);
+            parsedPort = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+            reqPath = u.pathname + (u.search || '');
+          } catch (_) {}
+          const method = String((init && init.method) || 'GET').toUpperCase();
+          try {
+            const res = await origDispatch(url, init);
+            const durationMs = Math.max(0.1, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+            let bodyText = '';
+            try {
+              if (res && typeof res.clone === 'function') {
+                bodyText = await res.clone().text();
+              } else if (res && res.body !== undefined) {
+                bodyText = String(res.body);
+              }
+            } catch (_) {}
+            const responseHeaders = {};
+            if (res && res.headers) {
+              if (typeof res.headers.forEach === 'function') {
+                res.headers.forEach((v, k) => { responseHeaders[k] = v; });
+              } else {
+                Object.assign(responseHeaders, res.headers);
+              }
+            }
+            let formattedBody = bodyText;
+            try {
+              formattedBody = JSON.stringify(JSON.parse(bodyText), null, 2);
+            } catch (_) {}
+            if (!Array.isArray(this.lastHttpTrace)) this.lastHttpTrace = [];
+            this.lastHttpTrace.push({
+              id: 'trace_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+              timestamp: new Date().toLocaleTimeString(),
+              method,
+              url: reqPath,
+              fullUrl,
+              port: parsedPort,
+              status: (res && res.status) || 200,
+              statusText: (res && res.statusText) || 'OK',
+              durationMs,
+              size: bodyText.length,
+              requestHeaders: (init && init.headers) || {},
+              requestBody: (init && init.body) || '',
+              responseHeaders,
+              responseBody: bodyText,
+              formattedBody
+            });
+            return res;
+          } catch (err) {
+            throw err;
+          }
+        };
+      }
+    }
+
+    _syncFilesToShellVfs() {
+      if (!this.shell || !this.shell.vfs) return;
+      const vfs = this.shell.vfs;
+      try {
+        if (typeof vfs.mkdirSync === 'function') {
+          vfs.mkdirSync('/workspace', { recursive: true });
+          for (const folder of (this.folders || [])) {
+            if (folder) vfs.mkdirSync('/workspace/' + folder.replace(/^\/+/, ''), { recursive: true });
+          }
+        }
+        for (const [relPath, content] of Object.entries(this.files || {})) {
+          const clean = String(relPath).replace(/^\/+/, '');
+          if (!clean) continue;
+          const absPath = '/workspace/' + clean;
+          const slashIdx = absPath.lastIndexOf('/');
+          if (slashIdx > 0 && typeof vfs.mkdirSync === 'function') {
+            vfs.mkdirSync(absPath.slice(0, slashIdx), { recursive: true });
+          }
+          if (typeof vfs.writeFileSync === 'function') {
+            vfs.writeFileSync(absPath, String(content ?? ''));
+          }
+        }
+      } catch (_) {}
     }
 
     _emitEvent(name, detail) {
@@ -13482,7 +15068,7 @@ declare module 'bun:sqlite' {
 
     createFolder(folderPath) {
       let clean = String(folderPath).trim().replace(/^\/+|\/+$/g, '');
-      if (!clean) return;
+      if (!clean) return false;
       const parts = clean.split('/');
       let cur = '';
       for (const p of parts) {
@@ -13491,6 +15077,7 @@ declare module 'bun:sqlite' {
       }
       this._saveState();
       this._renderFileLists();
+      return true;
     }
 
     toggleFolder(folderPath) {
@@ -13506,7 +15093,7 @@ declare module 'bun:sqlite' {
     }
 
     moveFile(srcPath, dest) {
-      if (!srcPath || this.files[srcPath] === undefined) return;
+      if (!srcPath || this.files[srcPath] === undefined) return false;
       const baseName = srcPath.split('/').pop();
       const cleanDest = String(dest || '').trim().replace(/^\/+|\/+$/g, '');
       const isDestFolder = cleanDest === '' || this.folders.has(cleanDest) || (!cleanDest.split('/').pop().includes('.') && this.files[cleanDest] === undefined);
@@ -13514,8 +15101,8 @@ declare module 'bun:sqlite' {
         ? (cleanDest ? `${cleanDest}/${baseName}` : baseName)
         : cleanDest;
 
-      if (targetPath === srcPath) return;
-      if (this.files[targetPath] !== undefined) return;
+      if (targetPath === srcPath) return false;
+      if (this.files[targetPath] !== undefined) return false;
 
       const parts = targetPath.split('/');
       let cur = '';
@@ -13549,16 +15136,17 @@ declare module 'bun:sqlite' {
 
       this._saveState();
       this._syncActiveFileToView();
+      return true;
     }
 
     renameFile(oldPath, newPath) {
-      this.moveFile(oldPath, newPath);
+      return this.moveFile(oldPath, newPath);
     }
 
     renameFolder(oldFolder, newFolder) {
       const oldPrefix = String(oldFolder).trim().replace(/^\/+|\/+$/g, '');
       const newPrefix = String(newFolder).trim().replace(/^\/+|\/+$/g, '');
-      if (!oldPrefix || !newPrefix || oldPrefix === newPrefix) return;
+      if (!oldPrefix || !newPrefix || oldPrefix === newPrefix) return false;
 
       const updatedFolders = new Set();
       for (const f of this.folders) {
@@ -13623,11 +15211,12 @@ declare module 'bun:sqlite' {
 
       this._saveState();
       this._syncActiveFileToView();
+      return true;
     }
 
     deleteFolder(folderPath) {
       const clean = String(folderPath).trim().replace(/^\/+|\/+$/g, '');
-      if (!clean) return;
+      if (!clean) return false;
 
       for (const f of Array.from(this.folders)) {
         if (f === clean || f.startsWith(clean + '/')) {
@@ -13663,6 +15252,7 @@ declare module 'bun:sqlite' {
 
       this._saveState();
       this._syncActiveFileToView();
+      return true;
     }
 
     createFile(rawName, initialContent = null) {
@@ -13747,7 +15337,7 @@ declare module 'bun:sqlite' {
     }
 
     deleteFile(filename) {
-      if (!filename || this.files[filename] === undefined) return;
+      if (!filename || this.files[filename] === undefined) return false;
       delete this.files[filename];
       const model = this.models.get(filename);
       if (model) {
@@ -13771,6 +15361,7 @@ declare module 'bun:sqlite' {
       }
       this._emitEvent('codelab:file-delete', { labId: this.labId, filename });
       this._syncActiveFileToView();
+      return true;
     }
 
     toggleGuide() {
@@ -14194,8 +15785,8 @@ declare module 'bun:sqlite' {
                     <td><code>${escapeHtml(s.service || (s.pid ? `PID ${s.pid}` : 'node'))}</code></td>
                     <td><span class="codelab-port-status codelab-port-status--listening"><span class="codelab-port-status-dot"></span>LISTENING</span></td>
                     <td style="text-align:right;white-space:nowrap;">
-                      <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="open-port-client" data-port="${s.port}">Open in Client</button>
-                      <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--danger" data-cl-action="stop-port" data-port="${s.port}">Stop</button>
+                      <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="open-port-client" data-port="${s.port}" data-cl-port="${s.port}">Open in Client</button>
+                      <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--danger" data-cl-action="stop-port" data-port="${s.port}" data-cl-port="${s.port}">Stop</button>
                     </td>
                   </tr>
                 `).join('')}
@@ -14286,9 +15877,9 @@ declare module 'bun:sqlite' {
               <div style="display:flex;align-items:center;gap:12px;">
                 <span>Response Viewer</span>
                 <div class="codelab-subtabs" role="tablist">
-                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'preview' ? 'active' : ''}" data-cl-action="http-tab" data-tab="preview">Preview</button>
-                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'raw' ? 'active' : ''}" data-cl-action="http-tab" data-tab="raw">Raw / JSON</button>
-                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'headers' ? 'active' : ''}" data-cl-action="http-tab" data-tab="headers">Headers</button>
+                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'preview' ? 'active' : ''}" data-cl-action="http-tab" data-tab="preview" data-cl-http-tab="preview">Preview</button>
+                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'raw' ? 'active' : ''}" data-cl-action="http-tab" data-tab="raw" data-cl-http-tab="raw">Raw / JSON</button>
+                  <button type="button" role="tab" class="codelab-subtab ${httpState.activeResponseTab === 'headers' ? 'active' : ''}" data-cl-action="http-tab" data-tab="headers" data-cl-http-tab="headers">Headers</button>
                 </div>
               </div>
               ${responseHeaderMeta}
@@ -14374,7 +15965,7 @@ declare module 'bun:sqlite' {
           const widthPct = Math.min(100, Math.max(8, Math.round(((t.durationMs || 1) / maxDuration) * 100)));
           const isSelected = selectedTrace && String(selectedTrace.id) === String(t.id);
           return `
-            <tr class="codelab-net-row ${isSelected ? 'selected' : ''}" data-cl-action="select-net-trace" data-trace-id="${escapeHtml(t.id || '')}">
+            <tr class="codelab-net-row ${isSelected ? 'selected' : ''}" data-cl-action="select-net-trace" data-trace-id="${escapeHtml(t.id || '')}" data-cl-trace-id="${escapeHtml(t.id || '')}">
               <td><span class="codelab-status-badge ${statusClass}">${status}</span></td>
               <td><span class="codelab-method-badge codelab-method-${(t.method || 'GET').toLowerCase()}">${escapeHtml(t.method || 'GET')}</span></td>
               <td class="codelab-net-path" title="${escapeHtml(t.url || '/')}">${escapeHtml(t.url || '/')}</td>
@@ -14558,7 +16149,12 @@ declare module 'bun:sqlite' {
 
         let response = null;
         if (this.portTable && typeof this.portTable.dispatchRequest === 'function') {
-          response = await this.portTable.dispatchRequest(url, init);
+          this._inHttpClientDispatch = true;
+          try {
+            response = await this.portTable.dispatchRequest(url, init);
+          } finally {
+            this._inHttpClientDispatch = false;
+          }
         } else {
           const err = new Error(`connect ECONNREFUSED 127.0.0.1:${parsedPort}`);
           err.code = 'ECONNREFUSED';
@@ -14626,21 +16222,82 @@ declare module 'bun:sqlite' {
       this._renderDrawerBody();
     }
 
-    _syncVfsSnapshot(fsSnapshot) {
+    _sendHttpClientRequest() {
+      return this.dispatchHttpClientRequest();
+    }
+
+    switchDrawerTab(tab) {
+      if (!tab) return;
+      this.drawerTab = tab;
+      this.container.querySelectorAll('[data-cl-drawertab]').forEach(b => {
+        const active = b.dataset.clDrawertab === this.drawerTab;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-selected', String(active));
+      });
+      const drawer = this.container.querySelector('#cl-drawer');
+      if (drawer) drawer.classList.remove('is-minimized');
+      this._renderDrawerBody();
+    }
+
+    _syncVfsSnapshot(fsSnapshot, syncDeletionsFromShell = false) {
       let changed = false;
 
       // 1. Sync from this.shell.vfs if available
-      if (this.shell && this.shell.vfs && this.shell.vfs.files instanceof Map) {
+      if (this.shell && this.shell.vfs) {
         const shellWorkspaceFiles = new Map();
-        for (const [p, fileObj] of this.shell.vfs.files.entries()) {
-          if (p.startsWith('/workspace/')) {
-            const rel = p.slice('/workspace/'.length);
-            if (rel) {
-              const content = typeof fileObj.data === 'string'
-                ? fileObj.data
-                : (fileObj.data ? (fileObj.data.toString ? fileObj.data.toString('utf8') : String(fileObj.data)) : '');
-              shellWorkspaceFiles.set(rel, content);
+        const shellWorkspaceFolders = new Set();
+
+        if (this.shell.vfs.files instanceof Map) {
+          for (const [p, fileObj] of this.shell.vfs.files.entries()) {
+            if (p.startsWith('/workspace/')) {
+              const rel = p.slice('/workspace/'.length);
+              if (rel && !rel.startsWith('.git/') && !rel.startsWith('node_modules/')) {
+                const content = typeof fileObj.data === 'string'
+                  ? fileObj.data
+                  : (fileObj.data ? (fileObj.data.toString ? fileObj.data.toString('utf8') : String(fileObj.data)) : '');
+                shellWorkspaceFiles.set(rel, content);
+              }
             }
+          }
+          if (this.shell.vfs.dirs instanceof Set) {
+            for (const d of this.shell.vfs.dirs) {
+              if (d.startsWith('/workspace/')) {
+                const rel = d.slice('/workspace/'.length);
+                if (rel && !rel.startsWith('.git') && !rel.startsWith('node_modules')) {
+                  shellWorkspaceFolders.add(rel);
+                }
+              }
+            }
+          }
+        } else if (typeof this.shell.vfs.readdirSync === 'function') {
+          const vfs = this.shell.vfs;
+          const walk = (dir, relPrefix) => {
+            let entries = [];
+            try { entries = vfs.readdirSync(dir); } catch (_) { return; }
+            for (const entry of entries) {
+              if (entry === '.git' || entry === 'node_modules') continue;
+              const full = dir === '/' ? '/' + entry : dir + '/' + entry;
+              const rel = relPrefix ? relPrefix + '/' + entry : entry;
+              let isDir = false;
+              try { isDir = vfs.statSync(full).isDirectory(); } catch (_) {}
+              if (isDir) {
+                shellWorkspaceFolders.add(rel);
+                walk(full, rel);
+              } else {
+                try {
+                  const content = String(vfs.readFileSync(full, 'utf8') ?? '');
+                  shellWorkspaceFiles.set(rel, content);
+                } catch (_) {}
+              }
+            }
+          };
+          walk('/workspace', '');
+        }
+
+        for (const folder of shellWorkspaceFolders) {
+          if (!this.folders.has(folder)) {
+            this.folders.add(folder);
+            changed = true;
           }
         }
 
@@ -14648,6 +16305,9 @@ declare module 'bun:sqlite' {
         for (const [rel, content] of shellWorkspaceFiles.entries()) {
           if (this.files[rel] === undefined || this.files[rel] !== content) {
             this.files[rel] = content;
+            if (!this.openTabs.includes(rel)) {
+              this.openTabs.push(rel);
+            }
             changed = true;
             const parts = rel.split('/');
             let cur = '';
@@ -14667,23 +16327,31 @@ declare module 'bun:sqlite' {
         }
 
         // Deletions
-        for (const rel of Object.keys(this.files)) {
-          if (!shellWorkspaceFiles.has(rel)) {
-            delete this.files[rel];
-            changed = true;
-            const model = this.models.get(rel);
-            if (model) {
-              model.dispose();
-              this.models.delete(rel);
-            }
-            if (Array.isArray(this.openTabs)) {
-              const tabIdx = this.openTabs.indexOf(rel);
-              if (tabIdx !== -1) {
-                this.openTabs.splice(tabIdx, 1);
-                if (this.activeFile === rel) {
-                  this.activeFile = this.openTabs[Math.max(0, tabIdx - 1)] || null;
+        if (syncDeletionsFromShell) {
+          for (const rel of Object.keys(this.files)) {
+            if (!shellWorkspaceFiles.has(rel)) {
+              delete this.files[rel];
+              changed = true;
+              const model = this.models.get(rel);
+              if (model) {
+                model.dispose();
+                this.models.delete(rel);
+              }
+              if (Array.isArray(this.openTabs)) {
+                const tabIdx = this.openTabs.indexOf(rel);
+                if (tabIdx !== -1) {
+                  this.openTabs.splice(tabIdx, 1);
+                  if (this.activeFile === rel) {
+                    this.activeFile = this.openTabs[Math.max(0, tabIdx - 1)] || this._pickDefaultFile() || null;
+                  }
                 }
               }
+            }
+          }
+          for (const existingFolder of Array.from(this.folders)) {
+            if (!shellWorkspaceFolders.has(existingFolder)) {
+              this.folders.delete(existingFolder);
+              changed = true;
             }
           }
         }
@@ -14695,14 +16363,24 @@ declare module 'bun:sqlite' {
           if (!item || !item.path) continue;
           if (item.path.startsWith('/workspace/')) {
             const rel = item.path.slice('/workspace/'.length);
-            if (!rel) continue;
+            if (!rel || rel.startsWith('.git/') || rel.startsWith('node_modules/')) continue;
             if (item.isDirectory) {
-              this.folders.add(rel);
+              if (!this.folders.has(rel)) {
+                this.folders.add(rel);
+                changed = true;
+              }
             } else if (item.content !== undefined || item.preview !== undefined) {
               const content = item.content !== undefined ? item.content : (item.preview || '');
               if (this.files[rel] !== content) {
                 this.files[rel] = content;
+                if (!this.openTabs.includes(rel)) {
+                  this.openTabs.push(rel);
+                }
                 changed = true;
+                const parts = rel.split('/');
+                for (let i = 1; i < parts.length; i++) {
+                  this.folders.add(parts.slice(0, i).join('/'));
+                }
                 const model = this.models.get(rel);
                 if (model && typeof model.getValue === 'function') {
                   if (model.getValue() !== content) model.setValue(content);
@@ -14744,15 +16422,30 @@ declare module 'bun:sqlite' {
         fallbackEl.value = (this.activeFile && this.files[this.activeFile]) ? this.files[this.activeFile] : '';
         this._updateFallbackGutter();
 
+        const updateFallbackCursor = () => {
+          const val = fallbackEl.value || '';
+          const sel = typeof fallbackEl.selectionStart === 'number' ? fallbackEl.selectionStart : 0;
+          const upToCursor = val.slice(0, sel).split('\n');
+          const lineNumber = upToCursor.length;
+          const column = upToCursor[upToCursor.length - 1].length + 1;
+          this.cursorPos = { lineNumber, column, ln: lineNumber, col: column };
+          this._updateStatusBar();
+          this._renderBreadcrumbs();
+        };
+
         fallbackEl.addEventListener('scroll', () => {
           const gutterEl = this.container.querySelector('#cl-fallback-gutter');
           if (gutterEl) gutterEl.scrollTop = fallbackEl.scrollTop;
         });
 
+        fallbackEl.addEventListener('keyup', updateFallbackCursor);
+        fallbackEl.addEventListener('click', updateFallbackCursor);
+
         fallbackEl.addEventListener('input', () => {
           if (!this.editor && this.activeFile && !this.activeFile.endsWith('.md')) {
             this.files[this.activeFile] = fallbackEl.value;
             this._updateFallbackGutter();
+            updateFallbackCursor();
             this._saveState();
             this._notifyCodeChange(this.activeFile, fallbackEl.value);
           }
@@ -14768,6 +16461,7 @@ declare module 'bun:sqlite' {
             if (this.activeFile) {
               this.files[this.activeFile] = fallbackEl.value;
               this._updateFallbackGutter();
+              updateFallbackCursor();
               this._saveState();
               this._notifyCodeChange(this.activeFile, fallbackEl.value);
             }
@@ -14841,7 +16535,12 @@ declare module 'bun:sqlite' {
 
         this.editor.onDidChangeCursorPosition(e => {
           if (e && e.position) {
-            this.cursorPos = { ln: e.position.lineNumber, col: e.position.column };
+            this.cursorPos = {
+              lineNumber: e.position.lineNumber,
+              column: e.position.column,
+              ln: e.position.lineNumber,
+              col: e.position.column
+            };
             this._updateStatusBar();
             this._renderBreadcrumbs();
           }
@@ -14955,7 +16654,12 @@ declare module 'bun:sqlite' {
           }
           const pos = this.editor.getPosition();
           if (pos) {
-            this.cursorPos = { ln: pos.lineNumber, col: pos.column };
+            this.cursorPos = {
+              lineNumber: pos.lineNumber,
+              column: pos.column,
+              ln: pos.lineNumber,
+              col: pos.column
+            };
           }
           this.editor.layout();
         } else if (fallbackWrap && fallbackEl) {
@@ -15263,10 +16967,7 @@ declare module 'bun:sqlite' {
 
         const drawerTabBtn = e.target.closest('[data-cl-drawertab]');
         if (drawerTabBtn) {
-          this.drawerTab = drawerTabBtn.dataset.clDrawertab;
-          const drawer = this.container.querySelector('#cl-drawer');
-          if (drawer) drawer.classList.remove('is-minimized');
-          this._renderDrawerBody();
+          this.switchDrawerTab(drawerTabBtn.dataset.clDrawertab);
           return;
         }
 
@@ -15365,6 +17066,37 @@ declare module 'bun:sqlite' {
           } else if (action === 'toggle-hint') {
             const box = this.container.querySelector('#cl-hint-box');
             if (box) box.classList.toggle('open');
+          } else if (action === 'open-port-client') {
+            const port = actionBtn.dataset.port;
+            if (port) {
+              this.httpClientUrl = `http://localhost:${port}/`;
+              this._renderDrawerBody();
+            }
+          } else if (action === 'stop-port') {
+            const port = Number(actionBtn.dataset.port);
+            if (port) {
+              if (this.shell && this.shell.portTable && typeof this.shell.portTable.unregister === 'function') {
+                this.shell.portTable.unregister(port);
+              }
+              this.activePorts = (this.activePorts || []).filter(p => Number(typeof p === 'object' ? p.port : p) !== port);
+              this._renderDrawerBody();
+            }
+          } else if (action === 'http-send') {
+            this._sendHttpClientRequest();
+          } else if (action === 'http-tab') {
+            this.httpActiveTab = actionBtn.dataset.httpTab || 'headers';
+            this._renderDrawerBody();
+          } else if (action === 'clear-net-traces') {
+            this.lastHttpTrace = [];
+            this.selectedNetTraceIdx = null;
+            this._renderDrawerBody();
+          } else if (action === 'select-net-trace') {
+            const idx = Number(actionBtn.dataset.traceIdx);
+            this.selectedNetTraceIdx = Number.isNaN(idx) ? null : idx;
+            this._renderDrawerBody();
+          } else if (action === 'close-net-detail') {
+            this.selectedNetTraceIdx = null;
+            this._renderDrawerBody();
           }
           return;
         }
@@ -16365,278 +18097,110 @@ declare module 'bun:sqlite' {
         this.replHistory.push(trimmed);
       }
       this.replHistoryIdx = -1;
-      this.terminalLogs.push({ type: 'system', text: `codelab$ ${trimmed}` });
+      const promptPrefix = this.inRepl ? '> ' : `codelab:${this.cwd === '/workspace' ? '~' : this.cwd}$ `;
+      this.terminalLogs.push({ type: 'system', text: `${promptPrefix}${trimmed}` });
 
-      const parts = trimmed.split(/\s+/);
-      const bin = parts[0];
-      const args = parts.slice(1);
+      if (this.inRepl) {
+        if (trimmed === '.exit' || trimmed === 'exit') {
+          this.inRepl = false;
+          this.terminalLogs.push({ type: 'stdout', text: 'Exited Node.js REPL.' });
+          this._renderDrawerBody();
+          return;
+        }
+        if (trimmed === '.clear' || trimmed === 'clear') {
+          this.terminalLogs = [];
+          this._renderDrawerBody();
+          return;
+        }
+        if (trimmed === '.help') {
+          this.terminalLogs.push({
+            type: 'stdout',
+            text: '.clear    Clear terminal output\n.exit     Exit the Node.js REPL\n.help     Print this help message'
+          });
+          this._renderDrawerBody();
+          return;
+        }
+        try {
+          const res = await this._executeRuntime({
+            files: { ...this.files },
+            mode: 'repl',
+            replCode: trimmed
+          });
+          const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
+          if (cleanStdout) this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
+          if (res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          if (res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
+            this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
+          }
+          if (res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+        } catch (err) {
+          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+        }
+        this._renderDrawerBody();
+        return;
+      }
 
-      if (bin === 'clear' || bin === 'cls') {
+      if (trimmed === 'clear' || trimmed === 'cls') {
         this.terminalLogs = [];
         this._renderDrawerBody();
         return;
       }
-      if (bin === 'help') {
-        this.terminalLogs.push({
-          type: 'stdout',
-          text: [
-            'Built-in shell & Node commands:',
-            '  pwd, ls [-la], cd <dir>      Navigate workspace directory (/workspace)',
-            '  cat, head, tail, wc <file>   Inspect file contents & line counts',
-            '  touch, mkdir, rm, cp, mv     Create, copy, rename, or remove workspace files',
-            '  node <file.js|ts>            Execute any script in the Virtual Node runtime',
-            '  npm test | test | run        Run unit test suite or demo workload',
-            '  clear (Ctrl+L)               Clear terminal output',
-            '  <JS/TS expression>           Evaluate live JS/TS with require() & Node globals'
-          ].join('\n')
-        });
+      if (trimmed === 'node' || trimmed === 'node -i' || trimmed === 'node --interactive') {
+        this.inRepl = true;
+        this.terminalLogs.push({ type: 'stdout', text: 'Welcome to Node.js v22.0.0.\nType ".help" for more information, or ".exit" to return to POSIX shell.' });
         this._renderDrawerBody();
         return;
       }
-      if (bin === 'pwd') {
-        this.terminalLogs.push({ type: 'stdout', text: this.cwd || '/workspace' });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'whoami') {
-        this.terminalLogs.push({ type: 'stdout', text: 'codelab' });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'hostname') {
-        this.terminalLogs.push({ type: 'stdout', text: 'codelab-vfs' });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'uname') {
-        this.terminalLogs.push({ type: 'stdout', text: args.includes('-a') ? 'Linux codelab-vfs 6.6.0-virtual #1 SMP WebWorker x86_64 GNU/Linux' : 'Linux' });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'date') {
-        this.terminalLogs.push({ type: 'stdout', text: new Date().toUTCString() });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'env' || bin === 'printenv') {
-        this.terminalLogs.push({
-          type: 'stdout',
-          text: `NODE_ENV=development\nPWD=${this.cwd || '/workspace'}\nHOME=/workspace\nUSER=codelab\nPATH=/usr/local/bin:/usr/bin:/bin`
-        });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'which') {
-        const target = args[0] || '';
-        const known = ['node', 'npm', 'ls', 'cat', 'pwd', 'cd', 'mkdir', 'touch', 'rm', 'cp', 'mv', 'echo', 'clear'];
-        this.terminalLogs.push({
-          type: known.includes(target) ? 'stdout' : 'stderr',
-          text: known.includes(target) ? `/usr/local/bin/${target}` : `${target} not found`
-        });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'echo') {
-        const raw = trimmed.slice(4).trim().replace(/^(['"])(.*)\1$/, '$2');
-        this.terminalLogs.push({ type: 'stdout', text: raw });
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'cd') {
-        const target = args[0] || '/workspace';
-        const resolved = this._resolveShellPath(target);
-        if (resolved === '/workspace' || resolved === '/tmp') {
-          this.cwd = resolved;
-        } else if (resolved.startsWith('/workspace/')) {
-          const rel = resolved.slice('/workspace/'.length);
-          const existsDir = this.folders.has(rel) || Object.keys(this.files).some(f => f.startsWith(rel + '/'));
-          if (existsDir) {
-            this.cwd = resolved;
-          } else {
-            this.terminalLogs.push({ type: 'stderr', text: `cd: no such file or directory: ${target}` });
-          }
-        } else {
-          this.terminalLogs.push({ type: 'stderr', text: `cd: no such file or directory: ${target}` });
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'ls' || bin === 'll' || bin === 'la') {
-        const flags = args.filter(a => a.startsWith('-')).join('');
-        const isLong = bin === 'll' || flags.includes('l');
-        const pathArg = args.find(a => !a.startsWith('-')) || '.';
-        const resolved = this._resolveShellPath(pathArg);
-        const prefix = resolved === '/workspace' ? '' : (resolved.startsWith('/workspace/') ? resolved.slice('/workspace/'.length) + '/' : null);
-        const entries = new Map();
-        if (prefix !== null) {
-          for (const folder of this.folders) {
-            if (prefix === '' && !folder.includes('/')) entries.set(folder + '/', { isDir: true, size: 0 });
-            else if (prefix && folder.startsWith(prefix)) {
-              const rest = folder.slice(prefix.length);
-              if (rest && !rest.includes('/')) entries.set(rest + '/', { isDir: true, size: 0 });
-            }
-          }
-          for (const [k, content] of Object.entries(this.files)) {
-            if (prefix === '' || k.startsWith(prefix)) {
-              const rest = prefix === '' ? k : k.slice(prefix.length);
-              if (!rest) continue;
-              if (rest.includes('/')) {
-                const topDir = rest.split('/')[0] + '/';
-                if (!entries.has(topDir)) entries.set(topDir, { isDir: true, size: 0 });
-              } else {
-                entries.set(rest, { isDir: false, size: (content || '').length });
-              }
-            }
-          }
-        } else if (resolved === '/tmp' || resolved.startsWith('/tmp/')) {
-          for (const snap of this.lastFsSnapshot) {
-            if (snap.path.startsWith('/tmp/')) {
-              entries.set(snap.path.slice('/tmp/'.length), { isDir: !!snap.isDirectory, size: snap.size || 0 });
-            }
-          }
-        }
-        const names = Array.from(entries.keys()).sort();
-        if (names.length === 0) {
-          this.terminalLogs.push({ type: 'stdout', text: '(empty)' });
-        } else if (isLong) {
-          const lines = names.map(n => {
-            const info = entries.get(n);
-            const perm = info.isDir ? 'drwxr-xr-x' : '-rw-r--r--';
-            return `${perm}  1 codelab  staff  ${String(info.size).padStart(6, ' ')}  ${n}`;
-          });
-          this.terminalLogs.push({ type: 'stdout', text: lines.join('\n') });
-        } else {
-          this.terminalLogs.push({ type: 'stdout', text: names.join('  ') });
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'cat' || bin === 'head' || bin === 'tail' || bin === 'wc') {
-        const fileArgs = args.filter(a => !a.startsWith('-'));
-        const target = fileArgs[0];
-        if (!target) {
-          this.terminalLogs.push({ type: 'stderr', text: `${bin}: missing file operand` });
-          this._renderDrawerBody();
-          return;
-        }
-        const rel = this._toWorkspaceRelPath(target);
-        let text = this.files[rel] != null ? this.files[rel] : this.files[target];
-        if (text == null) {
-          const snap = this.lastFsSnapshot.find(f => f.path === target || f.path.endsWith('/' + target));
-          if (snap) text = snap.preview || snap.hexPreview || `(${snap.size} bytes)`;
-        }
-        if (text == null) {
-          this.terminalLogs.push({ type: 'stderr', text: `${bin}: ${target}: No such file or directory` });
-        } else if (bin === 'wc') {
-          const lines = text.split('\n').length;
-          const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-          const bytes = text.length;
-          this.terminalLogs.push({ type: 'stdout', text: `  ${lines}  ${words}  ${bytes} ${target}` });
-        } else if (bin === 'head') {
-          this.terminalLogs.push({ type: 'stdout', text: text.split('\n').slice(0, 10).join('\n') });
-        } else if (bin === 'tail') {
-          this.terminalLogs.push({ type: 'stdout', text: text.split('\n').slice(-10).join('\n') });
-        } else {
-          this.terminalLogs.push({ type: 'stdout', text });
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'touch') {
-        const target = args[0];
-        if (target) {
-          const rel = this._toWorkspaceRelPath(target);
-          if (this.files[rel] === undefined) this.createFile(rel);
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'mkdir') {
-        const target = args.find(a => !a.startsWith('-'));
-        if (target) {
-          const rel = this._toWorkspaceRelPath(target);
-          if (rel) this.createFolder(rel);
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'rm') {
-        const targets = args.filter(a => !a.startsWith('-'));
-        for (const t of targets) {
-          const rel = this._toWorkspaceRelPath(t);
-          if (this.files[rel] !== undefined) {
-            this.deleteFile(rel);
-          } else if (this.folders.has(rel)) {
-            this.deleteFolder(rel);
-          } else {
-            this.terminalLogs.push({ type: 'stderr', text: `rm: ${t}: No such file or directory` });
-          }
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'cp' && args.length >= 2) {
-        const src = this._toWorkspaceRelPath(args[0]);
-        const dst = this._toWorkspaceRelPath(args[1]);
-        if (this.files[src] !== undefined) {
-          this.setFile(dst, this.files[src], { open: false });
-        } else {
-          this.terminalLogs.push({ type: 'stderr', text: `cp: ${args[0]}: No such file` });
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (bin === 'mv' && args.length >= 2) {
-        const src = this._toWorkspaceRelPath(args[0]);
-        const dst = this._toWorkspaceRelPath(args[1]);
-        if (!this.renameFile(src, dst)) {
-          this.terminalLogs.push({ type: 'stderr', text: `mv: cannot move '${args[0]}' to '${args[1]}'` });
-        }
-        this._renderDrawerBody();
-        return;
-      }
-      if (trimmed === 'run' || trimmed === 'npm start' || trimmed === 'npm run demo' || /^node\s+\S*demo\.(js|ts)$/.test(trimmed)) {
+      if (trimmed === 'run' || trimmed === 'npm start' || trimmed === 'npm run demo') {
         await this.runDemo();
         return;
       }
-      if (trimmed === 'test' || trimmed === 'npm test' || trimmed === 'npm t' || /^node\s+\S*test\.(js|ts)$/.test(trimmed)) {
+      if (trimmed === 'test' || trimmed === 'npm test' || trimmed === 'npm t') {
         await this.runTests();
         return;
       }
-      if (bin === 'node') {
-        if (args[0] === '-v' || args[0] === '--version') {
-          this.terminalLogs.push({ type: 'stdout', text: 'v22.0.0' });
-          this._renderDrawerBody();
-          return;
-        }
-        if (args[0] === '-e' || args[0] === '--eval') {
-          const evalCode = trimmed.replace(/^node\s+(-e|--eval)\s+/, '').replace(/^(['"])([\s\S]*)\1$/, '$2');
-          return this._handleReplCommand(evalCode);
-        }
-        if (args[0]) {
-          const rel = this._toWorkspaceRelPath(args[0]);
-          const entryFile = this.files[rel] !== undefined ? rel : (this.files[args[0]] !== undefined ? args[0] : null);
-          if (!entryFile) {
-            this.terminalLogs.push({ type: 'stderr', text: `node: Cannot find module '/workspace/${rel || args[0]}'` });
+
+      const looksLikeJsExpr = /^(const|let|var|function|class|await|return|typeof|instanceof|new\s+|Math\.|JSON\.|Object\.|Array\.|Promise\.|console\.|process\.|Buffer\.|require\s*\(|import\s*\(|[0-9]+\s*[\+\-\*\/\%]|['"`\[{])/.test(trimmed)
+        || /^[a-zA-Z_$][\w$]*\s*(\.|===|!==|==|!=|<=|>=|\+=|-=|\*=|\(|\+\+|--)/.test(trimmed);
+
+      if (this.shell && typeof this.shell.execute === 'function' && !looksLikeJsExpr) {
+        try {
+          this._syncFilesToShellVfs();
+          this.shell.cwd = this.cwd || '/workspace';
+          const shellRes = await this.shell.execute(trimmed);
+          this.cwd = this.shell.cwd || this.cwd;
+          this._syncVfsSnapshot(null, true);
+
+          if (shellRes && shellRes.clear) {
+            this.terminalLogs = [];
             this._renderDrawerBody();
             return;
           }
-          const res = await this._executeRuntime({
-            files: { ...this.files },
-            entry: entryFile,
-            mode: 'run'
-          });
-          if (res.stdout) this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
-          if (res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
-          if (res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
-          this.lastFsSnapshot = res.fsSnapshot || [];
-          this.lastHttpTrace = res.httpTrace || [];
+          if (shellRes && shellRes.interactiveRepl) {
+            this.inRepl = true;
+            if (shellRes.stdout) this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+            this._renderDrawerBody();
+            return;
+          }
+          const isCmdNotFound = shellRes && shellRes.exitCode === 127 && typeof shellRes.stderr === 'string' && shellRes.stderr.includes('command not found');
+          if (!isCmdNotFound) {
+            if (shellRes && shellRes.stdout) {
+              this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+            }
+            if (shellRes && shellRes.stderr) {
+              this.terminalLogs.push({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') });
+            }
+            this._renderDrawerBody();
+            return;
+          }
+        } catch (err) {
+          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
           this._renderDrawerBody();
           return;
         }
       }
 
-      // Evaluate arbitrary JS/TS expression in the Virtual Runtime
+      // Fallback: Evaluate arbitrary JS/TS expression in the Virtual Runtime
       try {
         const res = await this._executeRuntime({
           files: { ...this.files },
@@ -16778,7 +18342,7 @@ declare module 'bun:sqlite' {
       return this.files[clean];
     }
 
-    setFile(path, content) {
+    setFile(path, content, options = {}) {
       const clean = String(path || '').trim().replace(/^\/+/, '');
       if (!clean) return;
       const isNew = this.files[clean] === undefined;
@@ -16787,6 +18351,12 @@ declare module 'bun:sqlite' {
         this.folders.add(parts.slice(0, i).join('/'));
       }
       this.files[clean] = String(content ?? '');
+      if (options.open !== false && Array.isArray(this.openTabs) && !this.openTabs.includes(clean)) {
+        this.openTabs.push(clean);
+      }
+      if (options.open === true) {
+        this.activeFile = clean;
+      }
       this._saveState();
       this._getOrCreateModel(clean);
       if (isNew) {
@@ -16835,6 +18405,7 @@ declare module 'bun:sqlite' {
     }
 
     destroy() {
+      this.stopExecution();
       if (this._escHandler && typeof document !== 'undefined') {
         document.removeEventListener('keydown', this._escHandler);
       }
@@ -16859,6 +18430,25 @@ declare module 'bun:sqlite' {
   let CodeLabElementClass = null;
   if (typeof HTMLElement !== 'undefined') {
     CodeLabElementClass = class CodeLabElement extends HTMLElement {
+      static get observedAttributes() {
+        return ['theme', 'mode', 'language', 'lang', 'title'];
+      }
+
+      attributeChangedCallback(name, oldVal, newVal) {
+        if (!this._instance || oldVal === newVal) return;
+        if (name === 'theme') {
+          this._instance.theme = newVal || 'auto';
+          const rootEl = this.querySelector('.codelab');
+          if (rootEl) rootEl.setAttribute('data-cl-theme', this._instance._resolvedTheme());
+        } else if (name === 'mode' && (newVal === 'guided' || newVal === 'sandbox')) {
+          this._instance.switchMode(newVal);
+        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts')) {
+          this._instance.switchLang(newVal);
+        } else if (name === 'title' && newVal) {
+          this._instance.title = newVal;
+        }
+      }
+
       connectedCallback() {
         if (this._instance) return;
 
@@ -16898,16 +18488,18 @@ declare module 'bun:sqlite' {
       getFiles() { return this._instance ? this._instance.getFiles() : {}; }
       setFiles(filesMap) { if (this._instance) this._instance.setFiles(filesMap); }
       getFile(path) { return this._instance ? this._instance.getFile(path) : undefined; }
-      setFile(path, content) { if (this._instance) this._instance.setFile(path, content); }
+      setFile(path, content, opts) { if (this._instance) this._instance.setFile(path, content, opts); }
       createFile(path, content) { if (this._instance) this._instance.createFile(path, content); }
-      deleteFile(path) { if (this._instance) this._instance.deleteFile(path); }
-      renameFile(oldPath, newPath) { if (this._instance) this._instance.renameFile(oldPath, newPath); }
-      createFolder(path) { if (this._instance) this._instance.createFolder(path); }
-      deleteFolder(path) { if (this._instance) this._instance.deleteFolder(path); }
-      renameFolder(oldPath, newPath) { if (this._instance) this._instance.renameFolder(oldPath, newPath); }
+      deleteFile(path) { return this._instance ? this._instance.deleteFile(path) : false; }
+      renameFile(oldPath, newPath) { return this._instance ? this._instance.renameFile(oldPath, newPath) : false; }
+      createFolder(path) { return this._instance ? this._instance.createFolder(path) : false; }
+      deleteFolder(path) { return this._instance ? this._instance.deleteFolder(path) : false; }
+      renameFolder(oldPath, newPath) { return this._instance ? this._instance.renameFolder(oldPath, newPath) : false; }
       openFile(path, sym) { if (this._instance) this._instance.openFile(path, sym); }
       closeTab(path) { if (this._instance) this._instance.closeTab(path); }
       getOpenTabs() { return this._instance ? this._instance.getOpenTabs() : []; }
+      openCommandPalette(mode) { if (this._instance) this._instance.openCommandPalette(mode); }
+      showDiffModal(file, target) { if (this._instance) this._instance.showDiffModal(file, target); }
       runDemo() { return this._instance ? this._instance.runDemo() : Promise.resolve(); }
       runTests(filter) { return this._instance ? this._instance.runTests(filter) : Promise.resolve(); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
@@ -16944,10 +18536,13 @@ declare module 'bun:sqlite' {
   }
 
   const CodeLabSDK = {
+    version: '1.3.2',
     Workbench: CodeLabWorkbench,
     CodeLabWorkbench,
     CodeLabElement: CodeLabElementClass,
     Runtime: root.CodeLabRuntime,
+    Shell: root.CodeLabShell,
+    Terminal: root.CodeLabTerminal,
     mount: mountCodeLab,
     create: mountCodeLab,
     unmount(container) {
@@ -16986,6 +18581,7 @@ declare module 'bun:sqlite' {
       CodeLabTerminal: CodeLabTerminal,
       createPosixShell: CodeLabShell ? CodeLabShell.createPosixShell : null,
       createTerminal: CodeLabTerminal ? CodeLabTerminal.createTerminal : null,
+      createPTYTerminalEngine: CodeLabTerminal ? CodeLabTerminal.createPTYTerminalEngine : null,
       PTYTerminalEngine: CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : null,
       executeInVirtualRuntime: CodeLabRuntime.executeInVirtualRuntime,
       executeInWorker: CodeLabRuntime.executeInWorker,
@@ -16995,6 +18591,7 @@ declare module 'bun:sqlite' {
       createVirtualFs: CodeLabRuntime.createVirtualFs,
       createVirtualHttp: CodeLabRuntime.createVirtualHttp,
       createVirtualNet: CodeLabRuntime.createVirtualNet,
+      createVirtualPortTable: CodeLabRuntime.createVirtualPortTable,
       default: CodeLab
     });
   }

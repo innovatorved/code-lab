@@ -1,6 +1,6 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, and Web Worker Node.js/Bun Virtual Runtime.",
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",
@@ -14,16 +14,19 @@
       "default": "./dist/code-lab.js"
     },
     "./runtime": {
+      "types": "./dist/code-lab.d.ts",
       "import": "./dist/runtime.esm.js",
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
     "./shell": {
+      "types": "./dist/code-lab.d.ts",
       "import": "./dist/shell.esm.js",
       "require": "./dist/shell.js",
       "default": "./dist/shell.js"
     },
     "./terminal": {
+      "types": "./dist/code-lab.d.ts",
       "import": "./dist/terminal.esm.js",
       "require": "./dist/terminal.js",
       "default": "./dist/terminal.js"
