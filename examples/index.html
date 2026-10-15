@@ -58,13 +58,13 @@
 <body>
   <header class="demo-header">
     <div style="display:flex;align-items:center;gap:12px;">
-      <h1>@innovatorved/code-lab <code style="font-size:11px;color:#aaa;">v1.3.1</code></h1>
+      <h1>@innovatorved/code-lab <code style="font-size:11px;color:#aaa;">v1.3.2</code></h1>
       <span>Node.js v22 + Bun v1.1 · POSIX Shell (40+ Coreutils) · Loopback HTTP &amp; Ports</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <a href="https://github.com/innovatorved/code-lab" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/innovatorved/code-lab/wiki" target="_blank" rel="noopener">Documentation Wiki</a>
-      <a href="/">← System Design Curriculum</a>
+      <a href="https://www.npmjs.com/package/@innovatorved/code-lab" target="_blank" rel="noopener">npm Package ↗</a>
     </div>
   </header>
 
@@ -114,24 +114,11 @@ module.exports = { TokenBucket };
 
   _refill(now = Date.now()) {
     // TODO (Step 1): Replenish tokens proportional to elapsed seconds, capped at this.capacity
-    const elapsedSec = Math.max(0, (now - this.lastRefill) / 1000);
-    this.tokens = Math.min(this.capacity, this.tokens + elapsedSec * this.refillRatePerSec);
-    this.lastRefill = now;
   }
 
   allowRequest(cost = 1, now = Date.now()) {
     // TODO (Step 2): Call this._refill(now), deduct cost if enough tokens exist, or return retryAfterMs
-    this._refill(now);
-    if (this.tokens >= cost) {
-      this.tokens -= cost;
-      return { allowed: true, remaining: Math.floor(this.tokens) };
-    }
-    const deficit = cost - this.tokens;
-    return {
-      allowed: false,
-      remaining: 0,
-      retryAfterMs: Math.ceil((deficit / this.refillRatePerSec) * 1000)
-    };
+    return { allowed: false, remaining: 0, retryAfterMs: 1000 };
   }
 }
 

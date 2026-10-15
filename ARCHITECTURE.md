@@ -1,8 +1,8 @@
-# `@innovatorved/code-lab` Architecture (v1.3.1)
+# `@innovatorved/code-lab` Architecture (v1.3.2)
 
 `@innovatorved/code-lab` is an embeddable, zero-dependency, browser-native Node.js v22 + Bun v1.1 IDE, POSIX shell, PTY terminal, and virtual execution sandbox.
 
-It is designed around two strictly decoupled layers that can be used together (`dist/code-lab.js`) or independently (`dist/runtime.js` for headless execution):
+It is designed around two strictly decoupled layers that can be used together (`dist/code-lab.js`) or independently (`dist/runtime.js`, `dist/shell.js`, `dist/terminal.js` for headless or modular execution):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -27,7 +27,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 │                     src/terminal.js)  │  │  (src/runtime.js)                │
 │  • Recursive-descent AST parser       │  │  • Web Worker pool + preemption  │
 │  • Pipes (|), redirects (>, >>, 2>&1) │  │  • In-memory POSIX VFS (/tmp, …) │
-│  • 40+ POSIX coreutils + git + jq     │  │  • Node.js v22 (21 built-in mods)│
+│  • 40+ POSIX coreutils + git + jq     │  │  • Node.js v22 (24 built-in mods)│
 │  • Interactive PTY ANSI/256-color     │  │  • Bun v1.1 (serve, sqlite, test)│
 │  • Job table (ps, jobs, fg, bg, kill) │  │  • VirtualPortTable (127.0.0.1)  │
 └───────────────────────────────────────┘  └──────────────────────────────────┘
@@ -45,16 +45,16 @@ It is designed around two strictly decoupled layers that can be used together (`
 - **Automatic Resource Cleanup**: All timers (`setTimeout`, `setInterval`, `setImmediate`), virtual sockets, and pending test promises are tracked in a `resourceTracker` and cleaned up on exit.
 
 ### 1.2 In-Memory POSIX Virtual File System (`createVirtualFs`)
-- Hierarchical inode tree pre-populated with `/workspace`, `/tmp`, `/etc`, and `/home/user`.
-- Full `node:fs` and `node:fs/promises` APIs: `readFileSync`, `writeFileSync`, `appendFileSync`, `mkdirSync`, `readdirSync`, `statSync`, `unlinkSync`, `renameSync`, `copyFileSync`, `openSync`, `writeSync`, `readSync`, `fsyncSync`, `closeSync`, `createReadStream`, and `createWriteStream`.
+- Hierarchical inode tree pre-populated with `/workspace`, `/tmp`, `/etc`, `/home`, and `/home/user`.
+- Full `node:fs` and `node:fs/promises` APIs: `readFileSync`, `writeFileSync`, `appendFileSync`, `mkdirSync`, `readdirSync`, `statSync`, `unlinkSync`, `renameSync`, `copyFileSync`, `cpSync`, `symlinkSync`, `readlinkSync`, `openSync`, `writeSync`, `readSync`, `fsyncSync`, `closeSync`, `createReadStream`, and `createWriteStream`.
 - Real-time byte size, UTF-8 preview, and 16-byte hex dump snapshots (`vfs.getSnapshot()`) for inspecting binary WAL logs, SSTables, and SQLite tables.
 
 ### 1.3 Node.js v22 & Bun v1.1 Shims
-- **21 Built-in Node.js Modules**: `fs`, `fs/promises`, `path`, `crypto`, `events`, `stream`, `stream/promises`, `http`, `https`, `net`, `zlib`, `util`, `assert`, `assert/strict`, `buffer`, `url`, `querystring`, `timers`, `timers/promises`, `perf_hooks`, `string_decoder`, `dns`, `os`, `child_process`, `process`, and `node:test`.
+- **24 Built-in Node.js Modules**: `fs`, `fs/promises`, `path`, `crypto`, `events`, `stream`, `stream/promises`, `http`, `https`, `net`, `zlib`, `util`, `assert`, `assert/strict`, `buffer`, `url`, `querystring`, `timers`, `timers/promises`, `perf_hooks`, `string_decoder`, `dns`, `os`, `child_process`, `worker_threads`, `vm`, `readline`, `sqlite`, `process`, and `node:test`.
 - **Bun v1.1 API (`Bun`, `'bun'`, `'bun:test'`, `'bun:sqlite'`)**:
   - `Bun.serve({ port, fetch, error })` binds directly to the shared `VirtualPortTable`.
   - `Bun.file(path)` and `Bun.write(dest, data)` read and write directly to the POSIX VFS.
-  - `bun:sqlite` (`new Database(':memory:' | '/workspace/app.db')`) provides an in-memory relational SQL engine supporting `CREATE TABLE`, `INSERT`, `SELECT`, `WHERE`, `ORDER BY`, `LIMIT`, `COUNT/SUM/AVG/MIN/MAX`, parameterized queries, and `db.transaction(fn)`.
+  - `bun:sqlite` (`new Database(':memory:' | '/workspace/app.db')`) provides an in-memory relational SQL engine supporting `CREATE TABLE`, `DROP TABLE`, `INSERT`, `UPDATE`, `DELETE`, `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `LIMIT`, `OFFSET`, `COUNT/SUM/AVG/MIN/MAX`, parameterized queries, and `db.transaction(fn)`.
   - `bun:test` provides Jest-compatible `expect()` matchers (`toBe`, `toEqual`, `toContain`, `toThrow`, `toHaveLength`, etc.) plus `describe`, `test`, `it`, `beforeAll`, `afterAll`, `beforeEach`, `afterEach`, and `mock()`.
 
 ### 1.4 Virtual Port Table & Loopback Networking (`createVirtualPortTable`)
@@ -66,7 +66,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 ## 2. POSIX Shell & Coreutils (`src/shell.js`)
 
 `createPosixShell` implements a complete POSIX shell interpreter inside the browser:
-- **Lexer & Recursive-Descent AST Parser**: Supports single/double quotes, escape sequences, pipelines (`cmd1 | cmd2 | cmd3`), logical operators (`&&`, `||`, `;`), background execution (`&`), I/O redirection (`>`, `>>`, `<`, `2>`, `2>&1`), environment variable expansion (`$VAR`, `${VAR:-default}`, `$?`, `$$`), command substitution (`$(...)`), arithmetic expansion (`$((...))`), brace expansion (`{a,b,c}`, `{1..5}`), and globbing (`*`, `?`, `**`).
+- **Lexer & Recursive-Descent AST Parser**: Supports single/double quotes, escape sequences, pipelines (`cmd1 | cmd2 | cmd3`), logical operators (`&&`, `||`, `;`), background execution (`&`), I/O redirection (`>`, `>>`, `<`, `<<<`, `2>`, `2>&1`, `&>`), environment variable expansion (`$VAR`, `${VAR:-default}`, `${VAR:=default}`, `${#VAR}`, `$?`, `$$`), command substitution (`$(...)`), arithmetic expansion (`$((...))`), brace expansion (`{a,b,c}`, `{1..5}`), and globbing (`*`, `?`, `**`).
 - **40+ Built-in Coreutils**:
   - File & Directory: `ls`, `cat`, `head`, `tail`, `wc`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `ln`, `pwd`, `cd`, `find`, `tree`, `stat`, `file`, `du`, `df`, `chmod`, `chown`, `mktemp`, `basename`, `dirname`, `realpath`.
   - Text & Data Processing: `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `tr`, `tee`, `xargs`, `diff`, `jq`, `xxd`, `hexdump`, `base64`, `md5sum`, `sha256sum`.
@@ -77,9 +77,9 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 ## 3. PTY Terminal Engine (`src/terminal.js`)
 
-`PTYTerminalEngine` provides a 2D character cell matrix and ANSI/VT100 escape sequence parser:
-- Supports SGR 16-color, 256-color (`38;5;n`), and 24-bit TrueColor (`38;2;r;g;b`) foreground/background attributes, bold, dim, italic, underline, and inverse video.
-- Supports cursor movement (`CSI A/B/C/D/H/G/J/K`), readline shortcuts (`Ctrl+A`, `Ctrl+E`, `Ctrl+U`, `Ctrl+K`, `Ctrl+L`, `Ctrl+C`, `Ctrl+D`), command history (`ArrowUp`/`ArrowDown`), and context-aware `Tab` autocompletion for commands and VFS file paths.
+`PTYTerminalEngine` provides an interactive terminal UI and ANSI/VT100 escape sequence parser:
+- Supports SGR 16-color, 256-color (`38;5;n`), and 24-bit TrueColor (`38;2;r;g;b`) foreground/background attributes, bold, dim, italic, underline, and partial SGR resets (`22`, `23`, `24`, `39`, `49`).
+- Supports readline shortcuts (`Ctrl+A`, `Ctrl+E`, `Ctrl+U`, `Ctrl+K`, `Ctrl+L`, `Ctrl+C`, `Ctrl+D`, `Ctrl+R` reverse-i-search), command history (`ArrowUp`/`ArrowDown`), interactive `readLine()` stdin prompts, and context-aware `Tab` autocompletion for commands and VFS file paths.
 
 ---
 
@@ -100,7 +100,10 @@ It is designed around two strictly decoupled layers that can be used together (`
 ## 5. Build & Distribution Pipeline (`tools/bundle.js`)
 
 Running `npm run build` (`node tools/bundle.js`) produces:
-- `dist/runtime.js` & `dist/runtime.esm.js` (headless virtual runtime)
 - `dist/code-lab.js` & `dist/code-lab.esm.js` (complete runtime + shell + terminal + workbench bundle)
+- `dist/runtime.js` & `dist/runtime.esm.js` (headless virtual runtime)
+- `dist/shell.js` & `dist/shell.esm.js` (standalone POSIX shell & coreutils)
+- `dist/terminal.js` & `dist/terminal.esm.js` (standalone PTY terminal engine)
 - `dist/code-lab.css` (standalone dark/light CSS variables & workbench styles)
-- `dist/index.d.ts` (TypeScript definitions for `CodeLab`, `CodeLabWorkbench`, `CodeLabRuntime`, and `<code-lab>`)
+- `dist/code-lab.d.ts` (TypeScript definitions for `CodeLab`, `CodeLabWorkbench`, `CodeLabElement`, `CodeLabRuntime`, `CodeLabShell`, and `CodeLabTerminal`)
+

@@ -24,12 +24,8 @@
  */
 
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = factory();
-  } else if (typeof define === 'function' && define.amd) {
-    define([], factory);
-  } else {
-    const exports = factory();
+  const exports = factory(root);
+  if (root) {
     root.CodeLabShell = exports;
     root.createPosixShell = exports.createPosixShell;
     root.PosixShell = exports.PosixShell;
@@ -38,18 +34,55 @@
     root.COREUTILS = exports.COREUTILS;
     root.createVirtualPortTable = exports.createVirtualPortTable;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exports;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return exports; });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
 
-  let runtimeModule = null;
-  try {
-    if (typeof require !== 'undefined') {
-      runtimeModule = require('./runtime.js');
-    }
-  } catch (_) {}
+  function getRuntimeModule() {
+    if (typeof root !== 'undefined' && root && root.CodeLabRuntime) return root.CodeLabRuntime;
+    if (typeof globalThis !== 'undefined' && globalThis.CodeLabRuntime) return globalThis.CodeLabRuntime;
+    try {
+      if (typeof require !== 'undefined') return require('./runtime.js');
+    } catch (_) {}
+    return null;
+  }
 
-  const executeInVirtualRuntime = (runtimeModule && runtimeModule.executeInVirtualRuntime) || null;
-  const createVirtualPortTable = (runtimeModule && runtimeModule.createVirtualPortTable) || null;
+  function hasVirtualRuntime() {
+    const rm = getRuntimeModule();
+    return Boolean(rm && typeof rm.executeInVirtualRuntime === 'function');
+  }
+
+  function executeInVirtualRuntime(...args) {
+    const rm = getRuntimeModule();
+    if (rm && typeof rm.executeInVirtualRuntime === 'function') {
+      return rm.executeInVirtualRuntime(...args);
+    }
+    throw new Error('Virtual runtime engine is not available');
+  }
+
+  function createVirtualPortTable(...args) {
+    const rm = getRuntimeModule();
+    if (rm && typeof rm.createVirtualPortTable === 'function') {
+      return rm.createVirtualPortTable(...args);
+    }
+    return null;
+  }
+
+  function transpileTS(code, filename) {
+    const rm = getRuntimeModule();
+    if (rm && typeof rm.transpileTS === 'function') {
+      return rm.transpileTS(code, filename);
+    }
+    return String(code)
+      .replace(/^\s*import\s+type\s+[^\n;]+;?\s*$/gm, '')
+      .replace(/^\s*export\s+(?:interface|type)\s+[A-Za-z0-9_$]+[\s\S]*?(?:^\}|\n)/gm, '')
+      .replace(/^\s*(?:interface|type)\s+[A-Za-z0-9_$]+[^;{]*\{[^}]*\}/gm, '')
+      .replace(/:\s*[A-Za-z0-9_$<>\[\]|&\s]+(?=[,=)\n;{])/g, '');
+  }
 
   // =========================================================================
   // 1. POSIX PATH UTILITIES (Virtual Filesystem Path Normalizer)
@@ -113,7 +146,7 @@
   };
 
   // =========================================================================
-  // 2. GLOB PATTERN MATCHING & VFS DIRECTORY EXPANSION
+  // 2. GLOB, BRACE & ARITHMETIC EXPANSION UTILITIES (Zero-eval Pure JS)
   // =========================================================================
   function globToRegExp(glob, isPath = true) {
     let regStr = '^';
@@ -135,7 +168,9 @@
       } else if (c === '[') {
         const close = glob.indexOf(']', i + 1);
         if (close !== -1) {
-          regStr += glob.slice(i, close + 1);
+          let inner = glob.slice(i + 1, close);
+          if (inner.startsWith('!')) inner = '^' + inner.slice(1);
+          regStr += '[' + inner + ']';
           i = close + 1;
         } else {
           regStr += '\\[';
@@ -151,6 +186,425 @@
     }
     regStr += '$';
     return new RegExp(regStr);
+  }
+
+  function expandBraces(str) {
+    if (typeof str !== 'string' || !str.includes('{') || !str.includes('}')) {
+      return [str];
+    }
+
+    // Find first top-level balanced brace pair that contains a comma or range '..'
+    let openIdx = -1;
+    let closeIdx = -1;
+    let depth = 0;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '\\') { i++; continue; }
+      if (str[i] === '{') {
+        if (depth === 0) openIdx = i;
+        depth++;
+      } else if (str[i] === '}') {
+        if (depth > 0) {
+          depth--;
+          if (depth === 0) {
+            const inner = str.slice(openIdx + 1, i);
+            if (hasTopLevelComma(inner) || /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(inner) || /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(inner)) {
+              closeIdx = i;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (openIdx === -1 || closeIdx === -1) return [str];
+
+    const prefix = str.slice(0, openIdx);
+    const body = str.slice(openIdx + 1, closeIdx);
+    const suffix = str.slice(closeIdx + 1);
+
+    let options = [];
+    const numMatch = body.match(/^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/);
+    const charMatch = body.match(/^([a-zA-Z])\.\.([a-zA-Z])(?:\.\.(-?\d+))?$/);
+
+    if (numMatch && !hasTopLevelComma(body)) {
+      const rawStart = numMatch[1];
+      const rawEnd = numMatch[2];
+      const start = parseInt(rawStart, 10);
+      const end = parseInt(rawEnd, 10);
+      let step = numMatch[3] !== undefined ? parseInt(numMatch[3], 10) : (start <= end ? 1 : -1);
+      if (step === 0) step = 1;
+      if ((start <= end && step < 0) || (start > end && step > 0)) step = -step;
+      const padWidth = (rawStart.startsWith('0') && rawStart.length > 1) || (rawEnd.startsWith('0') && rawEnd.length > 1)
+        ? Math.max(rawStart.length, rawEnd.length)
+        : 0;
+      for (let v = start; step > 0 ? v <= end : v >= end; v += step) {
+        let s = String(Math.abs(v));
+        if (padWidth > 0) s = s.padStart(padWidth - (v < 0 ? 1 : 0), '0');
+        options.push(v < 0 ? '-' + s : s);
+      }
+    } else if (charMatch && !hasTopLevelComma(body)) {
+      const startCode = charMatch[1].charCodeAt(0);
+      const endCode = charMatch[2].charCodeAt(0);
+      let step = charMatch[3] !== undefined ? Math.abs(parseInt(charMatch[3], 10)) || 1 : 1;
+      if (startCode > endCode) step = -step;
+      for (let c = startCode; step > 0 ? c <= endCode : c >= endCode; c += step) {
+        options.push(String.fromCharCode(c));
+      }
+    } else {
+      options = splitTopLevelComma(body);
+    }
+
+    const results = [];
+    for (const opt of options) {
+      for (const expandedOpt of expandBraces(opt)) {
+        for (const expandedRest of expandBraces(suffix)) {
+          results.push(prefix + expandedOpt + expandedRest);
+        }
+      }
+    }
+    return results;
+  }
+
+  function hasTopLevelComma(s) {
+    let d = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\\') { i++; continue; }
+      if (s[i] === '{') d++;
+      else if (s[i] === '}') d = Math.max(0, d - 1);
+      else if (s[i] === ',' && d === 0) return true;
+    }
+    return false;
+  }
+
+  function splitTopLevelComma(s) {
+    const parts = [];
+    let cur = '';
+    let d = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\\' && i + 1 < s.length) {
+        cur += s[i] + s[i + 1];
+        i++;
+        continue;
+      }
+      if (s[i] === '{') { d++; cur += s[i]; }
+      else if (s[i] === '}') { d = Math.max(0, d - 1); cur += s[i]; }
+      else if (s[i] === ',' && d === 0) {
+        parts.push(cur);
+        cur = '';
+      } else {
+        cur += s[i];
+      }
+    }
+    parts.push(cur);
+    return parts;
+  }
+
+  /**
+   * Pure-JS CSP-safe arithmetic evaluator for $(( ... ))
+   */
+  function evaluateArithmetic(exprStr, env = {}, shellEnv = null) {
+    const src = String(exprStr || '').trim();
+    if (!src) return 0;
+
+    // Tokenize arithmetic expression
+    const tokens = [];
+    let i = 0;
+    const len = src.length;
+
+    while (i < len) {
+      const ch = src[i];
+      if (/\s/.test(ch)) { i++; continue; }
+
+      // Multi-char operators
+      const three = src.slice(i, i + 3);
+      if (three === '<<=' || three === '>>=') {
+        tokens.push({ type: 'OP', value: three });
+        i += 3;
+        continue;
+      }
+      const two = src.slice(i, i + 2);
+      if (['**', '++', '--', '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', '+=', '-=', '*=', '/=', '%=', '&=', '^=', '|='].includes(two)) {
+        tokens.push({ type: 'OP', value: two });
+        i += 2;
+        continue;
+      }
+      if ('+-*/%<>&|^!~?:=,()'.includes(ch)) {
+        tokens.push({ type: 'OP', value: ch });
+        i++;
+        continue;
+      }
+
+      // Variable with leading $: ${VAR} or $VAR
+      if (ch === '$') {
+        i++;
+        let vName = '';
+        if (src[i] === '{') {
+          i++;
+          while (i < len && src[i] !== '}') vName += src[i++];
+          if (src[i] === '}') i++;
+        } else {
+          while (i < len && /[a-zA-Z0-9_?#]/.test(src[i])) vName += src[i++];
+        }
+        const rawVal = env[vName] !== undefined ? env[vName] : (shellEnv && shellEnv[vName] !== undefined ? shellEnv[vName] : '0');
+        const parsed = Number(rawVal);
+        tokens.push({ type: 'NUM', value: Number.isFinite(parsed) ? Math.trunc(parsed) : 0, name: vName });
+        continue;
+      }
+
+      // Number literal (hex, octal, binary, decimal)
+      if (/[0-9]/.test(ch)) {
+        let numStr = '';
+        while (i < len && /[0-9a-fA-FxXbBoO_]/.test(src[i])) {
+          if (src[i] !== '_') numStr += src[i];
+          i++;
+        }
+        let val = 0;
+        if (/^0[xX]/.test(numStr)) val = parseInt(numStr.slice(2), 16) || 0;
+        else if (/^0[bB]/.test(numStr)) val = parseInt(numStr.slice(2), 2) || 0;
+        else if (/^0[oO]/.test(numStr)) val = parseInt(numStr.slice(2), 8) || 0;
+        else if (numStr.length > 1 && numStr.startsWith('0') && /^[0-7]+$/.test(numStr)) val = parseInt(numStr, 8) || 0;
+        else val = parseInt(numStr, 10) || 0;
+        tokens.push({ type: 'NUM', value: val });
+        continue;
+      }
+
+      // Identifier (variable name)
+      if (/[a-zA-Z_]/.test(ch)) {
+        let ident = '';
+        while (i < len && /[a-zA-Z0-9_]/.test(src[i])) ident += src[i++];
+        tokens.push({ type: 'IDENT', name: ident });
+        continue;
+      }
+
+      i++;
+    }
+
+    let pos = 0;
+    const peek = () => tokens[pos] || null;
+    const next = () => tokens[pos++] || null;
+
+    function getVar(name) {
+      const v = env[name] !== undefined ? env[name] : (shellEnv && shellEnv[name] !== undefined ? shellEnv[name] : 0);
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.trunc(n) : 0;
+    }
+
+    function setVar(name, val) {
+      const iv = Math.trunc(Number(val) || 0);
+      env[name] = String(iv);
+      if (shellEnv) shellEnv[name] = String(iv);
+      return iv;
+    }
+
+    function parseComma() {
+      let v = parseAssign();
+      while (peek() && peek().type === 'OP' && peek().value === ',') {
+        next();
+        v = parseAssign();
+      }
+      return v;
+    }
+
+    function parseAssign() {
+      if (peek() && (peek().type === 'IDENT' || (peek().type === 'NUM' && peek().name))) {
+        const nextTok = tokens[pos + 1];
+        if (nextTok && nextTok.type === 'OP' && ['=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '&=', '^=', '|='].includes(nextTok.value)) {
+          const ident = next().name;
+          const op = next().value;
+          const rhs = parseAssign();
+          const cur = getVar(ident);
+          if (op === '=') return setVar(ident, rhs);
+          if (op === '+=') return setVar(ident, cur + rhs);
+          if (op === '-=') return setVar(ident, cur - rhs);
+          if (op === '*=') return setVar(ident, cur * rhs);
+          if (op === '/=') return setVar(ident, rhs === 0 ? 0 : Math.trunc(cur / rhs));
+          if (op === '%=') return setVar(ident, rhs === 0 ? 0 : cur % rhs);
+          if (op === '<<=') return setVar(ident, cur << rhs);
+          if (op === '>>=') return setVar(ident, cur >> rhs);
+          if (op === '&=') return setVar(ident, cur & rhs);
+          if (op === '^=') return setVar(ident, cur ^ rhs);
+          if (op === '|=') return setVar(ident, cur | rhs);
+        }
+      }
+      return parseTernary();
+    }
+
+    function parseTernary() {
+      const cond = parseLogicalOr();
+      if (peek() && peek().type === 'OP' && peek().value === '?') {
+        next();
+        const yes = parseAssign();
+        if (peek() && peek().type === 'OP' && peek().value === ':') next();
+        const no = parseAssign();
+        return cond !== 0 ? yes : no;
+      }
+      return cond;
+    }
+
+    function parseLogicalOr() {
+      let left = parseLogicalAnd();
+      while (peek() && peek().type === 'OP' && peek().value === '||') {
+        next();
+        const right = parseLogicalAnd();
+        left = (left !== 0 || right !== 0) ? 1 : 0;
+      }
+      return left;
+    }
+
+    function parseLogicalAnd() {
+      let left = parseBitOr();
+      while (peek() && peek().type === 'OP' && peek().value === '&&') {
+        next();
+        const right = parseBitOr();
+        left = (left !== 0 && right !== 0) ? 1 : 0;
+      }
+      return left;
+    }
+
+    function parseBitOr() {
+      let left = parseBitXor();
+      while (peek() && peek().type === 'OP' && peek().value === '|') {
+        next();
+        left = left | parseBitXor();
+      }
+      return left;
+    }
+
+    function parseBitXor() {
+      let left = parseBitAnd();
+      while (peek() && peek().type === 'OP' && peek().value === '^') {
+        next();
+        left = left ^ parseBitAnd();
+      }
+      return left;
+    }
+
+    function parseBitAnd() {
+      let left = parseEquality();
+      while (peek() && peek().type === 'OP' && peek().value === '&') {
+        next();
+        left = left & parseEquality();
+      }
+      return left;
+    }
+
+    function parseEquality() {
+      let left = parseRelational();
+      while (peek() && peek().type === 'OP' && (peek().value === '==' || peek().value === '!=')) {
+        const op = next().value;
+        const right = parseRelational();
+        left = op === '==' ? (left === right ? 1 : 0) : (left !== right ? 1 : 0);
+      }
+      return left;
+    }
+
+    function parseRelational() {
+      let left = parseShift();
+      while (peek() && peek().type === 'OP' && ['<', '<=', '>', '>='].includes(peek().value)) {
+        const op = next().value;
+        const right = parseShift();
+        if (op === '<') left = left < right ? 1 : 0;
+        else if (op === '<=') left = left <= right ? 1 : 0;
+        else if (op === '>') left = left > right ? 1 : 0;
+        else if (op === '>=') left = left >= right ? 1 : 0;
+      }
+      return left;
+    }
+
+    function parseShift() {
+      let left = parseAdd();
+      while (peek() && peek().type === 'OP' && (peek().value === '<<' || peek().value === '>>')) {
+        const op = next().value;
+        const right = parseAdd();
+        left = op === '<<' ? (left << right) : (left >> right);
+      }
+      return left;
+    }
+
+    function parseAdd() {
+      let left = parseMul();
+      while (peek() && peek().type === 'OP' && (peek().value === '+' || peek().value === '-')) {
+        const op = next().value;
+        const right = parseMul();
+        left = op === '+' ? (left + right) : (left - right);
+      }
+      return left;
+    }
+
+    function parseMul() {
+      let left = parsePow();
+      while (peek() && peek().type === 'OP' && ['*', '/', '%'].includes(peek().value)) {
+        const op = next().value;
+        const right = parsePow();
+        if (op === '*') left = left * right;
+        else if (op === '/') left = right === 0 ? 0 : Math.trunc(left / right);
+        else if (op === '%') left = right === 0 ? 0 : (left % right);
+      }
+      return left;
+    }
+
+    function parsePow() {
+      const base = parseUnary();
+      if (peek() && peek().type === 'OP' && peek().value === '**') {
+        next();
+        const exp = parsePow();
+        return Math.trunc(Math.pow(base, exp));
+      }
+      return base;
+    }
+
+    function parseUnary() {
+      const t = peek();
+      if (t && t.type === 'OP') {
+        if (t.value === '+') { next(); return +parseUnary(); }
+        if (t.value === '-') { next(); return -parseUnary(); }
+        if (t.value === '!') { next(); return parseUnary() === 0 ? 1 : 0; }
+        if (t.value === '~') { next(); return ~parseUnary(); }
+        if (t.value === '++' || t.value === '--') {
+          const op = next().value;
+          const target = peek();
+          if (target && (target.type === 'IDENT' || target.name)) {
+            next();
+            const cur = getVar(target.name);
+            return setVar(target.name, op === '++' ? cur + 1 : cur - 1);
+          }
+          return parseUnary();
+        }
+      }
+      return parsePostfix();
+    }
+
+    function parsePostfix() {
+      const t = peek();
+      if (!t) return 0;
+      if (t.type === 'OP' && t.value === '(') {
+        next();
+        const val = parseComma();
+        if (peek() && peek().type === 'OP' && peek().value === ')') next();
+        return val;
+      }
+      if (t.type === 'IDENT') {
+        next();
+        const cur = getVar(t.name);
+        if (peek() && peek().type === 'OP' && (peek().value === '++' || peek().value === '--')) {
+          const op = next().value;
+          setVar(t.name, op === '++' ? cur + 1 : cur - 1);
+        }
+        return cur;
+      }
+      if (t.type === 'NUM') {
+        next();
+        if (t.name && peek() && peek().type === 'OP' && (peek().value === '++' || peek().value === '--')) {
+          const op = next().value;
+          setVar(t.name, op === '++' ? t.value + 1 : t.value - 1);
+        }
+        return t.value;
+      }
+      next();
+      return 0;
+    }
+
+    return Math.trunc(parseComma() || 0);
   }
 
   function expandGlob(pattern, cwd, vfs) {
@@ -230,24 +684,30 @@
   // =========================================================================
   /**
    * Tokenizes a POSIX shell command string into structured tokens:
-   * Words with segment types (literal, single-quoted, double-quoted, var, subshell)
-   * Operators: &&, ||, |, ;, &, >, >>, <, 2>, 2>>, 2>&1, 1>&2, &>
+   * Words with segment types (literal, single_quoted, double_quoted, variable, subshell, arith)
+   * Operators: &&, ||, |, ;, ;;, &, >, >>, <, <<, <<-, <<<, 2>, 2>>, 2>&1, 1>&2, &>, (, )
    */
   function tokenizeShell(commandLine) {
     if (typeof commandLine !== 'string') return [];
     const tokens = [];
     const len = commandLine.length;
     let i = 0;
+    let pendingHeredocEnd = -1;
 
     while (i < len) {
       const ch = commandLine[i];
 
-      // Newline: treated as command separator (equivalent to semicolon)
+      // Newline: treated as command separator (equivalent to semicolon), jumping over consumed heredocs
       if (ch === '\n') {
-        i++;
+        if (pendingHeredocEnd > i) {
+          i = pendingHeredocEnd;
+          pendingHeredocEnd = -1;
+        } else {
+          i++;
+        }
         if (tokens.length > 0) {
           const lastType = tokens[tokens.length - 1].type;
-          if (lastType !== 'SEMICOLON' && lastType !== 'AND' && lastType !== 'OR' && lastType !== 'PIPE') {
+          if (lastType !== 'SEMICOLON' && lastType !== 'DSEMI' && lastType !== 'AND' && lastType !== 'OR' && lastType !== 'PIPE' && lastType !== 'LPAREN') {
             tokens.push({ type: 'SEMICOLON', raw: ';' });
           }
         }
@@ -263,6 +723,32 @@
       // Comments: # until end of line
       if (ch === '#') {
         while (i < len && commandLine[i] !== '\n') i++;
+        continue;
+      }
+
+      // Double semicolon ';;' (for case clauses)
+      if (ch === ';' && commandLine[i + 1] === ';') {
+        tokens.push({ type: 'DSEMI', raw: ';;' });
+        i += 2;
+        continue;
+      }
+
+      // Semicolon ';'
+      if (ch === ';') {
+        tokens.push({ type: 'SEMICOLON', raw: ';' });
+        i++;
+        continue;
+      }
+
+      // Subshell / grouping / function parens '(' and ')'
+      if (ch === '(') {
+        tokens.push({ type: 'LPAREN', raw: '(' });
+        i++;
+        continue;
+      }
+      if (ch === ')') {
+        tokens.push({ type: 'RPAREN', raw: ')' });
+        i++;
         continue;
       }
 
@@ -287,16 +773,9 @@
         continue;
       }
 
-      // Semicolon ';'
-      if (ch === ';') {
-        tokens.push({ type: 'SEMICOLON', raw: ';' });
-        i++;
-        continue;
-      }
-
       // Both stdout & stderr redirect '&>'
       if (ch === '&' && commandLine[i + 1] === '>') {
-        tokens.push({ type: 'REDIRECT', op: '&>', sourceFd: 'all' });
+        tokens.push({ type: 'REDIRECT', op: '&>', sourceFd: 'all', raw: '&>' });
         i += 2;
         continue;
       }
@@ -331,7 +810,7 @@
         continue;
       }
 
-      // Redirection: >> or >&1 or >&2 or > or <
+      // Redirection: >> or >&1 or >&2 or >
       if (ch === '>') {
         if (commandLine[i + 1] === '&' && (commandLine[i + 2] === '1' || commandLine[i + 2] === '2')) {
           const targetFd = parseInt(commandLine[i + 2], 10);
@@ -349,21 +828,83 @@
         continue;
       }
 
+      // Input redirection: <<< (here-string), <<- / << (here-document), or <
       if (ch === '<') {
+        if (commandLine[i + 1] === '<' && commandLine[i + 2] === '<') {
+          tokens.push({ type: 'REDIRECT', op: '<<<', sourceFd: 0, raw: '<<<' });
+          i += 3;
+          continue;
+        }
+        if (commandLine[i + 1] === '<') {
+          const stripTabs = commandLine[i + 2] === '-';
+          i += stripTabs ? 3 : 2;
+          while (i < len && (commandLine[i] === ' ' || commandLine[i] === '\t')) i++;
+
+          let delim = '';
+          let quoted = false;
+          while (i < len && !/[\s;|&<>()]/.test(commandLine[i])) {
+            if (commandLine[i] === "'" || commandLine[i] === '"') {
+              const q = commandLine[i++];
+              quoted = true;
+              while (i < len && commandLine[i] !== q) delim += commandLine[i++];
+              if (i < len && commandLine[i] === q) i++;
+            } else if (commandLine[i] === '\\' && i + 1 < len) {
+              quoted = true;
+              i++;
+              delim += commandLine[i++];
+            } else {
+              delim += commandLine[i++];
+            }
+          }
+
+          const searchStart = pendingHeredocEnd > i ? pendingHeredocEnd : commandLine.indexOf('\n', i);
+          let body = '';
+          if (searchStart !== -1 && searchStart < len) {
+            let lineStart = searchStart + 1;
+            while (lineStart <= len) {
+              let lineEnd = commandLine.indexOf('\n', lineStart);
+              if (lineEnd === -1) lineEnd = len;
+              const rawLine = commandLine.slice(lineStart, lineEnd).replace(/\r$/, '');
+              const checkLine = stripTabs ? rawLine.replace(/^\t+/, '') : rawLine;
+              if (checkLine === delim) {
+                pendingHeredocEnd = lineEnd < len ? lineEnd + 1 : len;
+                break;
+              }
+              body += (stripTabs ? rawLine.replace(/^\t+/, '') : rawLine) + '\n';
+              if (lineEnd === len) {
+                pendingHeredocEnd = len;
+                break;
+              }
+              lineStart = lineEnd + 1;
+            }
+          }
+
+          tokens.push({
+            type: 'REDIRECT',
+            op: '<<',
+            sourceFd: 0,
+            stripTabs,
+            quoted,
+            body,
+            delim,
+            raw: stripTabs ? '<<-' : '<<'
+          });
+          continue;
+        }
         tokens.push({ type: 'REDIRECT', op: '<', sourceFd: 0, raw: '<' });
         i++;
         continue;
       }
 
-      // Otherwise, parse a WORD token (may contain quotes, variables, escapes, subshells)
+      // Otherwise, parse a WORD token (may contain quotes, variables, escapes, subshells, arith)
       const segments = [];
       let rawWord = '';
       let hasWildcard = false;
+      let hasBraces = false;
 
       while (i < len) {
         const c = commandLine[i];
-        if (/\s/.test(c) || c === '|' || c === '&' || c === ';' || c === '<' || c === '>') {
-          // Lookahead: digit immediately preceding > or < is a redirect, not part of word
+        if (/\s/.test(c) || c === '|' || c === '&' || c === ';' || c === '<' || c === '>' || c === '(' || c === ')') {
           break;
         }
 
@@ -383,6 +924,7 @@
 
         // Double quotes "..."
         if (c === '"') {
+          const dqStart = i;
           i++;
           const dqParts = [];
           let currentLit = '';
@@ -402,7 +944,35 @@
               continue;
             }
 
-            // Command substitution inside double quotes: $(...) or `...`
+            // Arithmetic expansion inside double quotes: $((...))
+            if (dc === '$' && commandLine[i + 1] === '(' && commandLine[i + 2] === '(') {
+              if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
+              i += 3;
+              let depth = 2;
+              let expr = '';
+              while (i < len && depth > 0) {
+                if (commandLine[i] === '(') {
+                  depth++;
+                  expr += '(';
+                  i++;
+                } else if (commandLine[i] === ')') {
+                  if (depth === 2 && commandLine[i + 1] === ')') {
+                    depth = 0;
+                    i += 2;
+                    break;
+                  }
+                  depth--;
+                  if (depth > 0) expr += ')';
+                  i++;
+                } else {
+                  expr += commandLine[i++];
+                }
+              }
+              dqParts.push({ type: 'arith', expr });
+              continue;
+            }
+
+            // Command substitution inside double quotes: $(...)
             if (dc === '$' && commandLine[i + 1] === '(') {
               if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
               i += 2;
@@ -418,6 +988,19 @@
               continue;
             }
 
+            // Backtick substitution inside double quotes: `...`
+            if (dc === '`') {
+              if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
+              i++;
+              let subCmd = '';
+              while (i < len && commandLine[i] !== '`') {
+                subCmd += commandLine[i++];
+              }
+              if (i < len && commandLine[i] === '`') i++;
+              dqParts.push({ type: 'subshell', command: subCmd });
+              continue;
+            }
+
             // Variable inside double quotes: ${VAR} or $VAR
             if (dc === '$') {
               if (currentLit) { dqParts.push({ type: 'literal', value: currentLit }); currentLit = ''; }
@@ -425,21 +1008,21 @@
               if (commandLine[i] === '{') {
                 i++;
                 let varName = '';
-                while (i < len && commandLine[i] !== '}') {
-                  varName += commandLine[i];
+                let bDepth = 1;
+                while (i < len && bDepth > 0) {
+                  if (commandLine[i] === '{') bDepth++;
+                  else if (commandLine[i] === '}') bDepth--;
+                  if (bDepth > 0) varName += commandLine[i];
                   i++;
                 }
-                if (i < len && commandLine[i] === '}') i++;
                 dqParts.push({ type: 'variable', name: varName });
-              } else if (/[a-zA-Z0-9_?!$#@]/.test(commandLine[i])) {
+              } else if (/[0-9?!$#@*]/.test(commandLine[i])) {
+                const varName = commandLine[i++];
+                dqParts.push({ type: 'variable', name: varName });
+              } else if (/[a-zA-Z_]/.test(commandLine[i])) {
                 let varName = '';
                 while (i < len && /[a-zA-Z0-9_]/.test(commandLine[i])) {
-                  varName += commandLine[i];
-                  i++;
-                }
-                if (!varName && /[?!$#@]/.test(commandLine[i])) {
-                  varName = commandLine[i];
-                  i++;
+                  varName += commandLine[i++];
                 }
                 dqParts.push({ type: 'variable', name: varName });
               } else {
@@ -454,15 +1037,43 @@
           if (i < len && commandLine[i] === '"') i++;
           if (currentLit) dqParts.push({ type: 'literal', value: currentLit });
           segments.push({ type: 'double_quoted', parts: dqParts });
-          rawWord += `"${currentLit}"`;
+          rawWord += commandLine.slice(dqStart, i);
           continue;
         }
 
         // Backslash outside quotes
         if (c === '\\' && i + 1 < len) {
-          segments.push({ type: 'literal', value: commandLine[i + 1] });
-          rawWord += commandLine[i + 1];
+          segments.push({ type: 'literal', value: commandLine[i + 1], escaped: true });
+          rawWord += '\\' + commandLine[i + 1];
           i += 2;
+          continue;
+        }
+
+        // Arithmetic expansion $((...)) outside quotes
+        if (c === '$' && commandLine[i + 1] === '(' && commandLine[i + 2] === '(') {
+          i += 3;
+          let depth = 2;
+          let expr = '';
+          while (i < len && depth > 0) {
+            if (commandLine[i] === '(') {
+              depth++;
+              expr += '(';
+              i++;
+            } else if (commandLine[i] === ')') {
+              if (depth === 2 && commandLine[i + 1] === ')') {
+                depth = 0;
+                i += 2;
+                break;
+              }
+              depth--;
+              if (depth > 0) expr += ')';
+              i++;
+            } else {
+              expr += commandLine[i++];
+            }
+          }
+          segments.push({ type: 'arith', expr });
+          rawWord += `$((${expr}))`;
           continue;
         }
 
@@ -502,23 +1113,23 @@
           if (commandLine[i] === '{') {
             i++;
             let varName = '';
-            while (i < len && commandLine[i] !== '}') {
-              varName += commandLine[i];
+            let bDepth = 1;
+            while (i < len && bDepth > 0) {
+              if (commandLine[i] === '{') bDepth++;
+              else if (commandLine[i] === '}') bDepth--;
+              if (bDepth > 0) varName += commandLine[i];
               i++;
             }
-            if (i < len && commandLine[i] === '}') i++;
             segments.push({ type: 'variable', name: varName });
             rawWord += `\${${varName}}`;
-          } else if (/[a-zA-Z0-9_?!$#@]/.test(commandLine[i])) {
+          } else if (/[0-9?!$#@*]/.test(commandLine[i])) {
+            const varName = commandLine[i++];
+            segments.push({ type: 'variable', name: varName });
+            rawWord += `$${varName}`;
+          } else if (/[a-zA-Z_]/.test(commandLine[i])) {
             let varName = '';
-            if (/[?!$#@]/.test(commandLine[i])) {
-              varName = commandLine[i];
-              i++;
-            } else {
-              while (i < len && /[a-zA-Z0-9_]/.test(commandLine[i])) {
-                varName += commandLine[i];
-                i++;
-              }
+            while (i < len && /[a-zA-Z0-9_]/.test(commandLine[i])) {
+              varName += commandLine[i++];
             }
             segments.push({ type: 'variable', name: varName });
             rawWord += `$${varName}`;
@@ -529,9 +1140,12 @@
           continue;
         }
 
-        // Wildcard detection
+        // Wildcard and brace detection
         if (c === '*' || c === '?' || c === '[') {
           hasWildcard = true;
+        }
+        if (c === '{' || c === '}') {
+          hasBraces = true;
         }
 
         // Normal character outside quotes
@@ -544,7 +1158,8 @@
         type: 'WORD',
         segments,
         raw: rawWord,
-        hasWildcard
+        hasWildcard,
+        hasBraces
       });
     }
 
@@ -556,7 +1171,7 @@
   // =========================================================================
   /**
    * Parses token stream into an executable AST:
-   * Sequence -> Logical (&&, ||) -> Pipeline (|) -> SimpleCommand (args, redirects, env)
+   * Sequence -> Logical (&&, ||) -> Pipeline (|) -> Compound / SimpleCommand
    */
   function parseShellCommand(input) {
     const tokens = typeof input === 'string' ? tokenizeShell(input) : input;
@@ -570,16 +1185,24 @@
       return tokens[pos++] || null;
     }
 
-    // Sequence: cmd1 ; cmd2 & cmd3
-    function parseSequence() {
+    function isWord(tok, ...vals) {
+      return Boolean(tok && tok.type === 'WORD' && vals.includes(tok.raw));
+    }
+
+    function skipSeps() {
+      while (peek() && peek().type === 'SEMICOLON') next();
+    }
+
+    function parseSequence(stopWords = []) {
       const items = [];
       while (pos < tokens.length) {
-        if (peek() && peek().type === 'SEMICOLON') {
-          next();
-          continue;
-        }
+        skipSeps();
+        const t = peek();
+        if (!t) break;
+        if (t.type === 'RPAREN' || t.type === 'DSEMI') break;
+        if (stopWords.length > 0 && isWord(t, ...stopWords)) break;
 
-        const logicalNode = parseLogical();
+        const logicalNode = parseLogical(stopWords);
         if (!logicalNode) break;
 
         let background = false;
@@ -599,14 +1222,14 @@
       };
     }
 
-    // Logical: pipeline1 && pipeline2 || pipeline3
-    function parseLogical() {
-      let left = parsePipeline();
+    function parseLogical(stopWords = []) {
+      let left = parsePipeline(stopWords);
       if (!left) return null;
 
       while (peek() && (peek().type === 'AND' || peek().type === 'OR')) {
         const opToken = next();
-        const right = parsePipeline();
+        skipSeps();
+        const right = parsePipeline(stopWords);
         if (!right) break;
         left = {
           type: 'Logical',
@@ -619,28 +1242,231 @@
       return left;
     }
 
-    // Pipeline: cmd1 | cmd2 | cmd3
-    function parsePipeline() {
+    function parsePipeline(stopWords = []) {
+      let negated = false;
+      if (isWord(peek(), '!')) {
+        next();
+        negated = true;
+      }
+
       const commands = [];
-      const first = parseCommand();
+      const first = parseCommand(stopWords);
       if (!first) return null;
       commands.push(first);
 
       while (peek() && peek().type === 'PIPE') {
-        next(); // consume '|'
-        const nextCmd = parseCommand();
+        next();
+        skipSeps();
+        const nextCmd = parseCommand(stopWords);
         if (nextCmd) commands.push(nextCmd);
       }
 
-      if (commands.length === 1) return commands[0];
+      if (commands.length === 1 && !negated) return commands[0];
       return {
         type: 'Pipeline',
+        negated,
         commands
       };
     }
 
-    // Simple Command: leading ENV=val, name, args, redirections
-    function parseCommand() {
+    function parseTrailingRedirects() {
+      const redirects = [];
+      while (peek() && (peek().type === 'REDIRECT' || peek().type === 'REDIRECT_FD')) {
+        const token = next();
+        if (token.type === 'REDIRECT') {
+          if (token.op === '<<') {
+            redirects.push({
+              type: '<<',
+              sourceFd: token.sourceFd,
+              body: token.body,
+              quoted: token.quoted,
+              stripTabs: token.stripTabs
+            });
+          } else {
+            let target = null;
+            if (peek() && peek().type === 'WORD') target = next();
+            redirects.push({
+              type: token.op,
+              sourceFd: token.sourceFd,
+              target
+            });
+          }
+        } else {
+          redirects.push({
+            type: '>&',
+            sourceFd: token.sourceFd,
+            targetFd: token.targetFd
+          });
+        }
+      }
+      return redirects;
+    }
+
+    function parseCommand(stopWords = []) {
+      const tok = peek();
+      if (!tok) return null;
+      if (tok.type === 'RPAREN' || tok.type === 'DSEMI') return null;
+      if (stopWords.length > 0 && isWord(tok, ...stopWords)) return null;
+
+      // 1. Subshell: ( list )
+      if (tok.type === 'LPAREN') {
+        next();
+        const body = parseSequence([]);
+        if (peek() && peek().type === 'RPAREN') next();
+        return {
+          type: 'Subshell',
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 2. Brace group: { list; }
+      if (isWord(tok, '{')) {
+        next();
+        const body = parseSequence(['}']);
+        if (isWord(peek(), '}')) next();
+        return {
+          type: 'BraceGroup',
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 3. If / elif / else / fi
+      if (isWord(tok, 'if')) {
+        next();
+        const branches = [];
+        const cond = parseSequence(['then']);
+        if (isWord(peek(), 'then')) next();
+        const body = parseSequence(['elif', 'else', 'fi']);
+        branches.push({ cond, body });
+
+        while (isWord(peek(), 'elif')) {
+          next();
+          const elifCond = parseSequence(['then']);
+          if (isWord(peek(), 'then')) next();
+          const elifBody = parseSequence(['elif', 'else', 'fi']);
+          branches.push({ cond: elifCond, body: elifBody });
+        }
+
+        let elseBody = null;
+        if (isWord(peek(), 'else')) {
+          next();
+          elseBody = parseSequence(['fi']);
+        }
+        if (isWord(peek(), 'fi')) next();
+        return {
+          type: 'If',
+          branches,
+          elseBody,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 4. For loop: for var [in words...]; do list; done
+      if (isWord(tok, 'for')) {
+        next();
+        const varTok = next();
+        const varName = varTok ? varTok.raw : 'i';
+        let items = null;
+        if (isWord(peek(), 'in')) {
+          next();
+          items = [];
+          while (peek() && peek().type === 'WORD' && !isWord(peek(), 'do')) {
+            items.push(next());
+          }
+        }
+        skipSeps();
+        if (isWord(peek(), 'do')) next();
+        const body = parseSequence(['done']);
+        if (isWord(peek(), 'done')) next();
+        return {
+          type: 'For',
+          varName,
+          items,
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 5. While / Until loop: while cond; do list; done
+      if (isWord(tok, 'while', 'until')) {
+        const kw = next().raw;
+        const cond = parseSequence(['do']);
+        if (isWord(peek(), 'do')) next();
+        const body = parseSequence(['done']);
+        if (isWord(peek(), 'done')) next();
+        return {
+          type: kw === 'while' ? 'While' : 'Until',
+          cond,
+          body,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 6. Case statement: case word in [ ( ] pat [ | pat ] ) list ;; ... esac
+      if (isWord(tok, 'case')) {
+        next();
+        const word = next();
+        skipSeps();
+        if (isWord(peek(), 'in')) next();
+        skipSeps();
+        const clauses = [];
+        while (pos < tokens.length && !isWord(peek(), 'esac')) {
+          skipSeps();
+          if (isWord(peek(), 'esac')) break;
+          if (peek() && peek().type === 'LPAREN') next();
+          const patterns = [];
+          while (pos < tokens.length && peek().type !== 'RPAREN' && !isWord(peek(), 'esac')) {
+            if (peek().type === 'PIPE') { next(); continue; }
+            patterns.push(next());
+          }
+          if (peek() && peek().type === 'RPAREN') next();
+          const body = parseSequence(['esac']);
+          if (peek() && peek().type === 'DSEMI') next();
+          skipSeps();
+          clauses.push({ patterns, body });
+        }
+        if (isWord(peek(), 'esac')) next();
+        return {
+          type: 'Case',
+          word,
+          clauses,
+          redirects: parseTrailingRedirects()
+        };
+      }
+
+      // 7. Function definition: function name[()] { ... } or name() { ... }
+      if (isWord(tok, 'function')) {
+        next();
+        const nameTok = next();
+        const fnName = nameTok ? nameTok.raw : '';
+        if (peek() && peek().type === 'LPAREN') {
+          next();
+          if (peek() && peek().type === 'RPAREN') next();
+        }
+        skipSeps();
+        const body = parseCommand(stopWords);
+        return {
+          type: 'FunctionDef',
+          name: fnName,
+          body
+        };
+      }
+      if (tok.type === 'WORD' && tokens[pos + 1] && tokens[pos + 1].type === 'LPAREN' && tokens[pos + 2] && tokens[pos + 2].type === 'RPAREN') {
+        const fnName = next().raw;
+        next(); // (
+        next(); // )
+        skipSeps();
+        const body = parseCommand(stopWords);
+        return {
+          type: 'FunctionDef',
+          name: fnName,
+          body
+        };
+      }
+
+      // 8. Simple Command: leading ENV=val, name, args, redirections
       const envVars = [];
       const words = [];
       const redirects = [];
@@ -649,14 +1475,42 @@
         const token = peek();
         if (!token) break;
 
+        // Special handling inside [[ ... ]]: consume operators as literal word tokens until ]]
+        if (words.length >= 1 && words[0].raw === '[[') {
+          if (token.type === 'WORD' && token.raw === ']]') {
+            words.push(next());
+            break;
+          }
+          if (token.type === 'SEMICOLON') break;
+          const t = next();
+          if (t.type === 'WORD') {
+            words.push(t);
+          } else {
+            const rawOp = t.raw || t.op || '';
+            words.push({ type: 'WORD', segments: [{ type: 'literal', value: rawOp }], raw: rawOp, hasWildcard: false });
+          }
+          continue;
+        }
+
         if (token.type === 'PIPE' || token.type === 'AND' || token.type === 'OR' ||
-            token.type === 'SEMICOLON' || token.type === 'BACKGROUND') {
+            token.type === 'SEMICOLON' || token.type === 'DSEMI' || token.type === 'BACKGROUND' ||
+            token.type === 'LPAREN' || token.type === 'RPAREN') {
           break;
         }
 
-        // Redirection with file target: >, >>, <, 2>, 2>>
+        // Redirection: >, >>, <, <<, <<<, 2>, 2>>
         if (token.type === 'REDIRECT') {
           next();
+          if (token.op === '<<') {
+            redirects.push({
+              type: '<<',
+              sourceFd: token.sourceFd,
+              body: token.body,
+              quoted: token.quoted,
+              stripTabs: token.stripTabs
+            });
+            continue;
+          }
           const targetToken = peek();
           let target = null;
           if (targetToken && targetToken.type === 'WORD') {
@@ -698,7 +1552,6 @@
           continue;
         }
 
-        // Unrecognized token, advance
         next();
       }
 
@@ -715,7 +1568,7 @@
       };
     }
 
-    return parseSequence();
+    return parseSequence([]);
   }
 
   // =========================================================================
@@ -723,7 +1576,7 @@
   // =========================================================================
   function createFallbackVfs() {
     const files = new Map();
-    const dirs = new Set(['/', '/tmp', '/workspace', '/home', '/home/user']);
+    const dirs = new Set(['/', '/tmp', '/workspace', '/etc', '/home', '/home/user']);
 
     function norm(p) {
       return PosixPath.normalize(p.startsWith('/') ? p : '/workspace/' + p);
@@ -750,15 +1603,32 @@
       statSync(p) {
         const np = norm(p);
         if (dirs.has(np)) {
-          return { size: 0, mtimeMs: Date.now(), isDirectory: () => true, isFile: () => false, mode: 0o40755 };
+          return { size: 0, mtimeMs: Date.now(), isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false, mode: 0o40755 };
         }
         const f = files.get(np);
         if (f) {
-          return { size: f.data.length, mtimeMs: f.mtimeMs, isDirectory: () => false, isFile: () => true, mode: f.mode !== undefined ? f.mode : 0o100644 };
+          return {
+            size: f.data.length,
+            mtimeMs: f.mtimeMs,
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => Boolean(f.symlinkTarget),
+            symlinkTarget: f.symlinkTarget || null,
+            mode: f.mode !== undefined ? f.mode : 0o100644
+          };
         }
         const err = new Error(`ENOENT: no such file or directory, stat '${p}'`);
         err.code = 'ENOENT';
         throw err;
+      },
+      lstatSync(p) {
+        return this.statSync(p);
+      },
+      symlinkSync(target, p) {
+        const np = norm(p);
+        const targetAbs = norm(target);
+        const content = files.has(targetAbs) ? files.get(targetAbs).data : '';
+        files.set(np, { data: content, mtimeMs: Date.now(), mode: 0o120777, symlinkTarget: target });
       },
       chmodSync(p, mode) {
         const np = norm(p);
@@ -796,7 +1666,7 @@
         }
         return Array.from(children).sort();
       },
-      readFileSync(p, enc = 'utf8') {
+      readFileSync(p) {
         const np = norm(p);
         const f = files.get(np);
         if (!f) {
@@ -804,7 +1674,7 @@
           err.code = 'ENOENT';
           throw err;
         }
-        return typeof enc === 'string' ? f.data : f.data;
+        return f.data;
       },
       writeFileSync(p, data) {
         const np = norm(p);
@@ -839,7 +1709,33 @@
         }
         dirs.add(np);
       },
-      rmdirSync(p, opts) {
+      rmdirSync(p, opts = {}) {
+        const np = norm(p);
+        const recursive = Boolean(opts && opts.recursive);
+        if (!dirs.has(np)) {
+          const err = new Error(`ENOENT: no such file or directory, rmdir '${p}'`);
+          err.code = 'ENOENT';
+          throw err;
+        }
+        if (!recursive) {
+          const prefix = np === '/' ? '/' : np + '/';
+          for (const f of files.keys()) {
+            if (f.startsWith(prefix)) {
+              const err = new Error(`ENOTEMPTY: directory not empty, rmdir '${p}'`);
+              err.code = 'ENOTEMPTY';
+              throw err;
+            }
+          }
+          for (const d of dirs) {
+            if (d !== np && d.startsWith(prefix)) {
+              const err = new Error(`ENOTEMPTY: directory not empty, rmdir '${p}'`);
+              err.code = 'ENOTEMPTY';
+              throw err;
+            }
+          }
+          if (np !== '/' && np !== '/workspace' && np !== '/tmp') dirs.delete(np);
+          return;
+        }
         this.rmSync(p, { ...opts, recursive: true });
       },
       unlinkSync(p) {
@@ -853,6 +1749,11 @@
         const force = Boolean(opts && opts.force);
         if (files.has(np)) { files.delete(np); return; }
         if (dirs.has(np)) {
+          if (!recursive) {
+            const err = new Error(`EISDIR: illegal operation on a directory, rm '${p}'`);
+            err.code = 'EISDIR';
+            throw err;
+          }
           const prefix = np === '/' ? '/' : np + '/';
           for (const f of Array.from(files.keys())) {
             if (f.startsWith(prefix)) files.delete(f);
@@ -872,8 +1773,21 @@
           files.set(dst, files.get(src));
           files.delete(src);
         } else if (dirs.has(src)) {
+          const prefix = src === '/' ? '/' : src + '/';
           dirs.add(dst);
-          dirs.delete(src);
+          if (src !== '/' && src !== '/workspace' && src !== '/tmp') dirs.delete(src);
+          for (const d of Array.from(dirs)) {
+            if (d.startsWith(prefix)) {
+              dirs.add(dst + '/' + d.slice(prefix.length));
+              dirs.delete(d);
+            }
+          }
+          for (const [f, val] of Array.from(files.entries())) {
+            if (f.startsWith(prefix)) {
+              files.set(dst + '/' + f.slice(prefix.length), val);
+              files.delete(f);
+            }
+          }
         } else {
           throw new Error(`ENOENT: no such file or directory, rename '${oldP}' -> '${newP}'`);
         }
@@ -1004,7 +1918,7 @@
   function installPackage(pkgSpec, ctx) {
     const parts = pkgSpec.split('@').filter(Boolean);
     const pkgName = pkgSpec.startsWith('@') ? '@' + parts[0] : parts[0];
-    const pkgVersion = (pkgSpec.startsWith('@') ? parts[1] : parts[1]) || '^1.0.0';
+    const pkgVersion = parts[1] || '^1.0.0';
 
     const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
     if (!pkgData.dependencies) pkgData.dependencies = {};
@@ -1060,7 +1974,7 @@
   }
 
   function listDependencies(ctx) {
-    const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+    const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
     const deps = Object.assign({}, pkgData.dependencies || {});
     let out = `${pkgData.name || 'project'}@${pkgData.version || '1.0.0'} ${ctx.cwd || '/workspace'}\n`;
     const keys = Object.keys(deps);
@@ -1187,44 +2101,18 @@
       let stderr = '';
       let exitCode = 0;
 
-      for (let pIdx = 0; pIdx < paths.length; pIdx++) {
-        const rawP = paths[pIdx];
-        const absP = ctx.resolvePath(rawP);
-
-        if (!ctx.vfs.existsSync(absP)) {
-          stderr += `ls: cannot access '${rawP}': No such file or directory\n`;
-          exitCode = 2;
-          continue;
+      function listDir(rawP, absP, showHeader) {
+        if (showHeader) {
+          stdout += (stdout.length > 0 ? '\n' : '') + `${rawP}:\n`;
         }
 
-        let stat;
-        try { stat = ctx.vfs.statSync(absP); } catch (e) {
-          stderr += `ls: cannot access '${rawP}': ${e.message}\n`;
-          exitCode = 2;
-          continue;
-        }
-
-        if (paths.length > 1 && stat.isDirectory() && !dirOnly) {
-          stdout += (pIdx > 0 ? '\n' : '') + `${rawP}:\n`;
-        }
-
-        if (stat.isFile() || dirOnly) {
-          if (longFormat) {
-            stdout += `-rw-r--r-- 1 ${ctx.env.USER || 'codelab'} ${ctx.env.USER || 'codelab'} ${formatSize(stat.size)} ${formatDate(stat.mtimeMs)} ${rawP}\n`;
-          } else {
-            stdout += `${rawP}\n`;
-          }
-          continue;
-        }
-
-        // Directory listing
         let entries = [];
         try {
           entries = ctx.vfs.readdirSync(absP);
         } catch (err) {
           stderr += `ls: cannot open directory '${rawP}': ${err.message}\n`;
           exitCode = 2;
-          continue;
+          return;
         }
 
         if (showAll) {
@@ -1244,7 +2132,7 @@
             size = st.size;
             mtimeMs = st.mtimeMs || Date.now();
           } catch (_) {}
-          return { name, isDirectory, size, mtimeMs };
+          return { name, isDirectory, size, mtimeMs, absPath: itemPath };
         });
 
         if (sortByTime) {
@@ -1268,6 +2156,44 @@
         } else {
           stdout += items.map(it => it.name).join('  ') + (items.length > 0 ? '\n' : '');
         }
+
+        if (recursive) {
+          for (const it of items) {
+            if (it.isDirectory && it.name !== '.' && it.name !== '..') {
+              const childRaw = rawP === '/' ? '/' + it.name : rawP.replace(/\/+$/, '') + '/' + it.name;
+              listDir(childRaw, it.absPath, true);
+            }
+          }
+        }
+      }
+
+      for (let pIdx = 0; pIdx < paths.length; pIdx++) {
+        const rawP = paths[pIdx];
+        const absP = ctx.resolvePath(rawP);
+
+        if (!ctx.vfs.existsSync(absP)) {
+          stderr += `ls: cannot access '${rawP}': No such file or directory\n`;
+          exitCode = 2;
+          continue;
+        }
+
+        let stat;
+        try { stat = ctx.vfs.statSync(absP); } catch (e) {
+          stderr += `ls: cannot access '${rawP}': ${e.message}\n`;
+          exitCode = 2;
+          continue;
+        }
+
+        if (stat.isFile() || dirOnly) {
+          if (longFormat) {
+            stdout += `-rw-r--r-- 1 ${ctx.env.USER || 'codelab'} ${ctx.env.USER || 'codelab'} ${formatSize(stat.size)} ${formatDate(stat.mtimeMs)} ${rawP}\n`;
+          } else {
+            stdout += `${rawP}\n`;
+          }
+          continue;
+        }
+
+        listDir(rawP, absP, paths.length > 1 || recursive);
       }
 
       return { code: exitCode, stdout, stderr };
@@ -1725,7 +2651,8 @@
         } else if (opt === '-type' && i + 1 < args.length) {
           typeFilter = args[++i];
         } else if (opt === '-maxdepth' && i + 1 < args.length) {
-          maxDepth = parseInt(args[++i], 10) || Infinity;
+          const parsedDepth = parseInt(args[++i], 10);
+          maxDepth = isNaN(parsedDepth) ? Infinity : parsedDepth;
         }
         i++;
       }
@@ -1807,7 +2734,9 @@
       function countText(text) {
         const lines = text.length === 0 ? 0 : (text.match(/\n/g) || []).length;
         const words = (text.trim().match(/\S+/g) || []).length;
-        const bytes = Buffer.byteLength(text, 'utf8');
+        const bytes = typeof Buffer !== 'undefined'
+          ? Buffer.byteLength(text, 'utf8')
+          : (typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(text).length : text.length);
         return { lines, words, bytes };
       }
 
@@ -2243,16 +3172,17 @@
         }
       }
 
-      const selectedCols = [];
-      if (fields) {
-        for (const part of fields.split(',')) {
+      function parseRanges(spec) {
+        return spec.split(',').map(part => {
           if (part.includes('-')) {
-            const [start, end] = part.split('-').map(Number);
-            for (let c = start; c <= end; c++) selectedCols.push(c - 1);
-          } else {
-            selectedCols.push(parseInt(part, 10) - 1);
+            const [sStr, eStr] = part.split('-');
+            const start = sStr ? Math.max(1, parseInt(sStr, 10)) - 1 : 0;
+            const end = eStr ? parseInt(eStr, 10) : Infinity;
+            return { start, end };
           }
-        }
+          const idx = Math.max(1, parseInt(part, 10)) - 1;
+          return { start: idx, end: idx + 1 };
+        });
       }
 
       let text = ctx.stdin || '';
@@ -2279,28 +3209,29 @@
       if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
 
       if (chars) {
-        const ranges = chars.split(',').map(part => {
-          if (part.includes('-')) {
-            const [start, end] = part.split('-').map(Number);
-            return { start: start - 1, end: end };
-          }
-          const idx = parseInt(part, 10) - 1;
-          return { start: idx, end: idx + 1 };
-        });
+        const ranges = parseRanges(chars);
         const out = lines.map(line => {
           let res = '';
           for (const r of ranges) {
-            res += line.slice(r.start, r.end);
+            res += line.slice(r.start, r.end === Infinity ? undefined : r.end);
           }
           return res;
         });
         return { code: 0, stdout: out.join('\n') + (out.length > 0 ? '\n' : ''), stderr: '' };
       }
 
+      const fieldRanges = fields ? parseRanges(fields) : [];
       const out = lines.map(line => {
+        if (fieldRanges.length === 0) return line;
         const parts = line.split(delim);
-        if (selectedCols.length === 0) return line;
-        return selectedCols.map(c => parts[c] || '').join(delim);
+        const chosen = [];
+        for (const r of fieldRanges) {
+          const endIdx = Math.min(parts.length, r.end);
+          for (let c = r.start; c < endIdx; c++) {
+            chosen.push(parts[c] !== undefined ? parts[c] : '');
+          }
+        }
+        return chosen.join(delim);
       });
 
       return { code: 0, stdout: out.join('\n') + (out.length > 0 ? '\n' : ''), stderr: '' };
@@ -2315,31 +3246,51 @@
       for (const a of args) {
         if (a === '-d') deleteMode = true;
         else if (a === '-s') squeezeMode = true;
+        else if (a === '-ds' || a === '-sd') { deleteMode = true; squeezeMode = true; }
         else if (!set1) set1 = a;
         else if (!set2) set2 = a;
       }
 
       function expandSet(s) {
-        if (s === '[:lower:]' || s === 'a-z') return 'abcdefghijklmnopqrstuvwxyz';
-        if (s === '[:upper:]' || s === 'A-Z') return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        if (s === '[:digit:]' || s === '0-9') return '0123456789';
-        return s;
+        if (!s) return '';
+        if (s === '[:lower:]') return 'abcdefghijklmnopqrstuvwxyz';
+        if (s === '[:upper:]') return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        if (s === '[:digit:]') return '0123456789';
+        if (s === '[:space:]') return ' \t\n\r\f\v';
+        let res = s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\r/g, '\r');
+        res = res.replace(/(.)-(.)/g, (_, start, end) => {
+          const c1 = start.charCodeAt(0);
+          const c2 = end.charCodeAt(0);
+          if (c1 > c2) return start + '-' + end;
+          let r = '';
+          for (let c = c1; c <= c2; c++) r += String.fromCharCode(c);
+          return r;
+        });
+        return res;
       }
 
       const fromChars = expandSet(set1);
       const toChars = expandSet(set2);
+      const squeezeChars = squeezeMode ? (toChars || fromChars) : '';
       const text = ctx.stdin || '';
       let out = '';
+      let lastOutChar = '';
 
       for (let i = 0; i < text.length; i++) {
         const c = text[i];
         const idx = fromChars.indexOf(c);
+        let mapped = c;
         if (idx !== -1) {
           if (deleteMode) continue;
-          out += toChars[idx] || toChars[toChars.length - 1] || c;
-        } else {
-          out += c;
+          if (toChars.length > 0) {
+            mapped = toChars[idx] || toChars[toChars.length - 1];
+          }
         }
+        if (squeezeMode && squeezeChars.includes(mapped) && mapped === lastOutChar) {
+          continue;
+        }
+        out += mapped;
+        lastOutChar = mapped;
       }
 
       return { code: 0, stdout: out, stderr: '' };
@@ -2691,7 +3642,7 @@
     async export(args, ctx) {
       const targetEnv = ctx.shell ? ctx.shell.env : ctx.env;
       if (args.length === 0) {
-        const keys = Object.keys(targetEnv).sort();
+        const keys = Object.keys(targetEnv).filter(k => k !== '?' && !k.startsWith('__')).sort();
         let stdout = '';
         for (const k of keys) {
           stdout += `declare -x ${k}="${targetEnv[k]}"\n`;
@@ -2814,7 +3765,8 @@
     async jobs(args, ctx) {
       let stdout = '';
       for (const [id, job] of ctx.shell.jobs.entries()) {
-        stdout += `[${id}]+  ${job.status}                       ${job.command} &\n`;
+        const cleanCmd = String(job.command || '').replace(/\s*&\s*$/, '');
+        stdout += `[${id}]+  ${job.status}                       ${cleanCmd} &\n`;
       }
       return { code: 0, stdout, stderr: '' };
     },
@@ -3050,11 +4002,12 @@
     // Language Runtimes & Package Managers: node, bun, npm, npx, bunx
     // -----------------------------------------------------------------------
     async node(args, ctx) {
-      if (!executeInVirtualRuntime) {
+      if (!hasVirtualRuntime()) {
         return { code: 1, stdout: '', stderr: 'node: Virtual runtime engine is not available\n' };
       }
-      if (args.length === 0) {
-        return { code: 0, stdout: 'Welcome to Node.js v20.10.0.\nType ".help" for more information.\n', stderr: '' };
+      if (args.length === 0 || args[0] === '-v' || args[0] === '--version') {
+        if (args[0] === '-v' || args[0] === '--version') return { code: 0, stdout: 'v22.0.0\n', stderr: '' };
+        return { code: 0, stdout: 'Welcome to Node.js v22.0.0.\nType ".help" for more information.\n', stderr: '' };
       }
 
       if (args[0] === '-e' || args[0] === '--eval') {
@@ -3145,7 +4098,7 @@
 
     async bun(args, ctx) {
       if (args.length === 0) {
-        return { code: 0, stdout: 'Bun v1.1.0\n', stderr: '' };
+        return { code: 0, stdout: 'Bun v1.1.20\n', stderr: '' };
       }
 
       const sub = args[0];
@@ -3550,6 +4503,14 @@
         '?': '0'
       }, options.env || {});
       this.cwd = this.env.PWD || '/workspace';
+      if (options.files && typeof options.files === 'object') {
+        for (const [k, v] of Object.entries(options.files)) {
+          const abs = PosixPath.resolve(this.cwd, k);
+          if (typeof this.vfs.writeFileSync === 'function') {
+            this.vfs.writeFileSync(abs, String(v ?? ''));
+          }
+        }
+      }
       this.history = [];
       this.jobs = new Map();
       this.nextJobId = 1;
@@ -3602,12 +4563,15 @@
           result += seg.value;
         } else if (seg.type === 'variable') {
           result += this._expandVariable(seg.name, env);
+        } else if (seg.type === 'arith') {
+          result += evaluateArithmetic(seg.expr, env, this.env);
         } else if (seg.type === 'subshell') {
           result += await this._executeSubshell(seg.command, env);
         } else if (seg.type === 'double_quoted') {
           for (const part of seg.parts) {
             if (part.type === 'literal') result += part.value;
             else if (part.type === 'variable') result += this._expandVariable(part.name, env);
+            else if (part.type === 'arith') result += evaluateArithmetic(part.expr, env, this.env);
             else if (part.type === 'subshell') result += await this._executeSubshell(part.command, env);
           }
         }
@@ -3630,15 +4594,50 @@
       if (name === 'PWD') return this.cwd;
       if (name === 'OLDPWD') return env.OLDPWD || this.cwd;
 
-      // Handle parameter expansion defaults: ${VAR:-default} or ${VAR:=default}
+      if (name.startsWith('#') && name.length > 1) {
+        const k = name.slice(1);
+        const val = env[k] !== undefined ? String(env[k]) : '';
+        return String(val.length);
+      }
+
+      // Handle parameter expansion defaults: ${VAR:=default}, ${VAR:-default}, ${VAR:+alt}, ${VAR-default}, ${VAR=default}
+      if (name.includes(':=')) {
+        const idx = name.indexOf(':=');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 2);
+        if (env[k] === undefined || env[k] === '') {
+          env[k] = def;
+          this.env[k] = def;
+        }
+        return String(env[k]);
+      }
       if (name.includes(':-')) {
-        const [k, def] = name.split(':-');
-        return env[k] || def || '';
+        const idx = name.indexOf(':-');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 2);
+        return (env[k] !== undefined && env[k] !== '') ? String(env[k]) : def;
+      }
+      if (name.includes(':+')) {
+        const idx = name.indexOf(':+');
+        const k = name.slice(0, idx);
+        const alt = name.slice(idx + 2);
+        return (env[k] !== undefined && env[k] !== '') ? alt : '';
       }
       if (name.includes('=')) {
-        const [k, def] = name.split('=');
-        if (!env[k]) env[k] = def;
-        return env[k];
+        const idx = name.indexOf('=');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 1);
+        if (env[k] === undefined) {
+          env[k] = def;
+          this.env[k] = def;
+        }
+        return String(env[k]);
+      }
+      if (name.includes('-')) {
+        const idx = name.indexOf('-');
+        const k = name.slice(0, idx);
+        const def = name.slice(idx + 1);
+        return env[k] !== undefined ? String(env[k]) : def;
       }
 
       return env[name] !== undefined ? String(env[name]) : '';

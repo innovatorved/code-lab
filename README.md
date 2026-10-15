@@ -126,13 +126,14 @@ Complete documentation is published on the [GitHub Wiki](https://github.com/inno
 ## Local Development & Testing
 
 ```bash
-# Rebuild all distribution bundles and site assets
-node tools/bundle.js
+# Rebuild all distribution bundles
+npm run build
 
 # Run the complete test suite
+npm run test:all
 node test-all-builds.js             # 15/15 builds & 226 unit tests
 node test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
-node test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports
+node test-shell-bun-http.js         # Shell AST, Bun runtime, curl, ports
 node test-coreutils-adversarial.js  # Adversarial stress tests on 40+ coreutils
 node test-stress-shell.js           # Deep pipelines, redirections, large stdout
 node test-workbench-ui.js           # Workbench tabs, explorer, shortcuts

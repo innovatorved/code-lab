@@ -29,7 +29,7 @@ const cssPath = path.join(SRC_DIR, 'code-lab.css');
 
 const BANNER = `/**
  * ============================================================
- * @innovatorved/code-lab v1.3.1 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.3.2 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -87,6 +87,7 @@ ${workbenchCode}
       CodeLabTerminal: CodeLabTerminal,
       createPosixShell: CodeLabShell ? CodeLabShell.createPosixShell : null,
       createTerminal: CodeLabTerminal ? CodeLabTerminal.createTerminal : null,
+      createPTYTerminalEngine: CodeLabTerminal ? CodeLabTerminal.createPTYTerminalEngine : null,
       PTYTerminalEngine: CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : null,
       executeInVirtualRuntime: CodeLabRuntime.executeInVirtualRuntime,
       executeInWorker: CodeLabRuntime.executeInWorker,
@@ -96,6 +97,7 @@ ${workbenchCode}
       createVirtualFs: CodeLabRuntime.createVirtualFs,
       createVirtualHttp: CodeLabRuntime.createVirtualHttp,
       createVirtualNet: CodeLabRuntime.createVirtualNet,
+      createVirtualPortTable: CodeLabRuntime.createVirtualPortTable,
       default: CodeLab
     });
   }
@@ -139,19 +141,35 @@ const transpileTS = CodeLabRuntime.transpileTS;
 const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
+const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
 const createPosixShell = CodeLabShell ? CodeLabShell.createPosixShell : null;
 const createTerminal = CodeLabTerminal ? CodeLabTerminal.createTerminal : null;
+const createPTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.createPTYTerminalEngine : null;
 const PTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : null;
+
+const mount = CodeLab ? CodeLab.mount : null;
+const create = CodeLab ? CodeLab.create : null;
+const unmount = CodeLab ? CodeLab.unmount : null;
+const version = CodeLab ? CodeLab.version : '1.3.2';
 
 export {
   CodeLab,
   CodeLabWorkbench,
+  CodeLabWorkbench as Workbench,
   CodeLabElement,
   CodeLabRuntime,
+  CodeLabRuntime as Runtime,
   CodeLabShell,
+  CodeLabShell as Shell,
   CodeLabTerminal,
+  CodeLabTerminal as Terminal,
+  mount,
+  create,
+  unmount,
+  version,
   createPosixShell,
   createTerminal,
+  createPTYTerminalEngine,
   PTYTerminalEngine,
   executeInVirtualRuntime,
   executeInWorker,
@@ -160,7 +178,8 @@ export {
   transpileTS,
   createVirtualFs,
   createVirtualHttp,
-  createVirtualNet
+  createVirtualNet,
+  createVirtualPortTable
 };
 export default CodeLab;
 `;
@@ -191,6 +210,7 @@ const transpileTS = CodeLabRuntime.transpileTS;
 const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
+const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
 
 export {
   CodeLabRuntime,
@@ -201,7 +221,8 @@ export {
   transpileTS,
   createVirtualFs,
   createVirtualHttp,
-  createVirtualNet
+  createVirtualNet,
+  createVirtualPortTable
 };
 export default CodeLabRuntime;
 `;
@@ -227,14 +248,22 @@ const CodeLabShell = _root.CodeLabShell;
 const createPosixShell = CodeLabShell.createPosixShell;
 const PosixShell = CodeLabShell.PosixShell;
 const parseShellCommand = CodeLabShell.parseShellCommand;
+const tokenizeShell = CodeLabShell.tokenizeShell;
 const COREUTILS = CodeLabShell.COREUTILS;
+const PosixPath = CodeLabShell.PosixPath;
+const expandGlob = CodeLabShell.expandGlob;
+const createVirtualPortTable = CodeLabShell.createVirtualPortTable;
 
 export {
   CodeLabShell,
   createPosixShell,
   PosixShell,
   parseShellCommand,
-  COREUTILS
+  tokenizeShell,
+  COREUTILS,
+  PosixPath,
+  expandGlob,
+  createVirtualPortTable
 };
 export default CodeLabShell;
 `;
@@ -259,19 +288,23 @@ ${terminalCode}
 const CodeLabTerminal = _root.CodeLabTerminal;
 const PTYTerminalEngine = CodeLabTerminal.PTYTerminalEngine;
 const createTerminal = CodeLabTerminal.createTerminal;
+const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine;
 const ansiToHtml = CodeLabTerminal.ansiToHtml;
+const parseAnsiToHtml = CodeLabTerminal.parseAnsiToHtml;
 
 export {
   CodeLabTerminal,
   PTYTerminalEngine,
   createTerminal,
-  ansiToHtml
+  createPTYTerminalEngine,
+  ansiToHtml,
+  parseAnsiToHtml
 };
 export default CodeLabTerminal;
 `;
 
 const DTS_CONTENT = `/**
- * TypeScript Definitions for @innovatorved/code-lab
+ * TypeScript Definitions for @innovatorved/code-lab v1.3.2
  */
 
 export interface CodeLabStep {
@@ -280,7 +313,7 @@ export interface CodeLabStep {
   concept?: string;
   targetFile?: string;
   targetSymbol?: string;
-  instructions: string;
+  instructions: string | string[];
   hint?: string;
   testNames?: string[];
 }
@@ -326,12 +359,18 @@ export interface CodeLabExecutionOptions {
   entry?: string;
   mode?: 'run' | 'test' | 'repl';
   replCode?: string;
+  printReplResult?: boolean;
   testFilter?: string | string[] | null;
   timeoutMs?: number;
   maxOutputBytes?: number;
   maxConsoleCalls?: number;
   instanceId?: string;
   concurrent?: boolean;
+  argv?: string[] | null;
+  pid?: number;
+  isBackground?: boolean;
+  vfs?: any;
+  activePortTable?: any;
   packages?: Record<string, any>;
   npmModules?: Record<string, any>;
   onStdout?: (text: string) => void;
@@ -392,6 +431,12 @@ export interface CodeLabOptions {
   tsStarterFiles?: Record<string, string>;
   /** Ordered guided steps */
   steps?: CodeLabStep[];
+  /** Guided configuration object */
+  guided?: {
+    starterFiles?: Record<string, string>;
+    tsStarterFiles?: Record<string, string>;
+    steps?: CodeLabStep[];
+  };
   /** Initial active step index (0-based) */
   stepIndex?: number;
   /** Demo entry point file to execute on runDemo() (default: 'demo.js' / 'demo.ts') */
@@ -432,6 +477,7 @@ export declare class CodeLabWorkbench {
   activeStepIndex: number;
   completedSteps: Set<string>;
   steps: CodeLabStep[];
+  cursorPos: { lineNumber: number; column: number; ln: number; col: number };
   isRunning: boolean;
   isFullscreen: boolean;
   constructor(container: HTMLElement | string, options?: CodeLabOptions);
@@ -445,18 +491,22 @@ export declare class CodeLabWorkbench {
   closeTab(filename: string): void;
   closeOtherTabs(keepPath: string): void;
   closeAllTabs(): void;
-  createFile(rawName: string): void;
+  createFile(rawName: string): string | null;
   createFolder(rawFolderPath: string): boolean;
   renameFile(oldPath: string, newPath: string): boolean;
   renameFolder(oldPrefix: string, newPrefix: string): boolean;
   duplicateFile(path: string): string | null;
+  moveFile(oldPath: string, newPath: string): boolean;
   movePath(sourcePath: string, targetFolder: string): boolean;
+  startInlineCreate(type: 'file' | 'folder', folderPrefix?: string): void;
+  startInlineRename(oldPath: string, isFolder?: boolean): void;
   promptNewFile(folderPrefix?: string): void;
   promptNewFolder(folderPrefix?: string): void;
   deleteFile(filename: string): boolean;
   deleteFolder(folderPrefix: string): boolean;
   setMode(newMode: 'guided' | 'sandbox'): void;
   setLanguage(newLang: 'js' | 'ts'): void;
+  switchDrawerTab(tabName: 'tests' | 'terminal' | 'ports' | 'network' | 'inspector'): void;
   configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts'; stepIndex?: number }): void;
   openCommandPalette(mode?: 'commands' | 'files'): void;
   closeCommandPalette(): void;
@@ -486,6 +536,7 @@ export declare class CodeLabWorkbench {
 }
 
 export declare class CodeLabElement extends HTMLElement {
+  static observedAttributes: string[];
   _instance: CodeLabWorkbench | null;
   getFiles(): Record<string, string>;
   setFiles(filesMap: Record<string, string>, options?: { merge?: boolean }): CodeLabWorkbench | undefined;
@@ -510,8 +561,9 @@ export interface CodeLabRuntimeAPI {
   preloadNpmPackages(files?: Record<string, string>, existingCache?: Map<string, string>): Promise<Record<string, string>>;
   transpileTS(source: string, filename?: string): string;
   createVirtualFs(initialFiles?: Record<string, string>): any;
-  createVirtualHttp(resourceTracker?: any): any;
-  createVirtualNet(resourceTracker?: any, sharedTrace?: any[]): any;
+  createVirtualHttp(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;
+  createVirtualNet(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;
+  createVirtualPortTable(): any;
 }
 
 export declare const CodeLabRuntime: CodeLabRuntimeAPI;
@@ -523,24 +575,32 @@ export declare const transpileTS: CodeLabRuntimeAPI['transpileTS'];
 export declare const createVirtualFs: CodeLabRuntimeAPI['createVirtualFs'];
 export declare const createVirtualHttp: CodeLabRuntimeAPI['createVirtualHttp'];
 export declare const createVirtualNet: CodeLabRuntimeAPI['createVirtualNet'];
+export declare const createVirtualPortTable: CodeLabRuntimeAPI['createVirtualPortTable'];
 
 export interface CodeLabShellAPI {
   createPosixShell(options?: any): any;
   PosixShell: any;
   parseShellCommand(cmd: string): any;
+  tokenizeShell(cmd: string): any;
   COREUTILS: Record<string, any>;
+  PosixPath: any;
+  expandGlob(pattern: string, cwd: string, vfs: any): string[];
+  createVirtualPortTable(): any;
 }
 
 export interface CodeLabTerminalAPI {
   PTYTerminalEngine: any;
-  createTerminal(container: HTMLElement | string, options?: any): any;
+  createTerminal(container?: HTMLElement | string | Record<string, any>, options?: any): any;
+  createPTYTerminalEngine(container?: HTMLElement | string | Record<string, any>, options?: any): any;
   ansiToHtml(text: string): string;
+  parseAnsiToHtml(text: string): string;
 }
 
 export declare const CodeLabShell: CodeLabShellAPI;
 export declare const CodeLabTerminal: CodeLabTerminalAPI;
 export declare const createPosixShell: CodeLabShellAPI['createPosixShell'];
 export declare const createTerminal: CodeLabTerminalAPI['createTerminal'];
+export declare const createPTYTerminalEngine: CodeLabTerminalAPI['createPTYTerminalEngine'];
 export declare const PTYTerminalEngine: any;
 
 export interface CodeLabStatic {
