@@ -62,12 +62,13 @@
   "bugs": {
     "url": "https://github.com/innovatorved/code-lab/issues"
   },
+  "packageManager": "bun@1.4.3",
   "scripts": {
-    "build": "node tools/bundle.js",
-    "typecheck": "tsc --noEmit",
-    "test": "node tests/test-all-builds.js",
-    "test:all": "node tests/test-all-builds.js && node tests/test-runtime-advanced.js && node tests/test-option1-shell-bun-http.js && node tests/test-coreutils-adversarial.js && node tests/test-stress-shell.js && node tests/test-workbench-ui.js",
-    "pack:check": "npm pack --dry-run"
+    "build": "bun run tools/bundle.js",
+    "typecheck": "bun x tsc --noEmit",
+    "test": "bun run tests/test-all-builds.js",
+    "test:all": "bun run tools/bundle.js && bun run tests/test-all-builds.js && bun run tests/test-runtime-advanced.js && bun run tests/test-option1-shell-bun-http.js && bun run tests/test-coreutils-adversarial.js && bun run tests/test-stress-shell.js && bun run tests/test-workbench-ui.js",
+    "pack:check": "bun pm pack --dry-run"
   },
   "dependencies": {
     "zod": "^3.23.8"
