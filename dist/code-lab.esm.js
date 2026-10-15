@@ -14364,10 +14364,11 @@ declare module 'bun:sqlite' {
 
     monacoPromise = new Promise((resolve, reject) => {
       // Configure cross-origin Worker proxy via Blob URL
+      const amdBaseUrl = baseUrl.replace(/\/vs\/?$/, '') + '/';
       root.MonacoEnvironment = {
         getWorkerUrl: function () {
           const blobCode = `
-            self.MonacoEnvironment = { baseUrl: '${baseUrl}/' };
+            self.MonacoEnvironment = { baseUrl: '${amdBaseUrl}' };
             importScripts('${baseUrl}/base/worker/workerMain.js');
           `;
           return URL.createObjectURL(new Blob([blobCode], { type: 'application/javascript' }));
