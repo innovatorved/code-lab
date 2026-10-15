@@ -721,7 +721,11 @@
           // Transition to full IDE
           setTimeout(() => {
             landingOverlay.classList.add('hidden');
-          }, 450);
+            if (ide) {
+              const ed = ide._editor || ide.editor;
+              if (ed && typeof ed.layout === 'function') ed.layout();
+            }
+          }, 350);
 
         } catch (err) {
           logProgress('error', `Error: ${err.message || err}`);
@@ -746,16 +750,21 @@
         });
       });
 
-      openEmptyBtn.addEventListener('click', () => {
-        ensureIde();
+      function openBlankWorkspace() {
+        const ide = ensureIde();
         landingOverlay.classList.add('hidden');
-      });
+        if (ide) {
+          setTimeout(() => {
+            const ed = ide._editor || ide.editor;
+            if (ed && typeof ed.layout === 'function') ed.layout();
+          }, 50);
+        }
+      }
+
+      openEmptyBtn.addEventListener('click', openBlankWorkspace);
 
       if (headerBlankBtn) {
-        headerBlankBtn.addEventListener('click', () => {
-          ensureIde();
-          landingOverlay.classList.add('hidden');
-        });
+        headerBlankBtn.addEventListener('click', openBlankWorkspace);
       }
 
       openCloneModalBtn.addEventListener('click', () => {

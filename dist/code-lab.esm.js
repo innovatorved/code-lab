@@ -14321,11 +14321,13 @@ declare module 'bun:sqlite' {
 
   function renderSimpleMarkdown(md) {
     if (!md) return '';
+    // Prevent raw custom elements from executing within markdown previews
+    const sanitizedMd = String(md).replace(/<\/?code-lab(\s[^>]*)?>/gi, (m) => escapeHtml(m));
     if (root.Renderer && typeof root.Renderer.convertMarkdownToHTML === 'function') {
-      return root.Renderer.convertMarkdownToHTML(md);
+      return root.Renderer.convertMarkdownToHTML(sanitizedMd);
     }
     const blocks = [];
-    let html = String(md).replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+    let html = sanitizedMd.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
       const idx = blocks.length;
       blocks.push(`<pre><code class="lang-${lang || 'text'}">${escapeHtml(code.trim())}</code></pre>`);
       return `\x00BLOCK_${idx}\x00`;
@@ -19441,6 +19443,11 @@ declare module 'bun:sqlite' {
 
       connectedCallback() {
         if (this._instance) return;
+
+        // Prevent recursive initialization if a <code-lab> tag appears inside markdown previews or prose of another CodeLab instance
+        if (typeof this.closest === 'function' && (this.closest('.codelab') || this.closest('.codelab-workbench') || this.closest('#cl-md-preview'))) {
+          return;
+        }
 
         // Parse optional declarative <script type="application/json"> child config
         let inlineConfig = {};
