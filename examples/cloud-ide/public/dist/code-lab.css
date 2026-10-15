@@ -445,6 +445,13 @@ code-lab,
   color: var(--cl-fg);
 }
 
+.codelab-btn--icon.active,
+.codelab-btn--icon[aria-pressed="true"] {
+  color: var(--cl-fg);
+  background: var(--cl-bg-elevated);
+  border-color: var(--cl-border-strong);
+}
+
 .codelab-btn--subtle {
   display: inline-flex;
   align-items: center;
@@ -485,6 +492,7 @@ code-lab,
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  width: 100%;
 }
 
 .codelab.guide-collapsed .codelab-body,
@@ -498,6 +506,7 @@ code-lab,
 .guide-collapsed .codelab-main {
   grid-column: 1 / -1;
   width: 100%;
+  min-width: 0;
 }
 
 .codelab.guide-collapsed .codelab-splitter-v,
@@ -584,6 +593,33 @@ code-lab,
   color: var(--cl-fg);
   box-shadow: inset 0 -2px 0 var(--cl-fg);
   font-weight: 600;
+}
+
+.codelab-guide__collapse-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cl-fg-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 120ms ease;
+}
+
+.codelab-guide__collapse-btn:hover {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+  border-color: var(--cl-border);
+}
+
+.codelab-guide__collapse-btn:active {
+  background: var(--cl-bg-elevated);
 }
 
 .codelab-guide__stepper {
@@ -1830,10 +1866,49 @@ code-lab,
   padding: 0;
 }
 
-.codelab-btn--close-ide:hover {
+/* Exit Lab / Close Workbench button in topbar */
+.codelab-btn--exit-lab,
+#cl-close-ide-btn.codelab-btn--exit-lab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border-strong);
+  border-radius: 5px;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.codelab-btn--exit-lab .codelab-btn__label {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: inherit;
+}
+
+.codelab-btn--close-ide:hover,
+.codelab-btn--exit-lab:hover,
+#cl-close-ide-btn:hover {
   color: var(--cl-red) !important;
   border-color: var(--cl-red) !important;
   background: var(--cl-red-muted) !important;
+}
+
+@media (max-width: 680px) {
+  .codelab-btn--exit-lab .codelab-btn__label {
+    display: none;
+  }
+  .codelab-btn--exit-lab {
+    padding: 0 7px;
+  }
 }
 
 /* Virtual Disk & Network Inspector */
@@ -2044,6 +2119,37 @@ code-lab,
   overflow-x: auto;
 }
 
+.codelab-guide__expand-btn {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-family: var(--cl-font-sans);
+  font-weight: 500;
+  color: var(--cl-fg-muted);
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-right: 6px;
+  transition: all 120ms ease;
+}
+
+.codelab-guide__expand-btn:hover {
+  color: var(--cl-fg);
+  border-color: var(--cl-border-strong);
+  background: var(--cl-bg-hover);
+}
+
+.codelab.guide-collapsed .codelab-guide__expand-btn,
+.codelab-workbench.guide-collapsed .codelab-guide__expand-btn,
+.guide-collapsed .codelab-guide__expand-btn {
+  display: inline-flex;
+}
+
 .codelab-breadcrumbs__path {
   display: inline-flex;
   align-items: center;
@@ -2103,11 +2209,13 @@ code-lab,
   flex-shrink: 0;
 }
 
+.codelab-breadcrumb__btn,
 .codelab-breadcrumbs__btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 20px;
+  line-height: 1;
   padding: 0 7px;
   border: 1px solid var(--cl-border);
   border-radius: 4px;
@@ -2116,13 +2224,28 @@ code-lab,
   font-family: var(--cl-font-sans);
   font-size: 11px;
   cursor: pointer;
+  white-space: nowrap;
+  box-sizing: border-box;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
+.codelab-breadcrumb__btn:hover,
 .codelab-breadcrumbs__btn:hover {
   background: var(--cl-bg-hover);
   color: var(--cl-fg);
   border-color: var(--cl-border-strong);
+}
+
+.codelab-breadcrumb__kbd {
+  font-family: var(--cl-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: rgba(128, 128, 128, 0.2);
+  color: var(--cl-fg-muted);
+  border: none;
+  box-shadow: none;
 }
 
 /* ── VS Code Command Palette & Quick Open ──────────────────────────────── */

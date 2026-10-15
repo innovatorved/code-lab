@@ -714,6 +714,13 @@ try {
   console.warn('tsc warning:', e.message);
 }
 
+// 5. Sync dist/ to examples/cloud-ide/public/dist
+const CLOUD_IDE_PUBLIC_DIST = path.join(PKG_DIR, 'examples/cloud-ide/public/dist');
+if (fs.existsSync(CLOUD_IDE_PUBLIC_DIST)) {
+  fs.cpSync(DIST_DIR, CLOUD_IDE_PUBLIC_DIST, { recursive: true });
+  console.log('✓ Synced dist/ into examples/cloud-ide/public/dist/');
+}
+
 console.log('✓ Built dist/code-lab.js (UMD/IIFE, ' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
 console.log('✓ Built dist/code-lab.esm.js (ESM)');
 console.log('✓ Built dist/runtime.js & runtime.esm.js');
@@ -722,4 +729,5 @@ console.log('✓ Built dist/terminal.js & terminal.esm.js');
 console.log('✓ Built dist/code-lab.d.ts');
 console.log('✓ Synced dist/code-lab.css');
 console.log('✓ Synced dist/sample.html');
+
 
