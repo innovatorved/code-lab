@@ -4176,7 +4176,7 @@ function __initVirtualRuntime(rootScope) {
       code = code.replace(/^[ \t]*static\s+(?:(?:public|private|protected|readonly|override)\s+)+(?=[A-Za-z_$])/gm, '  static ');
 
       // Strip type annotations on initialized class fields (including nested `{ a: string; b: number }` inside generics)
-      code = code.replace(/^([ \t]*(?:static\s+)?[A-Za-z_$][A-Za-z0-9_$]*)[?!]?\s*:\s*(?:[^=\n<>()]|<[^=\n]*>)+=(?!>)\s*/gm, '$1 = ');
+      code = code.replace(/^([ \t]*(?:static\s+)?[A-Za-z_$][A-Za-z0-9_$]*)[?!]?\s*:\s*(?:[^=\n<>()!]|<[^=\n]*>)+(?<![=!<>])=(?![=>])\s*/gm, '$1 = ');
 
       // Strip non-null assertions `expr!` BEFORE generic call stripping so `fn!<T>()` works cleanly
       let prevCode;
@@ -4302,7 +4302,7 @@ function __initVirtualRuntime(rootScope) {
       });
 
       // Strip variable type annotations: `const x: Type =`, `let y: Type =`
-      code = code.replace(/\b(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*[^=;\n]+=(?!>)/g, '$1 $2 =');
+      code = code.replace(/\b(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*[^=;\n]+(?<![=!<>])=(?![=>])/g, '$1 $2 =');
 
       // Strip `as Type` and `satisfies Type` assertions (supporting object types `{ a: number }`, tuples `[number, string]`, generics, unions)
       const stripAsAndSatisfies = (input) => {
@@ -4529,13 +4529,14 @@ function __initVirtualRuntime(rootScope) {
       'fs', 'fs/promises', 'path', 'os', 'crypto', 'zlib', 'http', 'https', 'net',
       'dns', 'dns/promises', 'string_decoder', 'child_process', 'process',
       'assert', 'assert/strict', 'events', 'util', 'url', 'querystring',
-      'stream', 'stream/promises', 'test', 'perf_hooks', 'timers', 'timers/promises', 'buffer'
+      'stream', 'stream/promises', 'test', 'perf_hooks', 'timers', 'timers/promises', 'buffer',
+      'bun', 'bun:test', 'bun:sqlite'
     ]);
 
     function addSpec(raw) {
       if (!raw || typeof raw !== 'string') return;
       const s = raw.trim();
-      if (!s || s.startsWith('.') || s.startsWith('/') || s.startsWith('node:')) return;
+      if (!s || s.startsWith('.') || s.startsWith('/') || s.startsWith('node:') || s.startsWith('bun:')) return;
       const parts = s.split('/');
       const pkgName = s.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
       if (builtinSet.has(pkgName) || builtinSet.has(s)) return;
@@ -6339,6 +6340,8 @@ function __initVirtualRuntime(rootScope) {
       'node:timers/promises': VirtualTimersPromises,
       buffer: { Buffer: VirtualBuffer },
       'node:buffer': { Buffer: VirtualBuffer },
+      bun: BunObj,
+      'node:bun': BunObj,
       'bun:test': bunTestModule,
       'bun:sqlite': { Database: SqliteDatabase }
     };
@@ -6559,7 +6562,7 @@ function __initVirtualRuntime(rootScope) {
         transformed = instrumentTestCode(transformed);
       }
 
-      const moduleBody = '{\n' + transformed + '\n}\n//# sourceURL=' + absPath;
+      const moduleBody = '{\n' + transformed + '\n}\n//# sourceURL=' + absPath + '\n';
 
       const fn = compileFunction(
         [
