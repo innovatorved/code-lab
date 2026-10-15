@@ -109,7 +109,7 @@ console.log(res.ok, res.testResults);
 
 ## Documentation
 
-Complete documentation is published on the [GitHub Wiki](https://github.com/innovatorved/code-lab/wiki) (and mirrored in [`wiki/`](./wiki/Home.md)):
+Complete documentation is published on the [GitHub Wiki](https://github.com/innovatorved/code-lab/wiki):
 
 - **[Quick Start](https://github.com/innovatorved/code-lab/wiki/Quick-Start)**: Setup, CDN, and quick examples.
 - **[Integration Guide](https://github.com/innovatorved/code-lab/wiki/Integration-Guide)**: Embedding in React, Next.js, Vite, and HTML.

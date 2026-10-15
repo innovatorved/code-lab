@@ -13,9 +13,13 @@ const assert = require('assert');
 const runtime = require('./src/runtime.js');
 const { executeInVirtualRuntime, createWorkerRuntimeSource, transpileTS } = runtime;
 
-const implPath = path.resolve(__dirname, '../../data/implementations_code.js');
+const implCandidates = [
+  path.resolve(__dirname, '../system-design/data/implementations_code.js'),
+  path.resolve(__dirname, '../../data/implementations_code.js')
+];
+const implPath = implCandidates.find((p) => fs.existsSync(p));
 let implementations = null;
-if (fs.existsSync(implPath)) {
+if (implPath && fs.existsSync(implPath)) {
   const rawCodeData = fs.readFileSync(implPath, 'utf8');
   const ctx = { window: {} };
   vm.runInNewContext(rawCodeData, ctx);
