@@ -1,14 +1,15 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v1.4.0 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v2.0.0 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
+ *   - Full POSIX Shell AST & 55+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
- *   - VS Code Workbench: Hierarchical File Tree, Decoupled Tabs, Command Palette (Cmd+Shift+P), Quick Open (Cmd+P), Breadcrumbs, Context Menus & Solution Diff Viewer
+ *   - Modular VS Code Workbench: File Tree, Tabs, Command Palette, Diff Viewer
+ *   - Modular Opt-In Guided Lab Extension (stepper, hints, solution diff, JS/TS switcher)
  *   - Zero-Auth Public GitHub Repository Cloning (git clone, workbench.cloneRepo, <code-lab repo="...">)
  *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, cloneRepo, on, off, use, exportWorkspace)
  * ============================================================
@@ -14621,11 +14622,24 @@ declare module 'bun:sqlite' {
         ...((options.tsSolutionFiles || options.tsFiles) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles } : {})
       };
       this.steps = options.steps || this.guidedConfig?.steps || [];
+      this.hasGuidedLab = Boolean(
+        options.hasGuidedLab ||
+        options.guidedLab ||
+        (this.steps && this.steps.length > 0)
+      );
+      this.hasMultipleLanguages = Boolean(
+        options.hasMultipleLanguages ||
+        options.languages ||
+        this.guidedConfig.tsStarterFiles ||
+        this.guidedConfig.tsSolutionFiles ||
+        this.guidedConfig.tsFiles ||
+        (this.hasGuidedLab && (options.lang || options.language))
+      );
 
       // Load saved user state from localStorage (with in-memory fallback)
       this.savedState = this._loadState();
 
-      this.mode = options.mode || this.savedState.mode || (this.steps.length > 0 ? 'guided' : 'sandbox');
+      this.mode = options.mode || this.savedState.mode || (this.hasGuidedLab ? 'guided' : 'sandbox');
       this.lang = options.language || options.lang || this.savedState.lang || 'js';
       this.activeStepIndex = typeof options.stepIndex === 'number' ? options.stepIndex : (this.savedState.activeStepIndex || 0);
       if (this.activeStepIndex >= this.steps.length || this.activeStepIndex < 0) this.activeStepIndex = 0;
@@ -15133,9 +15147,10 @@ declare module 'bun:sqlite' {
         this.container.classList.add(`codelab-workbench--${this.themeOption}`);
       }
       const themeAttr = this.themeOption !== 'auto' ? `data-theme="${escapeHtml(this.themeOption)}"` : '';
-      const brandLabel = (this.title && this.title !== this.labId) ? this.title : 'CodeLab';
+      const brandLabel = (this.title && this.title !== 'custom-lab' && this.title !== this.labId) ? this.title : 'code-lab';
+      const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
       this.container.innerHTML = `
-        <div class="codelab codelab-workbench ${this.mode === 'sandbox' && !this.steps.length ? 'guide-collapsed' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr}>
+        <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr}>
           <!-- Top Bar -->
           <div class="codelab-topbar codelab-toolbar">
             <div class="codelab-topbar__left">
@@ -15149,6 +15164,7 @@ declare module 'bun:sqlite' {
                 <span class="codelab-brand__dot"></span>
                 <span>${escapeHtml(brandLabel)}</span>
               </span>
+              ${this.hasGuidedLab ? `
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               <div class="codelab-mode-switch" role="tablist" aria-label="Lab Mode">
                 <button type="button" role="tab" aria-selected="${this.mode === 'guided'}" class="codelab-mode-btn ${this.mode === 'guided' ? 'active' : ''}" data-cl-mode="guided">
@@ -15160,10 +15176,13 @@ declare module 'bun:sqlite' {
                   <span>Reference Sandbox</span>
                 </button>
               </div>
+              ` : ''}
+              ${this.hasMultipleLanguages ? `
               <div class="codelab-lang-switch" role="group" aria-label="Language Selector">
                 <button type="button" class="codelab-lang-btn ${this.lang === 'js' ? 'active' : ''}" data-cl-lang="js" data-lang="js" aria-pressed="${this.lang === 'js'}">JS</button>
                 <button type="button" class="codelab-lang-btn ${this.lang === 'ts' ? 'active' : ''}" data-cl-lang="ts" data-lang="ts" aria-pressed="${this.lang === 'ts'}">TS</button>
               </div>
+              ` : ''}
             </div>
 
             <div class="codelab-topbar__right">
@@ -15176,15 +15195,17 @@ declare module 'bun:sqlite' {
                 <span>Run Demo</span>
                 <span class="codelab-btn__kbd">⇧⌘↵</span>
               </button>
-              <button type="button" class="codelab-btn codelab-btn--test" id="cl-primary-exec-btn" data-cl-action="${this.mode === 'guided' ? 'verify-step' : 'run-tests'}" title="${this.mode === 'guided' ? 'Verify Current Step (⌘+Enter)' : 'Run Test Suite (⌘+Enter)'}">
+              <button type="button" class="codelab-btn codelab-btn--test" id="cl-primary-exec-btn" data-cl-action="${(this.hasGuidedLab && this.mode === 'guided') ? 'verify-step' : 'run-tests'}" title="${(this.hasGuidedLab && this.mode === 'guided') ? 'Verify Current Step (⌘+Enter)' : 'Run Test Suite (⌘+Enter)'}">
                 ${CL_ICONS.check}
-                <span>${this.mode === 'guided' ? 'Verify Step' : 'Run Tests'}</span>
+                <span>${(this.hasGuidedLab && this.mode === 'guided') ? 'Verify Step' : 'Run Tests'}</span>
                 <span class="codelab-btn__kbd">⌘↵</span>
               </button>
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
+              ${this.hasGuidedLab ? `
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
               </button>
+              ` : ''}
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-drawer-btn" data-cl-action="toggle-drawer" title="Toggle Terminal Drawer" aria-label="Toggle Terminal Drawer">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
               </button>
@@ -15201,6 +15222,7 @@ declare module 'bun:sqlite' {
 
           <!-- Split Body -->
           <div class="codelab-body">
+            ${this.hasGuidedLab ? `
             <!-- Left Pane: Guided Instructions / README -->
             <aside class="codelab-guide codelab-pane-left" aria-label="Guided Lab Instructions">
               <div class="codelab-guide__tabs" role="tablist" aria-label="Guide View">
@@ -15220,6 +15242,7 @@ declare module 'bun:sqlite' {
 
             <!-- Interactive Vertical Splitter -->
             <div class="codelab-splitter-v" id="cl-splitter-v" role="separator" aria-orientation="vertical" title="Drag to resize guide panel (double-click to reset)"></div>
+            ` : ''}
 
             <!-- Right Pane: File Explorer + Editor + Bottom Drawer -->
             <div class="codelab-main">
@@ -19511,13 +19534,16 @@ declare module 'bun:sqlite' {
   }
 
   const CodeLabSDK = {
-    version: '1.4.0',
+    version: '2.0.0',
     Workbench: CodeLabWorkbench,
     CodeLabWorkbench,
     CodeLabElement: CodeLabElementClass,
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,
+    extensions: {
+      guidedLab: null
+    },
     parseGitHubRepoUrl,
     cloneRepo: cloneGitHubRepository,
     mount: mountCodeLab,

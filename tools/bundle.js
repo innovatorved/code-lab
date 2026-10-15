@@ -16,6 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const PKG_DIR = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(PKG_DIR, 'src');
@@ -29,15 +30,16 @@ const cssPath = path.join(SRC_DIR, 'code-lab.css');
 
 const BANNER = `/**
  * ============================================================
- * @innovatorved/code-lab v1.4.0 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v2.0.0 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 40+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
+ *   - Full POSIX Shell AST & 55+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
- *   - VS Code Workbench: Hierarchical File Tree, Decoupled Tabs, Command Palette (Cmd+Shift+P), Quick Open (Cmd+P), Breadcrumbs, Context Menus & Solution Diff Viewer
+ *   - Modular VS Code Workbench: File Tree, Tabs, Command Palette, Diff Viewer
+ *   - Modular Opt-In Guided Lab Extension (stepper, hints, solution diff, JS/TS switcher)
  *   - Zero-Auth Public GitHub Repository Cloning (git clone, workbench.cloneRepo, <code-lab repo="...">)
  *   - Third-Party Imperative SDK (getFiles, setFiles, getFile, setFile, cloneRepo, on, off, use, exportWorkspace)
  * ============================================================
@@ -680,6 +682,26 @@ fs.writeFileSync(path.join(DIST_DIR, 'code-lab.d.ts'), DTS_CONTENT, 'utf8');
 // 2. Copy CSS to dist/code-lab.css
 if (fs.existsSync(cssPath)) {
   fs.copyFileSync(cssPath, path.join(DIST_DIR, 'code-lab.css'));
+}
+
+// 3. Build Extensions (guided-lab)
+const EXT_DIR = path.join(DIST_DIR, 'extensions');
+fs.mkdirSync(EXT_DIR, { recursive: true });
+
+try {
+  execSync('npx esbuild src/extensions/guided-lab.ts --bundle --format=iife --global-name=CodeLabGuidedLab --outfile=dist/extensions/guided-lab.js', { stdio: 'inherit', cwd: PKG_DIR });
+  execSync('npx esbuild src/extensions/guided-lab.ts --bundle --format=esm --outfile=dist/extensions/guided-lab.esm.js', { stdio: 'inherit', cwd: PKG_DIR });
+  console.log('✓ Built dist/extensions/guided-lab.js & guided-lab.esm.js');
+} catch (e) {
+  console.error('Failed to bundle guided-lab extension:', e.message);
+}
+
+// 4. Emit TypeScript Declarations (.d.ts)
+try {
+  execSync('npx tsc --emitDeclarationOnly', { stdio: 'inherit', cwd: PKG_DIR });
+  console.log('✓ Generated TypeScript declaration files in dist/');
+} catch (e) {
+  console.warn('tsc warning:', e.message);
 }
 
 console.log('✓ Built dist/code-lab.js (UMD/IIFE, ' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');

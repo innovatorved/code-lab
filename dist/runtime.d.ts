@@ -1,0 +1,42 @@
+declare const _hostRuntime: any;
+export interface RuntimeExecutionResult {
+    ok: boolean;
+    exitCode: number;
+    durationMs: number;
+    stdout: string;
+    stderr: string;
+    testResults: any[];
+    fsSnapshot: any[];
+    httpTrace: any[];
+    error?: {
+        message: string;
+        stack?: string;
+    };
+    outputTruncated?: boolean;
+    replValue?: any;
+}
+export declare const VirtualBuffer: any;
+export declare const VirtualCrypto: any;
+export declare const VirtualZlib: any;
+export declare const VirtualPath: any;
+export declare const VirtualOs: any;
+export declare const VirtualAssert: any;
+export declare const EventEmitter: any;
+export declare const VirtualUtil: any;
+export declare const VirtualUrl: any;
+export declare const VirtualQuerystring: any;
+export declare const VirtualStream: any;
+export declare const VirtualStreamPromises: any;
+export declare const VirtualStringDecoder: any;
+export declare const VirtualDns: any;
+export declare const createVirtualFs: (options?: any) => any;
+export declare const createVirtualHttp: (portTable?: any, vfs?: any) => any;
+export declare const createVirtualNet: (portTable?: any) => any;
+export declare const transpileTS: (code: string, filename?: string) => string;
+export declare const preloadNpmPackages: (packages?: Record<string, any>) => void;
+export declare const createVirtualPortTable: () => any;
+export declare const executeInVirtualRuntime: (options?: any) => Promise<RuntimeExecutionResult>;
+export declare const createWorkerRuntimeSource: () => string;
+export declare const cancelWorkerExecution: (reason?: string, instanceId?: string) => boolean;
+export declare const executeInWorker: (options?: any) => Promise<RuntimeExecutionResult>;
+export default _hostRuntime;

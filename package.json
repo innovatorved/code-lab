@@ -1,6 +1,6 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, and Web Worker Node.js/Bun Virtual Runtime.",
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",
@@ -14,22 +14,34 @@
       "default": "./dist/code-lab.js"
     },
     "./runtime": {
-      "types": "./dist/code-lab.d.ts",
+      "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.esm.js",
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
     "./shell": {
-      "types": "./dist/code-lab.d.ts",
+      "types": "./dist/shell.d.ts",
       "import": "./dist/shell.esm.js",
       "require": "./dist/shell.js",
       "default": "./dist/shell.js"
     },
     "./terminal": {
-      "types": "./dist/code-lab.d.ts",
+      "types": "./dist/terminal.d.ts",
       "import": "./dist/terminal.esm.js",
       "require": "./dist/terminal.js",
       "default": "./dist/terminal.js"
+    },
+    "./extensions/guided-lab": {
+      "types": "./dist/extensions/guided-lab.d.ts",
+      "import": "./dist/extensions/guided-lab.esm.js",
+      "require": "./dist/extensions/guided-lab.js",
+      "default": "./dist/extensions/guided-lab.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.js",
+      "require": "./dist/schemas.js",
+      "default": "./dist/schemas.js"
     },
     "./css": "./dist/code-lab.css",
     "./code-lab.css": "./dist/code-lab.css",
@@ -52,9 +64,18 @@
   },
   "scripts": {
     "build": "node tools/bundle.js",
+    "typecheck": "tsc --noEmit",
     "test": "node tests/test-all-builds.js",
     "test:all": "node tests/test-all-builds.js && node tests/test-runtime-advanced.js && node tests/test-option1-shell-bun-http.js && node tests/test-coreutils-adversarial.js && node tests/test-stress-shell.js && node tests/test-workbench-ui.js",
     "pack:check": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
   },
   "keywords": [
     "ide",

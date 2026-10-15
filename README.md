@@ -2,7 +2,7 @@
 
 > **Note:** This project is in active development. APIs and sandbox internals are stable for production use.
 
-Browser-native code IDE workbench, step-by-step guided challenge engine, POSIX shell with 55+ UNIX coreutils, public GitHub repository cloner (`git clone`), and Web Worker execution runtime for **Node.js** and **Bun** (JavaScript & TypeScript) with zero backend server dependencies.
+Browser-native code IDE workbench, modular guided challenge engine (`@innovatorved/code-lab/extensions/guided-lab`), POSIX shell with 55+ UNIX coreutils, public GitHub repository cloner (`git clone`), and Web Worker execution runtime for **Node.js** and **Bun** (JavaScript & TypeScript) with Zod type safety and zero backend server dependencies.
 
 - **Live Cloud IDE & GitHub Repo Explorer**: **[https://code-lab-3dr.pages.dev](https://code-lab-3dr.pages.dev)** — Enter any public GitHub repository (`owner/repo` or URL) to clone and run it directly in your browser.
 - **Built for**: [System Design In Depth](https://system-design-in-depth.vedgupta.in)
@@ -11,6 +11,8 @@ Browser-native code IDE workbench, step-by-step guided challenge engine, POSIX s
 
 ## Features
 
+- **Modular Architecture (`v2.0.0`)**: Pure, general-purpose browser IDE (`code-lab`) by default with File Explorer, Monaco Editor, and PTY Terminal. Curriculum features (Guided Steps, Mode Switcher, and JS/TS switcher) are encapsulated in an opt-in modular extension (`@innovatorved/code-lab/extensions/guided-lab`).
+- **End-to-End TypeScript & Zod Type Safety**: Written in TypeScript with strict runtime schemas and inferred types (`z.infer<typeof ...>`) for workbench options, guided labs, runtime execution, and git cloning.
 - **Public GitHub Repository Cloning (`git clone`)**: Clone any public GitHub repository (`git clone https://github.com/owner/repo` or `git clone owner/repo --branch main` in the terminal, or `await lab.cloneRepo('owner/repo')` via the SDK) directly into `/workspace` with zero authentication required (automatic GitHub Trees API + jsDelivr unlimited fallback).
 - **Interactive IDE Workbench**: Multi-file Monaco editor, collapsible hierarchical file tree with drag-and-drop, decoupled editor tabs, Command Palette (`Cmd+Shift+P`), Quick Open (`Cmd+P`), breadcrumbs, and line-by-line solution diff viewer.
 - **Interactive PTY Terminal**: Inline prompt (`codelab:/workspace$ `), cursor navigation, history (`Up`/`Down`), `Ctrl+R` reverse-i-search, `Tab` auto-completion, `Ctrl+C` interrupt, `Ctrl+L` clear, and 256-color / TrueColor ANSI support.
@@ -20,7 +22,7 @@ Browser-native code IDE workbench, step-by-step guided challenge engine, POSIX s
   - **Bun**: Native `.ts` transpilation, `Bun.serve()`, `Bun.file()`, `Bun.write()`, `Bun.spawn()`, `Bun.password`, `Bun.hash()`, `bun:test`, and VFS-backed `bun:sqlite`.
 - **Persistent HTTP/TCP Servers & Port Preview**: Start background servers (`node server.js &` or `bun run server.ts &`), query them with `curl http://localhost:3000` or global `fetch()`, and preview live responses in the Ports / HTTP Preview tab.
 - **NPM & Bun Package Management**: `npm i <pkg>` and `bun add <pkg>` resolve dependencies from npm / esm.sh into virtual `/workspace/node_modules/<pkg>` and update `package.json`.
-- **Guided Step-by-Step Challenges**: TutorialKit / Codedamn-style curriculum with targeted instructions, hints, automated test verification per step, and reference solutions.
+- **Guided Step-by-Step Challenges**: TutorialKit / Codedamn-style curriculum extension with targeted instructions, hints, automated test verification per step, and reference solutions.
 - **Headless Runtime**: Programmatic execution engine (`@innovatorved/code-lab/runtime`) for grading, testing, or automated evaluation with zero UI.
 
 ---
