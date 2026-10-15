@@ -684,6 +684,16 @@ if (fs.existsSync(cssPath)) {
   fs.copyFileSync(cssPath, path.join(DIST_DIR, 'code-lab.css'));
 }
 
+// 2b. Copy sample.html to dist/sample.html
+const sampleHtmlPath = path.join(SRC_DIR, 'sample.html');
+if (fs.existsSync(sampleHtmlPath)) {
+  fs.copyFileSync(sampleHtmlPath, path.join(DIST_DIR, 'sample.html'));
+  const CLOUD_IDE_PUBLIC_DIST = path.join(PKG_DIR, 'examples/cloud-ide/public/dist');
+  if (fs.existsSync(CLOUD_IDE_PUBLIC_DIST)) {
+    fs.copyFileSync(sampleHtmlPath, path.join(CLOUD_IDE_PUBLIC_DIST, 'sample.html'));
+  }
+}
+
 // 3. Build Extensions (guided-lab)
 const EXT_DIR = path.join(DIST_DIR, 'extensions');
 fs.mkdirSync(EXT_DIR, { recursive: true });
@@ -711,3 +721,5 @@ console.log('✓ Built dist/shell.js & shell.esm.js');
 console.log('✓ Built dist/terminal.js & terminal.esm.js');
 console.log('✓ Built dist/code-lab.d.ts');
 console.log('✓ Synced dist/code-lab.css');
+console.log('✓ Synced dist/sample.html');
+
