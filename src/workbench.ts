@@ -5383,7 +5383,8 @@ declare module 'bun:sqlite' {
           branch: options.branch || parsed.branch || null,
           maxFiles: options.maxFiles || 250,
           maxFileSize: options.maxFileSize || 512 * 1024,
-          fetchImpl: options.fetchImpl || (this.shell && this.shell.options ? this.shell.options.fetchImpl : undefined)
+          fetchImpl: options.fetchImpl || (this.shell && this.shell.options ? this.shell.options.fetchImpl : undefined),
+          onProgress: options.onProgress
         });
 
         if (this.shell && this.shell.gitState) {
