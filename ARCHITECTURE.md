@@ -99,7 +99,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 ## 5. Build & Distribution Pipeline (`tools/bundle.js`)
 
-Running `npm run build` (`node tools/bundle.js`) produces:
+Running `bun run build` (`bun run tools/bundle.js`) produces:
 - `dist/code-lab.js` & `dist/code-lab.esm.js` (complete runtime + shell + terminal + workbench bundle)
 - `dist/runtime.js` & `dist/runtime.esm.js` (headless virtual runtime)
 - `dist/shell.js` & `dist/shell.esm.js` (standalone POSIX shell & coreutils)

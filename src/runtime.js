@@ -6832,7 +6832,7 @@ function __initVirtualRuntime(rootScope) {
       try {
         return new Function(...argNames, body);
       } catch (err) {
-        if (err instanceof SyntaxError && /await/.test(err.message)) {
+        if (err instanceof SyntaxError && (/\bawait\b/.test(body) || /await/i.test(err.message))) {
           try {
             return new AsyncFunction(...argNames, body);
           } catch (_) {}

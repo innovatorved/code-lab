@@ -30,6 +30,8 @@ Browser-native code IDE workbench, modular guided challenge engine (`@innovatorv
 ## Install
 
 ```bash
+bun add @innovatorved/code-lab
+# or
 npm install @innovatorved/code-lab
 ```
 
@@ -130,17 +132,20 @@ Complete documentation is published on the [GitHub Wiki](https://github.com/inno
 ## Local Development & Testing
 
 ```bash
+# Install dependencies with Bun
+bun install
+
 # Rebuild all distribution bundles
-npm run build
+bun run build
 
 # Run the complete test suite
-npm run test:all
-node test-all-builds.js             # 15/15 builds & 226 unit tests
-node test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
-node test-shell-bun-http.js         # Shell AST, Bun runtime, curl, ports
-node test-coreutils-adversarial.js  # Adversarial stress tests on 40+ coreutils
-node test-stress-shell.js           # Deep pipelines, redirections, large stdout
-node test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
+bun run test:all
+bun run tests/test-all-builds.js             # 15/15 builds & 226 unit tests
+bun run tests/test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
+bun run tests/test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports
+bun run tests/test-coreutils-adversarial.js  # Adversarial stress tests on 40+ coreutils
+bun run tests/test-stress-shell.js           # Deep pipelines, redirections, large stdout
+bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
 ```
 
 ---
