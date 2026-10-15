@@ -1,5 +1,5 @@
 ---
-// code-lab Cloud IDE — Astro Page
+// code-lab Cloud IDE — System Design In-Depth Aesthetic Alignment
 ---
 
 <!DOCTYPE html>
@@ -10,36 +10,104 @@
   <title>code-lab — Browser IDE & GitHub Repository Explorer</title>
   <meta name="description" content="Clone and run any public GitHub repository directly in your browser with zero server setup. Powered by code-lab.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
   <link rel="stylesheet" href="/dist/code-lab.css">
   <script is:inline src="/dist/code-lab.js"></script>
 
-  <style>
-    :root {
-      --bg: #09090b;
-      --card-bg: #121215;
-      --border: #27272a;
-      --fg: #fafafa;
-      --fg-muted: #a1a1aa;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --surface: #18181b;
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      --font-mono: 'JetBrains Mono', monospace;
+  <style is:global>
+    @font-face {
+      font-family: "Geist";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("/fonts/geist-latin.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "Geist Mono";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("/fonts/geist-mono-latin.woff2") format("woff2");
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Ved Gupta Monochrome Neutral Design Tokens (matches system-design)
+       ═══════════════════════════════════════════════════════════════ */
+    :root,
+    [data-theme="dark"] {
+      --bg: #000000;
+      --bg-alt: #0a0a0a;
+      --surface: #0a0a0a;
+      --surface-hover: #171717;
+      --surface-active: #262626;
+      --border: #262626;
+      --border-strong: #404040;
+      --border-focus: #737373;
+      --divider: #171717;
+
+      --fg: #ffffff;
+      --fg-prose: #e5e5e5;
+      --fg-muted: #a1a1a1;
+      --fg-faint: #8f8f8f;
+
+      --accent: #ffffff;
+      --accent-hover: #e5e5e5;
+      --accent-muted: rgba(255, 255, 255, 0.08);
+      --accent-border: rgba(255, 255, 255, 0.22);
+      --accent-fg: #000000;
+
+      --success: #05df72;
+      --success-muted: rgba(5, 223, 114, 0.12);
+      --warning: #ffd236;
+      --warning-muted: rgba(255, 210, 54, 0.12);
+      --error: #fb2c36;
+      --error-muted: rgba(251, 44, 54, 0.12);
+      --info: #54a2ff;
+      --info-muted: rgba(84, 162, 255, 0.12);
+
+      --r-sm: 4px;
+      --r-md: 6px;
+      --r-lg: 8px;
+      --r-xl: 12px;
+      --r-full: 999px;
+
+      --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, monospace;
+      color-scheme: dark;
     }
 
     [data-theme="light"] {
-      --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --border: #e2e8f0;
-      --fg: #0f172a;
-      --fg-muted: #64748b;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --surface: #f1f5f9;
+      --bg: #ffffff;
+      --bg-alt: #fafafa;
+      --surface: #ffffff;
+      --surface-hover: #f5f5f5;
+      --surface-active: #e5e5e5;
+      --border: #e5e5e5;
+      --border-strong: #d4d4d4;
+      --border-focus: #a1a1a1;
+      --divider: #f0f0f0;
+
+      --fg: #000000;
+      --fg-prose: #171717;
+      --fg-muted: #737373;
+      --fg-faint: #a1a1a1;
+
+      --accent: #000000;
+      --accent-hover: #262626;
+      --accent-muted: rgba(0, 0, 0, 0.06);
+      --accent-border: rgba(0, 0, 0, 0.15);
+      --accent-fg: #ffffff;
+
+      --success: #05df72;
+      --success-muted: rgba(5, 223, 114, 0.12);
+      --warning: #f59e0b;
+      --warning-muted: rgba(245, 158, 11, 0.12);
+      --error: #e11d48;
+      --error-muted: rgba(225, 29, 72, 0.12);
+      --info: #2563eb;
+      --info-muted: rgba(37, 99, 235, 0.12);
+
+      color-scheme: light;
     }
 
     * {
@@ -56,11 +124,15 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    /* Top Navigation Header */
+    /* ═══════════════════════════════════════════════════════════════
+       Top Navigation Bar (52px matching system-design --topbar-h)
+       ═══════════════════════════════════════════════════════════════ */
     .app-header {
-      height: 48px;
+      height: 52px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -68,7 +140,13 @@
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
-      z-index: 10;
+      z-index: 30;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .app-brand {
@@ -76,23 +154,48 @@
       align-items: center;
       gap: 8px;
       font-weight: 600;
-      font-size: 15px;
-      letter-spacing: -0.02em;
+      font-size: 14px;
+      letter-spacing: -0.03em;
       cursor: pointer;
+      color: var(--fg);
+      text-decoration: none;
+      user-select: none;
     }
 
-    .app-logo {
-      width: 26px;
-      height: 26px;
-      border-radius: 6px;
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    .brand-logo-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: var(--r-sm);
+      background: var(--surface-hover);
+      border: 1px solid var(--border-strong);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
       font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+
+    .brand-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--fg-muted);
+      border: 1px solid var(--border);
+      border-radius: var(--r-full);
+      background: var(--surface);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 2px var(--success-muted);
     }
 
     .header-actions {
@@ -101,56 +204,62 @@
       gap: 8px;
     }
 
-    .icon-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-family: var(--font-sans);
+      font-weight: 500;
+      padding: 0 10px;
+      height: 28px;
+      border-radius: var(--r-md);
       border: 1px solid var(--border);
-      background: transparent;
+      background: var(--surface);
+      color: var(--fg-muted);
+      cursor: pointer;
+      text-decoration: none;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+
+    .action-btn:hover {
+      color: var(--fg);
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
+    }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: var(--r-md);
+      border: 1px solid var(--border);
+      background: var(--surface);
       color: var(--fg-muted);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.15s ease;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
       text-decoration: none;
     }
 
     .icon-btn:hover {
-      background: var(--card-bg);
       color: var(--fg);
-      border-color: var(--fg-muted);
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
     }
 
-    .clone-new-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      padding: 0 12px;
-      height: 30px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--card-bg);
-      color: var(--fg);
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .clone-new-btn:hover {
-      border-color: var(--primary);
-    }
-
-    /* Main Container */
+    /* ═══════════════════════════════════════════════════════════════
+       Main Viewport & Landing Screen
+       ═══════════════════════════════════════════════════════════════ */
     .app-main {
       flex: 1;
       position: relative;
       display: flex;
-      height: calc(100vh - 48px);
+      height: calc(100vh - 52px);
     }
 
-    /* Landing Overlay Screen */
     .landing-overlay {
       position: absolute;
       inset: 0;
@@ -160,7 +269,23 @@
       align-items: center;
       justify-content: center;
       padding: 24px;
-      transition: opacity 0.25s ease, visibility 0.25s ease;
+      transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s ease;
+      overflow-y: auto;
+    }
+
+    /* Subtle grid + top glow background inspired by system-design hero */
+    .landing-overlay::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 50% 0%, var(--accent-muted), transparent 70%),
+        linear-gradient(var(--divider) 1px, transparent 1px) 0 0 / 48px 48px,
+        linear-gradient(90deg, var(--divider) 1px, transparent 1px) 0 0 / 48px 48px;
+      mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, #000 40%, transparent 80%);
+      -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, #000 40%, transparent 80%);
+      pointer-events: none;
+      z-index: 0;
     }
 
     .landing-overlay.hidden {
@@ -170,37 +295,58 @@
     }
 
     .landing-card {
+      position: relative;
+      z-index: 1;
       width: 100%;
-      max-width: 580px;
-      background: var(--card-bg);
+      max-width: 560px;
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: var(--r-xl);
       padding: 32px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 16px 48px rgba(0, 0, 0, 0.6);
       display: flex;
       flex-direction: column;
       gap: 20px;
     }
 
-    .landing-title {
-      font-size: 24px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
+    .landing-header {
       display: flex;
-      align-items: center;
+      flex-direction: column;
       gap: 10px;
     }
 
-    .landing-desc {
-      font-size: 14px;
+    .landing-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-family: var(--font-mono);
       color: var(--fg-muted);
-      line-height: 1.5;
+      border: 1px solid var(--border);
+      border-radius: var(--r-full);
+      background: var(--surface-hover);
+    }
+
+    .landing-title {
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      line-height: 1.15;
+      color: var(--fg);
+    }
+
+    .landing-desc {
+      font-size: 13px;
+      color: var(--fg-muted);
+      line-height: 1.55;
     }
 
     .repo-form {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
     }
 
     .input-row {
@@ -208,81 +354,113 @@
       gap: 8px;
     }
 
-    .repo-input {
+    .repo-input-wrapper {
       flex: 1;
-      height: 42px;
-      background: var(--surface);
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .repo-input {
+      width: 100%;
+      height: 40px;
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0 14px;
-      font-size: 14px;
+      border-radius: var(--r-md);
+      padding: 0 12px;
+      font-size: 13px;
       font-family: var(--font-mono);
       color: var(--fg);
       outline: none;
-      transition: border-color 0.15s ease;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
     }
 
     .repo-input:focus {
-      border-color: var(--primary);
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 1px var(--border-focus);
     }
 
     .submit-btn {
-      height: 42px;
-      padding: 0 18px;
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
+      height: 40px;
+      padding: 0 16px;
+      background: var(--accent);
+      color: var(--accent-fg);
+      border: 1px solid var(--accent);
+      border-radius: var(--r-md);
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      letter-spacing: -0.01em;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      transition: background 0.15s ease;
+      gap: 6px;
+      transition: background 140ms ease, opacity 140ms ease;
       white-space: nowrap;
     }
 
     .submit-btn:hover:not(:disabled) {
-      background: var(--primary-hover);
+      background: var(--accent-hover);
     }
 
     .submit-btn:disabled {
-      opacity: 0.6;
+      opacity: 0.5;
       cursor: not-allowed;
     }
 
-    .alt-actions {
+    /* Preset Quick-Clone Chips */
+    .chip-container {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 13px;
+      flex-direction: column;
+      gap: 8px;
     }
 
-    .alt-link {
+    .chip-label {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--fg-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip-item {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
       color: var(--fg-muted);
-      text-decoration: underline;
       cursor: pointer;
-      transition: color 0.15s ease;
+      transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+      user-select: none;
     }
 
-    .alt-link:hover {
+    .chip-item:hover {
       color: var(--fg);
+      background: var(--surface-active);
+      border-color: var(--border-strong);
     }
 
     /* Streaming Clone Progress Box */
     .progress-box {
       display: none;
       flex-direction: column;
-      gap: 8px;
-      margin-top: 8px;
-      padding: 14px;
-      background: var(--surface);
+      gap: 6px;
+      padding: 12px;
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--r-md);
       font-family: var(--font-mono);
-      font-size: 12px;
-      max-height: 180px;
+      font-size: 11px;
+      line-height: 1.45;
+      max-height: 160px;
       overflow-y: auto;
     }
 
@@ -292,16 +470,45 @@
 
     .progress-line {
       display: flex;
+      align-items: baseline;
       gap: 8px;
       color: var(--fg-muted);
     }
 
-    .progress-line.connecting { color: #60a5fa; }
-    .progress-line.metadata { color: #818cf8; }
+    .progress-line .time {
+      color: var(--fg-faint);
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .progress-line.connecting { color: var(--info); }
+    .progress-line.metadata { color: #a78bfa; }
     .progress-line.downloading { color: #38bdf8; }
-    .progress-line.mounting { color: #f59e0b; }
-    .progress-line.ready { color: #10b981; font-weight: 600; }
-    .progress-line.error { color: #ef4444; }
+    .progress-line.mounting { color: var(--warning); }
+    .progress-line.ready { color: var(--success); font-weight: 500; }
+    .progress-line.error { color: var(--error); font-weight: 500; }
+
+    .alt-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      padding-top: 4px;
+      border-top: 1px solid var(--divider);
+    }
+
+    .alt-link {
+      color: var(--fg-muted);
+      cursor: pointer;
+      transition: color 120ms ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .alt-link:hover {
+      color: var(--fg);
+    }
 
     /* Fullscreen IDE Mount */
     #codelab-mount {
@@ -321,31 +528,42 @@
 
   <!-- Top Navigation Bar -->
   <header class="app-header">
-    <div class="app-brand" id="brand-home-btn" title="code-lab">
-      <div class="app-logo">&lt;/&gt;</div>
-      <span>code-lab</span>
+    <div class="brand-section">
+      <div class="app-brand" id="brand-home-btn" title="code-lab">
+        <div class="brand-logo-badge">&lt;/&gt;</div>
+        <span>code-lab</span>
+      </div>
+      <div class="brand-status-pill">
+        <span class="status-dot"></span>
+        <span>browser runtime</span>
+      </div>
     </div>
 
     <div class="header-actions">
-      <button type="button" class="clone-new-btn" id="open-clone-modal-btn" title="Clone another repository">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <button type="button" class="action-btn" id="open-clone-modal-btn" title="Clone another repository">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span>Clone Repo</span>
+      </button>
+
+      <button type="button" class="action-btn" id="header-blank-btn" title="Open blank workspace">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Blank IDE</span>
       </button>
 
       <!-- Theme Button: Icon-Only (Sun / Moon) -->
       <button type="button" class="icon-btn" id="theme-btn" title="Toggle Theme" aria-label="Toggle Theme">
-        <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg id="theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg id="theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
       </button>
 
       <!-- Docs Wiki Link -->
       <a class="icon-btn" href="https://github.com/innovatorved/code-lab/wiki" target="_blank" rel="noopener noreferrer" title="Documentation Wiki" aria-label="Wiki">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       </a>
 
       <!-- GitHub Repository Link -->
       <a class="icon-btn" href="https://github.com/innovatorved/code-lab" target="_blank" rel="noopener noreferrer" title="GitHub Repository" aria-label="GitHub">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
       </a>
     </div>
   </header>
@@ -355,37 +573,54 @@
     <!-- Initial Landing View: Repo Input & Live Progress Box -->
     <div class="landing-overlay" id="landing-overlay">
       <div class="landing-card">
-        <div class="landing-title">
-          <div class="app-logo">&lt;/&gt;</div>
-          <span>code-lab</span>
+        <div class="landing-header">
+          <div class="landing-eyebrow">
+            <span class="status-dot"></span>
+            <span>zero-install client-side ide</span>
+          </div>
+          <h1 class="landing-title">Clone &amp; Explore GitHub Repositories</h1>
+          <p class="landing-desc">
+            Enter any public GitHub repository to clone and explore directly in your browser. Powered by Node.js v22 and Bun v1.1 virtual Web Worker runtime with zero server dependencies.
+          </p>
         </div>
-        <p class="landing-desc">
-          Enter any public GitHub repository to clone and explore it directly in your browser. Powered by Node.js v22 and Bun v1.1 virtual Web Worker runtime with zero server dependencies.
-        </p>
 
         <form class="repo-form" id="landing-form">
           <div class="input-row">
-            <input
-              type="text"
-              id="landing-repo-input"
-              class="repo-input"
-              placeholder="owner/repo or https://github.com/owner/repo"
-              value="innovatorved/code-lab"
-              spellcheck="false"
-              autocomplete="off"
-            />
+            <div class="repo-input-wrapper">
+              <input
+                type="text"
+                id="landing-repo-input"
+                class="repo-input"
+                placeholder="owner/repo or github.com/owner/repo"
+                value="innovatorved/code-lab"
+                spellcheck="false"
+                autocomplete="off"
+              />
+            </div>
             <button type="submit" class="submit-btn" id="landing-clone-btn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               <span>Clone &amp; Open</span>
             </button>
+          </div>
+
+          <!-- Suggested Repositories Chips -->
+          <div class="chip-container">
+            <div class="chip-label">Featured Repositories</div>
+            <div class="chip-list">
+              <span class="chip-item" data-repo="innovatorved/code-lab">innovatorved/code-lab</span>
+              <span class="chip-item" data-repo="expressjs/express">expressjs/express</span>
+              <span class="chip-item" data-repo="preactjs/preact">preactjs/preact</span>
+              <span class="chip-item" data-repo="chalk/chalk">chalk/chalk</span>
+              <span class="chip-item" data-repo="sindresorhus/ora">sindresorhus/ora</span>
+            </div>
           </div>
 
           <!-- Streaming Logs Box -->
           <div class="progress-box" id="progress-box"></div>
 
           <div class="alt-actions">
-            <span class="alt-link" id="open-empty-btn">Open blank workspace →</span>
-            <span style="color:var(--fg-muted);font-size:12px;">Zero auth required</span>
+            <span class="alt-link" id="open-empty-btn">Open blank workspace &rarr;</span>
+            <span style="color:var(--fg-faint);font-size:11px;font-family:var(--font-mono);">Zero auth required</span>
           </div>
         </form>
       </div>
@@ -404,11 +639,13 @@
       const cloneBtn = document.getElementById('landing-clone-btn');
       const progressBox = document.getElementById('progress-box');
       const openEmptyBtn = document.getElementById('open-empty-btn');
+      const headerBlankBtn = document.getElementById('header-blank-btn');
       const openCloneModalBtn = document.getElementById('open-clone-modal-btn');
       const brandHomeBtn = document.getElementById('brand-home-btn');
       const themeBtn = document.getElementById('theme-btn');
       const iconSun = document.getElementById('theme-icon-sun');
       const iconMoon = document.getElementById('theme-icon-moon');
+      const chipItems = document.querySelectorAll('.chip-item');
 
       let ideInstance = null;
 
@@ -416,8 +653,8 @@
         progressBox.classList.add('active');
         const line = document.createElement('div');
         line.className = 'progress-line ' + (phase || '');
-        const time = new Date().toLocaleTimeString();
-        line.textContent = `[${time}] ${message}`;
+        const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        line.innerHTML = `<span class="time">[${time}]</span><span>${message}</span>`;
         progressBox.appendChild(line);
         progressBox.scrollTop = progressBox.scrollHeight;
       }
@@ -441,7 +678,7 @@
         if (!targetRepo) return;
         cloneBtn.disabled = true;
         progressBox.innerHTML = '';
-        logProgress('connecting', `Connecting to GitHub for repository: ${targetRepo}...`);
+        logProgress('connecting', `Connecting to GitHub API for ${targetRepo}...`);
 
         try {
           const ide = ensureIde();
@@ -449,7 +686,7 @@
             throw new Error('CodeLab SDK failed to initialize');
           }
 
-          logProgress('metadata', 'Fetching repository tree and default branch metadata...');
+          logProgress('metadata', 'Fetching repository tree and metadata...');
 
           const cloneFn = (typeof ide.cloneRepo === 'function') 
             ? ide.cloneRepo.bind(ide) 
@@ -499,10 +736,27 @@
         if (val) executeClone(val);
       });
 
+      chipItems.forEach(chip => {
+        chip.addEventListener('click', () => {
+          const repo = chip.getAttribute('data-repo');
+          if (repo) {
+            repoInput.value = repo;
+            executeClone(repo);
+          }
+        });
+      });
+
       openEmptyBtn.addEventListener('click', () => {
         ensureIde();
         landingOverlay.classList.add('hidden');
       });
+
+      if (headerBlankBtn) {
+        headerBlankBtn.addEventListener('click', () => {
+          ensureIde();
+          landingOverlay.classList.add('hidden');
+        });
+      }
 
       openCloneModalBtn.addEventListener('click', () => {
         landingOverlay.classList.remove('hidden');
