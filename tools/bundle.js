@@ -1,20 +1,22 @@
 /**
  * Build script for @innovatorved/code-lab
  *
- * Concatenates modular source files in projects/code-lab/src/ into:
- *   1. js/code-lab.js                         (site-embedded IIFE bundle)
- *   2. projects/code-lab/dist/code-lab.js     (standalone UMD/IIFE bundle)
- *   3. projects/code-lab/dist/code-lab.esm.js (standalone ESM bundle)
- *   4. projects/code-lab/dist/runtime.js      (headless runtime IIFE bundle)
- *   5. projects/code-lab/dist/runtime.esm.js  (headless runtime ESM bundle)
- *   6. projects/code-lab/dist/code-lab.css    (standalone stylesheet)
- *   7. projects/code-lab/dist/code-lab.d.ts   (TypeScript definitions)
+ * Concatenates modular source files in src/ into:
+ *   1. dist/code-lab.js       (standalone UMD/IIFE bundle)
+ *   2. dist/code-lab.esm.js   (standalone ESM bundle)
+ *   3. dist/runtime.js        (headless runtime IIFE bundle)
+ *   4. dist/runtime.esm.js    (headless runtime ESM bundle)
+ *   5. dist/shell.js          (POSIX shell IIFE bundle)
+ *   6. dist/shell.esm.js      (POSIX shell ESM bundle)
+ *   7. dist/terminal.js       (PTY terminal IIFE bundle)
+ *   8. dist/terminal.esm.js   (PTY terminal ESM bundle)
+ *   9. dist/code-lab.css      (standalone stylesheet)
+ *  10. dist/code-lab.d.ts     (TypeScript definitions)
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '../../..');
 const PKG_DIR = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(PKG_DIR, 'src');
 const DIST_DIR = path.join(PKG_DIR, 'dist');
@@ -23,11 +25,7 @@ const runtimeCode = fs.readFileSync(path.join(SRC_DIR, 'runtime.js'), 'utf8');
 const shellCode = fs.readFileSync(path.join(SRC_DIR, 'shell.js'), 'utf8');
 const terminalCode = fs.readFileSync(path.join(SRC_DIR, 'terminal.js'), 'utf8');
 const workbenchCode = fs.readFileSync(path.join(SRC_DIR, 'workbench.js'), 'utf8');
-const cssCandidates = [
-  path.join(ROOT, 'css', 'code-lab.css'),
-  path.resolve(PKG_DIR, '../system-design/css/code-lab.css')
-];
-const cssPath = cssCandidates.find((p) => fs.existsSync(p)) || path.join(ROOT, 'css', 'code-lab.css');
+const cssPath = path.join(SRC_DIR, 'code-lab.css');
 
 const BANNER = `/**
  * ============================================================
@@ -563,15 +561,7 @@ export default CodeLab;
 
 fs.mkdirSync(DIST_DIR, { recursive: true });
 
-// 1. Write to site js/code-lab.js (when running inside monorepo)
-const siteJsDir = path.join(ROOT, 'js');
-const siteJsOut = path.join(siteJsDir, 'code-lab.js');
-if (fs.existsSync(siteJsDir)) {
-  fs.writeFileSync(siteJsOut, IIFE_BUNDLE, 'utf8');
-  console.log('✓ Built js/code-lab.js (' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
-}
-
-// 2. Write to dist/*
+// 1. Write to dist/*
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.js'), IIFE_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.esm.js'), ESM_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'runtime.js'), RUNTIME_IIFE, 'utf8');
@@ -582,7 +572,7 @@ fs.writeFileSync(path.join(DIST_DIR, 'terminal.js'), TERMINAL_IIFE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'terminal.esm.js'), TERMINAL_ESM, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.d.ts'), DTS_CONTENT, 'utf8');
 
-// 3. Copy CSS to dist/code-lab.css
+// 2. Copy CSS to dist/code-lab.css
 if (fs.existsSync(cssPath)) {
   fs.copyFileSync(cssPath, path.join(DIST_DIR, 'code-lab.css'));
 }
