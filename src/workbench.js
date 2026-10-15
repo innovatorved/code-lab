@@ -1301,7 +1301,7 @@ declare module 'bun:sqlite' {
               </button>
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               ${this.hasGuidedLab ? `
-              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel">
+              <button type="button" class="codelab-btn codelab-btn--icon ${isGuideCollapsed ? '' : 'active'}" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel" aria-pressed="${isGuideCollapsed ? 'false' : 'true'}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
               </button>
               ` : ''}
@@ -1312,8 +1312,9 @@ declare module 'bun:sqlite' {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
               </button>
               ${this.onClose ? `
-                <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--close-ide" id="cl-close-ide-btn" data-cl-action="close-lab" title="${escapeHtml(this.backLabel || 'Close IDE')}" aria-label="Close IDE">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <button type="button" class="codelab-btn codelab-btn--exit-lab codelab-btn--close-ide" id="cl-close-ide-btn" data-cl-action="close-lab" title="${escapeHtml(this.backLabel ? `Exit Lab (${this.backLabel})` : 'Exit Lab / Back to Build Guide')}" aria-label="Exit Lab">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  <span class="codelab-btn__label">Exit Lab</span>
                 </button>
               ` : ''}
             </div>
@@ -1332,6 +1333,11 @@ declare module 'bun:sqlite' {
                 <button type="button" role="tab" aria-selected="${this.guideTab === 'readme'}" class="codelab-guide__tab ${this.guideTab === 'readme' ? 'active' : ''}" data-cl-guidetab="readme">
                   ${CL_ICONS.book}
                   <span>Architecture Brief</span>
+                </button>
+                <button type="button" class="codelab-guide__collapse-btn" data-cl-action="toggle-guide" title="Collapse sidebar" aria-label="Collapse sidebar">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
                 </button>
               </div>
               <div class="codelab-guide__stepper" id="cl-step-pills"></div>
@@ -1476,6 +1482,15 @@ declare module 'bun:sqlite' {
       const host = this.container.querySelector('#cl-breadcrumbs');
       if (!host) return;
 
+      const expandBtnHtml = this.hasGuidedLab ? `
+        <button type="button" class="codelab-guide__expand-btn" data-cl-action="toggle-guide" title="Expand sidebar" aria-label="Expand sidebar">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+          </svg>
+          <span>Guide</span>
+        </button>
+      ` : '';
+
       let pathHtml = `<button type="button" class="codelab-breadcrumb__item codelab-breadcrumb__root" data-action="command-palette-files" data-cl-action="command-palette-files" title="Quick Open File (⌘P)">workspace</button>`;
 
       if (this.activeFile) {
@@ -1496,13 +1511,26 @@ declare module 'bun:sqlite' {
         }
       }
 
-      host.innerHTML = `
-        <div class="codelab-breadcrumbs__path">${pathHtml}</div>
-        <div class="codelab-breadcrumbs__actions">
+      const hasSolutions = Boolean(
+        this.hasGuidedLab && (
+          (this.referenceFiles && Object.keys(this.referenceFiles).length > 0) ||
+          (this.tsReferenceFiles && Object.keys(this.tsReferenceFiles).length > 0) ||
+          (this.solutionFiles && Object.keys(this.solutionFiles).length > 0)
+        )
+      );
+
+      const diffBtnHtml = hasSolutions ? `
           <button type="button" class="codelab-breadcrumb__btn" data-action="compare-diff" data-cl-action="compare-diff" title="Compare Active File with Solution">
             ${CL_ICONS.diff}
             <span>Compare Diff</span>
           </button>
+      ` : '';
+
+      host.innerHTML = `
+        ${expandBtnHtml}
+        <div class="codelab-breadcrumbs__path">${pathHtml}</div>
+        <div class="codelab-breadcrumbs__actions">
+          ${diffBtnHtml}
           <button type="button" class="codelab-breadcrumb__btn" data-action="command-palette" data-cl-action="command-palette" title="Open Command Palette (⌘⇧P)">
             ${CL_ICONS.command}
             <span>Command Palette</span>
@@ -2276,7 +2304,25 @@ declare module 'bun:sqlite' {
       const guide = this.container.querySelector('.codelab-guide');
       if (shell) shell.classList.toggle('guide-collapsed');
       if (guide) guide.classList.toggle('collapsed');
-      if (this.editor) setTimeout(() => this.editor.layout(), 50);
+      const isCollapsed = guide ? guide.classList.contains('collapsed') : (shell ? shell.classList.contains('guide-collapsed') : false);
+
+      const toggleBtn = this.container.querySelector('#cl-toggle-guide-btn');
+      if (toggleBtn) {
+        toggleBtn.classList.toggle('active', !isCollapsed);
+        toggleBtn.setAttribute('aria-pressed', String(!isCollapsed));
+      }
+
+      if (this.editor && typeof this.editor.layout === 'function') {
+        this.editor.layout();
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(() => {
+            if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          });
+        }
+        setTimeout(() => {
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        }, 100);
+      }
     }
 
     _renderDrawerBody() {
@@ -3420,6 +3466,16 @@ declare module 'bun:sqlite' {
           bracketPairColorization: { enabled: true }
         });
 
+        // Dynamic ResizeObserver to guarantee 100% width on layout shifts
+        if (typeof ResizeObserver !== 'undefined' && monacoHost) {
+          this._editorResizeObserver = new ResizeObserver(() => {
+            if (this.editor && typeof this.editor.layout === 'function') {
+              this.editor.layout();
+            }
+          });
+          this._editorResizeObserver.observe(monacoHost);
+        }
+
         // Keyboard shortcuts inside Monaco
         if (m.KeyMod && m.KeyCode && typeof this.editor.addCommand === 'function') {
           this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
@@ -4553,9 +4609,22 @@ declare module 'bun:sqlite' {
       if (shell) {
         const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
         shell.classList.toggle('guide-collapsed', isGuideCollapsed);
+        const toggleBtn = this.container.querySelector('#cl-toggle-guide-btn');
+        if (toggleBtn) {
+          toggleBtn.classList.toggle('active', !isGuideCollapsed);
+          toggleBtn.setAttribute('aria-pressed', String(!isGuideCollapsed));
+        }
       }
-      if (this.editor) {
-        setTimeout(() => this.editor.layout(), 60);
+      if (this.editor && typeof this.editor.layout === 'function') {
+        this.editor.layout();
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(() => {
+            if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          });
+        }
+        setTimeout(() => {
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        }, 100);
       }
     }
 
@@ -4586,12 +4655,12 @@ declare module 'bun:sqlite' {
         if (rightBar && !rightBar.querySelector('#cl-close-ide-btn')) {
           const btn = document.createElement('button');
           btn.type = 'button';
-          btn.className = 'codelab-btn codelab-btn--icon codelab-btn--close-ide';
+          btn.className = 'codelab-btn codelab-btn--exit-lab codelab-btn--close-ide';
           btn.id = 'cl-close-ide-btn';
           btn.setAttribute('data-cl-action', 'close-lab');
-          btn.title = this.backLabel || 'Close IDE';
-          btn.setAttribute('aria-label', 'Close IDE');
-          btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+          btn.title = this.backLabel ? `Exit Lab (${this.backLabel})` : 'Exit Lab / Back to Build Guide';
+          btn.setAttribute('aria-label', 'Exit Lab');
+          btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="codelab-btn__label">Exit Lab</span>';
           rightBar.appendChild(btn);
         }
       }
@@ -4608,9 +4677,22 @@ declare module 'bun:sqlite' {
       if (shell) {
         const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
         shell.classList.toggle('guide-collapsed', isGuideCollapsed);
+        const toggleBtn = this.container.querySelector('#cl-toggle-guide-btn');
+        if (toggleBtn) {
+          toggleBtn.classList.toggle('active', !isGuideCollapsed);
+          toggleBtn.setAttribute('aria-pressed', String(!isGuideCollapsed));
+        }
       }
-      if (this.editor) {
-        setTimeout(() => this.editor.layout(), 60);
+      if (this.editor && typeof this.editor.layout === 'function') {
+        this.editor.layout();
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(() => {
+            if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          });
+        }
+        setTimeout(() => {
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        }, 100);
       }
     }
 
@@ -5518,6 +5600,10 @@ declare module 'bun:sqlite' {
       }
       if (this._themeObserver) {
         this._themeObserver.disconnect();
+      }
+      if (this._editorResizeObserver) {
+        this._editorResizeObserver.disconnect();
+        this._editorResizeObserver = null;
       }
       if (this.editor) {
         this.editor.dispose();
