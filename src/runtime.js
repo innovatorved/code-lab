@@ -5790,27 +5790,29 @@ function __initVirtualRuntime(rootScope) {
 
       const moduleBody = '{\n' + transformed + '\n}\n//# sourceURL=' + absPath;
 
-      const fn = new Function(
-        'exports',
-        'require',
-        'module',
-        '__filename',
-        '__dirname',
-        'Buffer',
-        'process',
-        'console',
-        'setTimeout',
-        'clearTimeout',
-        'setInterval',
-        'clearInterval',
-        'setImmediate',
-        'clearImmediate',
-        'global',
-        '__shouldSkipTest',
-        '__wrapTestFn',
-        'test',
-        'describe',
-        'it',
+      const fn = compileFunction(
+        [
+          'exports',
+          'require',
+          'module',
+          '__filename',
+          '__dirname',
+          'Buffer',
+          'process',
+          'console',
+          'setTimeout',
+          'clearTimeout',
+          'setInterval',
+          'clearInterval',
+          'setImmediate',
+          'clearImmediate',
+          'global',
+          '__shouldSkipTest',
+          '__wrapTestFn',
+          'test',
+          'describe',
+          'it'
+        ],
         moduleBody
       );
 
@@ -5846,6 +5848,37 @@ function __initVirtualRuntime(rootScope) {
       return mod.exports;
     }
 
+    let __fnSeq = 0;
+    function compileFunction(argNames, body) {
+      try {
+        return new Function(...argNames, body);
+      } catch (err) {
+        if (
+          err &&
+          err.name === 'EvalError' &&
+          typeof importScripts === 'function' &&
+          typeof Blob !== 'undefined' &&
+          typeof URL !== 'undefined' &&
+          typeof URL.createObjectURL === 'function'
+        ) {
+          const globalObj = typeof self !== 'undefined' ? self : globalThis;
+          const fnKey = '__cl_fn_' + (++__fnSeq) + '_' + Math.random().toString(36).slice(2);
+          const scriptSrc = `self[${JSON.stringify(fnKey)}] = function(${argNames.join(', ')}) {\n${body}\n};`;
+          const blob = new Blob([scriptSrc], { type: 'application/javascript' });
+          const blobUrl = URL.createObjectURL(blob);
+          try {
+            importScripts(blobUrl);
+            const compiled = globalObj[fnKey];
+            delete globalObj[fnKey];
+            if (typeof compiled === 'function') return compiled;
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
+        }
+        throw err;
+      }
+    }
+
     let replValue = undefined;
     try {
       if (mode === 'repl') {
@@ -5865,23 +5898,25 @@ function __initVirtualRuntime(rootScope) {
         if (lines.length > 0 && !/^\s*(const|let|var|function|class|if|for|while|switch|try|return|throw)\b/.test(lastLine)) {
           lines[lines.length - 1] = `return (${lastLine.replace(/;+\s*$/, '')});`;
           try {
-            new Function(lines.join('\n'));
+            compileFunction([], lines.join('\n'));
             body = lines.join('\n');
           } catch (_) {
             body = transpiledRepl;
           }
         }
-        const replFn = new Function(
-          'require',
-          'Buffer',
-          'process',
-          'console',
-          'setTimeout',
-          'clearTimeout',
-          'setInterval',
-          'clearInterval',
-          'setImmediate',
-          'clearImmediate',
+        const replFn = compileFunction(
+          [
+            'require',
+            'Buffer',
+            'process',
+            'console',
+            'setTimeout',
+            'clearTimeout',
+            'setInterval',
+            'clearInterval',
+            'setImmediate',
+            'clearImmediate'
+          ],
           `return (async () => {\n${body}\n})();`
         );
         replValue = await replFn(

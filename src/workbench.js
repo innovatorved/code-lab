@@ -686,11 +686,14 @@ declare module 'buffer' { export { Buffer }; }
         this.activeFile = null;
       }
 
-      // Execution state
+      // Execution & shell state
+      this.cwd = '/workspace';
+      this.replHistory = [];
+      this.replHistoryIdx = -1;
       this.lastTestResults = [];
       this.terminalLogs = [
-        { type: 'system', text: `[CodeLab] Virtual Node.js Runtime ready (${this.title}).` },
-        { type: 'system', text: `Type "help", "node demo.js", "node test.js", "ls", or any JS/TS expression below.` }
+        { type: 'system', text: `[CodeLab] Virtual Node.js v22 Runtime ready (${this.title}).` },
+        { type: 'system', text: `Type "help", "ls", "pwd", "cat <file>", "node demo.js", "node test.js", or any JS/TS expression.` }
       ];
       this.lastFsSnapshot = [];
       this.lastHttpTrace = [];
@@ -1014,15 +1017,20 @@ declare module 'buffer' { export { Buffer }; }
                 <span class="codelab-btn__kbd">⌘↵</span>
               </button>
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
-              <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel">
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
               </button>
-              <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Toggle Terminal Drawer" aria-label="Toggle Terminal Drawer">
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-drawer-btn" data-cl-action="toggle-drawer" title="Toggle Terminal Drawer" aria-label="Toggle Terminal Drawer">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
               </button>
-              <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-fullscreen" title="Toggle Fullscreen IDE (Esc to exit)" aria-label="Toggle Fullscreen IDE">
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-fullscreen-btn" data-cl-action="toggle-fullscreen" title="Toggle Fullscreen IDE (Esc to exit)" aria-label="Toggle Fullscreen IDE">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
               </button>
+              ${this.onClose ? `
+                <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--close-ide" id="cl-close-ide-btn" data-cl-action="close-lab" title="${escapeHtml(this.backLabel || 'Close IDE')}" aria-label="Close IDE">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              ` : ''}
             </div>
           </div>
 
@@ -1549,17 +1557,20 @@ declare module 'buffer' { export { Buffer }; }
       });
 
       // Explorer container drop target (for moving to workspace root)
-      explorerEl.addEventListener('dragover', ev => {
-        ev.preventDefault();
-      });
-      explorerEl.addEventListener('drop', ev => {
-        if (ev.target.closest && ev.target.closest('.codelab-folder-item')) return;
-        ev.preventDefault();
-        const fileToMove = this._draggedFile || (ev.dataTransfer && ev.dataTransfer.getData('text/plain'));
-        if (fileToMove) {
-          this.moveFile(fileToMove, '');
-        }
-      });
+      if (!explorerEl._dragBound) {
+        explorerEl._dragBound = true;
+        explorerEl.addEventListener('dragover', ev => {
+          ev.preventDefault();
+        });
+        explorerEl.addEventListener('drop', ev => {
+          if (ev.target.closest && ev.target.closest('.codelab-folder-item')) return;
+          ev.preventDefault();
+          const fileToMove = this._draggedFile || (ev.dataTransfer && ev.dataTransfer.getData('text/plain'));
+          if (fileToMove) {
+            this.moveFile(fileToMove, '');
+          }
+        });
+      }
 
       // Tree inline creation input listeners
       const treeInput = explorerEl.querySelector('#cl-tree-create-input');
@@ -1601,11 +1612,11 @@ declare module 'buffer' { export { Buffer }; }
         const isActive = f === this.activeFile;
         const ext = f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
         return `
-          <button type="button" role="tab" aria-selected="${isActive}" class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
+          <div role="tab" tabindex="0" aria-selected="${isActive}" class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
             <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext.toUpperCase()}</span>
-            <span>${escapeHtml(f)}</span>
-            <span class="codelab-tab__close" data-action="close-tab" data-cl-file="${escapeHtml(f)}" title="Close ${escapeHtml(f)}" role="button" aria-label="Close ${escapeHtml(f)}">×</span>
-          </button>
+            <span class="codelab-tab__label">${escapeHtml(f)}</span>
+            <button type="button" class="codelab-tab__close" data-action="close-tab" data-cl-file="${escapeHtml(f)}" title="Close ${escapeHtml(f)}" aria-label="Close ${escapeHtml(f)}">×</button>
+          </div>
         `;
       }).join('');
 
@@ -2039,29 +2050,60 @@ declare module 'buffer' { export { Buffer }; }
       }
 
       if (this.drawerTab === 'terminal') {
-        bodyEl.innerHTML = `
-          <div class="codelab-terminal">
-            <div class="codelab-terminal__log" id="cl-terminal-log">
-              ${this.terminalLogs.map(item => `
-                <div class="codelab-log-line ${escapeHtml(item.type || '')}">${escapeHtml(item.text)}</div>
-              `).join('')}
-            </div>
-            <form class="codelab-repl" id="cl-repl-form">
-              <span class="codelab-repl__prompt">codelab$</span>
-              <input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="node demo.js | node test.js | ls | cat <file> | or any JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input">
-            </form>
-          </div>
-        `;
+        const logsHtml = this.terminalLogs
+          .map(item => `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${escapeHtml(item.text)}</div>`)
+          .join('');
+        const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
+        const promptLabel = cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`;
+        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><form class="codelab-repl" id="cl-repl-form"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
         bodyEl.scrollTop = bodyEl.scrollHeight;
+        const termSurface = bodyEl.querySelector('#cl-terminal-surface');
+        const input = bodyEl.querySelector('#cl-repl-input');
+        if (termSurface && input) {
+          termSurface.addEventListener('click', e => {
+            if (e.target === input) return;
+            const sel = typeof window !== 'undefined' && window.getSelection ? String(window.getSelection()) : '';
+            if (!sel) input.focus();
+          });
+        }
+        if (input) {
+          input.addEventListener('keydown', e => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              if (!this.replHistory.length) return;
+              if (this.replHistoryIdx < 0) this.replHistoryIdx = this.replHistory.length - 1;
+              else if (this.replHistoryIdx > 0) this.replHistoryIdx--;
+              input.value = this.replHistory[this.replHistoryIdx] || '';
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              if (!this.replHistory.length || this.replHistoryIdx < 0) return;
+              if (this.replHistoryIdx < this.replHistory.length - 1) {
+                this.replHistoryIdx++;
+                input.value = this.replHistory[this.replHistoryIdx] || '';
+              } else {
+                this.replHistoryIdx = -1;
+                input.value = '';
+              }
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+              e.preventDefault();
+              this.terminalLogs = [];
+              this._renderDrawerBody();
+              const nextInput = this.container.querySelector('#cl-repl-input');
+              if (nextInput) nextInput.focus();
+            }
+          });
+        }
         const replForm = bodyEl.querySelector('#cl-repl-form');
         if (replForm) {
           replForm.addEventListener('submit', e => {
             e.preventDefault();
-            const input = bodyEl.querySelector('#cl-repl-input');
             if (!input || !input.value.trim()) return;
             const cmd = input.value.trim();
             input.value = '';
-            this._handleReplCommand(cmd);
+            this._handleReplCommand(cmd).then(() => {
+              const nextInput = this.container.querySelector('#cl-repl-input');
+              if (nextInput) nextInput.focus();
+            });
           });
         }
         return;
@@ -2569,7 +2611,7 @@ declare module 'buffer' { export { Buffer }; }
           return;
         }
 
-        if (e.target.classList && e.target.classList.contains('codelab-palette-backdrop')) {
+        if (e.target.classList && (e.target.classList.contains('codelab-palette-backdrop') || e.target.classList.contains('codelab-modal-backdrop'))) {
           this.closeModal();
           return;
         }
@@ -2700,7 +2742,11 @@ declare module 'buffer' { export { Buffer }; }
           else if (action === 'reset-lab') this.resetLab();
           else if (action === 'toggle-fullscreen') this.toggleFullscreen();
           else if (action === 'close-lab') {
+            if (typeof document !== 'undefined' && document.fullscreenElement && document.exitFullscreen) {
+              document.exitFullscreen().catch(() => {});
+            }
             if (typeof this.onClose === 'function') this.onClose();
+            else if (this.isFullscreen) this.toggleFullscreen();
           } else if (action === 'new-file') {
             this.isCreatingFile = true;
             this._renderFileLists();
@@ -3287,7 +3333,22 @@ declare module 'buffer' { export { Buffer }; }
       this._renderGuidePane();
     }
 
-    configure({ mode, lang, stepIndex } = {}) {
+    configure({ mode, lang, stepIndex, onClose } = {}) {
+      if (typeof onClose === 'function') {
+        this.onClose = onClose;
+        const rightBar = this.container.querySelector('.codelab-topbar__right');
+        if (rightBar && !rightBar.querySelector('#cl-close-ide-btn')) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'codelab-btn codelab-btn--icon codelab-btn--close-ide';
+          btn.id = 'cl-close-ide-btn';
+          btn.setAttribute('data-cl-action', 'close-lab');
+          btn.title = this.backLabel || 'Close IDE';
+          btn.setAttribute('aria-label', 'Close IDE');
+          btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+          rightBar.appendChild(btn);
+        }
+      }
       if (mode === 'guided' || mode === 'sandbox') {
         this.setMode(mode);
       }
@@ -3307,6 +3368,19 @@ declare module 'buffer' { export { Buffer }; }
       if (!shell) return;
       this.isFullscreen = !this.isFullscreen;
       shell.classList.toggle('is-fullscreen', this.isFullscreen);
+      const fsBtn = this.container.querySelector('#cl-fullscreen-btn');
+      if (fsBtn) {
+        fsBtn.classList.toggle('active', this.isFullscreen);
+        fsBtn.title = this.isFullscreen ? 'Exit Fullscreen (Esc)' : 'Toggle Fullscreen';
+      }
+      if (typeof document !== 'undefined') {
+        const target = this.container.closest('.build-lab-overlay') || shell;
+        if (this.isFullscreen && !document.fullscreenElement && target && typeof target.requestFullscreen === 'function') {
+          target.requestFullscreen().catch(() => {});
+        } else if (!this.isFullscreen && document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
       if (this.editor) setTimeout(() => this.editor.layout(), 50);
     }
 
@@ -3687,60 +3761,303 @@ declare module 'buffer' { export { Buffer }; }
       }
     }
 
-    async _handleReplCommand(cmd) {
-      this.terminalLogs.push({ type: 'system', text: `codelab$ ${cmd}` });
+    _resolveShellPath(rawPath) {
+      if (!rawPath || rawPath === '.') return this.cwd || '/workspace';
+      if (rawPath === '~') return '/workspace';
+      let p = rawPath.startsWith('/') ? rawPath : `${this.cwd || '/workspace'}/${rawPath}`;
+      const parts = p.split('/');
+      const stack = [];
+      for (const part of parts) {
+        if (!part || part === '.') continue;
+        if (part === '..') stack.pop();
+        else stack.push(part);
+      }
+      return '/' + stack.join('/');
+    }
 
-      if (cmd === 'clear') {
+    _toWorkspaceRelPath(absOrRel) {
+      const abs = this._resolveShellPath(absOrRel);
+      if (abs === '/workspace') return '';
+      if (abs.startsWith('/workspace/')) return abs.slice('/workspace/'.length);
+      return abs.replace(/^\/+/, '');
+    }
+
+    async _handleReplCommand(cmd) {
+      const trimmed = (cmd || '').trim();
+      if (!trimmed) return;
+      if (this.replHistory[this.replHistory.length - 1] !== trimmed) {
+        this.replHistory.push(trimmed);
+      }
+      this.replHistoryIdx = -1;
+      this.terminalLogs.push({ type: 'system', text: `codelab$ ${trimmed}` });
+
+      const parts = trimmed.split(/\s+/);
+      const bin = parts[0];
+      const args = parts.slice(1);
+
+      if (bin === 'clear' || bin === 'cls') {
         this.terminalLogs = [];
         this._renderDrawerBody();
         return;
       }
-      if (cmd === 'help') {
+      if (bin === 'help') {
         this.terminalLogs.push({
           type: 'stdout',
           text: [
-            'Available commands:',
-            '  node demo.js | run     Run the demo workload script',
-            '  node test.js | test    Run the full unit test suite',
-            '  ls                     List files in workspace & /tmp virtual disk',
-            '  cat <filename>         Display contents of a workspace file',
-            '  clear                  Clear terminal output',
-            '  <JS/TS expression>     Evaluate live code with require() access to workspace files'
+            'Built-in shell & Node commands:',
+            '  pwd, ls [-la], cd <dir>      Navigate workspace directory (/workspace)',
+            '  cat, head, tail, wc <file>   Inspect file contents & line counts',
+            '  touch, mkdir, rm, cp, mv     Create, copy, rename, or remove workspace files',
+            '  node <file.js|ts>            Execute any script in the Virtual Node runtime',
+            '  npm test | test | run        Run unit test suite or demo workload',
+            '  clear (Ctrl+L)               Clear terminal output',
+            '  <JS/TS expression>           Evaluate live JS/TS with require() & Node globals'
           ].join('\n')
         });
         this._renderDrawerBody();
         return;
       }
-      if (cmd === 'ls') {
-        const wsFiles = Object.keys(this.files);
-        const vfsFiles = this.lastFsSnapshot.map(f => f.path);
-        const all = Array.from(new Set([...wsFiles, ...vfsFiles]));
-        this.terminalLogs.push({ type: 'stdout', text: all.join('  ') });
+      if (bin === 'pwd') {
+        this.terminalLogs.push({ type: 'stdout', text: this.cwd || '/workspace' });
         this._renderDrawerBody();
         return;
       }
-      if (cmd.startsWith('cat ')) {
-        const target = cmd.slice(4).trim();
-        if (this.files[target] != null) {
-          this.terminalLogs.push({ type: 'stdout', text: this.files[target] });
-        } else {
-          const snap = this.lastFsSnapshot.find(f => f.path === target || f.path.endsWith('/' + target));
-          if (snap) {
-            this.terminalLogs.push({ type: 'stdout', text: snap.preview || snap.hexPreview || `(${snap.size} bytes)` });
+      if (bin === 'whoami') {
+        this.terminalLogs.push({ type: 'stdout', text: 'codelab' });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'hostname') {
+        this.terminalLogs.push({ type: 'stdout', text: 'codelab-vfs' });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'uname') {
+        this.terminalLogs.push({ type: 'stdout', text: args.includes('-a') ? 'Linux codelab-vfs 6.6.0-virtual #1 SMP WebWorker x86_64 GNU/Linux' : 'Linux' });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'date') {
+        this.terminalLogs.push({ type: 'stdout', text: new Date().toUTCString() });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'env' || bin === 'printenv') {
+        this.terminalLogs.push({
+          type: 'stdout',
+          text: `NODE_ENV=development\nPWD=${this.cwd || '/workspace'}\nHOME=/workspace\nUSER=codelab\nPATH=/usr/local/bin:/usr/bin:/bin`
+        });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'which') {
+        const target = args[0] || '';
+        const known = ['node', 'npm', 'ls', 'cat', 'pwd', 'cd', 'mkdir', 'touch', 'rm', 'cp', 'mv', 'echo', 'clear'];
+        this.terminalLogs.push({
+          type: known.includes(target) ? 'stdout' : 'stderr',
+          text: known.includes(target) ? `/usr/local/bin/${target}` : `${target} not found`
+        });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'echo') {
+        const raw = trimmed.slice(4).trim().replace(/^(['"])(.*)\1$/, '$2');
+        this.terminalLogs.push({ type: 'stdout', text: raw });
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'cd') {
+        const target = args[0] || '/workspace';
+        const resolved = this._resolveShellPath(target);
+        if (resolved === '/workspace' || resolved === '/tmp') {
+          this.cwd = resolved;
+        } else if (resolved.startsWith('/workspace/')) {
+          const rel = resolved.slice('/workspace/'.length);
+          const existsDir = this.folders.has(rel) || Object.keys(this.files).some(f => f.startsWith(rel + '/'));
+          if (existsDir) {
+            this.cwd = resolved;
           } else {
-            this.terminalLogs.push({ type: 'stderr', text: `cat: ${target}: No such file in virtual filesystem` });
+            this.terminalLogs.push({ type: 'stderr', text: `cd: no such file or directory: ${target}` });
+          }
+        } else {
+          this.terminalLogs.push({ type: 'stderr', text: `cd: no such file or directory: ${target}` });
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'ls' || bin === 'll' || bin === 'la') {
+        const flags = args.filter(a => a.startsWith('-')).join('');
+        const isLong = bin === 'll' || flags.includes('l');
+        const pathArg = args.find(a => !a.startsWith('-')) || '.';
+        const resolved = this._resolveShellPath(pathArg);
+        const prefix = resolved === '/workspace' ? '' : (resolved.startsWith('/workspace/') ? resolved.slice('/workspace/'.length) + '/' : null);
+        const entries = new Map();
+        if (prefix !== null) {
+          for (const folder of this.folders) {
+            if (prefix === '' && !folder.includes('/')) entries.set(folder + '/', { isDir: true, size: 0 });
+            else if (prefix && folder.startsWith(prefix)) {
+              const rest = folder.slice(prefix.length);
+              if (rest && !rest.includes('/')) entries.set(rest + '/', { isDir: true, size: 0 });
+            }
+          }
+          for (const [k, content] of Object.entries(this.files)) {
+            if (prefix === '' || k.startsWith(prefix)) {
+              const rest = prefix === '' ? k : k.slice(prefix.length);
+              if (!rest) continue;
+              if (rest.includes('/')) {
+                const topDir = rest.split('/')[0] + '/';
+                if (!entries.has(topDir)) entries.set(topDir, { isDir: true, size: 0 });
+              } else {
+                entries.set(rest, { isDir: false, size: (content || '').length });
+              }
+            }
+          }
+        } else if (resolved === '/tmp' || resolved.startsWith('/tmp/')) {
+          for (const snap of this.lastFsSnapshot) {
+            if (snap.path.startsWith('/tmp/')) {
+              entries.set(snap.path.slice('/tmp/'.length), { isDir: !!snap.isDirectory, size: snap.size || 0 });
+            }
+          }
+        }
+        const names = Array.from(entries.keys()).sort();
+        if (names.length === 0) {
+          this.terminalLogs.push({ type: 'stdout', text: '(empty)' });
+        } else if (isLong) {
+          const lines = names.map(n => {
+            const info = entries.get(n);
+            const perm = info.isDir ? 'drwxr-xr-x' : '-rw-r--r--';
+            return `${perm}  1 codelab  staff  ${String(info.size).padStart(6, ' ')}  ${n}`;
+          });
+          this.terminalLogs.push({ type: 'stdout', text: lines.join('\n') });
+        } else {
+          this.terminalLogs.push({ type: 'stdout', text: names.join('  ') });
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'cat' || bin === 'head' || bin === 'tail' || bin === 'wc') {
+        const fileArgs = args.filter(a => !a.startsWith('-'));
+        const target = fileArgs[0];
+        if (!target) {
+          this.terminalLogs.push({ type: 'stderr', text: `${bin}: missing file operand` });
+          this._renderDrawerBody();
+          return;
+        }
+        const rel = this._toWorkspaceRelPath(target);
+        let text = this.files[rel] != null ? this.files[rel] : this.files[target];
+        if (text == null) {
+          const snap = this.lastFsSnapshot.find(f => f.path === target || f.path.endsWith('/' + target));
+          if (snap) text = snap.preview || snap.hexPreview || `(${snap.size} bytes)`;
+        }
+        if (text == null) {
+          this.terminalLogs.push({ type: 'stderr', text: `${bin}: ${target}: No such file or directory` });
+        } else if (bin === 'wc') {
+          const lines = text.split('\n').length;
+          const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+          const bytes = text.length;
+          this.terminalLogs.push({ type: 'stdout', text: `  ${lines}  ${words}  ${bytes} ${target}` });
+        } else if (bin === 'head') {
+          this.terminalLogs.push({ type: 'stdout', text: text.split('\n').slice(0, 10).join('\n') });
+        } else if (bin === 'tail') {
+          this.terminalLogs.push({ type: 'stdout', text: text.split('\n').slice(-10).join('\n') });
+        } else {
+          this.terminalLogs.push({ type: 'stdout', text });
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'touch') {
+        const target = args[0];
+        if (target) {
+          const rel = this._toWorkspaceRelPath(target);
+          if (this.files[rel] === undefined) this.createFile(rel);
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'mkdir') {
+        const target = args.find(a => !a.startsWith('-'));
+        if (target) {
+          const rel = this._toWorkspaceRelPath(target);
+          if (rel) this.createFolder(rel);
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'rm') {
+        const targets = args.filter(a => !a.startsWith('-'));
+        for (const t of targets) {
+          const rel = this._toWorkspaceRelPath(t);
+          if (this.files[rel] !== undefined) {
+            this.deleteFile(rel);
+          } else if (this.folders.has(rel)) {
+            this.deleteFolder(rel);
+          } else {
+            this.terminalLogs.push({ type: 'stderr', text: `rm: ${t}: No such file or directory` });
           }
         }
         this._renderDrawerBody();
         return;
       }
-      if (cmd === 'run' || /^node\s+\S*demo\.(js|ts)$/.test(cmd)) {
+      if (bin === 'cp' && args.length >= 2) {
+        const src = this._toWorkspaceRelPath(args[0]);
+        const dst = this._toWorkspaceRelPath(args[1]);
+        if (this.files[src] !== undefined) {
+          this.setFile(dst, this.files[src], { open: false });
+        } else {
+          this.terminalLogs.push({ type: 'stderr', text: `cp: ${args[0]}: No such file` });
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (bin === 'mv' && args.length >= 2) {
+        const src = this._toWorkspaceRelPath(args[0]);
+        const dst = this._toWorkspaceRelPath(args[1]);
+        if (!this.renameFile(src, dst)) {
+          this.terminalLogs.push({ type: 'stderr', text: `mv: cannot move '${args[0]}' to '${args[1]}'` });
+        }
+        this._renderDrawerBody();
+        return;
+      }
+      if (trimmed === 'run' || trimmed === 'npm start' || trimmed === 'npm run demo' || /^node\s+\S*demo\.(js|ts)$/.test(trimmed)) {
         await this.runDemo();
         return;
       }
-      if (cmd === 'test' || /^node\s+\S*test\.(js|ts)$/.test(cmd)) {
+      if (trimmed === 'test' || trimmed === 'npm test' || trimmed === 'npm t' || /^node\s+\S*test\.(js|ts)$/.test(trimmed)) {
         await this.runTests();
         return;
+      }
+      if (bin === 'node') {
+        if (args[0] === '-v' || args[0] === '--version') {
+          this.terminalLogs.push({ type: 'stdout', text: 'v22.0.0' });
+          this._renderDrawerBody();
+          return;
+        }
+        if (args[0] === '-e' || args[0] === '--eval') {
+          const evalCode = trimmed.replace(/^node\s+(-e|--eval)\s+/, '').replace(/^(['"])([\s\S]*)\1$/, '$2');
+          return this._handleReplCommand(evalCode);
+        }
+        if (args[0]) {
+          const rel = this._toWorkspaceRelPath(args[0]);
+          const entryFile = this.files[rel] !== undefined ? rel : (this.files[args[0]] !== undefined ? args[0] : null);
+          if (!entryFile) {
+            this.terminalLogs.push({ type: 'stderr', text: `node: Cannot find module '/workspace/${rel || args[0]}'` });
+            this._renderDrawerBody();
+            return;
+          }
+          const res = await this._executeRuntime({
+            files: { ...this.files },
+            entry: entryFile,
+            mode: 'run'
+          });
+          if (res.stdout) this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+          if (res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          if (res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+          this.lastFsSnapshot = res.fsSnapshot || [];
+          this.lastHttpTrace = res.httpTrace || [];
+          this._renderDrawerBody();
+          return;
+        }
       }
 
       // Evaluate arbitrary JS/TS expression in the Virtual Runtime
@@ -3748,15 +4065,25 @@ declare module 'buffer' { export { Buffer }; }
         const res = await this._executeRuntime({
           files: { ...this.files },
           mode: 'repl',
-          replCode: cmd
+          replCode: trimmed
         });
-        if (res.stdout) this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
-        if (res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
-        if (res.replValue !== undefined) {
+        const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
+        if (cleanStdout) {
+          this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
+        }
+        if (res.stderr) {
+          this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+        }
+        if (res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
           this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
         }
         if (res.error) {
-          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+          const errStr = formatErrorText(res.error);
+          if (/^[a-zA-Z0-9_-]+$/.test(trimmed) && errStr.includes(`ReferenceError: ${trimmed} is not defined`)) {
+            this.terminalLogs.push({ type: 'stderr', text: `codelab: ${trimmed}: command not found (type "help" for commands or enter a JS/TS expression)` });
+          } else {
+            this.terminalLogs.push({ type: 'stderr', text: errStr });
+          }
         }
       } catch (err) {
         this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
