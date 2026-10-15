@@ -11,6 +11,11 @@ const WIKI_SRC = path.join(ROOT, 'wiki');
 const TMP_DIR = path.join(require('os').tmpdir(), 'code-lab-wiki-' + Date.now());
 const WIKI_REMOTE = 'git@github.com:innovatorved/code-lab.wiki.git';
 
+if (!fs.existsSync(WIKI_SRC)) {
+  console.log(`Local wiki/ directory not found. Documentation is maintained directly in the GitHub Wiki repository: ${WIKI_REMOTE}`);
+  process.exit(0);
+}
+
 console.log('Synchronizing CodeLab Wiki to GitHub...');
 
 // Check remote existence

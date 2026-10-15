@@ -23,11 +23,15 @@ const runtimeCode = fs.readFileSync(path.join(SRC_DIR, 'runtime.js'), 'utf8');
 const shellCode = fs.readFileSync(path.join(SRC_DIR, 'shell.js'), 'utf8');
 const terminalCode = fs.readFileSync(path.join(SRC_DIR, 'terminal.js'), 'utf8');
 const workbenchCode = fs.readFileSync(path.join(SRC_DIR, 'workbench.js'), 'utf8');
-const cssPath = path.join(ROOT, 'css', 'code-lab.css');
+const cssCandidates = [
+  path.join(ROOT, 'css', 'code-lab.css'),
+  path.resolve(PKG_DIR, '../system-design/css/code-lab.css')
+];
+const cssPath = cssCandidates.find((p) => fs.existsSync(p)) || path.join(ROOT, 'css', 'code-lab.css');
 
 const BANNER = `/**
  * ============================================================
- * @innovatorved/code-lab v1.3.0 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v1.3.1 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -559,11 +563,15 @@ export default CodeLab;
 
 fs.mkdirSync(DIST_DIR, { recursive: true });
 
-// 1. Write to site js/code-lab.js
-const siteJsOut = path.join(ROOT, 'js', 'code-lab.js');
-fs.writeFileSync(siteJsOut, IIFE_BUNDLE, 'utf8');
+// 1. Write to site js/code-lab.js (when running inside monorepo)
+const siteJsDir = path.join(ROOT, 'js');
+const siteJsOut = path.join(siteJsDir, 'code-lab.js');
+if (fs.existsSync(siteJsDir)) {
+  fs.writeFileSync(siteJsOut, IIFE_BUNDLE, 'utf8');
+  console.log('✓ Built js/code-lab.js (' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
+}
 
-// 2. Write to projects/code-lab/dist/*
+// 2. Write to dist/*
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.js'), IIFE_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.esm.js'), ESM_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'runtime.js'), RUNTIME_IIFE, 'utf8');
@@ -574,16 +582,15 @@ fs.writeFileSync(path.join(DIST_DIR, 'terminal.js'), TERMINAL_IIFE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'terminal.esm.js'), TERMINAL_ESM, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.d.ts'), DTS_CONTENT, 'utf8');
 
-// 3. Copy CSS to projects/code-lab/dist/code-lab.css
+// 3. Copy CSS to dist/code-lab.css
 if (fs.existsSync(cssPath)) {
   fs.copyFileSync(cssPath, path.join(DIST_DIR, 'code-lab.css'));
 }
 
-console.log('✓ Built js/code-lab.js (' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
-console.log('✓ Built projects/code-lab/dist/code-lab.js (UMD/IIFE)');
-console.log('✓ Built projects/code-lab/dist/code-lab.esm.js (ESM)');
-console.log('✓ Built projects/code-lab/dist/runtime.js & runtime.esm.js');
-console.log('✓ Built projects/code-lab/dist/shell.js & shell.esm.js');
-console.log('✓ Built projects/code-lab/dist/terminal.js & terminal.esm.js');
-console.log('✓ Built projects/code-lab/dist/code-lab.d.ts');
-console.log('✓ Copied projects/code-lab/dist/code-lab.css');
+console.log('✓ Built dist/code-lab.js (UMD/IIFE, ' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
+console.log('✓ Built dist/code-lab.esm.js (ESM)');
+console.log('✓ Built dist/runtime.js & runtime.esm.js');
+console.log('✓ Built dist/shell.js & shell.esm.js');
+console.log('✓ Built dist/terminal.js & terminal.esm.js');
+console.log('✓ Built dist/code-lab.d.ts');
+console.log('✓ Synced dist/code-lab.css');
