@@ -1790,6 +1790,48 @@ async function runTier4() {
     assert.ok(bc.innerHTML.includes('StorageEngine'), 'Breadcrumbs should detect class symbol');
   });
 
+  await registerTest('tier4', 'T4.14', 'VSCode-3b: Workspace Folder Switcher scopes the explorer (dropdown + breadcrumb)', () => {
+    const { workbench } = createTestLab({ mode: 'guided' });
+    workbench.createFile('src/index.js', 'const x = 1;\n');
+    workbench.createFile('src/engine/storage.js', 'class StorageEngine {}\n');
+
+    // Breadcrumb path items must use the styled (plural) class names.
+    workbench.openFile('src/index.js');
+    workbench._renderBreadcrumbs();
+    const bc = workbench.container.querySelector('#cl-breadcrumbs');
+    assert.ok(bc.querySelector('.codelab-breadcrumbs__item--root'), 'root breadcrumb uses styled class');
+    assert.ok(bc.querySelector('.codelab-breadcrumbs__item--file'), 'file breadcrumb uses styled class');
+    assert.ok(bc.querySelector('[data-cl-breadcrumb-folder="src"]'), 'folder breadcrumb is clickable for scoping');
+
+    // Folder switcher enumerates explicit and file-derived (nested) folders.
+    const folders = workbench._listWorkspaceFolders();
+    assert.ok(folders.includes('src'), 'src folder listed');
+    assert.ok(folders.includes('src/engine'), 'nested src/engine folder listed');
+
+    // Opening the dropdown renders its options.
+    workbench.folderSwitcherOpen = true;
+    workbench._renderBreadcrumbs();
+    const menu = workbench.container.querySelector('.codelab-folder-switcher__menu');
+    assert.ok(menu, 'dropdown menu renders when open');
+    assert.ok(menu.querySelector('[data-cl-folder-option="src"]'), 'menu offers the src scope');
+
+    // Scoping hides root-level files and adds a "back to workspace" row.
+    workbench.explorerFolder = 'src';
+    workbench.folderSwitcherOpen = false;
+    workbench._renderFileLists();
+    let html = workbench.container.querySelector('#cl-explorer-list').innerHTML;
+    assert.ok(html.includes('index.js'), 'scoped explorer shows files inside src');
+    assert.ok(!html.includes('README.md'), 'scoped explorer hides workspace-root files');
+    assert.ok(workbench.container.querySelector('.codelab-scope-up'), 'scope-up row returns to workspace');
+
+    // Returning to the workspace root restores everything.
+    workbench.explorerFolder = '';
+    workbench._renderFileLists();
+    html = workbench.container.querySelector('#cl-explorer-list').innerHTML;
+    assert.ok(html.includes('README.md'), 'workspace root shows all files again');
+    assert.ok(!workbench.container.querySelector('.codelab-scope-up'), 'scope-up row removed at root');
+  });
+
   await registerTest('tier4', 'T4.10', 'VSCode-4: Inline & Side-by-Side Diff Viewer (Compare with Solution & Starter)', () => {
     const { workbench } = createTestLab({ mode: 'guided' });
     workbench.showDiffModal('lru.js', 'solution');

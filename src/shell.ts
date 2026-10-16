@@ -4487,12 +4487,37 @@ function __initShellModule(root: any) {
           dirDisplayName = parsed.repo;
         }
 
+        // Stream clone progress to the terminal as it happens (no end-of-run buffering).
+        const canStream = typeof ctx.onStdout === 'function';
+        const streamLine = (text) => { if (canStream && text) ctx.onStdout(text); };
+        streamLine(`Cloning into '${dirDisplayName}'...\n`);
+        let enumeratedEmitted = false;
+        let lastProgressPct = -1;
+
         try {
           const result = await cloneGitHubRepository(repoArg, ctx.vfs, {
             targetDir,
             branch: branchOpt,
             fetchImpl: ctx.shell && ctx.shell.options ? ctx.shell.options.fetchImpl : undefined,
-            onFile: (absPath) => ctx.emitMutation('create', absPath)
+            onFile: (absPath) => ctx.emitMutation('create', absPath),
+            onProgress: (ev) => {
+              if (!ev) return;
+              if (ev.phase === 'downloading' && !enumeratedEmitted && typeof ev.total === 'number' && ev.total > 0) {
+                enumeratedEmitted = true;
+                streamLine(`remote: Enumerating objects: ${ev.total}, done.\n`);
+                streamLine(`remote: Counting objects: 100% (${ev.total}/${ev.total}), done.\n`);
+              }
+              if (ev.phase === 'downloading' && typeof ev.total === 'number' && ev.total > 0 && typeof ev.loaded === 'number' && ev.loaded < ev.total) {
+                const pct = Math.min(100, Math.max(0, Math.floor((ev.loaded / ev.total) * 100)));
+                if (pct >= lastProgressPct + 10) {
+                  lastProgressPct = pct;
+                  streamLine(`Receiving objects: ${pct}% (${ev.loaded}/${ev.total})\n`);
+                }
+              }
+              if (ev.phase === 'mounting') {
+                streamLine(`Resolving deltas: 100% (${ev.total || 0}/${ev.total || 0}), done.\n`);
+              }
+            }
           });
 
           gitState.branch = result.branch;
@@ -4506,6 +4531,7 @@ function __initShellModule(root: any) {
 
           const count = Math.max(1, result.filesWritten);
           const kb = Math.max(0.1, result.totalBytes / 1024).toFixed(1);
+          streamLine(`Receiving objects: 100% (${count}/${count}), ${kb} KiB, done.\n`);
           const stdout =
             `Cloning into '${dirDisplayName}'...\n` +
             `remote: Enumerating objects: ${count}, done.\n` +
@@ -4514,6 +4540,7 @@ function __initShellModule(root: any) {
           return { code: 0, stdout, stderr: '' };
         } catch (err) {
           const msg = err && err.message ? err.message : String(err);
+          if (canStream) streamLine(msg.endsWith('\n') ? msg : msg + '\n');
           return { code: 128, stdout: '', stderr: (msg.endsWith('\n') ? msg : msg + '\n') };
         }
       }
