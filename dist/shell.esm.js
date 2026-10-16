@@ -2027,6 +2027,16 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     const requestedBranch = options.branch || parsed.branch || null;
     const { owner, repo } = parsed;
 
+    const signal = options.signal || null;
+    const throwIfAborted = () => {
+      if (signal && signal.aborted) {
+        const abortErr = new Error('fatal: clone cancelled (SIGINT)');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+    };
+    throwIfAborted();
+
     let resolvedBranch = requestedBranch;
     let rawTreeEntries = null;
     let repoNotFound = false;
@@ -2039,7 +2049,8 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     try {
       if (!resolvedBranch) {
         const metaRes = await fetchFn(`https://api.github.com/repos/${owner}/${repo}`, {
-          headers: { Accept: 'application/vnd.github.v3+json' }
+          headers: { Accept: 'application/vnd.github.v3+json' },
+          signal
         });
         if (metaRes.status === 404) {
           repoNotFound = true;
@@ -2057,9 +2068,10 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
           : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
 
         for (const cand of branchCandidates) {
+          throwIfAborted();
           const treeRes = await fetchFn(
             `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(cand)}?recursive=1`,
-            { headers: { Accept: 'application/vnd.github.v3+json' } }
+            { headers: { Accept: 'application/vnd.github.v3+json' }, signal }
           );
           if (treeRes.ok) {
             const treeJson = await treeRes.json();
@@ -2085,8 +2097,10 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
           : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
 
         for (const cand of branchCandidates) {
+          throwIfAborted();
           const flatRes = await fetchFn(
-            `https://data.jsdelivr.com/v1/package/gh/${owner}/${repo}@${encodeURIComponent(cand)}/flat`
+            `https://data.jsdelivr.com/v1/package/gh/${owner}/${repo}@${encodeURIComponent(cand)}/flat`,
+            { signal }
           );
           if (flatRes && flatRes.ok) {
             const flatJson = await flatRes.json();
@@ -2155,28 +2169,34 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     const BATCH_SIZE = 12;
 
     for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
+      throwIfAborted();
       const batch = selectedFiles.slice(i, i + BATCH_SIZE);
       await Promise.all(
         batch.map(async (entry) => {
+          throwIfAborted();
           const encodedPath = entry.repoPath.split('/').map(encodeURIComponent).join('/');
           const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
           const cdnUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
 
           let text = null;
           try {
-            const r1 = await fetchFn(rawUrl);
+            const r1 = await fetchFn(rawUrl, { signal });
             if (r1 && r1.ok) {
               text = await r1.text();
             }
-          } catch (_) {}
+          } catch (_) {
+            if (signal && signal.aborted) throw _;
+          }
 
           if (text === null) {
             try {
-              const r2 = await fetchFn(cdnUrl);
+              const r2 = await fetchFn(cdnUrl, { signal });
               if (r2 && r2.ok) {
                 text = await r2.text();
               }
-            } catch (_) {}
+            } catch (_) {
+              if (signal && signal.aborted) throw _;
+            }
           }
 
           if (text !== null && text.length <= maxFileSize) {
@@ -2200,6 +2220,8 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
       );
     }
 
+    throwIfAborted();
+
     if (onProgress) {
       onProgress({ phase: 'mounting', message: `Mounting files and writing Git metadata into ${targetDir}...`, loaded: filesWritten, total: totalToDownload });
     }
@@ -2220,7 +2242,7 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
     try {
       const commitsRes = await fetchFn(
         `https://api.github.com/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(resolvedBranch)}&per_page=10`,
-        { headers: { Accept: 'application/vnd.github.v3+json' } }
+        { headers: { Accept: 'application/vnd.github.v3+json' }, signal }
       );
       if (commitsRes && commitsRes.ok) {
         const commitsJson = await commitsRes.json();
@@ -4467,6 +4489,7 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
             targetDir,
             branch: branchOpt,
             fetchImpl: ctx.shell && ctx.shell.options ? ctx.shell.options.fetchImpl : undefined,
+            signal: ctx.signal,
             onFile: (absPath) => ctx.emitMutation('create', absPath),
             onProgress: (ev) => {
               if (!ev) return;
@@ -4507,6 +4530,9 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
             `Receiving objects: 100% (${count}/${count}), ${kb} KiB, done.\n`;
           return { code: 0, stdout, stderr: '' };
         } catch (err) {
+          if (ctx.signal && ctx.signal.aborted) {
+            return { code: 130, stdout: '', stderr: '', aborted: true };
+          }
           const msg = err && err.message ? err.message : String(err);
           if (canStream) streamLine(msg.endsWith('\n') ? msg : msg + '\n');
           return { code: 128, stdout: '', stderr: (msg.endsWith('\n') ? msg : msg + '\n') };
@@ -4834,6 +4860,7 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
             targetDir: repoRoot,
             branch: gitState.branch,
             fetchImpl: ctx.shell && ctx.shell.options ? ctx.shell.options.fetchImpl : undefined,
+            signal: ctx.signal,
             onFile: (absPath) => ctx.emitMutation('change', absPath)
           });
           gitState.headSnapshot = Object.assign({}, result.headSnapshot);
@@ -4843,6 +4870,9 @@ const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !==
             stderr: ''
           };
         } catch (err) {
+          if (ctx.signal && ctx.signal.aborted) {
+            return { code: 130, stdout: '', stderr: '', aborted: true };
+          }
           const msg = err && err.message ? err.message : String(err);
           return { code: 1, stdout: '', stderr: (msg.endsWith('\n') ? msg : msg + '\n') };
         }

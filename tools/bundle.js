@@ -422,6 +422,7 @@ export interface CodeLabCloneOptions {
   maxFileSize?: number;
   concurrency?: number;
   clearExisting?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface CodeLabOptions {

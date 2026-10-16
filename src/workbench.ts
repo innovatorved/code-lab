@@ -1172,6 +1172,9 @@ declare module 'bun:sqlite' {
       this.folders = new Set(this.savedState?.folders || []);
       this.collapsedFolders = new Set(this.savedState?.collapsedFolders || []);
       this.explorerFolder = this.savedState?.explorerFolder || ''; // '' = workspace root, else folder path scope
+      this.explorerWidth = (typeof this.savedState?.explorerWidth === 'number' && this.savedState.explorerWidth >= 120)
+        ? this.savedState.explorerWidth
+        : 196;
       this.folderSwitcherOpen = false;
       this.creatingItem = null; // { type: 'file' | 'folder', parentFolder: string } | null
       this.renamingItem = null;
@@ -1509,7 +1512,8 @@ declare module 'bun:sqlite' {
           activeFile: this.activeFile,
           folders: Array.from(this.folders || []),
           collapsedFolders: Array.from(this.collapsedFolders || []),
-          explorerFolder: this.explorerFolder || ''
+          explorerFolder: this.explorerFolder || '',
+          explorerWidth: typeof this.explorerWidth === 'number' ? this.explorerWidth : undefined
         };
         this.savedState = state;
         if (this.options && this.options.persistState === false) {
@@ -1690,6 +1694,13 @@ declare module 'bun:sqlite' {
       if (stopBtn) {
         stopBtn.style.display = this.isRunning ? 'inline-flex' : 'none';
       }
+      const ctrlCBtn = this.container.querySelector('#cl-ctrl-c-btn');
+      if (ctrlCBtn) {
+        ctrlCBtn.classList.toggle('is-running', Boolean(this.isRunning));
+        ctrlCBtn.title = this.isRunning
+          ? 'Send Ctrl+C — interrupt the running command'
+          : 'Send Ctrl+C (clears the current input line)';
+      }
       this.container.querySelectorAll('[data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
         btn.disabled = this.isRunning;
       });
@@ -1704,8 +1715,9 @@ declare module 'bun:sqlite' {
       const themeAttr = this.themeOption !== 'auto' ? `data-theme="${escapeHtml(this.themeOption)}"` : '';
       const brandLabel = (this.title && this.title !== 'custom-lab' && this.title !== this.labId) ? this.title : 'code-lab';
       const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
+      const explorerStyle = `style="--cl-explorer-width:${Math.round(this.explorerWidth || 196)}px"`;
       this.container.innerHTML = `
-        <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr}>
+        <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr} ${explorerStyle}>
           <!-- Top Bar -->
           <div class="codelab-topbar codelab-toolbar">
             <div class="codelab-topbar__left">
@@ -1821,6 +1833,9 @@ declare module 'bun:sqlite' {
                   <div class="codelab-explorer__list" id="cl-explorer-list"></div>
                 </div>
 
+                <!-- Explorer Resize Splitter -->
+                <div class="codelab-splitter-files" id="cl-splitter-files" role="separator" aria-orientation="vertical" title="Drag to resize file explorer (double-click to reset)"></div>
+
                 <!-- Editor Column -->
                 <div class="codelab-editor-col">
                   <div class="codelab-tabs codelab-file-tabs" id="cl-file-tabs" role="tablist" aria-label="Open Files"></div>
@@ -1874,6 +1889,7 @@ declare module 'bun:sqlite' {
                     </button>
                   </div>
                   <div style="display:flex;align-items:center;gap:6px;">
+                    <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);">Ctrl+C</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Output" style="padding:2px 6px;font-size:11px;">Clear</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Minimize/Expand Drawer" aria-label="Minimize or Expand Drawer" style="padding:2px 6px;font-size:11px;">${CL_ICONS.chevronsUpDown}</button>
                   </div>
@@ -3015,10 +3031,10 @@ declare module 'bun:sqlite' {
                 this._ptyInputAfterCursor = '';
                 this._updatePtyActiveLine();
               }
-            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+            } else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'c') {
               e.preventDefault();
               this._handleInterrupt();
-            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+            } else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
               e.preventDefault();
               if (this.inRepl) {
                 this.inRepl = false;
@@ -3027,7 +3043,7 @@ declare module 'bun:sqlite' {
                 const nextInput = this.container.querySelector('#cl-repl-input');
                 if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
               }
-            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+            } else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
               e.preventDefault();
               this.terminalLogs = [];
               this._renderDrawerBody();
@@ -4772,41 +4788,18 @@ declare module 'bun:sqlite' {
 
     _renderEmptyEditorContent(emptyEl) {
       if (!emptyEl) return;
-      const fileBtns = this._orderedFileNames().map(f => {
-        const ext = f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
-        return `
-          <button type="button" class="codelab-empty-file-btn" data-cl-file="${escapeHtml(f)}" title="Open ${escapeHtml(f)}">
-            <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext.toUpperCase()}</span>
-            <span>${escapeHtml(f)}</span>
-          </button>
-        `;
-      }).join('');
-
       emptyEl.innerHTML = `
         <div class="codelab-empty-editor__inner">
-          <div class="codelab-empty-editor__icon" aria-hidden="true">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-              <polyline points="14 2 14 8 20 8"/>
-            </svg>
-          </div>
-          <h2 class="codelab-empty-editor__title">No Open Editors</h2>
-          <p class="codelab-empty-editor__subtitle">Select a file from the explorer on the left or click a workspace file below to open.</p>
-          <div class="codelab-empty-editor__files" role="group" aria-label="Workspace Files">
-            ${fileBtns}
-          </div>
-          <div class="codelab-empty-editor__actions">
-            <button type="button" class="codelab-btn codelab-btn--run" data-cl-action="run-demo" title="Run demo.js (⇧⌘↵)">
-              ${CL_ICONS.play}
-              <span>Run Demo</span>
-              <span class="codelab-btn__kbd">⇧⌘↵</span>
+          <div class="codelab-empty-editor__watermark" aria-hidden="true">code-lab</div>
+          <div class="codelab-empty-editor__shortcuts" role="group" aria-label="Quick actions">
+            <button type="button" class="codelab-empty-shortcut" data-cl-action="command-palette-files">
+              <span>Go to File</span><kbd>⌘P</kbd>
             </button>
-            <button type="button" class="codelab-btn codelab-btn--test" data-cl-action="run-tests" title="Run Test Suite (⌘↵)">
-              ${CL_ICONS.check}
-              <span>Run Tests</span>
-              <span class="codelab-btn__kbd">⌘↵</span>
+            <button type="button" class="codelab-empty-shortcut" data-cl-action="command-palette">
+              <span>Show All Commands</span><kbd>⌘⇧P</kbd>
             </button>
           </div>
+          <p class="codelab-empty-editor__subtitle">No editors open. Select a file from the Explorer to start editing.</p>
         </div>
       `;
     }
@@ -4876,7 +4869,7 @@ declare module 'bun:sqlite' {
           this.openCommandPalette('files');
           return;
         }
-        if ((e.metaKey || e.ctrlKey) && keyLower === 'c') {
+        if (e.ctrlKey && !e.metaKey && keyLower === 'c') {
           const hasSelection = typeof window !== 'undefined' && window.getSelection && window.getSelection().toString().length > 0;
           if (!hasSelection && (this.isRunning || this._activeCommandAbortController)) {
             e.preventDefault();
@@ -5178,6 +5171,7 @@ declare module 'bun:sqlite' {
           if (action === 'run-demo') this.runDemo();
           else if (action === 'run-tests') this.runTests();
           else if (action === 'stop-run') this.stopExecution();
+          else if (action === 'interrupt') this._handleInterrupt();
           else if (action === 'verify-step') this.verifyCurrentStep();
           else if (action === 'show-diff') this.showSolutionModal();
           else if (action === 'compare-diff') {
@@ -5771,6 +5765,48 @@ declare module 'bun:sqlite' {
           hSplitter.addEventListener('pointerup', onUp);
         });
       }
+
+      const fSplitter = this.container.querySelector('#cl-splitter-files');
+      if (fSplitter) {
+        const applyWidth = (w) => {
+          this.explorerWidth = Math.round(w);
+          shell.style.setProperty('--cl-explorer-width', `${this.explorerWidth}px`);
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        };
+
+        fSplitter.addEventListener('dblclick', () => {
+          applyWidth(196);
+          this._saveState();
+        });
+
+        fSplitter.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          fSplitter.classList.add('is-dragging');
+          shell.classList.add('is-resizing');
+          try { fSplitter.setPointerCapture(e.pointerId); } catch (_) {}
+
+          const onMove = ev => {
+            const ws = this.container.querySelector('.codelab-workspace');
+            const rect = (ws || shell).getBoundingClientRect();
+            const minW = 140;
+            const maxW = Math.max(minW, Math.floor(rect.width * 0.5));
+            const nextW = Math.min(maxW, Math.max(minW, Math.round(ev.clientX - rect.left)));
+            applyWidth(nextW);
+          };
+
+          const onUp = ev => {
+            fSplitter.classList.remove('is-dragging');
+            shell.classList.remove('is-resizing');
+            try { fSplitter.releasePointerCapture(ev.pointerId); } catch (_) {}
+            fSplitter.removeEventListener('pointermove', onMove);
+            fSplitter.removeEventListener('pointerup', onUp);
+            this._saveState();
+          };
+
+          fSplitter.addEventListener('pointermove', onMove);
+          fSplitter.addEventListener('pointerup', onUp);
+        });
+      }
     }
 
     selectStep(idx, shouldJump = true) {
@@ -6167,6 +6203,12 @@ declare module 'bun:sqlite' {
     }
 
     // ── Execution Engine (Web Worker + Virtual Node Runtime) ───────────────
+    _isAbortResult(res, signal) {
+      if (signal && signal.aborted) return true;
+      if (!res || typeof res !== 'object') return false;
+      return Boolean(res.cancelled || res.aborted || res.exitCode === 130);
+    }
+
     async _executeRuntime(execOptions) {
       const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const payload = {
@@ -6203,7 +6245,11 @@ declare module 'bun:sqlite' {
         this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
         return res;
       } catch (err) {
-        this._setRuntimeStatus('error', 'Execution error');
+        if (payload.signal && payload.signal.aborted) {
+          this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
+        } else {
+          this._setRuntimeStatus('error', 'Execution error');
+        }
         throw err;
       }
     }
@@ -6245,18 +6291,21 @@ declare module 'bun:sqlite' {
           }
         });
         this._flushTerminalStream();
+        const aborted = this._isAbortResult(res, abortCtrl.signal);
 
-        if (!streamedStdout && res.stdout) {
+        if (!aborted && !streamedStdout && res.stdout) {
           this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
-        if (!streamedStderr && res.stderr) {
+        if (!aborted && !streamedStderr && res.stderr) {
           this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
-        if (res.error) {
+        if (!aborted && res.error) {
           this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
         }
-        this.lastFsSnapshot = res.fsSnapshot || [];
-        this.lastHttpTrace = res.httpTrace || [];
+        if (!aborted) {
+          this.lastFsSnapshot = res.fsSnapshot || [];
+          this.lastHttpTrace = res.httpTrace || [];
+        }
 
         if (this.onRun) {
           try { this.onRun(res); } catch (_) {}
@@ -6264,7 +6313,9 @@ declare module 'bun:sqlite' {
         this._emitEvent('codelab:run', { labId: this.labId, mode: 'run', entry, result: res });
       } catch (err) {
         this._flushTerminalStream();
-        this.terminalLogs.push({ type: 'stderr', text: `Execution error: ${formatErrorText(err)}` });
+        if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
+          this.terminalLogs.push({ type: 'stderr', text: `Execution error: ${formatErrorText(err)}` });
+        }
       } finally {
         if (this._activeCommandAbortController === abortCtrl) {
           this._activeCommandAbortController = null;
@@ -6313,18 +6364,21 @@ declare module 'bun:sqlite' {
           }
         });
         this._flushTerminalStream();
+        const aborted = this._isAbortResult(res, abortCtrl.signal);
 
-        this.lastTestResults = res.testResults || [];
-        this.lastFsSnapshot = res.fsSnapshot || [];
-        this.lastHttpTrace = res.httpTrace || [];
+        if (!aborted) {
+          this.lastTestResults = res.testResults || [];
+          this.lastFsSnapshot = res.fsSnapshot || [];
+          this.lastHttpTrace = res.httpTrace || [];
+        }
 
-        if (!streamedStdout && res.stdout) {
+        if (!aborted && !streamedStdout && res.stdout) {
           this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
-        if (!streamedStderr && res.stderr) {
+        if (!aborted && !streamedStderr && res.stderr) {
           this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
-        if (res.error) {
+        if (!aborted && res.error) {
           this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
         }
 
@@ -6375,7 +6429,9 @@ declare module 'bun:sqlite' {
         }
       } catch (err) {
         this._flushTerminalStream();
-        this.terminalLogs.push({ type: 'stderr', text: `Test runner error: ${formatErrorText(err)}` });
+        if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
+          this.terminalLogs.push({ type: 'stderr', text: `Test runner error: ${formatErrorText(err)}` });
+        }
       } finally {
         if (this._activeCommandAbortController === abortCtrl) {
           this._activeCommandAbortController = null;
@@ -6466,16 +6522,19 @@ declare module 'bun:sqlite' {
             onStderr: (c) => { streamedStderr = true; this._appendTerminalStream('stderr', c); }
           });
           this._flushTerminalStream();
+          const aborted = this._isAbortResult(res, abortCtrl.signal);
           const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
-          if (!streamedStdout && cleanStdout) this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
-          if (!streamedStderr && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
-          if (res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
+          if (!aborted && !streamedStdout && cleanStdout) this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
+          if (!aborted && !streamedStderr && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          if (!aborted && res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
             this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
           }
-          if (res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+          if (!aborted && res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
         } catch (err) {
           this._flushTerminalStream();
-          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+          if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
+            this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+          }
         } finally {
           if (this._activeCommandAbortController === abortCtrl) {
             this._activeCommandAbortController = null;
@@ -6534,6 +6593,7 @@ declare module 'bun:sqlite' {
             signal: abortCtrl.signal
           });
           this._flushTerminalStream();
+          const aborted = this._isAbortResult(shellRes, abortCtrl.signal);
           this.cwd = this.shell.cwd || this.cwd;
           this._syncVfsSnapshot(null, true);
 
@@ -6553,10 +6613,10 @@ declare module 'bun:sqlite' {
 
           const isCmdNotFound = shellRes && shellRes.exitCode === 127 && typeof shellRes.stderr === 'string' && shellRes.stderr.includes('command not found');
           if (!isCmdNotFound) {
-            if (shellRes && shellRes.stdout && !streamedStdout) {
+            if (!aborted && shellRes && shellRes.stdout && !streamedStdout) {
               this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
             }
-            if (shellRes && shellRes.stderr && !streamedStderr) {
+            if (!aborted && shellRes && shellRes.stderr && !streamedStderr) {
               this.terminalLogs.push({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') });
             }
             this._renderDrawerBody();
@@ -6569,7 +6629,9 @@ declare module 'bun:sqlite' {
           }
         } catch (err) {
           this._flushTerminalStream();
-          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+          if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
+            this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+          }
           this._renderDrawerBody();
           return;
         } finally {
@@ -6605,17 +6667,18 @@ declare module 'bun:sqlite' {
           }
         });
         this._flushTerminalStream();
+        const aborted = this._isAbortResult(res, fallbackAbortCtrl.signal);
         const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
-        if (!streamedFallbackStdout && cleanStdout) {
+        if (!aborted && !streamedFallbackStdout && cleanStdout) {
           this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
         }
-        if (!streamedFallbackStderr && res.stderr) {
+        if (!aborted && !streamedFallbackStderr && res.stderr) {
           this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
-        if (res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
+        if (!aborted && res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
           this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
         }
-        if (res.error) {
+        if (!aborted && res.error) {
           const errStr = formatErrorText(res.error);
           if (/^[a-zA-Z0-9_-]+$/.test(trimmed) && errStr.includes(`ReferenceError: ${trimmed} is not defined`)) {
             this.terminalLogs.push({ type: 'stderr', text: `codelab: ${trimmed}: command not found (type "help" for commands or enter a JS/TS expression)` });
@@ -6625,7 +6688,9 @@ declare module 'bun:sqlite' {
         }
       } catch (err) {
         this._flushTerminalStream();
-        this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+        if (!(fallbackAbortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
+          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+        }
       } finally {
         if (this._activeCommandAbortController === fallbackAbortCtrl) {
           this._activeCommandAbortController = null;
@@ -6877,8 +6942,13 @@ declare module 'bun:sqlite' {
       const intoRoot = options.intoRoot !== false;
       const targetDir = intoRoot ? '/workspace' : `/workspace/${parsed.repo}`;
       const cmdDisplay = `git clone ${repoInput}${intoRoot ? ' .' : ''}`;
+      this.drawerTab = 'terminal';
       this.terminalLogs.push({ type: 'cmd', text: cmdDisplay });
+      this.isRunning = true;
+      const abortCtrl = new AbortController();
+      this._activeCommandAbortController = abortCtrl;
       this._renderDrawerBody();
+      this._updateRunStateUI();
 
       try {
         if (intoRoot && this.shell && this.shell.vfs) {
@@ -6901,6 +6971,7 @@ declare module 'bun:sqlite' {
           maxFiles: options.maxFiles || 250,
           maxFileSize: options.maxFileSize || 512 * 1024,
           fetchImpl: options.fetchImpl || (this.shell && this.shell.options ? this.shell.options.fetchImpl : undefined),
+          signal: abortCtrl.signal,
           onProgress: options.onProgress
         });
 
@@ -6972,10 +7043,18 @@ declare module 'bun:sqlite' {
         this._emitEvent('repo:cloned', eventDetail);
         return result;
       } catch (err) {
-        const msg = err && err.message ? err.message : String(err);
-        this.terminalLogs.push({ type: 'stderr', text: msg });
+        if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
+          const msg = err && err.message ? err.message : String(err);
+          this.terminalLogs.push({ type: 'stderr', text: msg });
+        }
         this._renderDrawerBody();
         throw err;
+      } finally {
+        if (this._activeCommandAbortController === abortCtrl) {
+          this._activeCommandAbortController = null;
+        }
+        this.isRunning = false;
+        this._updateRunStateUI();
       }
     }
 

@@ -510,6 +510,56 @@ async function runTestSuite() {
     assert.equal(res.exitCode, 130, 'exitCode must be 130');
   });
 
+  await test('[T5.5] _isAbortResult classifies cancelled/aborted/exit-130 results as aborts', () => {
+    const mockContainer = {
+      innerHTML: '',
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    };
+    const wb = new workbench.CodeLabWorkbench(mockContainer, {
+      id: 'abort-classify',
+      files: { 'demo.js': 'console.log(1);' }
+    });
+
+    assert.equal(wb._isAbortResult({ cancelled: true }, null), true, 'cancelled => abort');
+    assert.equal(wb._isAbortResult({ aborted: true }, null), true, 'aborted => abort');
+    assert.equal(wb._isAbortResult({ exitCode: 130 }, null), true, 'exitCode 130 => abort');
+    assert.equal(wb._isAbortResult({ exitCode: 0, stdout: 'ok' }, null), false, 'normal result is not an abort');
+
+    const ac = new AbortController();
+    ac.abort('SIGINT');
+    assert.equal(wb._isAbortResult(null, ac.signal), true, 'aborted signal => abort');
+    assert.equal(wb._isAbortResult(null, new AbortController().signal), false, 'live signal => not abort');
+  });
+
+  await test('[T5.6] Interrupting a command prints exactly one ^C and no SIGINT/error spam', () => {
+    const mockContainer = {
+      innerHTML: '',
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    };
+    const wb = new workbench.CodeLabWorkbench(mockContainer, {
+      id: 'abort-noise',
+      files: { 'demo.js': 'console.log(1);' }
+    });
+
+    const abortCtrl = new AbortController();
+    wb._activeCommandAbortController = abortCtrl;
+    wb.isRunning = true;
+
+    wb._handleInterrupt();
+
+    const texts = wb.terminalLogs.map(l => l.text);
+    assert.equal(texts.filter(t => t === '^C').length, 1, 'Exactly one ^C must be printed');
+    assert.equal(
+      texts.some(t => /SIGINT|Interrupted by user|Execution error|Test runner error/.test(String(t))),
+      false,
+      'Interrupt must not leak SIGINT / abort error noise into the terminal'
+    );
+  });
+
   // ───────────────────────────────────────────────────────────────────────────
   // Summary
   // ───────────────────────────────────────────────────────────────────────────
