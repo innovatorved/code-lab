@@ -28,8 +28,16 @@ export interface CloneResult {
 }
 export interface ShellExecResult {
     code: number;
+    exitCode?: number;
+    ok?: boolean;
     stdout: string;
     stderr: string;
+    controlFlow?: {
+        type: string;
+        count?: number;
+        code?: number;
+    };
+    aborted?: boolean;
 }
 export interface ShellExecOptions {
     cwd?: string;
@@ -41,6 +49,7 @@ export interface ShellExecOptions {
     stdin?: string;
     fetchImpl?: any;
     onProgress?: (event: CloneProgressEvent) => void;
+    signal?: AbortSignal;
 }
 declare const _hostShell: any;
 export declare const createPosixShell: (options?: any) => any;

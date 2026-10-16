@@ -2432,7 +2432,37 @@ function __initVirtualRuntime(rootScope) {
 
   function createVirtualPortTable() {
     const table = new Map();
+    const listeners = new Map(); // event name -> Set<Function>
+
+    function emit(event, ...args) {
+      const set = listeners.get(event);
+      if (!set) return;
+      for (const fn of Array.from(set)) {
+        try {
+          fn(...args);
+        } catch (err) {
+          if (typeof console !== 'undefined' && typeof console.error === 'function') {
+            console.error(`[portTable] listener for "${event}" threw:`, err);
+          }
+        }
+      }
+    }
+
     return {
+      on(event, fn) {
+        if (typeof fn !== 'function') return () => {};
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event).add(fn);
+        return () => {
+          const set = listeners.get(event);
+          if (set) set.delete(fn);
+        };
+      },
+      off(event, fn) {
+        const set = listeners.get(event);
+        if (set) set.delete(fn);
+      },
+      emit,
       registerServer(port, info = {}) {
         const p = Number(port);
         if (table.has(p)) {
@@ -2440,15 +2470,23 @@ function __initVirtualRuntime(rootScope) {
         }
         const entry = Object.assign({ port: p, registeredAt: Date.now() }, info);
         table.set(p, entry);
+        emit('listen', entry);
         return entry;
       },
       unregisterServer(port) {
-        return table.delete(Number(port));
+        const p = Number(port);
+        const entry = table.get(p);
+        const deleted = table.delete(p);
+        if (deleted) emit('close', p, entry);
+        return deleted;
+      },
+      unregister(port) {
+        return this.unregisterServer(port);
       },
       killProcess(pid) {
         const pStr = String(pid);
         let found = false;
-        for (const [port, entry] of table.entries()) {
+        for (const [port, entry] of Array.from(table.entries())) {
           if (entry.pid !== undefined && String(entry.pid) === pStr) {
             if (entry.server && typeof entry.server.close === 'function') {
               try { entry.server.close(); } catch (_) {}
@@ -2456,7 +2494,11 @@ function __initVirtualRuntime(rootScope) {
             if (typeof entry.stop === 'function') {
               try { entry.stop(); } catch (_) {}
             }
-            table.delete(port);
+            // Avoid a double 'close' emission when entry.server.close() already
+            // unregistered the port through unregisterServer().
+            if (table.delete(port)) {
+              emit('close', port, entry);
+            }
             found = true;
           }
         }
@@ -4719,7 +4761,8 @@ function __initVirtualRuntime(rootScope) {
       portTable = null,
       pid = 1000,
       argv = null,
-      isBackground = false
+      isBackground = false,
+      signal = null
     } = options;
 
     const startTime = performance.now();
@@ -5336,6 +5379,46 @@ function __initVirtualRuntime(rootScope) {
         }
       }
     });
+
+    let isSigintAborted = false;
+
+    const handleSigint = () => {
+      if (hasExited) return;
+      isSigintAborted = true;
+      exitCode = 130;
+      hasExited = true;
+
+      try {
+        sandboxProcess.emit('SIGINT');
+      } catch (err) {
+        emitStderr((err && err.stack ? err.stack : String(err)) + '\n');
+      }
+
+      // Immediately cancel all active timers and immediates
+      for (const rawId of resourceTracker.allTimers) {
+        clearTimeout(rawId);
+        clearInterval(rawId);
+      }
+      resourceTracker.activeTimers.clear();
+      resourceTracker.allTimers.clear();
+      resourceTracker.activeImmediates.clear();
+      resourceTracker.inFlightHttp.clear();
+
+      if (!isBackground) {
+        try { vhttp.closeAllServers(); } catch (_) {}
+        try { vnet.closeAllServers(); } catch (_) {}
+      }
+    };
+
+    let signalListener = null;
+    if (signal) {
+      if (signal.aborted) {
+        handleSigint();
+      } else {
+        signalListener = () => handleSigint();
+        signal.addEventListener('abort', signalListener, { once: true });
+      }
+    }
 
     // Built-in `node:test` runner (`test`, `describe`, `it`, `before`, `after`, `beforeEach`, `afterEach`, `mock`)
     const rootSuite = {
@@ -6884,9 +6967,79 @@ function __initVirtualRuntime(rootScope) {
       }
     }
 
+    function raceWithAbort(promise) {
+      if (!promise || typeof promise.then !== 'function') {
+        return Promise.resolve(promise);
+      }
+      if (hasExited || isSigintAborted || Boolean(signal && signal.aborted)) {
+        if (!hasExited) handleSigint();
+        return Promise.resolve();
+      }
+
+      // Absorb late rejections after abort to avoid unhandled promise rejection warnings
+      promise.catch(() => {});
+
+      return new Promise((resolve, reject) => {
+        let timer = null;
+        let settled = false;
+
+        const cleanup = () => {
+          if (settled) return;
+          settled = true;
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          if (signal && onAbort) {
+            try {
+              signal.removeEventListener('abort', onAbort);
+            } catch (_) {}
+          }
+        };
+
+        const onAbort = () => {
+          cleanup();
+          handleSigint();
+          resolve();
+        };
+
+        if (signal) {
+          if (signal.aborted) {
+            onAbort();
+            return;
+          }
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        const remainingMs = timeoutMs - (performance.now() - startTime);
+        if (remainingMs > 0 && Number.isFinite(remainingMs)) {
+          timer = setTimeout(() => {
+            cleanup();
+            resolve();
+          }, remainingMs);
+          if (timer && typeof timer.unref === 'function') {
+            timer.unref();
+          }
+        }
+
+        promise.then(
+          (val) => {
+            cleanup();
+            resolve(val);
+          },
+          (err) => {
+            cleanup();
+            reject(err);
+          }
+        );
+      });
+    }
+
     let replValue = undefined;
     try {
-      if (mode === 'repl') {
+      if (hasExited || isSigintAborted || Boolean(signal && signal.aborted)) {
+        if (!hasExited) handleSigint();
+      } else if (mode === 'repl') {
         const replPath = '/workspace/__repl__.ts';
         vfs.writeFileSync(replPath, replCode || '');
         const dir = '/workspace';
@@ -6935,21 +7088,23 @@ function __initVirtualRuntime(rootScope) {
           ],
           `return (async () => {\n${body}\n})();`
         );
-        replValue = await replFn(
-          localRequire,
-          VirtualBuffer,
-          sandboxProcess,
-          sandboxConsole,
-          sandboxSetTimeout,
-          sandboxClearTimeout,
-          sandboxSetInterval,
-          sandboxClearInterval,
-          sandboxSetImmediate,
-          sandboxClearImmediate,
-          BunObj,
-          sandboxGlobal.fetch
+        replValue = await raceWithAbort(
+          replFn(
+            localRequire,
+            VirtualBuffer,
+            sandboxProcess,
+            sandboxConsole,
+            sandboxSetTimeout,
+            sandboxClearTimeout,
+            sandboxSetInterval,
+            sandboxClearInterval,
+            sandboxSetImmediate,
+            sandboxClearImmediate,
+            BunObj,
+            sandboxGlobal.fetch
+          )
         );
-        if (replValue !== undefined && options.printReplResult !== false) {
+        if (!hasExited && replValue !== undefined && options.printReplResult !== false) {
           emitStdout(formatConsoleArg(replValue) + '\n');
         }
       } else {
@@ -6960,13 +7115,17 @@ function __initVirtualRuntime(rootScope) {
         }
         const res = loadModule(entryAbs, true);
         if (res && typeof res.then === 'function') {
-          await res;
+          await raceWithAbort(res);
         }
       }
 
       const deadline = performance.now() + timeoutMs;
       let idleTicks = 0;
       while (!hasExited && performance.now() < deadline) {
+        if (signal && signal.aborted) {
+          handleSigint();
+          break;
+        }
         await Promise.resolve();
         await Promise.resolve();
         const busy =
@@ -6992,6 +7151,9 @@ function __initVirtualRuntime(rootScope) {
         emitStderr((err && err.stack ? err.stack : String(err)) + '\n');
       }
     } finally {
+      if (signal && signalListener) {
+        try { signal.removeEventListener('abort', signalListener); } catch (_) {}
+      }
       if (!hasExited) {
         hasExited = true;
         try { sandboxProcess.emit('exit', exitCode); } catch (_) {}
@@ -7019,6 +7181,7 @@ function __initVirtualRuntime(rootScope) {
       durationMs: Math.max(0, performance.now() - startTime),
       stdout: stdoutChunks.join(''),
       stderr: stderrChunks.join(''),
+      cancelled: exitCode === 130 || isSigintAborted || Boolean(signal && signal.aborted),
       outputTruncated,
       testResults,
       testSummary: {
@@ -7026,7 +7189,7 @@ function __initVirtualRuntime(rootScope) {
         passed: testResults.length - failedTests,
         failed: failedTests
       },
-      fsSnapshot: vfs.getSnapshot(),
+      fsSnapshot: typeof vfs.getSnapshot === 'function' ? vfs.getSnapshot() : [],
       httpTrace: [...vhttp.getTrace(), ...vnet.getTrace()],
       replValue: replValue !== undefined ? formatConsoleArg(replValue) : undefined
     };
@@ -7167,8 +7330,13 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
 
     const timeoutMs = options.timeoutMs || 15000;
     let settled = false;
+    let abortListener = null;
 
     function releaseWorker(terminateWorker) {
+      if (options.signal && abortListener) {
+        try { options.signal.removeEventListener('abort', abortListener); } catch (_) {}
+        abortListener = null;
+      }
       _activeWorkerJobs.delete(requestId);
       if (isWarmWorker) {
         if (terminateWorker) {
@@ -7225,6 +7393,19 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         });
       }
     });
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        const job = _activeWorkerJobs.get(requestId);
+        if (job) job.cancel('SIGINT: Interrupted by user (Ctrl+C)');
+      } else {
+        abortListener = () => {
+          const job = _activeWorkerJobs.get(requestId);
+          if (job) job.cancel('SIGINT: Interrupted by user (Ctrl+C)');
+        };
+        options.signal.addEventListener('abort', abortListener, { once: true });
+      }
+    }
 
     worker.onmessage = (event) => {
       const msg = event.data || {};
@@ -9690,6 +9871,53 @@ if (typeof module !== 'undefined' && module.exports) {
     return await ctx.shell.execute(cmd, { cwd: ctx.cwd, env: ctx.env });
   }
 
+  function evaluatePosixTest(args, ctx) {
+    const cleanArgs = [...args];
+    if (cleanArgs.length > 0 && cleanArgs[cleanArgs.length - 1] === ']') {
+      cleanArgs.pop();
+    }
+    if (cleanArgs.length === 0) return 1;
+
+    if (cleanArgs[0] === '!') {
+      return evaluatePosixTest(cleanArgs.slice(1), ctx) === 0 ? 1 : 0;
+    }
+
+    if (cleanArgs.length === 1) {
+      return cleanArgs[0] ? 0 : 1;
+    }
+
+    if (cleanArgs.length === 2) {
+      const [op, val] = cleanArgs;
+      if (op === '-z') return val.length === 0 ? 0 : 1;
+      if (op === '-n') return val.length > 0 ? 0 : 1;
+      if (op === '-e' || op === '-f' || op === '-d' || op === '-s') {
+        const p = ctx.resolvePath(val);
+        if (!ctx.vfs.existsSync(p)) return 1;
+        if (op === '-e') return 0;
+        const st = ctx.vfs.statSync(p);
+        if (op === '-f') return (typeof st.isFile === 'function' ? (st.isFile() ? 0 : 1) : (st.isFile ? 0 : 1));
+        if (op === '-d') return (typeof st.isDirectory === 'function' ? (st.isDirectory() ? 0 : 1) : (st.isDirectory ? 0 : 1));
+        if (op === '-s') return (st.size > 0 ? 0 : 1);
+      }
+    }
+
+    if (cleanArgs.length === 3) {
+      const [left, op, right] = cleanArgs;
+      if (op === '=' || op === '==') return left === right ? 0 : 1;
+      if (op === '!=') return left !== right ? 0 : 1;
+      const lNum = parseInt(left, 10);
+      const rNum = parseInt(right, 10);
+      if (op === '-eq') return lNum === rNum ? 0 : 1;
+      if (op === '-ne') return lNum !== rNum ? 0 : 1;
+      if (op === '-lt') return lNum < rNum ? 0 : 1;
+      if (op === '-le') return lNum <= rNum ? 0 : 1;
+      if (op === '-gt') return lNum > rNum ? 0 : 1;
+      if (op === '-ge') return lNum >= rNum ? 0 : 1;
+    }
+
+    return 1;
+  }
+
   // =========================================================================
   // 7. 40+ UNIX COREUTILS LIBRARY (POSIX Virtual Filesystem Implementations)
   // =========================================================================
@@ -11410,8 +11638,41 @@ if (typeof module !== 'undefined' && module.exports) {
 
     async sleep(args, ctx) {
       const sec = parseFloat(args[0]) || 0;
-      await new Promise(r => setTimeout(r, Math.max(0, sec * 1000)));
+      const ms = Math.max(0, sec * 1000);
+      if (ms <= 0) return { code: 0, stdout: '', stderr: '' };
+      if (ctx && ctx.signal && ctx.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '' };
+      }
+      await new Promise((resolve) => {
+        let timer = null;
+        const onAbort = () => {
+          if (timer) clearTimeout(timer);
+          resolve();
+        };
+        if (ctx && ctx.signal) {
+          ctx.signal.addEventListener('abort', onAbort, { once: true });
+        }
+        timer = setTimeout(() => {
+          if (ctx && ctx.signal) {
+            ctx.signal.removeEventListener('abort', onAbort);
+          }
+          resolve();
+        }, ms);
+      });
+      if (ctx && ctx.signal && ctx.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '' };
+      }
       return { code: 0, stdout: '', stderr: '' };
+    },
+
+    async '['(args, ctx) {
+      const code = evaluatePosixTest(args, ctx);
+      return { code, stdout: '', stderr: '' };
+    },
+
+    async test(args, ctx) {
+      const code = evaluatePosixTest(args, ctx);
+      return { code, stdout: '', stderr: '' };
     },
 
     async true() {
@@ -12099,7 +12360,10 @@ if (typeof module !== 'undefined' && module.exports) {
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -12113,7 +12377,10 @@ if (typeof module !== 'undefined' && module.exports) {
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -12149,7 +12416,10 @@ if (typeof module !== 'undefined' && module.exports) {
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
-            isBackground: ctx.isBackground
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
           });
           combinedOut += res.stdout;
           combinedErr += res.stderr;
@@ -12171,7 +12441,10 @@ if (typeof module !== 'undefined' && module.exports) {
         vfs: ctx.vfs,
         activePortTable: ctx.shell.portTable,
         pid: ctx.pid,
-        isBackground: ctx.isBackground
+        isBackground: ctx.isBackground,
+        onStdout: ctx.onStdout,
+        onStderr: ctx.onStderr,
+        signal: ctx.signal
       });
       return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
     },
@@ -12264,7 +12537,10 @@ if (typeof module !== 'undefined' && module.exports) {
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -12300,7 +12576,10 @@ if (typeof module !== 'undefined' && module.exports) {
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
-            isBackground: ctx.isBackground
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
           });
           combinedOut += res.stdout;
           combinedErr += res.stderr;
@@ -12324,7 +12603,10 @@ if (typeof module !== 'undefined' && module.exports) {
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
-            isBackground: ctx.isBackground
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
           });
           return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
         }
@@ -12345,7 +12627,10 @@ if (typeof module !== 'undefined' && module.exports) {
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -12744,7 +13029,7 @@ if (typeof module !== 'undefined' && module.exports) {
     async execute(commandLine, execOptions = {}) {
       const trimmed = (commandLine || '').trim();
       if (!trimmed || trimmed.startsWith('#')) {
-        return { code: 0, stdout: '', stderr: '' };
+        return { code: 0, exitCode: 0, stdout: '', stderr: '', ok: true };
       }
 
       this.history.push(trimmed);
@@ -12760,6 +13045,9 @@ if (typeof module !== 'undefined' && module.exports) {
       let lastCode = 0;
 
       for (const item of ast.items) {
+        if (execOptions.signal && execOptions.signal.aborted) {
+          return { code: 130, exitCode: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+        }
         if (item.background) {
           const pid = this.nextPid++;
           const jobId = this.nextJobId++;
@@ -12802,17 +13090,184 @@ if (typeof module !== 'undefined' && module.exports) {
           lastCode = res.code !== undefined ? res.code : 0;
           this.env['?'] = String(lastCode);
           Object.assign(currentEnv, this.env);
+          if (res.aborted || (execOptions.signal && execOptions.signal.aborted)) {
+            return { code: 130, exitCode: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+          }
         }
       }
 
-      return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr };
+      return { code: lastCode, exitCode: lastCode, stdout: combinedStdout, stderr: combinedStderr, ok: lastCode === 0 };
+    }
+
+    async _executeWithRedirects(redirects, context, execFn) {
+      if (!redirects || redirects.length === 0) {
+        return execFn(context);
+      }
+
+      const cmdEnv = Object.assign({}, this.env, context.env);
+      let fd1 = { type: 'stdout' };
+      let fd2 = { type: 'stderr' };
+      let effectiveStdin = context.stdin || '';
+
+      for (const red of redirects) {
+        if (red.type === '<') {
+          const target = await this.evaluateWord(red.target, cmdEnv);
+          const absTarget = this.resolvePath(target);
+          if (!this.vfs.existsSync(absTarget)) {
+            return { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` };
+          }
+          try {
+            effectiveStdin = this.vfs.readFileSync(absTarget, 'utf8');
+          } catch (err) {
+            return { code: 1, stdout: '', stderr: `shell: ${target}: ${err.message}\n` };
+          }
+        }
+      }
+
+      for (const red of redirects) {
+        if (red.type === '<') continue;
+        if (red.type === '>' || red.type === '>>' || red.type === '&>') {
+          const target = await this.evaluateWord(red.target, cmdEnv);
+          const abs = this.resolvePath(target);
+          const parentDir = PosixPath.dirname(abs);
+          if (!this.vfs.existsSync(parentDir)) {
+            return { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` };
+          }
+          if (red.type === '>') {
+            this.vfs.writeFileSync(abs, '');
+            this._emitVfsMutation('create', abs);
+            const dest = { type: 'file', path: abs, append: true };
+            if (red.sourceFd === 2) fd2 = dest;
+            else fd1 = dest;
+          } else if (red.type === '>>') {
+            if (!this.vfs.existsSync(abs)) {
+              this.vfs.writeFileSync(abs, '');
+              this._emitVfsMutation('create', abs);
+            }
+            const dest = { type: 'file', path: abs, append: true };
+            if (red.sourceFd === 2) fd2 = dest;
+            else fd1 = dest;
+          } else if (red.type === '&>') {
+            this.vfs.writeFileSync(abs, '');
+            this._emitVfsMutation('create', abs);
+            const dest = { type: 'file', path: abs, append: true };
+            fd1 = dest;
+            fd2 = dest;
+          }
+        } else if (red.type === '>&') {
+          if (red.sourceFd === 2 && red.targetFd === 1) fd2 = { ...fd1 };
+          else if (red.sourceFd === 1 && red.targetFd === 2) fd1 = { ...fd2 };
+        }
+      }
+
+      let finalStdout = '';
+      let finalStderr = '';
+
+      const routeChunk = (fd, text) => {
+        if (!text) return;
+        if (fd.type === 'stdout') {
+          finalStdout += text;
+          if (context.onStdout) context.onStdout(text);
+        } else if (fd.type === 'stderr') {
+          finalStderr += text;
+          if (context.onStderr) context.onStderr(text);
+        } else if (fd.type === 'file') {
+          this.vfs.appendFileSync(fd.path, text);
+          this._emitVfsMutation('change', fd.path);
+        }
+      };
+
+      const childContext = {
+        ...context,
+        stdin: effectiveStdin,
+        onStdout: (c) => routeChunk(fd1, c),
+        onStderr: (c) => routeChunk(fd2, c)
+      };
+
+      const res = await execFn(childContext);
+      return {
+        ...res,
+        stdout: finalStdout,
+        stderr: finalStderr
+      };
     }
 
     async _executeAstNode(node, context) {
       if (!node) return { code: 0, stdout: '', stderr: '' };
+      if (context.signal && context.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '', aborted: true };
+      }
 
+      // 1. Sequence
+      if (node.type === 'Sequence') {
+        let combinedStdout = '';
+        let combinedStderr = '';
+        let lastCode = 0;
+        let controlFlow = null;
+
+        for (const item of (node.items || [])) {
+          if (context.signal && context.signal.aborted) {
+            return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+          }
+          if (item.background) {
+            const pid = this.nextPid++;
+            const jobId = this.nextJobId++;
+            const job = {
+              id: jobId,
+              pid,
+              command: 'background',
+              status: 'Running',
+              startTime: Date.now()
+            };
+            this.jobs.set(jobId, job);
+            if (typeof this.options.onJobStart === 'function') this.options.onJobStart(job);
+
+            this._executeAstNode(item.node, { ...context, pid, isBackground: true })
+              .then(res => {
+                if (job.status !== 'Terminated') {
+                  job.status = 'Done';
+                  job.exitCode = res.code;
+                  if (typeof this.options.onJobEnd === 'function') this.options.onJobEnd(job);
+                }
+              })
+              .catch(err => {
+                if (job.status !== 'Terminated') {
+                  job.status = 'Failed';
+                  job.error = err;
+                  if (typeof this.options.onJobEnd === 'function') this.options.onJobEnd(job);
+                }
+              });
+
+            const bgMsg = `[${jobId}] ${pid}\n`;
+            combinedStdout += bgMsg;
+            lastCode = 0;
+            if (context.onStdout) context.onStdout(bgMsg);
+          } else {
+            const res = await this._executeAstNode(item.node, context);
+            combinedStdout += res.stdout || '';
+            combinedStderr += res.stderr || '';
+            lastCode = res.code !== undefined ? res.code : 0;
+            this.env['?'] = String(lastCode);
+            if (context.env) context.env['?'] = String(lastCode);
+            if (res.controlFlow) {
+              controlFlow = res.controlFlow;
+              break;
+            }
+            if (res.aborted || (context.signal && context.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+          }
+        }
+        return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow };
+      }
+
+      // 2. Logical (&&, ||)
       if (node.type === 'Logical') {
         const leftRes = await this._executeAstNode(node.left, context);
+        if (leftRes.aborted || (context.signal && context.signal.aborted)) {
+          return { ...leftRes, code: 130, aborted: true };
+        }
+        if (leftRes.controlFlow) return leftRes;
         if (node.op === '&&') {
           if (leftRes.code === 0) {
             const nextContext = {
@@ -12823,8 +13278,10 @@ if (typeof module !== 'undefined' && module.exports) {
             const rightRes = await this._executeAstNode(node.right, nextContext);
             return {
               code: rightRes.code,
-              stdout: leftRes.stdout + rightRes.stdout,
-              stderr: leftRes.stderr + rightRes.stderr
+              stdout: (leftRes.stdout || '') + (rightRes.stdout || ''),
+              stderr: (leftRes.stderr || '') + (rightRes.stderr || ''),
+              controlFlow: rightRes.controlFlow,
+              aborted: rightRes.aborted
             };
           }
           return leftRes;
@@ -12838,32 +13295,260 @@ if (typeof module !== 'undefined' && module.exports) {
             const rightRes = await this._executeAstNode(node.right, nextContext);
             return {
               code: rightRes.code,
-              stdout: leftRes.stdout + rightRes.stdout,
-              stderr: leftRes.stderr + rightRes.stderr
+              stdout: (leftRes.stdout || '') + (rightRes.stdout || ''),
+              stderr: (leftRes.stderr || '') + (rightRes.stderr || ''),
+              controlFlow: rightRes.controlFlow,
+              aborted: rightRes.aborted
             };
           }
           return leftRes;
         }
       }
 
+      // 3. Pipeline (|)
       if (node.type === 'Pipeline') {
         return this._executePipeline(node, context);
       }
 
+      // 4. Command
       if (node.type === 'Command') {
         return this._executeSimpleCommand(node, context);
+      }
+
+      // 5. FunctionDef
+      if (node.type === 'FunctionDef') {
+        if (!this.functions) this.functions = {};
+        this.functions[node.name] = node;
+        return { code: 0, stdout: '', stderr: '' };
+      }
+
+      // 6. For loop
+      if (node.type === 'For') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          let combinedStdout = '';
+          let combinedStderr = '';
+          let lastCode = 0;
+          const wordItems = [];
+          if (node.items) {
+            for (const itemTok of node.items) {
+              const expanded = await this.evaluateWordToArgs(itemTok, innerCtx.env);
+              wordItems.push(...expanded);
+            }
+          } else {
+            wordItems.push(...(innerCtx.positionalArgs || []));
+          }
+
+          for (const val of wordItems) {
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            innerCtx.env[node.varName] = val;
+            this.env[node.varName] = val;
+            const stepRes = await this._executeAstNode(node.body, innerCtx);
+            combinedStdout += stepRes.stdout || '';
+            combinedStderr += stepRes.stderr || '';
+            lastCode = stepRes.code !== undefined ? stepRes.code : 0;
+            this.env['?'] = String(lastCode);
+            if (innerCtx.env) innerCtx.env['?'] = String(lastCode);
+            if (stepRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (stepRes.controlFlow) {
+              if (stepRes.controlFlow.type === 'break') {
+                const count = stepRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'break', count: count - 1 } };
+                }
+                break;
+              } else if (stepRes.controlFlow.type === 'continue') {
+                const count = stepRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'continue', count: count - 1 } };
+                }
+                continue;
+              } else {
+                return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: stepRes.controlFlow };
+              }
+            }
+          }
+          return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr };
+        });
+      }
+
+      // 7. While & Until loops
+      if (node.type === 'While' || node.type === 'Until') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          const isWhile = node.type === 'While';
+          let combinedStdout = '';
+          let combinedStderr = '';
+          let lastCode = 0;
+
+          while (true) {
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            const condRes = await this._executeAstNode(node.cond, innerCtx);
+            combinedStdout += condRes.stdout || '';
+            combinedStderr += condRes.stderr || '';
+            if (condRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (condRes.controlFlow) {
+              return { code: condRes.code, stdout: combinedStdout, stderr: combinedStderr, controlFlow: condRes.controlFlow };
+            }
+            const condSuccess = (condRes.code === 0);
+            if (isWhile ? !condSuccess : condSuccess) {
+              break;
+            }
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            const bodyRes = await this._executeAstNode(node.body, innerCtx);
+            combinedStdout += bodyRes.stdout || '';
+            combinedStderr += bodyRes.stderr || '';
+            lastCode = bodyRes.code !== undefined ? bodyRes.code : 0;
+            this.env['?'] = String(lastCode);
+            if (innerCtx.env) innerCtx.env['?'] = String(lastCode);
+            if (bodyRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (bodyRes.controlFlow) {
+              if (bodyRes.controlFlow.type === 'break') {
+                const count = bodyRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'break', count: count - 1 } };
+                }
+                break;
+              } else if (bodyRes.controlFlow.type === 'continue') {
+                const count = bodyRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'continue', count: count - 1 } };
+                }
+                continue;
+              } else {
+                return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: bodyRes.controlFlow };
+              }
+            }
+          }
+          return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr };
+        });
+      }
+
+      // 8. If conditional
+      if (node.type === 'If') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          let combinedStdout = '';
+          let combinedStderr = '';
+          for (const branch of (node.branches || [])) {
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            const condRes = await this._executeAstNode(branch.cond, innerCtx);
+            combinedStdout += condRes.stdout || '';
+            combinedStderr += condRes.stderr || '';
+            if (condRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (condRes.code === 0) {
+              const bodyRes = await this._executeAstNode(branch.body, innerCtx);
+              combinedStdout += bodyRes.stdout || '';
+              combinedStderr += bodyRes.stderr || '';
+              return {
+                code: bodyRes.code,
+                stdout: combinedStdout,
+                stderr: combinedStderr,
+                controlFlow: bodyRes.controlFlow,
+                aborted: bodyRes.aborted
+              };
+            }
+          }
+          if (node.elseBody) {
+            const elseRes = await this._executeAstNode(node.elseBody, innerCtx);
+            combinedStdout += elseRes.stdout || '';
+            combinedStderr += elseRes.stderr || '';
+            return {
+              code: elseRes.code,
+              stdout: combinedStdout,
+              stderr: combinedStderr,
+              controlFlow: elseRes.controlFlow,
+              aborted: elseRes.aborted
+            };
+          }
+          return { code: 0, stdout: combinedStdout, stderr: combinedStderr };
+        });
+      }
+
+      // 9. Brace Group
+      if (node.type === 'BraceGroup') {
+        return this._executeWithRedirects(node.redirects, context, (innerCtx) => {
+          return this._executeAstNode(node.body, innerCtx);
+        });
+      }
+
+      // 10. Subshell
+      if (node.type === 'Subshell') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          const subShell = new PosixShell({
+            ...this.options,
+            vfs: this.vfs,
+            portTable: this.portTable,
+            env: Object.assign({}, this.env, innerCtx.env || {})
+          });
+          subShell.cwd = innerCtx.cwd || this.cwd;
+          const subContext = {
+            ...innerCtx,
+            env: Object.assign({}, this.env, innerCtx.env || {}),
+            cwd: subShell.cwd
+          };
+          return subShell._executeAstNode(node.body, subContext);
+        });
+      }
+
+      // 11. Case statement
+      if (node.type === 'Case') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          const targetWord = await this.evaluateWord(node.word, innerCtx.env);
+          for (const clause of (node.clauses || [])) {
+            let matched = false;
+            for (const patTok of (clause.patterns || [])) {
+              const patStr = await this.evaluateWord(patTok, innerCtx.env);
+              if (patStr === '*' || patStr === targetWord) {
+                matched = true;
+                break;
+              }
+              const reg = new RegExp('^' + patStr.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+              if (reg.test(targetWord)) {
+                matched = true;
+                break;
+              }
+            }
+            if (matched) {
+              return this._executeAstNode(clause.body, innerCtx);
+            }
+          }
+          return { code: 0, stdout: '', stderr: '' };
+        });
       }
 
       return { code: 0, stdout: '', stderr: '' };
     }
 
     async _executePipeline(pipelineNode, context) {
-      const commands = pipelineNode.commands;
+      const commands = pipelineNode.commands || [];
       let currentStdin = context.stdin || '';
       let combinedStderr = '';
       let lastResult = { code: 0, stdout: '', stderr: '' };
 
       for (let i = 0; i < commands.length; i++) {
+        if (context.signal && context.signal.aborted) {
+          return {
+            code: 130,
+            stdout: lastResult.stdout || '',
+            stderr: combinedStderr,
+            aborted: true
+          };
+        }
+
         const cmd = commands[i];
         const isLast = (i === commands.length - 1);
 
@@ -12875,16 +13560,32 @@ if (typeof module !== 'undefined' && module.exports) {
           onStderr: context.onStderr
         };
 
-        const res = await this._executeSimpleCommand(cmd, cmdContext);
-        currentStdin = res.stdout;
-        combinedStderr += res.stderr;
+        const res = await this._executeAstNode(cmd, cmdContext);
+        currentStdin = res.stdout || '';
+        combinedStderr += (res.stderr || '');
         lastResult = res;
+
+        if (res.aborted || (context.signal && context.signal.aborted)) {
+          return {
+            code: 130,
+            stdout: lastResult.stdout || '',
+            stderr: combinedStderr,
+            aborted: true
+          };
+        }
+      }
+
+      let finalCode = lastResult.code !== undefined ? lastResult.code : 0;
+      if (pipelineNode.negated && !lastResult.aborted) {
+        finalCode = (finalCode === 0) ? 1 : 0;
       }
 
       return {
-        code: lastResult.code,
-        stdout: lastResult.stdout,
-        stderr: combinedStderr
+        code: finalCode,
+        stdout: lastResult.stdout || '',
+        stderr: combinedStderr,
+        controlFlow: lastResult.controlFlow,
+        aborted: Boolean(lastResult.aborted || (context.signal && context.signal.aborted))
       };
     }
 
@@ -12918,7 +13619,25 @@ if (typeof module !== 'undefined' && module.exports) {
         args.push(...expanded);
       }
 
-      // 3. Process input redirection (<, 0<)
+      // 3. Built-in flow control
+      if (cmdName === 'break') {
+        const count = parseInt(args[0], 10) || 1;
+        return { code: 0, stdout: '', stderr: '', controlFlow: { type: 'break', count } };
+      }
+      if (cmdName === 'continue') {
+        const count = parseInt(args[0], 10) || 1;
+        return { code: 0, stdout: '', stderr: '', controlFlow: { type: 'continue', count } };
+      }
+      if (cmdName === 'return') {
+        const code = parseInt(args[0], 10) || 0;
+        return { code, stdout: '', stderr: '', controlFlow: { type: 'return', code } };
+      }
+
+      if (context.signal && context.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '', aborted: true };
+      }
+
+      // 4. Process input redirection (<, 0<)
       let effectiveStdin = context.stdin || '';
       for (const red of cmdNode.redirects) {
         if (red.type === '<') {
@@ -12935,7 +13654,7 @@ if (typeof module !== 'undefined' && module.exports) {
         }
       }
 
-      // 4. Validate output redirections and setup file descriptors
+      // 5. Validate output redirections and setup file descriptors
       let fd1 = { type: 'stdout' };
       let fd2 = { type: 'stderr' };
 
@@ -12992,7 +13711,26 @@ if (typeof module !== 'undefined' && module.exports) {
         }
       }
 
-      // 5. Command execution dispatch
+      // 6. Setup output routing with stream tracking
+      let stdoutOut = '';
+      let stderrOut = '';
+      let streamedStdoutBytes = 0;
+      let streamedStderrBytes = 0;
+
+      const routeOutput = (fd, text, isStreamChunk = false) => {
+        if (!text) return;
+        if (fd.type === 'stdout') {
+          stdoutOut += text;
+          if (isStreamChunk && context.onStdout) context.onStdout(text);
+        } else if (fd.type === 'stderr') {
+          stderrOut += text;
+          if (isStreamChunk && context.onStderr) context.onStderr(text);
+        } else if (fd.type === 'file') {
+          this.vfs.appendFileSync(fd.path, text);
+          this._emitVfsMutation('change', fd.path);
+        }
+      };
+
       const cmdCtx = {
         vfs: this.vfs,
         shell: this,
@@ -13003,11 +13741,36 @@ if (typeof module !== 'undefined' && module.exports) {
         pid: context.pid || 1000,
         isBackground: Boolean(context.isBackground),
         resolvePath: (p) => this.resolvePath(p),
-        emitMutation: (type, p) => this._emitVfsMutation(type, p)
+        emitMutation: (type, p) => this._emitVfsMutation(type, p),
+        signal: context.signal,
+        onStdout: (chunk) => {
+          if (!chunk) return;
+          streamedStdoutBytes += chunk.length;
+          routeOutput(fd1, chunk, true);
+        },
+        onStderr: (chunk) => {
+          if (!chunk) return;
+          streamedStderrBytes += chunk.length;
+          routeOutput(fd2, chunk, true);
+        }
       };
 
+      // 7. Command execution dispatch
       let res;
-      if (this.commands[cmdName]) {
+      if (this.functions && this.functions[cmdName]) {
+        const fnDef = this.functions[cmdName];
+        const fnEnv = Object.assign({}, cmdEnv);
+        args.forEach((a, i) => { fnEnv[String(i + 1)] = a; });
+        fnEnv['#'] = String(args.length);
+        fnEnv['@'] = args.join(' ');
+        fnEnv['*'] = args.join(' ');
+        const fnRes = await this._executeAstNode(fnDef.body, { ...context, env: fnEnv, positionalArgs: args });
+        res = {
+          code: fnRes.controlFlow?.type === 'return' ? fnRes.controlFlow.code : (fnRes.code || 0),
+          stdout: fnRes.stdout || '',
+          stderr: fnRes.stderr || ''
+        };
+      } else if (this.commands[cmdName]) {
         res = await this.commands[cmdName](args, cmdCtx);
         if (cmdName === 'export' || cmdName === 'unset' || cmdName === 'cd') {
           for (const k of Object.keys(context.env)) {
@@ -13020,7 +13783,10 @@ if (typeof module !== 'undefined' && module.exports) {
         const spawned = await this.options.onProcessSpawn(cmdName, args, {
           cwd: this.cwd,
           env: cmdEnv,
-          stdin: effectiveStdin
+          stdin: effectiveStdin,
+          onStdout: cmdCtx.onStdout,
+          onStderr: cmdCtx.onStderr,
+          signal: context.signal
         });
         if (spawned !== undefined && spawned !== null) {
           res = spawned;
@@ -13031,32 +13797,36 @@ if (typeof module !== 'undefined' && module.exports) {
         res = { code: 127, stdout: '', stderr: `shell: ${cmdName}: command not found\n` };
       }
 
-      // 6. Route output according to file descriptors
-      let stdoutOut = '';
-      let stderrOut = '';
+      if (!res) res = { code: 0, stdout: '', stderr: '' };
 
-      const routeOutput = (fd, text) => {
-        if (!text) return;
-        if (fd.type === 'stdout') {
-          stdoutOut += text;
-        } else if (fd.type === 'stderr') {
-          stderrOut += text;
-        } else if (fd.type === 'file') {
-          this.vfs.appendFileSync(fd.path, text);
-          this._emitVfsMutation('change', fd.path);
+      // Route any remaining unstreamed output
+      if (res.stdout) {
+        if (streamedStdoutBytes > 0) {
+          if (res.stdout.length > streamedStdoutBytes) {
+            routeOutput(fd1, res.stdout.slice(streamedStdoutBytes), true);
+          }
+        } else {
+          routeOutput(fd1, res.stdout, false);
+          if (context.onStdout && stdoutOut) context.onStdout(stdoutOut);
         }
-      };
-
-      routeOutput(fd1, res.stdout || '');
-      routeOutput(fd2, res.stderr || '');
-
-      if (context.onStdout && stdoutOut) context.onStdout(stdoutOut);
-      if (context.onStderr && stderrOut) context.onStderr(stderrOut);
+      }
+      if (res.stderr) {
+        if (streamedStderrBytes > 0) {
+          if (res.stderr.length > streamedStderrBytes) {
+            routeOutput(fd2, res.stderr.slice(streamedStderrBytes), true);
+          }
+        } else {
+          routeOutput(fd2, res.stderr, false);
+          if (context.onStderr && stderrOut) context.onStderr(stderrOut);
+        }
+      }
 
       return {
         code: res.code !== undefined ? res.code : 0,
         stdout: stdoutOut,
-        stderr: stderrOut
+        stderr: stderrOut,
+        controlFlow: res.controlFlow,
+        aborted: res.aborted || (context.signal && context.signal.aborted)
       };
     }
   }
@@ -13190,15 +13960,72 @@ if (typeof module !== 'undefined' && module.exports) {
       .replace(/'/g, '&#39;');
   }
 
-  function ansiToHtml(str) {
-    if (!str) return '';
-    const s = String(str);
-    if (!s.includes('\x1b[')) {
-      return escapeHtml(s);
+  function resolveAnsiControlCodes(raw) {
+    if (!raw) return '';
+    const s = String(raw);
+    if (!s.includes('\x1b') && !s.includes('\r')) return s;
+
+    let text = s;
+    const lastClearScreen = text.lastIndexOf('\x1b[2J');
+    if (lastClearScreen !== -1) {
+      text = text.slice(lastClearScreen + 4);
+      text = text.replace(/^\x1b\[(?:1;1)?H/, '');
     }
 
-    // Strip non-color cursor control sequences
-    const cleaned = s.replace(/\x1b\[[0-9;?]*[A-LN-Za-z]/g, '');
+    text = text.replace(/\r\n/g, '\n');
+    const rawLines = text.split('\n');
+    const resolvedLines = [];
+
+    for (let l = 0; l < rawLines.length; l++) {
+      let line = rawLines[l];
+
+      while (/\x1b\[(?:1)?A/.test(line)) {
+        const upMatch = /\x1b\[(?:1)?A/.exec(line);
+        const beforeUp = line.slice(0, upMatch.index);
+        let afterUp = line.slice(upMatch.index + upMatch[0].length);
+        if (resolvedLines.length > 0) {
+          if (afterUp.includes('\x1b[2K')) {
+            afterUp = afterUp.slice(afterUp.lastIndexOf('\x1b[2K') + 4);
+            resolvedLines[resolvedLines.length - 1] = afterUp;
+          } else if (afterUp.includes('\r')) {
+            const parts = afterUp.split('\r');
+            resolvedLines[resolvedLines.length - 1] = parts[parts.length - 1];
+          } else {
+            resolvedLines[resolvedLines.length - 1] = afterUp;
+          }
+          line = beforeUp;
+        } else {
+          line = beforeUp + afterUp;
+        }
+      }
+
+      if (line.includes('\x1b[2K')) {
+        const idx = line.lastIndexOf('\x1b[2K');
+        line = line.slice(idx + 4);
+      }
+
+      if (line.includes('\r')) {
+        const parts = line.split('\r');
+        line = parts[parts.length - 1];
+      }
+
+      line = line.replace(/\x1b\[[0]?K/g, '');
+      line = line.replace(/\x1b\[(?:1)?G/g, '');
+      resolvedLines.push(line);
+    }
+
+    return resolvedLines.join('\n');
+  }
+
+  function ansiToHtml(str) {
+    if (!str) return '';
+    const resolved = resolveAnsiControlCodes(String(str));
+    if (!resolved.includes('\x1b[')) {
+      return escapeHtml(resolved);
+    }
+
+    // Strip non-color cursor control sequences without stripping lowercase 'm' SGR codes
+    const cleaned = resolved.replace(/\x1b\[[0-9;?]*(?!m)[A-Za-z]/g, '');
 
     const tokenRegex = /\x1b\[([0-9;]*)m/g;
     let result = '';
@@ -13355,6 +14182,14 @@ if (typeof module !== 'undefined' && module.exports) {
       this.onKey = typeof this.options.onKey === 'function' ? this.options.onKey : null;
       this.onInterrupt = typeof this.options.onInterrupt === 'function' ? this.options.onInterrupt : null;
 
+      // Stream & active line buffering state
+      this._activeLineCommitted = true;
+      this._cursorCol = 0;
+      this._pendingEscape = '';
+      this._targetLineIdx = -1;
+      this._needsRewrite = false;
+      this._activeLineEl = null;
+
       this._mounted = false;
       this._listeners = [];
 
@@ -13385,19 +14220,192 @@ if (typeof module !== 'undefined' && module.exports) {
       this.updateActiveLine();
     }
 
+    writeStreamChunk(data, type = 'stdout') {
+      let str = String(data != null ? data : '');
+      if (!str) return;
+
+      if (this._pendingEscape) {
+        str = this._pendingEscape + str;
+        this._pendingEscape = '';
+      }
+
+      let modified = false;
+      let i = 0;
+
+      while (i < str.length) {
+        if (str[i] === '\x1b') {
+          const rest = str.slice(i);
+          if (/^\x1b(?:\[[0-9;?]*)?$/.test(rest)) {
+            this._pendingEscape = rest;
+            break;
+          }
+
+          const csiMatch = /^\x1b\[([0-9;?]*)([A-Za-z])/.exec(rest);
+          if (csiMatch) {
+            const params = csiMatch[1];
+            const cmd = csiMatch[2];
+            const seq = csiMatch[0];
+            i += seq.length;
+
+            if (cmd === 'K') {
+              const cur = this._getActiveLine(type);
+              if (params === '2') {
+                cur.text = '';
+                this._cursorCol = 0;
+                this._needsRewrite = false;
+              } else {
+                cur.text = cur.text.slice(0, this._cursorCol);
+                this._needsRewrite = false;
+              }
+              modified = true;
+            } else if (cmd === 'A') {
+              const count = parseInt(params, 10) || 1;
+              if (this.logs.length > 0) {
+                const baseIdx = this._activeLineCommitted ? this.logs.length : this.logs.length - 1;
+                this._targetLineIdx = Math.max(0, baseIdx - count);
+                this._activeLineCommitted = false;
+                this._cursorCol = 0;
+                this._needsRewrite = false;
+                const targetLine = this.logs[this._targetLineIdx];
+                if (targetLine) targetLine.text = '';
+                this._activeLineEl = null;
+              }
+            } else if (cmd === 'G') {
+              this._cursorCol = 0;
+              this._needsRewrite = true;
+            } else if (cmd === 'J' && params === '2') {
+              this.clear();
+            } else if (cmd === 'm') {
+              const cur = this._getActiveLine(type);
+              cur.text += seq;
+              modified = true;
+            }
+            continue;
+          }
+        }
+
+        const ch = str[i];
+        if (ch === '\r') {
+          this._cursorCol = 0;
+          this._needsRewrite = true;
+          i++;
+        } else if (ch === '\n') {
+          const cur = this._getActiveLine(type);
+          cur.text += '\n';
+          this._activeLineCommitted = true;
+          this._cursorCol = 0;
+          this._targetLineIdx = -1;
+          this._needsRewrite = false;
+          this._activeLineEl = null;
+          modified = true;
+          i++;
+        } else {
+          const cur = this._getActiveLine(type);
+          if (this._needsRewrite && this._cursorCol === 0 && cur.text.length > 0 && !cur.text.endsWith('\n')) {
+            cur.text = ch;
+            this._needsRewrite = false;
+          } else {
+            cur.text += ch;
+          }
+          this._cursorCol++;
+          modified = true;
+          i++;
+        }
+      }
+
+      if (modified) {
+        this._updateActiveDomLine();
+      }
+      this._scrollToBottom();
+    }
+
     write(data, type = 'stdout') {
-      const text = String(data);
-      this.logs.push({ text, type });
-      this.render();
+      this.writeStreamChunk(data, type);
     }
 
     writeln(data, type = 'stdout') {
-      this.write(String(data) + '\n', type);
+      this.writeStreamChunk(String(data) + '\n', type);
+    }
+
+    _getActiveLine(type) {
+      if (this._targetLineIdx >= 0 && this._targetLineIdx < this.logs.length) {
+        return this.logs[this._targetLineIdx];
+      }
+      if (this._activeLineCommitted || this.logs.length === 0) {
+        const newLine = { text: '', type };
+        this.logs.push(newLine);
+        this._activeLineCommitted = false;
+        this._cursorCol = 0;
+        this._targetLineIdx = this.logs.length - 1;
+        this._needsRewrite = false;
+        this._appendDomLine(newLine);
+        return newLine;
+      }
+      this._targetLineIdx = this.logs.length - 1;
+      return this.logs[this.logs.length - 1];
+    }
+
+    _appendDomLine(line) {
+      if (!this.container || typeof document === 'undefined') return;
+      const logEl = this.container.querySelector('#cl-terminal-log');
+      if (!logEl) return;
+      const lineEl = document.createElement('div');
+      lineEl.className = 'codelab-log-line ' + (line.type || 'stdout');
+      lineEl.innerHTML = ansiToHtml(line.text);
+      logEl.appendChild(lineEl);
+      this._activeLineEl = lineEl;
+    }
+
+    _updateActiveDomLine() {
+      if (!this.container || typeof document === 'undefined') return;
+      const line = this._getActiveLineSync();
+      if (!line) return;
+      let lineEl = this._activeLineEl;
+      if (!lineEl || !lineEl.parentNode) {
+        const logEl = this.container.querySelector('#cl-terminal-log');
+        if (logEl) {
+          if (this._targetLineIdx >= 0 && this._targetLineIdx < logEl.children.length) {
+            lineEl = logEl.children[this._targetLineIdx];
+          } else {
+            lineEl = logEl.children[logEl.children.length - 1];
+          }
+          this._activeLineEl = lineEl;
+        }
+      }
+      if (lineEl) {
+        lineEl.className = 'codelab-log-line ' + (line.type || 'stdout');
+        lineEl.innerHTML = ansiToHtml(line.text);
+      }
+    }
+
+    _getActiveLineSync() {
+      if (this._targetLineIdx >= 0 && this._targetLineIdx < this.logs.length) {
+        return this.logs[this._targetLineIdx];
+      }
+      return this.logs[this.logs.length - 1] || null;
+    }
+
+    _scrollToBottom() {
+      if (!this.container) return;
+      const surface = this.container.querySelector('#cl-terminal-surface') || this.container;
+      if (surface && typeof surface.scrollTop === 'number' && typeof surface.scrollHeight === 'number') {
+        surface.scrollTop = surface.scrollHeight;
+      }
     }
 
     clear() {
       this.logs.length = 0;
-      this.render();
+      this._activeLineCommitted = true;
+      this._cursorCol = 0;
+      this._targetLineIdx = -1;
+      this._needsRewrite = false;
+      this._activeLineEl = null;
+      if (this.container && typeof this.container.querySelector === 'function') {
+        const logEl = this.container.querySelector('#cl-terminal-log');
+        if (logEl) {
+          logEl.innerHTML = '';
+        }
+      }
     }
 
     getHistory() {
@@ -13859,9 +14867,7 @@ if (typeof module !== 'undefined' && module.exports) {
         </div>
       `;
 
-      if (typeof this.container.scrollTop === 'number' && typeof this.container.scrollHeight === 'number') {
-        this.container.scrollTop = this.container.scrollHeight;
-      }
+      this._scrollToBottom();
 
       this._bindEvents();
 
@@ -13892,7 +14898,8 @@ if (typeof module !== 'undefined' && module.exports) {
     ansiToHtml,
     parseAnsiToHtml,
     escapeHtml,
-    ANSI_CODE_MAP
+    ANSI_CODE_MAP,
+    resolveAnsiControlCodes
   };
 });
 
@@ -14326,42 +15333,460 @@ declare module 'bun:sqlite' {
     `;
   }
 
-  function renderSimpleMarkdown(md) {
-    if (!md) return '';
-    // Prevent raw custom elements from executing within markdown previews
-    const sanitizedMd = String(md).replace(/<\/?code-lab(\s[^>]*)?>/gi, (m) => escapeHtml(m));
-    if (root.Renderer && typeof root.Renderer.convertMarkdownToHTML === 'function') {
-      return root.Renderer.convertMarkdownToHTML(sanitizedMd);
+  const CALLOUT_META = {
+    NOTE: {
+      title: 'Note',
+      cls: 'codelab-callout--note',
+      svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+    },
+    TIP: {
+      title: 'Tip',
+      cls: 'codelab-callout--tip',
+      svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>'
+    },
+    IMPORTANT: {
+      title: 'Important',
+      cls: 'codelab-callout--important',
+      svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>'
+    },
+    WARNING: {
+      title: 'Warning',
+      cls: 'codelab-callout--warning',
+      svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    },
+    CAUTION: {
+      title: 'Caution',
+      cls: 'codelab-callout--caution',
+      svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>'
     }
-    const blocks = [];
-    let html = sanitizedMd.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
-      const idx = blocks.length;
-      blocks.push(`<pre><code class="lang-${lang || 'text'}">${escapeHtml(code.trim())}</code></pre>`);
-      return `\x00BLOCK_${idx}\x00`;
+  };
+
+  function highlightCode(code, lang) {
+    if (!code) return '';
+    const l = (lang || '').toLowerCase().trim();
+    if (!['js', 'javascript', 'ts', 'typescript', 'jsx', 'tsx', 'mjs', 'cjs', 'json', 'sh', 'bash', 'shell', 'zsh'].includes(l)) {
+      return escapeHtml(code);
+    }
+
+    if (['js', 'javascript', 'ts', 'typescript', 'jsx', 'tsx', 'mjs', 'cjs'].includes(l)) {
+      const JS_RE = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`)|(\b(?:const|let|var|function|return|if|else|for|while|import|export|from|class|extends|new|try|catch|finally|async|await|typeof|instanceof|switch|case|default|break|continue|interface|type|enum|as|in|of)\b)|(\b(?:true|false|null|undefined|Promise|Set|Map|Array|Object|String|Number|Boolean|Error|console|process|document|window)\b)|(\b[a-zA-Z_$][a-zA-Z0-9_$]*(?=\s*\())|(\b\d+(?:\.\d+)?\b)/g;
+      let result = '';
+      let lastIndex = 0;
+      let match;
+      while ((match = JS_RE.exec(code)) !== null) {
+        result += escapeHtml(code.slice(lastIndex, match.index));
+        const [m, comment, str, kw, type, fn, num] = match;
+        if (comment) result += `<span class="cl-tok-comment">${escapeHtml(comment)}</span>`;
+        else if (str) result += `<span class="cl-tok-string">${escapeHtml(str)}</span>`;
+        else if (kw) result += `<span class="cl-tok-keyword">${escapeHtml(kw)}</span>`;
+        else if (type) result += `<span class="cl-tok-type">${escapeHtml(type)}</span>`;
+        else if (fn) result += `<span class="cl-tok-function">${escapeHtml(fn)}</span>`;
+        else if (num) result += `<span class="cl-tok-number">${escapeHtml(num)}</span>`;
+        else result += escapeHtml(m);
+        lastIndex = JS_RE.lastIndex;
+      }
+      result += escapeHtml(code.slice(lastIndex));
+      return result;
+    }
+
+    if (l === 'json') {
+      const JSON_RE = /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g;
+      let result = '';
+      let lastIndex = 0;
+      let match;
+      while ((match = JSON_RE.exec(code)) !== null) {
+        result += escapeHtml(code.slice(lastIndex, match.index));
+        const [m, str, isKey, bool] = match;
+        if (str) {
+          if (isKey) result += `<span class="cl-tok-type">${escapeHtml(str)}</span>:`;
+          else result += `<span class="cl-tok-string">${escapeHtml(str)}</span>`;
+        } else if (bool) {
+          result += `<span class="cl-tok-keyword">${escapeHtml(bool)}</span>`;
+        } else {
+          result += `<span class="cl-tok-number">${escapeHtml(m)}</span>`;
+        }
+        lastIndex = JSON_RE.lastIndex;
+      }
+      result += escapeHtml(code.slice(lastIndex));
+      return result;
+    }
+
+    if (['sh', 'bash', 'shell', 'zsh'].includes(l)) {
+      const BASH_RE = /(#[^\n]*)|("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')|(\b(?:cd|ls|cat|mkdir|rm|cp|mv|echo|grep|find|curl|git|bun|node|npm|npx|deno|touch|chmod|chown|export)\b)|(-{1,2}[a-zA-Z0-9_-]+)/g;
+      let result = '';
+      let lastIndex = 0;
+      let match;
+      while ((match = BASH_RE.exec(code)) !== null) {
+        result += escapeHtml(code.slice(lastIndex, match.index));
+        const [m, comment, str, cmd, flag] = match;
+        if (comment) result += `<span class="cl-tok-comment">${escapeHtml(comment)}</span>`;
+        else if (str) result += `<span class="cl-tok-string">${escapeHtml(str)}</span>`;
+        else if (cmd) result += `<span class="cl-tok-keyword">${escapeHtml(cmd)}</span>`;
+        else if (flag) result += `<span class="cl-tok-number">${escapeHtml(flag)}</span>`;
+        else result += escapeHtml(m);
+        lastIndex = BASH_RE.lastIndex;
+      }
+      result += escapeHtml(code.slice(lastIndex));
+      return result;
+    }
+
+    return escapeHtml(code);
+  }
+
+  function renderCodeBlock(code, lang) {
+    const rawCode = (code || '').replace(/^\n+|\n+$/g, '');
+    const highlighted = highlightCode(rawCode, lang);
+    const langDisplay = (lang || 'TEXT').toUpperCase();
+    const encodedRaw = encodeURIComponent(rawCode);
+
+    return `<div class="codelab-code-block" data-cl-code="${encodedRaw}">` +
+      `<div class="codelab-code-block__header">` +
+        `<span class="codelab-code-block__lang">${escapeHtml(langDisplay)}</span>` +
+        `<button type="button" class="codelab-copy-code-btn" data-cl-action="copy-code" title="Copy code to clipboard">` +
+          `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>` +
+          `<span class="codelab-copy-code-btn__text">Copy</span>` +
+        `</button>` +
+      `</div>` +
+      `<pre class="codelab-code-block__pre"><code class="codelab-code-block__code lang-${escapeHtml((lang || 'text').toLowerCase())}">${highlighted}</code></pre>` +
+    `</div>`;
+  }
+
+  function splitTableRow(row) {
+    const cells = [];
+    let cur = '';
+    let esc = false;
+    const trimmed = row.trim().replace(/^\|/, '').replace(/\|$/, '');
+    for (let i = 0; i < trimmed.length; i++) {
+      const c = trimmed[i];
+      if (esc) {
+        cur += c;
+        esc = false;
+      } else if (c === '\\') {
+        esc = true;
+      } else if (c === '|') {
+        cells.push(cur.trim());
+        cur = '';
+      } else {
+        cur += c;
+      }
+    }
+    if (esc) cur += '\\';
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  function renderInlineFormatting(str) {
+    if (!str) return '';
+    let text = String(str);
+
+    // Markdown Links: [label](url "title") or [label](url)
+    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, label, url, title) => {
+      const cleanUrl = url.trim();
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+      return `<a href="${escapeHtml(cleanUrl)}" class="codelab-link" target="_blank" rel="noopener noreferrer"${titleAttr}>${label}</a>`;
     });
-    html = html
-      .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-      .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-    const paras = html.split(/\n{2,}/).map(p => {
+
+    // Autolinks: <https://...>
+    text = text.replace(/<(https?:\/\/[^>]+)>/g, (_, url) => {
+      return `<a href="${escapeHtml(url)}" class="codelab-link" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+    });
+
+    // Strikethrough: ~~del~~
+    text = text.replace(/~~([\s\S]+?)~~/g, '<del>$1</del>');
+
+    // Bold + Italic: ***text*** or ___text___
+    text = text.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    text = text.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+
+    // Bold: **text** or __text__
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+    // Italic: *text* or _text_ (ensure _ does not match inside words)
+    text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    text = text.replace(/(^|[\s(])_([^_]+)_(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>');
+
+    return text;
+  }
+
+  function renderCallout(type, bodyMd, customTitle) {
+    const meta = CALLOUT_META[type.toUpperCase()] || CALLOUT_META.NOTE;
+    const title = customTitle || meta.title;
+    const trimmed = (bodyMd || '').trim();
+    let bodyHtml = '';
+    if (trimmed) {
+      bodyHtml = trimmed.split(/\n{2,}/).map(para => {
+        const lineContent = para.trim().split('\n').map(l => renderInlineFormatting(l.trim())).join('<br>');
+        return `<p>${lineContent}</p>`;
+      }).join('');
+    }
+    return `<div class="codelab-callout ${meta.cls}">` +
+      `<div class="codelab-callout__header">` +
+        `<span class="codelab-callout__icon">${meta.svg}</span>` +
+        `<span class="codelab-callout__title">${escapeHtml(title)}</span>` +
+      `</div>` +
+      `<div class="codelab-callout__content">${bodyHtml}</div>` +
+    `</div>`;
+  }
+
+  function renderBlockquote(rawText) {
+    const trimmed = (rawText || '').trim();
+    if (!trimmed) return '<blockquote class="codelab-blockquote"></blockquote>';
+    const paras = trimmed.split(/\n{2,}/).map(p => {
+      const lineContent = p.trim().split('\n').map(l => renderInlineFormatting(l.trim())).join('<br>');
+      return `<p>${lineContent}</p>`;
+    }).join('');
+    return `<blockquote class="codelab-blockquote">${paras}</blockquote>`;
+  }
+
+  function renderTable(tableText) {
+    const rows = tableText.trim().split('\n').filter(r => r.trim().length > 0);
+    if (rows.length < 2) return tableText;
+
+    const headerCells = splitTableRow(rows[0]);
+    const delimCells = splitTableRow(rows[1]);
+    const bodyRows = rows.slice(2);
+
+    const isDelimiter = delimCells.length === headerCells.length && delimCells.length > 0 && delimCells.every(c => /^[ \t]*:?-+:?[ \t]*$/.test(c.trim()));
+    if (!isDelimiter) return tableText;
+
+    const alignments = delimCells.map(c => {
+      const s = c.trim();
+      if (s.startsWith(':') && s.endsWith(':')) return 'center';
+      if (s.endsWith(':')) return 'right';
+      if (s.startsWith(':')) return 'left';
+      return 'left';
+    });
+
+    const ths = headerCells.map((h, i) => {
+      const align = alignments[i] || 'left';
+      const style = align !== 'left' ? ` style="text-align:${align};"` : '';
+      return `<th${style}>${renderInlineFormatting(h)}</th>`;
+    }).join('');
+
+    const trs = bodyRows.map(row => {
+      const cells = splitTableRow(row);
+      const tds = headerCells.map((_, i) => {
+        const cellText = cells[i] !== undefined ? cells[i] : '';
+        const align = alignments[i] || 'left';
+        const style = align !== 'left' ? ` style="text-align:${align};"` : '';
+        return `<td${style}>${renderInlineFormatting(cellText)}</td>`;
+      }).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('\n');
+
+    return `<div class="codelab-table-wrap">` +
+      `<table class="codelab-table">` +
+        `<thead><tr>${ths}</tr></thead>` +
+        `<tbody>${trs}</tbody>` +
+      `</table>` +
+    `</div>`;
+  }
+
+  function renderListBlock(blockText, globalTaskCounter) {
+    const rawLines = blockText.split('\n');
+    const items = [];
+    let currentItem = null;
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const rawLine = rawLines[i];
+      if (!rawLine.trim()) continue;
+      const line = rawLine.replace(/\t/g, '  ');
+      const match = line.match(/^([ ]*)([-*+]|\d+\.)[ ]+(.*)$/);
+      if (match) {
+        const indent = match[1].length;
+        const marker = match[2];
+        const rest = match[3];
+        const isOrdered = /^\d+\.$/.test(marker);
+        const listType = isOrdered ? 'ol' : 'ul';
+
+        const taskMatch = rest.match(/^\[([ xX])\](?:[ ]+(.*))?$/);
+        let isTask = false;
+        let isChecked = false;
+        let content = rest;
+        if (taskMatch) {
+          isTask = true;
+          isChecked = taskMatch[1].toLowerCase() === 'x';
+          content = taskMatch[2] || '';
+        }
+
+        currentItem = {
+          indent,
+          listType,
+          isTask,
+          isChecked,
+          text: content
+        };
+        items.push(currentItem);
+      } else if (currentItem) {
+        currentItem.text += ' ' + line.trim();
+      }
+    }
+
+    if (items.length === 0) return blockText;
+
+    let html = '';
+    const stack = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const itemIndent = item.indent;
+
+      while (stack.length > 0 && stack[stack.length - 1].indent > itemIndent) {
+        const popped = stack.pop();
+        html += `</li></${popped.listType}>`;
+      }
+
+      if (stack.length === 0 || stack[stack.length - 1].indent < itemIndent) {
+        const listClass = item.isTask ? ' class="codelab-task-list"' : '';
+        html += `<${item.listType}${listClass}>`;
+        stack.push({ listType: item.listType, indent: itemIndent, isTaskList: item.isTask });
+      } else if (stack.length > 0 && stack[stack.length - 1].listType !== item.listType) {
+        const popped = stack.pop();
+        html += `</li></${popped.listType}>`;
+        const listClass = item.isTask ? ' class="codelab-task-list"' : '';
+        html += `<${item.listType}${listClass}>`;
+        stack.push({ listType: item.listType, indent: itemIndent, isTaskList: item.isTask });
+      } else {
+        html += `</li>`;
+      }
+
+      if (item.isTask) {
+        const taskIdx = globalTaskCounter.count++;
+        const checkedAttr = item.isChecked ? ' checked' : '';
+        const checkedCls = item.isChecked ? ' codelab-task-item--checked' : '';
+        html += `<li class="codelab-task-item${checkedCls}">` +
+          `<input type="checkbox" class="codelab-task-checkbox" data-cl-task-idx="${taskIdx}"${checkedAttr}>` +
+          `<span>${renderInlineFormatting(item.text)}</span>`;
+      } else {
+        html += `<li>${renderInlineFormatting(item.text)}`;
+      }
+    }
+
+    while (stack.length > 0) {
+      const popped = stack.pop();
+      html += `</li></${popped.listType}>`;
+    }
+
+    return html;
+  }
+
+  function renderSimpleMarkdown(md, options = {}) {
+    // Phase 0: Normalization & Array Joining
+    if (md === null || md === undefined) return '';
+    let text = Array.isArray(md)
+      ? md.filter(item => item !== null && item !== undefined).map(item => String(item)).join('\n\n')
+      : String(md);
+
+    if (!text.trim()) return '';
+
+    // Normalize CRLF to LF
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // Prevent raw custom elements from executing within markdown previews
+    text = text.replace(/<\/?code-lab(\s[^>]*)?>/gi, (m) => escapeHtml(m));
+
+    // Phase 1: Fenced Code Block Extraction
+    const codeBlocks = [];
+    text = text.replace(/(?:^|\n)(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n?\1[ \t]*(?=\n|$)/g, (match, fence, info, code) => {
+      const lang = (info || '').trim().split(/\s+/)[0] || '';
+      const idx = codeBlocks.length;
+      codeBlocks.push(renderCodeBlock(code || '', lang));
+      return `\n\n\x00CODEBLOCK_${idx}\x00\n\n`;
+    });
+
+    // Phase 2: Inline Code Span Extraction
+    const inlineCodes = [];
+    text = text.replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (match, fence, code) => {
+      let clean = code;
+      if (clean.startsWith(' ') && clean.endsWith(' ') && clean.trim().length > 0) {
+        clean = clean.slice(1, -1);
+      }
+      const idx = inlineCodes.length;
+      inlineCodes.push(`<code class="codelab-inline-code">${escapeHtml(clean)}</code>`);
+      return `\x00INLINECODE_${idx}\x00`;
+    });
+
+    // Phase 3: GitHub Callout Alerts & Blockquotes
+    const calloutBlocks = [];
+    text = text.replace(/(?:^[ \t]*>.*(?:\n|$))+/gm, (match) => {
+      const lines = match.split('\n').map(l => l.replace(/^[ \t]*>[ \t]?/, ''));
+      const rawBlock = lines.join('\n').trim();
+      let unnested = rawBlock;
+      let isNestedQuote = false;
+      if (/^[ \t]*>/m.test(unnested)) {
+        isNestedQuote = true;
+        unnested = unnested.split('\n').map(l => l.replace(/^[ \t]*>[ \t]?/, '')).join('\n').trim();
+      }
+      const alertMatch = unnested.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*([^\n]*)(?:\n([\s\S]*))?$/i);
+      let blockHtml = '';
+      if (alertMatch) {
+        const type = alertMatch[1].toUpperCase();
+        const customTitle = (alertMatch[2] || '').trim();
+        const body = alertMatch[3] || '';
+        blockHtml = renderCallout(type, body, customTitle);
+      } else {
+        blockHtml = renderBlockquote(unnested);
+      }
+      if (isNestedQuote) {
+        blockHtml = `<blockquote class="codelab-blockquote">${blockHtml}</blockquote>`;
+      }
+      const idx = calloutBlocks.length;
+      calloutBlocks.push(blockHtml);
+      return `\n\n\x00CALLOUT_${idx}\x00\n\n`;
+    });
+
+    // Phase 4: GFM Tables with Column Alignments
+    const tableBlocks = [];
+    text = text.replace(/(?:^|\n)([ \t]*\|?[^\n]+\|[^\n]*\n[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*(?:\n[ \t]*\|?[^\n]+\|[^\n]*)*)(?=\n|$)/g, (match, tableText) => {
+      const rendered = renderTable(tableText);
+      if (rendered === tableText) return match;
+      const idx = tableBlocks.length;
+      tableBlocks.push(rendered);
+      return `\n\n\x00TABLE_${idx}\x00\n\n`;
+    });
+
+    // Phase 5: Task Lists & Nested Lists
+    const listBlocks = [];
+    const taskCounter = { count: 0 };
+    text = text.replace(/(?:^[ ]*(?:[-*+]|\d+\.)[ ]+[^\n]*(?:\n[ ]*(?:[-*+]|\d+\.)[ ]+[^\n]*|\n[ ]{2,}[^\n]*)*)+/gm, (match) => {
+      const idx = listBlocks.length;
+      listBlocks.push(renderListBlock(match, taskCounter));
+      return `\n\n\x00LIST_${idx}\x00\n\n`;
+    });
+
+    // Phase 6: Headings, Horizontal Rules, Paragraphs & Inline Spans
+    text = text
+      .replace(/^######[ \t]+([^\n]+)$/gm, (_, h) => `<h6>${renderInlineFormatting(h)}</h6>`)
+      .replace(/^#####[ \t]+([^\n]+)$/gm, (_, h) => `<h5>${renderInlineFormatting(h)}</h5>`)
+      .replace(/^####[ \t]+([^\n]+)$/gm, (_, h) => `<h4>${renderInlineFormatting(h)}</h4>`)
+      .replace(/^###[ \t]+([^\n]+)$/gm, (_, h) => `<h3>${renderInlineFormatting(h)}</h3>`)
+      .replace(/^##[ \t]+([^\n]+)$/gm, (_, h) => `<h2>${renderInlineFormatting(h)}</h2>`)
+      .replace(/^#[ \t]+([^\n]+)$/gm, (_, h) => `<h2>${renderInlineFormatting(h)}</h2>`)
+      .replace(/^[ \t]*(?:---|\*\*\*|___)[ \t]*$/gm, '<hr class="codelab-hr">');
+
+    // Isolate block elements with double newlines
+    text = text
+      .replace(/(<h[1-6]>[\s\S]*?<\/h[1-6]>)/gi, '\n\n$1\n\n')
+      .replace(/(<hr[^>]*>)/gi, '\n\n$1\n\n');
+
+    const paras = text.split(/\n{2,}/).map(p => {
       const trimmed = p.trim();
       if (!trimmed) return '';
-      if (/^<(h[2-4]|pre|ul|ol)/.test(trimmed) || /^\x00BLOCK_\d+\x00$/.test(trimmed)) return trimmed;
-      if (/^[-*] /m.test(trimmed)) {
-        const items = trimmed.split(/\n/).map(l => `<li>${l.replace(/^[-*]\s+/, '')}</li>`).join('');
-        return `<ul>${items}</ul>`;
-      }
-      if (/^\d+\. /m.test(trimmed)) {
-        const items = trimmed.split(/\n/).map(l => `<li>${l.replace(/^\d+\.\s+/, '')}</li>`).join('');
-        return `<ol>${items}</ol>`;
-      }
-      return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
-    }).join('\n');
-    return paras.replace(/\x00BLOCK_(\d+)\x00/g, (_, i) => blocks[Number(i)]);
+      if (/^<(h[1-6]|hr|pre|div|blockquote|table|ul|ol)/i.test(trimmed)) return trimmed;
+      if (/^\x00(CODEBLOCK|CALLOUT|TABLE|LIST)_\d+\x00$/.test(trimmed)) return trimmed;
+      return `<p>${renderInlineFormatting(trimmed).replace(/\n/g, '<br>')}</p>`;
+    }).filter(Boolean).join('\n');
+
+    // Phase 7: Placeholder Restoration (Reverse order)
+    let finalHtml = paras
+      .replace(/\x00LIST_(\d+)\x00/g, (_, i) => listBlocks[Number(i)] || '')
+      .replace(/\x00TABLE_(\d+)\x00/g, (_, i) => tableBlocks[Number(i)] || '')
+      .replace(/\x00CALLOUT_(\d+)\x00/g, (_, i) => calloutBlocks[Number(i)] || '')
+      .replace(/\x00CODEBLOCK_(\d+)\x00/g, (_, i) => codeBlocks[Number(i)] || '')
+      .replace(/\x00INLINECODE_(\d+)\x00/g, (_, i) => inlineCodes[Number(i)] || '');
+
+    return finalHtml;
   }
 
   // ── Singleton Monaco Loader ──────────────────────────────────────────────
@@ -14557,7 +15982,13 @@ declare module 'bun:sqlite' {
     refresh: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
     send: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
     activity: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
-    radio: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>'
+    radio: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>',
+    arrowRight: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+    monitor: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
+    tablet: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
+    smartphone: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
+    externalLink: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+    x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
   };
 
   let _workbenchInstanceCounter = 0;
@@ -14654,7 +16085,22 @@ declare module 'bun:sqlite' {
       this.renamingItem = null;
       this._draggedFile = null;
       this.guideTab = 'steps'; // 'steps' | 'readme'
-      this.drawerTab = 'tests'; // 'tests' | 'terminal' | 'inspector'
+      this.drawerTab = 'tests'; // 'tests' | 'terminal' | 'ports' | 'preview' | 'network' | 'inspector'
+      // ── Web Preview (M3) state ──
+      this.previewState = {
+        port: null,
+        path: '/',
+        url: '',
+        frameMode: 'desktop', // 'desktop' | 'tablet' | 'mobile'
+        loading: false,
+        error: null,
+        srcdoc: ''
+      };
+      this.previewHistory = [];
+      this.previewHistoryIdx = -1;
+      this._previewSwReady = false;
+      this._previewSwRegistration = null;
+      this._portToasts = new Map();
       this.isFullscreen = false;
       this.isRunning = false;
       this.isCreatingFile = false;
@@ -14689,7 +16135,12 @@ declare module 'bun:sqlite' {
         this.openTabs = this._orderedFileNames();
       }
 
-      if (this.openTabs.length > 0) {
+      if (options.activeFile && this.files[options.activeFile] !== undefined) {
+        if (!this.openTabs.includes(options.activeFile)) {
+          this.openTabs.unshift(options.activeFile);
+        }
+        this.activeFile = options.activeFile;
+      } else if (this.openTabs.length > 0) {
         if (this.savedState?.activeFile && this.openTabs.includes(this.savedState.activeFile)) {
           this.activeFile = this.savedState.activeFile;
         } else {
@@ -14735,12 +16186,18 @@ declare module 'bun:sqlite' {
         selectedTraceId: null
       };
 
+      this._activeCommandAbortController = null;
+      this._activeStreamLine = '';
+      this._activeStreamType = 'stdout';
+      this._activeStreamEl = null;
+
       this.ptyEngine = null;
       if (typeof createPTYTerminalEngine === 'function') {
         try {
           this.ptyEngine = createPTYTerminalEngine(null, {
             cwd: this.cwd,
-            onCommand: (cmd) => this._handleReplCommand(cmd)
+            onCommand: (cmd) => this._handleReplCommand(cmd),
+            onInterrupt: () => this._handleInterrupt()
           });
         } catch (_) {}
       }
@@ -14774,6 +16231,8 @@ declare module 'bun:sqlite' {
 
     _initShell() {
       this._wrapPortTable();
+      this._initPortListeners();
+      this._registerPreviewServiceWorker();
       if (typeof createPosixShell === 'function') {
         try {
           this.shell = createPosixShell({
@@ -15306,6 +16765,10 @@ declare module 'bun:sqlite' {
                       <span>Ports</span>
                       <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview">
+                      ${CL_ICONS.externalLink || CL_ICONS.radio || ''}
+                      <span>Web Preview</span>
+                    </button>
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network">
                       ${CL_ICONS.activity}
                       <span>Network</span>
@@ -15350,6 +16813,8 @@ declare module 'bun:sqlite' {
           <!-- Solution, Diff, Command Palette & Packages Modal Container -->
           <div id="cl-modal-slot"></div>
           <div id="cl-context-menu-slot"></div>
+          <!-- Port / Web Preview Toast Notifications -->
+          <div class="codelab-toast-container" id="cl-toast-container" role="status" aria-live="polite"></div>
         </div>
       `;
 
@@ -16321,7 +17786,7 @@ declare module 'bun:sqlite' {
           })
           .join('');
         const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
-        const promptLabel = this.inRepl ? '> ' : (cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`);
+        const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
         bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface" tabindex="0"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><div class="codelab-pty__active-line" id="cl-pty-active-line"><span class="codelab-pty__prompt">${escapeHtml(promptLabel)} </span><span class="codelab-pty__before">${escapeHtml(this._ptyInputBeforeCursor || '')}</span><span class="codelab-pty__cursor blink">&#x2588;</span><span class="codelab-pty__after">${escapeHtml(this._ptyInputAfterCursor || '')}</span></div><form class="codelab-repl" id="cl-repl-form" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
         bodyEl.scrollTop = bodyEl.scrollHeight;
         const termSurface = bodyEl.querySelector('#cl-terminal-surface');
@@ -16375,18 +17840,7 @@ declare module 'bun:sqlite' {
               }
             } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
               e.preventDefault();
-              if (this.inRepl) {
-                this.inRepl = false;
-                this.terminalLogs.push({ type: 'stdout', text: '^C\nExiting REPL...' });
-              } else {
-                this.terminalLogs.push({ type: 'stdout', text: `${promptLabel} ^C` });
-              }
-              input.value = '';
-              this._ptyInputBeforeCursor = '';
-              this._ptyInputAfterCursor = '';
-              this._renderDrawerBody();
-              const nextInput = this.container.querySelector('#cl-repl-input');
-              if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
+              this._handleInterrupt();
             } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
               e.preventDefault();
               if (this.inRepl) {
@@ -16454,6 +17908,11 @@ declare module 'bun:sqlite' {
         return;
       }
 
+      if (this.drawerTab === 'preview') {
+        this._renderWebPreview(bodyEl);
+        return;
+      }
+
       if (this.drawerTab === 'network') {
         this._renderNetworkPanel(bodyEl);
         return;
@@ -16503,13 +17962,166 @@ declare module 'bun:sqlite' {
       }
     }
 
+    _appendTerminalStream(type = 'stdout', chunk = '') {
+      if (chunk === null || chunk === undefined || chunk === '') return;
+      const rawText = String(chunk);
+
+      if (this.ptyEngine && typeof this.ptyEngine.writeStreamChunk === 'function') {
+        try {
+          this.ptyEngine.writeStreamChunk(rawText, type);
+        } catch (_) {}
+      }
+
+      this._activeStreamType = type;
+      const termLogEl = this.container ? this.container.querySelector('#cl-terminal-log') : null;
+      const termSurface = this.container ? this.container.querySelector('#cl-terminal-surface') : null;
+      const drawerBody = this.container ? this.container.querySelector('.codelab-drawer__body') : null;
+
+      let i = 0;
+      while (i < rawText.length) {
+        if (rawText.startsWith('\x1b[2K', i)) {
+          this._activeStreamLine = '';
+          if (this._activeStreamEl) {
+            this._activeStreamEl.textContent = '';
+          }
+          i += 4;
+          continue;
+        }
+        if (rawText.startsWith('\x1b[0K', i)) {
+          i += 4;
+          continue;
+        }
+        if (rawText.startsWith('\x1b[K', i)) {
+          i += 3;
+          continue;
+        }
+        if (rawText.startsWith('\x1b[1A', i)) {
+          if (this._activeStreamLine === '' && this.terminalLogs.length > 0) {
+            const last = this.terminalLogs.pop();
+            this._activeStreamLine = last.text || '';
+            this._activeStreamType = last.type || 'stdout';
+            if (termLogEl && termLogEl.lastElementChild) {
+              this._activeStreamEl = termLogEl.lastElementChild;
+            }
+          }
+          i += 4;
+          continue;
+        }
+
+        const ch = rawText[i];
+        if (ch === '\r') {
+          if (i + 1 < rawText.length && rawText[i + 1] === '\n') {
+            this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
+            this._activeStreamLine = '';
+            this._activeStreamEl = null;
+            i += 2;
+            continue;
+          } else {
+            this._activeStreamLine = '';
+            i++;
+            continue;
+          }
+        } else if (ch === '\n') {
+          this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
+          this._activeStreamLine = '';
+          this._activeStreamEl = null;
+          i++;
+          continue;
+        } else {
+          this._activeStreamLine += ch;
+          i++;
+        }
+      }
+
+      if (termLogEl && typeof document !== 'undefined') {
+        if (this._activeStreamLine) {
+          const formattedHtml = ansiToHtml ? ansiToHtml(this._activeStreamLine) : escapeHtml(this._activeStreamLine);
+          if (this._activeStreamEl && this._activeStreamEl.parentNode === termLogEl) {
+            this._activeStreamEl.className = 'codelab-log-line ' + escapeHtml(this._activeStreamType || type);
+            this._activeStreamEl.innerHTML = formattedHtml;
+          } else {
+            const newEl = document.createElement('div');
+            newEl.className = 'codelab-log-line ' + escapeHtml(this._activeStreamType || type);
+            newEl.innerHTML = formattedHtml;
+            termLogEl.appendChild(newEl);
+            this._activeStreamEl = newEl;
+          }
+        }
+      }
+
+      if (termSurface) {
+        termSurface.scrollTop = termSurface.scrollHeight;
+      }
+      if (drawerBody && this.drawerTab === 'terminal') {
+        drawerBody.scrollTop = drawerBody.scrollHeight;
+      }
+    }
+
+    _flushTerminalStream() {
+      if (this._activeStreamLine) {
+        this.terminalLogs.push({
+          type: this._activeStreamType || 'stdout',
+          text: this._activeStreamLine
+        });
+        this._activeStreamLine = '';
+        this._activeStreamEl = null;
+      }
+    }
+
+    _handleInterrupt() {
+      const isCommandRunning = Boolean(this.isRunning || this._activeCommandAbortController);
+      const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
+      const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
+
+      if (isCommandRunning) {
+        if (this._activeCommandAbortController) {
+          try {
+            this._activeCommandAbortController.abort('SIGINT');
+          } catch (_) {}
+          this._activeCommandAbortController = null;
+        }
+
+        if (typeof root.CodeLabRuntime?.cancelWorkerExecution === 'function') {
+          try {
+            root.CodeLabRuntime.cancelWorkerExecution('SIGINT: Interrupted by user (Ctrl+C)', this.instanceId);
+          } catch (_) {}
+        }
+
+        this.isRunning = false;
+        this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
+        this._updateRunStateUI();
+
+        this._flushTerminalStream();
+        this.terminalLogs.push({ type: 'stdout', text: '^C' });
+      } else {
+        if (this.inRepl) {
+          this.inRepl = false;
+          this.terminalLogs.push({ type: 'stdout', text: '^C\nExiting REPL...' });
+        } else {
+          const currentInput = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
+          this.terminalLogs.push({ type: 'stdout', text: `${promptLabel} ${currentInput}^C` });
+        }
+      }
+
+      this._ptyInputBeforeCursor = '';
+      this._ptyInputAfterCursor = '';
+      this.replHistoryIdx = -1;
+
+      this._renderDrawerBody();
+      const nextInput = this.container?.querySelector?.('#cl-repl-input');
+      if (nextInput && typeof nextInput.focus === 'function') {
+        nextInput.value = '';
+        nextInput.focus();
+      }
+    }
+
     _updatePtyActiveLine() {
       if (!this.container) return;
       const beforeEl = this.container.querySelector('.codelab-pty__before');
       const afterEl = this.container.querySelector('.codelab-pty__after');
       const promptEl = this.container.querySelector('.codelab-pty__prompt');
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
-      const promptLabel = this.inRepl ? '> ' : (cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`);
+      const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
 
       if (promptEl) promptEl.textContent = promptLabel + ' ';
       if (beforeEl) beforeEl.textContent = this._ptyInputBeforeCursor || '';
@@ -16541,7 +18153,7 @@ declare module 'bun:sqlite' {
           this._updatePtyActiveLine();
         } else {
           const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
-          const promptLabel = this.inRepl ? '> ' : (cwdShort === '~' ? 'codelab$' : `codelab:${cwdShort}$`);
+          const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
           this.terminalLogs.push({ type: 'system', text: `${promptLabel} ${currentInput}` });
           this.terminalLogs.push({ type: 'stdout', text: candidates.join('  ') });
           this._renderDrawerBody();
@@ -16642,6 +18254,7 @@ declare module 'bun:sqlite' {
                     <td><code>${escapeHtml(s.service || (s.pid ? `PID ${s.pid}` : 'node'))}</code></td>
                     <td><span class="codelab-port-status codelab-port-status--listening"><span class="codelab-port-status-dot"></span>LISTENING</span></td>
                     <td style="text-align:right;white-space:nowrap;">
+                      <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--primary" data-cl-action="open-web-preview" data-port="${s.port}" data-cl-port="${s.port}">Preview</button>
                       <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="open-port-client" data-port="${s.port}" data-cl-port="${s.port}">Open in Client</button>
                       <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--danger" data-cl-action="stop-port" data-port="${s.port}" data-cl-port="${s.port}">Stop</button>
                     </td>
@@ -17094,6 +18707,338 @@ declare module 'bun:sqlite' {
       const drawer = this.container.querySelector('#cl-drawer');
       if (drawer) drawer.classList.remove('is-minimized');
       this._renderDrawerBody();
+    }
+
+    // ── M3: Virtual port listeners, toast notifications & dual Web Preview ────
+
+    _initPortListeners() {
+      if (!this.portTable || typeof this.portTable.on !== 'function' || this._portListenersBound) return;
+      this._portListenersBound = true;
+      this._portListenerUnsubs = [];
+      try {
+        this._portListenerUnsubs.push(this.portTable.on('listen', (entry) => {
+          this._updatePortsPill();
+          if (this.drawerTab === 'ports') this._renderDrawerBody();
+          if (entry && entry.port !== undefined) this._showPortToast(entry);
+        }));
+        this._portListenerUnsubs.push(this.portTable.on('close', (port) => {
+          this._updatePortsPill();
+          if (this.drawerTab === 'ports') this._renderDrawerBody();
+          this._dismissPortToast(port);
+        }));
+      } catch (_) {}
+    }
+
+    _updatePortsPill() {
+      const pill = this.container ? this.container.querySelector('#cl-ports-pill') : null;
+      if (!pill) return;
+      const count = (this.portTable && typeof this.portTable.listServers === 'function')
+        ? this.portTable.listServers().length
+        : 0;
+      pill.textContent = `${count} open`;
+    }
+
+    _showPortToast(entry) {
+      const toastHost = this.container ? this.container.querySelector('#cl-toast-container') : null;
+      if (!toastHost) return;
+      const port = Number(entry.port);
+      this._dismissPortToast(port);
+      const toast = document.createElement('div');
+      toast.className = 'codelab-toast codelab-toast--port';
+      toast.setAttribute('data-cl-port', String(port));
+      toast.innerHTML = `
+        <div class="codelab-toast__icon">${CL_ICONS.radio || ''}</div>
+        <div class="codelab-toast__body">
+          <div class="codelab-toast__title">Server listening on port ${port}</div>
+          <div class="codelab-toast__meta">${escapeHtml(entry.name || 'http-server')} · http://127.0.0.1:${port}/</div>
+          <div class="codelab-toast__actions">
+            <button type="button" class="codelab-btn codelab-btn--primary codelab-btn--sm" data-cl-action="open-web-preview" data-port="${port}">Open Web Preview</button>
+          </div>
+        </div>
+        <button type="button" class="codelab-toast__close" data-cl-action="dismiss-toast" data-port="${port}" aria-label="Dismiss notification">${CL_ICONS.x || '×'}</button>
+      `;
+      toastHost.appendChild(toast);
+      const timer = setTimeout(() => this._dismissPortToast(port), 8000);
+      this._portToasts.set(port, { toast, timer });
+    }
+
+    _dismissPortToast(port) {
+      const p = Number(port);
+      const rec = this._portToasts.get(p);
+      if (!rec) return;
+      if (rec.timer) clearTimeout(rec.timer);
+      if (rec.toast && typeof rec.toast.remove === 'function') rec.toast.remove();
+      else if (rec.toast && rec.toast.parentNode) rec.toast.parentNode.removeChild(rec.toast);
+      this._portToasts.delete(p);
+    }
+
+    _registerPreviewServiceWorker() {
+      if (typeof navigator === 'undefined' || !navigator.serviceWorker || typeof navigator.serviceWorker.register !== 'function') return;
+      const url = (this.options && this.options.previewSwUrl) || 'preview-sw.js';
+      try {
+        const onMessage = (event) => this._handleServiceWorkerMessage(event);
+        if (typeof navigator.serviceWorker.addEventListener === 'function') {
+          navigator.serviceWorker.addEventListener('message', onMessage);
+        } else {
+          navigator.serviceWorker.onmessage = onMessage;
+        }
+        navigator.serviceWorker.register(url, { scope: (this.options && this.options.previewSwScope) || './' })
+          .then((reg) => { this._previewSwRegistration = reg; this._previewSwReady = true; })
+          .catch(() => { this._previewSwReady = false; });
+      } catch (_) {
+        this._previewSwReady = false;
+      }
+    }
+
+    _handleServiceWorkerMessage(event) {
+      const data = event && event.data;
+      if (!data || data.type !== 'CODELAB_SW_DISPATCH') return;
+      const replyPort = event.ports && event.ports[0];
+      if (!replyPort) return;
+      this._dispatchPreviewRequest(data)
+        .then((res) => replyPort.postMessage(res))
+        .catch((err) => replyPort.postMessage({
+          status: 500,
+          statusText: 'Workbench Error',
+          headers: { 'Content-Type': 'text/plain' },
+          body: `Virtual dispatch failed: ${String((err && err.message) || err)}`
+        }));
+    }
+
+    async _dispatchPreviewRequest({ port, url, method = 'GET', headers = {}, body = null }) {
+      const targetUrl = url || `http://127.0.0.1:${port}/`;
+      const init = { method, headers: headers || {} };
+      if (body !== null && body !== undefined && !['GET', 'HEAD'].includes(String(method).toUpperCase())) {
+        init.body = body;
+      }
+      const res = await this.portTable.dispatchRequest(targetUrl, init);
+      const outHeaders = {};
+      try {
+        if (res && res.headers && typeof res.headers.forEach === 'function') {
+          res.headers.forEach((v, k) => { outHeaders[k] = v; });
+        } else if (res && res.headers) {
+          Object.assign(outHeaders, res.headers);
+        }
+      } catch (_) {}
+      let bodyText = '';
+      try {
+        bodyText = res && typeof res.text === 'function' ? await res.text() : String((res && res.body) || '');
+      } catch (_) {}
+      return {
+        status: (res && res.status) || 200,
+        statusText: (res && res.statusText) || 'OK',
+        headers: outHeaders,
+        body: bodyText
+      };
+    }
+
+    _firstListeningPort() {
+      const servers = (this.portTable && typeof this.portTable.listServers === 'function')
+        ? this.portTable.listServers()
+        : [];
+      return servers.length ? Number(servers[0].port) : null;
+    }
+
+    _previewUrl() {
+      const st = this.previewState;
+      const port = st.port || this._firstListeningPort() || 3000;
+      const path = st.path && st.path.startsWith('/') ? st.path : '/' + (st.path || '');
+      return `http://127.0.0.1:${port}${path}`;
+    }
+
+    _openWebPreview(port, path = '/') {
+      const p = Number(port) || this._firstListeningPort() || 3000;
+      this.previewState.port = p;
+      this.previewState.path = path || '/';
+      this.previewState.url = `http://127.0.0.1:${p}${this.previewState.path}`;
+      this.previewState.error = null;
+      this.previewHistory = this.previewHistory.slice(0, this.previewHistoryIdx + 1);
+      this.previewHistory.push(this.previewState.url);
+      this.previewHistoryIdx = this.previewHistory.length - 1;
+      this.switchDrawerTab('preview');
+      return this._previewLoadPromise || Promise.resolve();
+    }
+
+    _previewGo(urlOrPath) {
+      let url = String(urlOrPath || '').trim();
+      if (!url) return Promise.resolve();
+      if (!/^https?:\/\//i.test(url)) {
+        url = `http://127.0.0.1:${this.previewState.port || this._firstListeningPort() || 3000}${url.startsWith('/') ? '' : '/'}${url}`;
+      }
+      let port = this.previewState.port;
+      let path = '/';
+      try {
+        const u = new URL(url);
+        port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+        path = u.pathname + (u.search || '') + (u.hash || '');
+      } catch (_) {}
+      this.previewState.port = port;
+      this.previewState.path = path;
+      this.previewState.url = url;
+      this.previewState.error = null;
+      this.previewHistory = this.previewHistory.slice(0, this.previewHistoryIdx + 1);
+      this.previewHistory.push(url);
+      this.previewHistoryIdx = this.previewHistory.length - 1;
+      this.switchDrawerTab('preview');
+      return this._previewLoadPromise || Promise.resolve();
+    }
+
+    _previewBack() {
+      if (this.previewHistoryIdx <= 0) return;
+      this.previewHistoryIdx -= 1;
+      this._applyPreviewHistory();
+    }
+
+    _previewForward() {
+      if (this.previewHistoryIdx >= this.previewHistory.length - 1) return;
+      this.previewHistoryIdx += 1;
+      this._applyPreviewHistory();
+    }
+
+    _applyPreviewHistory() {
+      const url = this.previewHistory[this.previewHistoryIdx];
+      if (!url) return;
+      this.previewState.url = url;
+      try {
+        const u = new URL(url);
+        this.previewState.port = Number(u.port || 80);
+        this.previewState.path = u.pathname + (u.search || '');
+      } catch (_) {}
+      const input = this.container.querySelector('#cl-preview-url-input');
+      if (input) input.value = url;
+      this._renderWebPreviewControls();
+      return this._loadPreviewFrame();
+    }
+
+    _previewReload() {
+      return this._loadPreviewFrame();
+    }
+
+    _previewSetFrameMode(mode) {
+      if (!['desktop', 'tablet', 'mobile'].includes(mode)) return;
+      this.previewState.frameMode = mode;
+      this._renderDrawerBody();
+    }
+
+    _renderWebPreviewControls() {
+      const viewport = this.container.querySelector('#cl-preview-viewport');
+      if (viewport) {
+        viewport.className = `codelab-preview-viewport codelab-preview-viewport--${this.previewState.frameMode}`;
+      }
+      const backBtn = this.container.querySelector('[data-cl-action="preview-back"]');
+      if (backBtn) backBtn.disabled = this.previewHistoryIdx <= 0;
+      const fwdBtn = this.container.querySelector('[data-cl-action="preview-forward"]');
+      if (fwdBtn) fwdBtn.disabled = this.previewHistoryIdx >= this.previewHistory.length - 1;
+    }
+
+    _popoutPreview() {
+      const url = this._previewUrl();
+      let popout = '/__preview/';
+      try {
+        const u = new URL(url);
+        popout = `/__preview/${u.port}${u.pathname}${u.search || ''}`;
+      } catch (_) {}
+      if (typeof window !== 'undefined' && typeof window.open === 'function') {
+        try { window.open(popout, '_blank', 'noopener'); } catch (_) {}
+      }
+      return popout;
+    }
+
+    _renderWebPreview(bodyEl) {
+      if (!bodyEl) return;
+      const renderKey = `${this.previewState.port}|${this.previewState.path}|${this.previewState.frameMode}|${this._previewSwReady}`;
+      if (bodyEl.querySelector && bodyEl.querySelector('.codelab-preview') && this._previewRenderKey === renderKey) {
+        this._renderWebPreviewControls();
+        return;
+      }
+      this._previewRenderKey = renderKey;
+
+      const servers = (this.portTable && typeof this.portTable.listServers === 'function')
+        ? this.portTable.listServers()
+        : [];
+      if (!this.previewState.port) {
+        this.previewState.port = servers.length ? Number(servers[0].port) : null;
+      }
+      this.previewState.url = this._previewUrl();
+
+      const portOptions = servers.length
+        ? servers.map(s => `<option value="${s.port}" ${Number(s.port) === Number(this.previewState.port) ? 'selected' : ''}>Port ${s.port} · ${escapeHtml(s.name || 'server')}</option>`).join('')
+        : `<option value="${this.previewState.port || 3000}">Port ${this.previewState.port || 3000}</option>`;
+
+      bodyEl.innerHTML = `
+        <div class="codelab-preview">
+          <div class="codelab-preview-chrome">
+            <div class="codelab-preview-nav">
+              <button type="button" class="codelab-preview-btn" data-cl-action="preview-back" title="Back" ${this.previewHistoryIdx <= 0 ? 'disabled' : ''}>${CL_ICONS.arrowLeft || '←'}</button>
+              <button type="button" class="codelab-preview-btn" data-cl-action="preview-forward" title="Forward" ${this.previewHistoryIdx >= this.previewHistory.length - 1 ? 'disabled' : ''}>${CL_ICONS.arrowRight || '→'}</button>
+              <button type="button" class="codelab-preview-btn" data-cl-action="preview-reload" title="Reload">${CL_ICONS.refresh || '⟳'}</button>
+            </div>
+            <select class="codelab-preview-port-select" data-cl-action="preview-port-change" aria-label="Preview port">${portOptions}</select>
+            <input type="text" class="codelab-preview-url-input" id="cl-preview-url-input" value="${escapeHtml(this.previewState.url)}" placeholder="http://127.0.0.1:3000/" aria-label="Preview URL" />
+            <div class="codelab-preview-modes">
+              <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'desktop' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="desktop" title="Desktop">${CL_ICONS.monitor || '▭'}</button>
+              <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'tablet' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="tablet" title="Tablet">${CL_ICONS.tablet || '▢'}</button>
+              <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'mobile' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="mobile" title="Mobile">${CL_ICONS.smartphone || '▯'}</button>
+            </div>
+            <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="preview-popout" title="Open in a new browser tab">${CL_ICONS.externalLink || '↗'} <span>Pop Out</span></button>
+          </div>
+          <div class="codelab-preview-viewport codelab-preview-viewport--${this.previewState.frameMode}" id="cl-preview-viewport">
+            <iframe class="codelab-preview-iframe" id="cl-preview-iframe" sandbox="allow-scripts allow-forms allow-same-origin allow-modals" title="Web Preview"></iframe>
+          </div>
+          <div class="codelab-preview-hint">${servers.length ? 'Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.' : 'No listening ports detected. Run a server (e.g. <code>node server.js &amp;</code>) to bind a virtual port.'}</div>
+        </div>
+      `;
+      this._loadPreviewFrame();
+    }
+
+    _loadPreviewFrame() {
+      this._previewLoadPromise = this._performPreviewLoad();
+      return this._previewLoadPromise;
+    }
+
+    _performPreviewLoad() {
+      const iframe = this.container.querySelector('#cl-preview-iframe');
+      if (!iframe) return Promise.resolve();
+      const port = this.previewState.port;
+      if (!port) {
+        this.previewState.error = 'No port selected';
+        return Promise.resolve();
+      }
+      const fullUrl = this._previewUrl();
+      this.previewState.loading = true;
+      this.previewState.error = null;
+
+      if (this._previewSwReady) {
+        try {
+          const u = new URL(fullUrl);
+          if (typeof iframe.removeAttribute === 'function') iframe.removeAttribute('srcdoc');
+          iframe.setAttribute('src', `/__preview/${u.port}${u.pathname}${u.search || ''}`);
+          this.previewState.loading = false;
+          return Promise.resolve();
+        } catch (_) {}
+      }
+
+      // Fallback (no Service Worker): dispatch via the virtual port table and
+      // inline the response with an injected <base> for relative asset URLs.
+      return this._dispatchPreviewRequest({ port, url: fullUrl, method: 'GET' })
+        .then((res) => {
+          let body = res.body || '';
+          const contentType = res.headers['content-type'] || res.headers['Content-Type'] || '';
+          if (/text\/html/i.test(contentType) && /<head\b/i.test(body) && !/<base\b/i.test(body)) {
+            body = body.replace(/<head\b[^>]*>/i, (m) => `${m}<base href="/__preview/${port}/">`);
+          }
+          this.previewState.srcdoc = body;
+          this.previewState.loading = false;
+          if (typeof iframe.removeAttribute === 'function') iframe.removeAttribute('src');
+          iframe.setAttribute('srcdoc', body);
+          return res;
+        })
+        .catch((err) => {
+          this.previewState.loading = false;
+          this.previewState.error = String((err && err.message) || err);
+          const msg = `<body style="font-family:system-ui;padding:24px;color:#888"><h2>Preview unavailable</h2><p>${escapeHtml(this.previewState.error)}</p></body>`;
+          iframe.setAttribute('srcdoc', msg);
+        });
     }
 
     _syncVfsSnapshot(fsSnapshot, syncDeletionsFromShell = false) {
@@ -17640,6 +19585,14 @@ declare module 'bun:sqlite' {
 
       this.container.addEventListener('keydown', e => {
         const keyLower = (e.key || '').toLowerCase();
+        const previewInput = e.target && typeof e.target.closest === 'function'
+          ? e.target.closest('#cl-preview-url-input')
+          : null;
+        if (previewInput && e.key === 'Enter') {
+          e.preventDefault();
+          this._previewGo(previewInput.value);
+          return;
+        }
         if (e.key === 'F1' || ((e.metaKey || e.ctrlKey) && e.shiftKey && keyLower === 'p')) {
           e.preventDefault();
           this.openCommandPalette('commands');
@@ -17649,6 +19602,14 @@ declare module 'bun:sqlite' {
           e.preventDefault();
           this.openCommandPalette('files');
           return;
+        }
+        if ((e.metaKey || e.ctrlKey) && keyLower === 'c') {
+          const hasSelection = typeof window !== 'undefined' && window.getSelection && window.getSelection().toString().length > 0;
+          if (!hasSelection && (this.isRunning || this._activeCommandAbortController)) {
+            e.preventDefault();
+            this._handleInterrupt();
+            return;
+          }
         }
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
           e.preventDefault();
@@ -17773,6 +19734,62 @@ declare module 'bun:sqlite' {
 
         if (e.target.classList && (e.target.classList.contains('codelab-palette-backdrop') || e.target.classList.contains('codelab-modal-backdrop'))) {
           this.closeModal();
+          return;
+        }
+
+        const copyBtn = e.target.closest('[data-cl-action="copy-code"], .codelab-copy-code-btn');
+        if (copyBtn) {
+          e.stopPropagation();
+          const block = copyBtn.closest('.codelab-code-block');
+          let rawCode = '';
+          if (block && block.dataset.clCode) {
+            try {
+              rawCode = decodeURIComponent(block.dataset.clCode);
+            } catch (_) {
+              rawCode = block.dataset.clCode;
+            }
+          } else if (block) {
+            const codeEl = block.querySelector('code');
+            rawCode = codeEl ? codeEl.textContent : '';
+          }
+
+          const doSuccessFeedback = () => {
+            copyBtn.classList.add('copied');
+            const textSpan = copyBtn.querySelector('.codelab-copy-code-btn__text');
+            const originalText = textSpan ? textSpan.textContent : 'Copy';
+            if (textSpan) textSpan.textContent = 'Copied!';
+            if (copyBtn._copyTimeout) clearTimeout(copyBtn._copyTimeout);
+            copyBtn._copyTimeout = setTimeout(() => {
+              copyBtn.classList.remove('copied');
+              if (textSpan) textSpan.textContent = originalText;
+              copyBtn._copyTimeout = null;
+            }, 2000);
+          };
+
+          const copyFallback = (text) => {
+            try {
+              const textarea = document.createElement('textarea');
+              textarea.value = text;
+              textarea.style.position = 'fixed';
+              textarea.style.top = '-9999px';
+              textarea.style.left = '-9999px';
+              textarea.style.opacity = '0';
+              document.body.appendChild(textarea);
+              textarea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textarea);
+            } catch (_) {}
+          };
+
+          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(rawCode).then(doSuccessFeedback).catch(() => {
+              copyFallback(rawCode);
+              doSuccessFeedback();
+            });
+          } else {
+            copyFallback(rawCode);
+            doSuccessFeedback();
+          }
           return;
         }
 
@@ -17958,6 +19975,21 @@ declare module 'bun:sqlite' {
           } else if (action === 'toggle-hint') {
             const box = this.container.querySelector('#cl-hint-box');
             if (box) box.classList.toggle('open');
+          } else if (action === 'open-web-preview') {
+            const port = Number(actionBtn.dataset.port || actionBtn.dataset.clPort);
+            if (port) this._openWebPreview(port);
+          } else if (action === 'dismiss-toast') {
+            this._dismissPortToast(actionBtn.dataset.port);
+          } else if (action === 'preview-back') {
+            this._previewBack();
+          } else if (action === 'preview-forward') {
+            this._previewForward();
+          } else if (action === 'preview-reload') {
+            this._previewReload();
+          } else if (action === 'preview-mode') {
+            this._previewSetFrameMode(actionBtn.dataset.mode);
+          } else if (action === 'preview-popout') {
+            this._popoutPreview();
           } else if (action === 'open-port-client') {
             const port = actionBtn.dataset.port;
             if (port) {
@@ -17998,6 +20030,31 @@ declare module 'bun:sqlite' {
           const folder = folderItem.dataset.clFolder;
           if (folder) this.toggleFolder(folder);
           return;
+        }
+      });
+
+      this.container.addEventListener('change', e => {
+        const previewPortSelect = e.target && typeof e.target.closest === 'function'
+          ? e.target.closest('[data-cl-action="preview-port-change"]')
+          : null;
+        if (previewPortSelect) {
+          this._openWebPreview(Number(previewPortSelect.value));
+          return;
+        }
+        const checkbox = e.target.closest('.codelab-task-checkbox');
+        if (checkbox) {
+          const isChecked = checkbox.checked;
+          const taskItem = checkbox.closest('.codelab-task-item');
+          if (taskItem) {
+            taskItem.classList.toggle('codelab-task-item--checked', isChecked);
+          }
+
+          if (this.activeFile && this.activeFile.endsWith('.md') && checkbox.closest('#cl-md-preview')) {
+            const taskIdx = Number(checkbox.dataset.clTaskIdx);
+            if (!Number.isNaN(taskIdx)) {
+              this._toggleMarkdownTask(this.activeFile, taskIdx, isChecked);
+            }
+          }
         }
       });
     }
@@ -18622,12 +20679,7 @@ declare module 'bun:sqlite' {
     }
 
     stopExecution() {
-      if (typeof root.CodeLabRuntime?.cancelWorkerExecution === 'function') {
-        root.CodeLabRuntime.cancelWorkerExecution('Execution stopped by user', this.instanceId);
-      }
-      this.isRunning = false;
-      this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
-      this._updateRunStateUI();
+      this._handleInterrupt();
     }
 
     resetLab() {
@@ -18817,7 +20869,13 @@ declare module 'bun:sqlite' {
     // ── Execution Engine (Web Worker + Virtual Node Runtime) ───────────────
     async _executeRuntime(execOptions) {
       const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const payload = { ...execOptions, instanceId: this.instanceId };
+      const payload = {
+        ...execOptions,
+        instanceId: this.instanceId,
+        onStdout: execOptions.onStdout || ((chunk) => this._appendTerminalStream('stdout', chunk)),
+        onStderr: execOptions.onStderr || ((chunk) => this._appendTerminalStream('stderr', chunk)),
+        signal: execOptions.signal || this._activeCommandAbortController?.signal
+      };
       try {
         if (typeof root.CodeLabRuntime?.preloadNpmPackages === 'function' && payload && payload.files) {
           const rawDetected = this._detectPackages();
@@ -18866,17 +20924,32 @@ declare module 'bun:sqlite' {
       this.terminalLogs.push({ type: 'system', text: `\n$ node ${entry}` });
       this._renderDrawerBody();
 
+      const abortCtrl = new AbortController();
+      this._activeCommandAbortController = abortCtrl;
+      let streamedStdout = false;
+      let streamedStderr = false;
+
       try {
         const res = await this._executeRuntime({
           files: { ...this.files },
           entry,
-          mode: 'run'
+          mode: 'run',
+          signal: abortCtrl.signal,
+          onStdout: (c) => {
+            streamedStdout = true;
+            this._appendTerminalStream('stdout', c);
+          },
+          onStderr: (c) => {
+            streamedStderr = true;
+            this._appendTerminalStream('stderr', c);
+          }
         });
+        this._flushTerminalStream();
 
-        if (res.stdout) {
+        if (!streamedStdout && res.stdout) {
           this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
-        if (res.stderr) {
+        if (!streamedStderr && res.stderr) {
           this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (res.error) {
@@ -18890,8 +20963,12 @@ declare module 'bun:sqlite' {
         }
         this._emitEvent('codelab:run', { labId: this.labId, mode: 'run', entry, result: res });
       } catch (err) {
+        this._flushTerminalStream();
         this.terminalLogs.push({ type: 'stderr', text: `Execution error: ${formatErrorText(err)}` });
       } finally {
+        if (this._activeCommandAbortController === abortCtrl) {
+          this._activeCommandAbortController = null;
+        }
         this.isRunning = false;
         this._updateRunStateUI();
       }
@@ -18914,22 +20991,37 @@ declare module 'bun:sqlite' {
       this.drawerTab = 'tests';
       this.terminalLogs.push({ type: 'system', text: `\n$ node ${entry}` });
 
+      const abortCtrl = new AbortController();
+      this._activeCommandAbortController = abortCtrl;
+      let streamedStdout = false;
+      let streamedStderr = false;
+
       try {
         const res = await this._executeRuntime({
           files: { ...this.files },
           entry,
           mode: 'test',
-          testFilter: filterTestNames
+          testFilter: filterTestNames,
+          signal: abortCtrl.signal,
+          onStdout: (c) => {
+            streamedStdout = true;
+            this._appendTerminalStream('stdout', c);
+          },
+          onStderr: (c) => {
+            streamedStderr = true;
+            this._appendTerminalStream('stderr', c);
+          }
         });
+        this._flushTerminalStream();
 
         this.lastTestResults = res.testResults || [];
         this.lastFsSnapshot = res.fsSnapshot || [];
         this.lastHttpTrace = res.httpTrace || [];
 
-        if (res.stdout) {
+        if (!streamedStdout && res.stdout) {
           this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
-        if (res.stderr) {
+        if (!streamedStderr && res.stderr) {
           this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (res.error) {
@@ -18982,8 +21074,12 @@ declare module 'bun:sqlite' {
           }
         }
       } catch (err) {
+        this._flushTerminalStream();
         this.terminalLogs.push({ type: 'stderr', text: `Test runner error: ${formatErrorText(err)}` });
       } finally {
+        if (this._activeCommandAbortController === abortCtrl) {
+          this._activeCommandAbortController = null;
+        }
         this.isRunning = false;
         this._updateRunStateUI();
       }
@@ -19030,7 +21126,8 @@ declare module 'bun:sqlite' {
         this.replHistory.push(trimmed);
       }
       this.replHistoryIdx = -1;
-      const promptPrefix = this.inRepl ? '> ' : `codelab:${this.cwd === '/workspace' ? '~' : this.cwd}$ `;
+      const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
+      const promptPrefix = this.inRepl ? '> ' : `codelab:${cwdShort}$ `;
       this.terminalLogs.push({ type: 'system', text: `${promptPrefix}${trimmed}` });
 
       if (this.inRepl) {
@@ -19053,21 +21150,38 @@ declare module 'bun:sqlite' {
           this._renderDrawerBody();
           return;
         }
+        const abortCtrl = new AbortController();
+        this._activeCommandAbortController = abortCtrl;
+        this.isRunning = true;
+        this._updateRunStateUI();
+        let streamedStdout = false;
+        let streamedStderr = false;
         try {
           const res = await this._executeRuntime({
             files: { ...this.files },
             mode: 'repl',
-            replCode: trimmed
+            replCode: trimmed,
+            signal: abortCtrl.signal,
+            onStdout: (c) => { streamedStdout = true; this._appendTerminalStream('stdout', c); },
+            onStderr: (c) => { streamedStderr = true; this._appendTerminalStream('stderr', c); }
           });
+          this._flushTerminalStream();
           const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
-          if (cleanStdout) this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
-          if (res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          if (!streamedStdout && cleanStdout) this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
+          if (!streamedStderr && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
           if (res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
             this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
           }
           if (res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
         } catch (err) {
+          this._flushTerminalStream();
           this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+        } finally {
+          if (this._activeCommandAbortController === abortCtrl) {
+            this._activeCommandAbortController = null;
+          }
+          this.isRunning = false;
+          this._updateRunStateUI();
         }
         this._renderDrawerBody();
         return;
@@ -19097,10 +21211,29 @@ declare module 'bun:sqlite' {
         || /^[a-zA-Z_$][\w$]*\s*(\.|===|!==|==|!=|<=|>=|\+=|-=|\*=|\(|\+\+|--)/.test(trimmed);
 
       if (this.shell && typeof this.shell.execute === 'function' && !looksLikeJsExpr) {
+        const abortCtrl = new AbortController();
+        this._activeCommandAbortController = abortCtrl;
+        this.isRunning = true;
+        this._updateRunStateUI();
+        let streamedStdout = false;
+        let streamedStderr = false;
+        const logsCountBefore = this.terminalLogs.length;
+
         try {
           this._syncFilesToShellVfs();
           this.shell.cwd = this.cwd || '/workspace';
-          const shellRes = await this.shell.execute(trimmed);
+          const shellRes = await this.shell.execute(trimmed, {
+            onStdout: (c) => {
+              streamedStdout = true;
+              this._appendTerminalStream('stdout', c);
+            },
+            onStderr: (c) => {
+              streamedStderr = true;
+              this._appendTerminalStream('stderr', c);
+            },
+            signal: abortCtrl.signal
+          });
+          this._flushTerminalStream();
           this.cwd = this.shell.cwd || this.cwd;
           this._syncVfsSnapshot(null, true);
 
@@ -19111,40 +21244,72 @@ declare module 'bun:sqlite' {
           }
           if (shellRes && shellRes.interactiveRepl) {
             this.inRepl = true;
-            if (shellRes.stdout) this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+            if (shellRes.stdout && !streamedStdout) {
+              this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+            }
             this._renderDrawerBody();
             return;
           }
+
           const isCmdNotFound = shellRes && shellRes.exitCode === 127 && typeof shellRes.stderr === 'string' && shellRes.stderr.includes('command not found');
           if (!isCmdNotFound) {
-            if (shellRes && shellRes.stdout) {
+            if (shellRes && shellRes.stdout && !streamedStdout) {
               this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
             }
-            if (shellRes && shellRes.stderr) {
+            if (shellRes && shellRes.stderr && !streamedStderr) {
               this.terminalLogs.push({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') });
             }
             this._renderDrawerBody();
             return;
+          } else {
+            // Roll back any temporary output from command not found so JS evaluation fallback can run cleanly
+            this.terminalLogs.splice(logsCountBefore);
+            this._activeStreamLine = '';
+            this._activeStreamEl = null;
           }
         } catch (err) {
+          this._flushTerminalStream();
           this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
           this._renderDrawerBody();
           return;
+        } finally {
+          if (this._activeCommandAbortController === abortCtrl) {
+            this._activeCommandAbortController = null;
+          }
+          this.isRunning = false;
+          this._updateRunStateUI();
         }
       }
 
       // Fallback: Evaluate arbitrary JS/TS expression in the Virtual Runtime
+      const fallbackAbortCtrl = new AbortController();
+      this._activeCommandAbortController = fallbackAbortCtrl;
+      this.isRunning = true;
+      this._updateRunStateUI();
+      let streamedFallbackStdout = false;
+      let streamedFallbackStderr = false;
+
       try {
         const res = await this._executeRuntime({
           files: { ...this.files },
           mode: 'repl',
-          replCode: trimmed
+          replCode: trimmed,
+          signal: fallbackAbortCtrl.signal,
+          onStdout: (c) => {
+            streamedFallbackStdout = true;
+            this._appendTerminalStream('stdout', c);
+          },
+          onStderr: (c) => {
+            streamedFallbackStderr = true;
+            this._appendTerminalStream('stderr', c);
+          }
         });
+        this._flushTerminalStream();
         const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
-        if (cleanStdout) {
+        if (!streamedFallbackStdout && cleanStdout) {
           this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
         }
-        if (res.stderr) {
+        if (!streamedFallbackStderr && res.stderr) {
           this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
@@ -19159,7 +21324,14 @@ declare module 'bun:sqlite' {
           }
         }
       } catch (err) {
+        this._flushTerminalStream();
         this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+      } finally {
+        if (this._activeCommandAbortController === fallbackAbortCtrl) {
+          this._activeCommandAbortController = null;
+        }
+        this.isRunning = false;
+        this._updateRunStateUI();
       }
       this._renderDrawerBody();
     }
@@ -19297,6 +21469,50 @@ declare module 'bun:sqlite' {
       }
       this._notifyCodeChange(clean, this.files[clean]);
       this._syncActiveFileToView();
+    }
+
+    _toggleMarkdownTask(filename, targetTaskIdx, newCheckedState) {
+      const clean = String(filename || '').trim().replace(/^\/+/, '');
+      let content = this.files[clean] || '';
+
+      // Mask fenced code blocks so code snippets don't falsely increment task index
+      const codeFenceBlocks = [];
+      const maskedContent = content.replace(/(?:^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n?\1[ \t]*(?=\n|$)/g, (m) => {
+        const id = codeFenceBlocks.length;
+        codeFenceBlocks.push(m);
+        return `\x00MASKED_CODE_${id}\x00`;
+      });
+
+      let currentIdx = 0;
+      const updatedMasked = maskedContent.replace(/^([ \t]*(?:[-*+]|\d+\.)[ \t]+\[)([ xX])(\][ \t]+.*)$/gm, (match, prefix, state, suffix) => {
+        if (currentIdx === targetTaskIdx) {
+          currentIdx++;
+          return `${prefix}${newCheckedState ? 'x' : ' '}${suffix}`;
+        }
+        currentIdx++;
+        return match;
+      });
+
+      const updated = updatedMasked.replace(/\x00MASKED_CODE_(\d+)\x00/g, (_, i) => codeFenceBlocks[Number(i)]);
+
+      if (updated !== content) {
+        this.files[clean] = updated;
+        this._saveState();
+        const model = this._getOrCreateModel(clean);
+        if (model && typeof model.setValue === 'function' && model.getValue() !== updated) {
+          model.setValue(updated);
+        }
+        const fallbackEl = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
+        if (fallbackEl && this.activeFile === clean) {
+          fallbackEl.value = updated;
+        }
+        if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFile === 'function') {
+          try {
+            this.shell.vfs.writeFile('/workspace/' + clean, updated);
+          } catch (_) {}
+        }
+        this._notifyCodeChange(clean, updated);
+      }
     }
 
     getOpenTabs() {
@@ -19650,6 +21866,8 @@ declare module 'bun:sqlite' {
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,
+    renderMarkdown: renderSimpleMarkdown,
+    renderSimpleMarkdown: renderSimpleMarkdown,
     extensions: {
       guidedLab: null
     },
@@ -19665,6 +21883,9 @@ declare module 'bun:sqlite' {
       }
     }
   };
+
+  CodeLabWorkbench.prototype.renderMarkdown = renderSimpleMarkdown;
+  CodeLabWorkbench.prototype.renderSimpleMarkdown = renderSimpleMarkdown;
 
   root.CodeLab = CodeLabSDK;
   root.CodeLabWorkbench = CodeLabWorkbench;

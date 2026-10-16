@@ -60,6 +60,8 @@ It is designed around two strictly decoupled layers that can be used together (`
 ### 1.4 Virtual Port Table & Loopback Networking (`createVirtualPortTable`)
 - `VirtualPortTable` coordinates active listeners across `http.createServer().listen(port)`, `net.createServer().listen(port)`, and `Bun.serve({ port })`.
 - Loopback requests from `fetch('http://localhost:PORT/...')`, `http.request()`, `curl`, and the Workbench's Mini HTTP Client are routed in-memory with zero network latency and recorded in the HTTP/TCP trace log.
+- Emits `listen` / `close` lifecycle events via `on(event, fn)`, `off(event, fn)`, and `emit(event, ...args)`, letting the Workbench react instantly when a script binds or releases a port.
+- Exposes `unregister(port)` as an alias of `unregisterServer(port)` for the drawer "Stop" control.
 
 ---
 
@@ -88,12 +90,14 @@ It is designed around two strictly decoupled layers that can be used together (`
 `CodeLabWorkbench` and `<code-lab>` provide the full visual IDE experience:
 - **Guided Challenge & Reference Sandbox Modes**: Step-by-step verification (`Verify Step`), AST/symbol jump-to-TODO, hints, and unified/split diff comparison against starter or solution files.
 - **Monaco Editor + Zero-Dependency Fallback**: Automatic TypeScript/JavaScript IntelliSense with full ambient declarations for Node.js v22 and Bun v1.1 (`NODE_AMBIENT_DTS`).
-- **5-Tab Bottom Drawer**:
+- **6-Tab Bottom Drawer**:
   1. **Test Suite** (`tests`): Structured pass/fail assertions, duration badges, and failure stack traces.
   2. **Terminal & REPL** (`terminal`): Interactive POSIX shell (`sh`) and Node.js REPL (`node`).
-  3. **Ports** (`ports`): Live listener table (`VirtualPortTable`) + interactive **Mini HTTP Client** (Method, URL, Headers, Body, and Preview/Raw/Headers response viewer).
-  4. **Network** (`network`): HTTP & TCP loopback trace waterfall with status/method/latency breakdown and detail inspector.
-  5. **Virtual Disk & HTTP** (`inspector`): In-memory POSIX VFS file/inode browser with UTF-8 and 16-byte hex dump previews.
+  3. **Ports** (`ports`): Live listener table (`VirtualPortTable`) + interactive **Mini HTTP Client** (Method, URL, Headers, Body, and Preview/Raw/Headers response viewer), with a **Preview** action per listening port.
+  4. **Web Preview** (`preview`): Embedded browser chrome (URL bar, back/forward, reload, desktop/tablet/mobile frame modes) rendering virtual HTTP/Bun servers in an iframe, plus a **Pop Out** button that opens `/__preview/:port/*` in a dedicated tab.
+  5. **Network** (`network`): HTTP & TCP loopback trace waterfall with status/method/latency breakdown and detail inspector.
+  6. **Virtual Disk & HTTP** (`inspector`): In-memory POSIX VFS file/inode browser with UTF-8 and 16-byte hex dump previews.
+- **Port Toast Notifications**: When a virtual server binds a port, a floating toast offers an **Open Web Preview** action (auto-dismissing after 8s).
 
 ---
 
@@ -105,5 +109,6 @@ Running `bun run build` (`bun run tools/bundle.js`) produces:
 - `dist/shell.js` & `dist/shell.esm.js` (standalone POSIX shell & coreutils)
 - `dist/terminal.js` & `dist/terminal.esm.js` (standalone PTY terminal engine)
 - `dist/code-lab.css` (standalone dark/light CSS variables & workbench styles)
+- `dist/preview-sw.js` (Web Preview virtual-loopback Service Worker for pop-out tabs; also copied to `examples/cloud-ide/public/preview-sw.js` for root scope)
 - `dist/code-lab.d.ts` (TypeScript definitions for `CodeLab`, `CodeLabWorkbench`, `CodeLabElement`, `CodeLabRuntime`, `CodeLabShell`, and `CodeLabTerminal`)
 

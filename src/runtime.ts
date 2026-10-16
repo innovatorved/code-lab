@@ -2412,7 +2412,37 @@ function __initVirtualRuntime(rootScope) {
 
   function createVirtualPortTable() {
     const table = new Map();
+    const listeners = new Map(); // event name -> Set<Function>
+
+    function emit(event, ...args) {
+      const set = listeners.get(event);
+      if (!set) return;
+      for (const fn of Array.from(set)) {
+        try {
+          fn(...args);
+        } catch (err) {
+          if (typeof console !== 'undefined' && typeof console.error === 'function') {
+            console.error(`[portTable] listener for "${event}" threw:`, err);
+          }
+        }
+      }
+    }
+
     return {
+      on(event, fn) {
+        if (typeof fn !== 'function') return () => {};
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event).add(fn);
+        return () => {
+          const set = listeners.get(event);
+          if (set) set.delete(fn);
+        };
+      },
+      off(event, fn) {
+        const set = listeners.get(event);
+        if (set) set.delete(fn);
+      },
+      emit,
       registerServer(port, info = {}) {
         const p = Number(port);
         if (table.has(p)) {
@@ -2420,15 +2450,23 @@ function __initVirtualRuntime(rootScope) {
         }
         const entry = Object.assign({ port: p, registeredAt: Date.now() }, info);
         table.set(p, entry);
+        emit('listen', entry);
         return entry;
       },
       unregisterServer(port) {
-        return table.delete(Number(port));
+        const p = Number(port);
+        const entry = table.get(p);
+        const deleted = table.delete(p);
+        if (deleted) emit('close', p, entry);
+        return deleted;
+      },
+      unregister(port) {
+        return this.unregisterServer(port);
       },
       killProcess(pid) {
         const pStr = String(pid);
         let found = false;
-        for (const [port, entry] of table.entries()) {
+        for (const [port, entry] of Array.from(table.entries())) {
           if (entry.pid !== undefined && String(entry.pid) === pStr) {
             if (entry.server && typeof entry.server.close === 'function') {
               try { entry.server.close(); } catch (_) {}
@@ -2436,7 +2474,11 @@ function __initVirtualRuntime(rootScope) {
             if (typeof entry.stop === 'function') {
               try { entry.stop(); } catch (_) {}
             }
-            table.delete(port);
+            // Avoid a double 'close' emission when entry.server.close() already
+            // unregistered the port through unregisterServer().
+            if (table.delete(port)) {
+              emit('close', port, entry);
+            }
             found = true;
           }
         }
@@ -4699,7 +4741,8 @@ function __initVirtualRuntime(rootScope) {
       portTable = null,
       pid = 1000,
       argv = null,
-      isBackground = false
+      isBackground = false,
+      signal = null
     } = options;
 
     const startTime = performance.now();
@@ -5316,6 +5359,46 @@ function __initVirtualRuntime(rootScope) {
         }
       }
     });
+
+    let isSigintAborted = false;
+
+    const handleSigint = () => {
+      if (hasExited) return;
+      isSigintAborted = true;
+      exitCode = 130;
+      hasExited = true;
+
+      try {
+        sandboxProcess.emit('SIGINT');
+      } catch (err) {
+        emitStderr((err && err.stack ? err.stack : String(err)) + '\n');
+      }
+
+      // Immediately cancel all active timers and immediates
+      for (const rawId of resourceTracker.allTimers) {
+        clearTimeout(rawId);
+        clearInterval(rawId);
+      }
+      resourceTracker.activeTimers.clear();
+      resourceTracker.allTimers.clear();
+      resourceTracker.activeImmediates.clear();
+      resourceTracker.inFlightHttp.clear();
+
+      if (!isBackground) {
+        try { vhttp.closeAllServers(); } catch (_) {}
+        try { vnet.closeAllServers(); } catch (_) {}
+      }
+    };
+
+    let signalListener = null;
+    if (signal) {
+      if (signal.aborted) {
+        handleSigint();
+      } else {
+        signalListener = () => handleSigint();
+        signal.addEventListener('abort', signalListener, { once: true });
+      }
+    }
 
     // Built-in `node:test` runner (`test`, `describe`, `it`, `before`, `after`, `beforeEach`, `afterEach`, `mock`)
     const rootSuite = {
@@ -6864,9 +6947,79 @@ function __initVirtualRuntime(rootScope) {
       }
     }
 
+    function raceWithAbort<T = any>(promise: Promise<T>): Promise<T | undefined> {
+      if (!promise || typeof (promise as any).then !== 'function') {
+        return Promise.resolve(promise as any);
+      }
+      if (hasExited || isSigintAborted || Boolean(signal && signal.aborted)) {
+        if (!hasExited) handleSigint();
+        return Promise.resolve(undefined);
+      }
+
+      // Absorb late rejections after abort to avoid unhandled promise rejection warnings
+      (promise as any).catch(() => {});
+
+      return new Promise<T | undefined>((resolve, reject) => {
+        let timer: any = null;
+        let settled = false;
+
+        const cleanup = () => {
+          if (settled) return;
+          settled = true;
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          if (signal && onAbort) {
+            try {
+              signal.removeEventListener('abort', onAbort);
+            } catch (_) {}
+          }
+        };
+
+        const onAbort = () => {
+          cleanup();
+          handleSigint();
+          resolve(undefined);
+        };
+
+        if (signal) {
+          if (signal.aborted) {
+            onAbort();
+            return;
+          }
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        const remainingMs = timeoutMs - (performance.now() - startTime);
+        if (remainingMs > 0 && Number.isFinite(remainingMs)) {
+          timer = setTimeout(() => {
+            cleanup();
+            resolve(undefined);
+          }, remainingMs);
+          if (timer && typeof timer.unref === 'function') {
+            timer.unref();
+          }
+        }
+
+        promise.then(
+          (val: any) => {
+            cleanup();
+            resolve(val);
+          },
+          (err: any) => {
+            cleanup();
+            reject(err);
+          }
+        );
+      });
+    }
+
     let replValue = undefined;
     try {
-      if (mode === 'repl') {
+      if (hasExited || isSigintAborted || Boolean(signal && signal.aborted)) {
+        if (!hasExited) handleSigint();
+      } else if (mode === 'repl') {
         const replPath = '/workspace/__repl__.ts';
         vfs.writeFileSync(replPath, replCode || '');
         const dir = '/workspace';
@@ -6915,21 +7068,23 @@ function __initVirtualRuntime(rootScope) {
           ],
           `return (async () => {\n${body}\n})();`
         );
-        replValue = await replFn(
-          localRequire,
-          VirtualBuffer,
-          sandboxProcess,
-          sandboxConsole,
-          sandboxSetTimeout,
-          sandboxClearTimeout,
-          sandboxSetInterval,
-          sandboxClearInterval,
-          sandboxSetImmediate,
-          sandboxClearImmediate,
-          BunObj,
-          sandboxGlobal.fetch
+        replValue = await raceWithAbort(
+          replFn(
+            localRequire,
+            VirtualBuffer,
+            sandboxProcess,
+            sandboxConsole,
+            sandboxSetTimeout,
+            sandboxClearTimeout,
+            sandboxSetInterval,
+            sandboxClearInterval,
+            sandboxSetImmediate,
+            sandboxClearImmediate,
+            BunObj,
+            sandboxGlobal.fetch
+          )
         );
-        if (replValue !== undefined && options.printReplResult !== false) {
+        if (!hasExited && replValue !== undefined && options.printReplResult !== false) {
           emitStdout(formatConsoleArg(replValue) + '\n');
         }
       } else {
@@ -6940,13 +7095,17 @@ function __initVirtualRuntime(rootScope) {
         }
         const res = loadModule(entryAbs, true);
         if (res && typeof res.then === 'function') {
-          await res;
+          await raceWithAbort(res);
         }
       }
 
       const deadline = performance.now() + timeoutMs;
       let idleTicks = 0;
       while (!hasExited && performance.now() < deadline) {
+        if (signal && signal.aborted) {
+          handleSigint();
+          break;
+        }
         await Promise.resolve();
         await Promise.resolve();
         const busy =
@@ -6972,6 +7131,9 @@ function __initVirtualRuntime(rootScope) {
         emitStderr((err && err.stack ? err.stack : String(err)) + '\n');
       }
     } finally {
+      if (signal && signalListener) {
+        try { signal.removeEventListener('abort', signalListener); } catch (_) {}
+      }
       if (!hasExited) {
         hasExited = true;
         try { sandboxProcess.emit('exit', exitCode); } catch (_) {}
@@ -6999,6 +7161,7 @@ function __initVirtualRuntime(rootScope) {
       durationMs: Math.max(0, performance.now() - startTime),
       stdout: stdoutChunks.join(''),
       stderr: stderrChunks.join(''),
+      cancelled: exitCode === 130 || isSigintAborted || Boolean(signal && signal.aborted),
       outputTruncated,
       testResults,
       testSummary: {
@@ -7006,7 +7169,7 @@ function __initVirtualRuntime(rootScope) {
         passed: testResults.length - failedTests,
         failed: failedTests
       },
-      fsSnapshot: vfs.getSnapshot(),
+      fsSnapshot: typeof vfs.getSnapshot === 'function' ? vfs.getSnapshot() : [],
       httpTrace: [...vhttp.getTrace(), ...vnet.getTrace()],
       replValue: replValue !== undefined ? formatConsoleArg(replValue) : undefined
     };
@@ -7146,8 +7309,13 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
 
     const timeoutMs = options.timeoutMs || 15000;
     let settled = false;
+    let abortListener = null;
 
     function releaseWorker(terminateWorker) {
+      if (options.signal && abortListener) {
+        try { options.signal.removeEventListener('abort', abortListener); } catch (_) {}
+        abortListener = null;
+      }
       _activeWorkerJobs.delete(requestId);
       if (isWarmWorker) {
         if (terminateWorker) {
@@ -7204,6 +7372,19 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         });
       }
     });
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        const job = _activeWorkerJobs.get(requestId);
+        if (job) job.cancel('SIGINT: Interrupted by user (Ctrl+C)');
+      } else {
+        abortListener = () => {
+          const job = _activeWorkerJobs.get(requestId);
+          if (job) job.cancel('SIGINT: Interrupted by user (Ctrl+C)');
+        };
+        options.signal.addEventListener('abort', abortListener, { once: true });
+      }
+    }
 
     worker.onmessage = (event) => {
       const msg = event.data || {};
@@ -7295,6 +7476,12 @@ export interface RuntimeExecutionResult {
   error?: { message: string; stack?: string };
   outputTruncated?: boolean;
   replValue?: any;
+  cancelled?: boolean;
+  testSummary?: {
+    total: number;
+    passed: number;
+    failed: number;
+  };
 }
 
 export const VirtualBuffer: any = _hostRuntime.VirtualBuffer;

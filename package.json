@@ -47,7 +47,10 @@
     "./code-lab.css": "./dist/code-lab.css",
     "./dist/code-lab.css": "./dist/code-lab.css",
     "./sample.html": "./dist/sample.html",
-    "./sample": "./dist/sample.html"
+    "./sample": "./dist/sample.html",
+    "./preview-sw.js": "./dist/preview-sw.js",
+    "./preview-sw": "./dist/preview-sw.js",
+    "./sw": "./dist/preview-sw.js"
   },
   "files": [
     "dist",
@@ -69,7 +72,7 @@
     "build": "bun run tools/bundle.js",
     "typecheck": "bun x tsc --noEmit",
     "test": "bun run tests/test-all-builds.js",
-    "test:all": "bun run tools/bundle.js && bun run tests/test-all-builds.js && bun run tests/test-runtime-advanced.js && bun run tests/test-option1-shell-bun-http.js && bun run tests/test-coreutils-adversarial.js && bun run tests/test-stress-shell.js && bun run tests/test-workbench-ui.js",
+    "test:all": "bun run tools/bundle.js && bun run tests/test-all-builds.js && bun run tests/test-runtime-advanced.js && bun run tests/test-option1-shell-bun-http.js && bun run tests/test-coreutils-adversarial.js && bun run tests/test-stress-shell.js && bun run tests/test-workbench-ui.js && bun run tests/test-terminal-streaming.js && bun run tests/test-m1-adversarial-challenger.js && bun run tests/test-m1-interruption-lifecycle-stress.js && bun run tests/test-gfm-markdown.js && bun run tests/test-m2-adversarial-syntax.js && bun run tests/test-m2-adversarial-interactive.js && bun run tests/test-web-preview.js && bun run tests/test-preview-sw.js",
     "pack:check": "bun pm pack --dry-run"
   },
   "dependencies": {

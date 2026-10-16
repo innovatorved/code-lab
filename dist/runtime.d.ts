@@ -14,6 +14,12 @@ export interface RuntimeExecutionResult {
     };
     outputTruncated?: boolean;
     replValue?: any;
+    cancelled?: boolean;
+    testSummary?: {
+        total: number;
+        passed: number;
+        failed: number;
+    };
 }
 export declare const VirtualBuffer: any;
 export declare const VirtualCrypto: any;

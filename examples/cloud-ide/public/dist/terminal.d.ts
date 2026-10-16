@@ -38,6 +38,7 @@ export declare const ANSI_CODE_MAP: Record<number, string>;
 export declare const ANSI_256_PALETTE: string[];
 export declare function ansi256ToColor(n: number | string): string | null;
 export declare function escapeHtml(str: any): string;
+export declare function resolveAnsiControlCodes(raw: any): string;
 export declare function ansiToHtml(str: any): string;
 export declare const parseAnsiToHtml: typeof ansiToHtml;
 export declare class PTYTerminalEngine {
@@ -60,6 +61,12 @@ export declare class PTYTerminalEngine {
     getCompletions: ((buffer: string, cursor: number) => CompletionResult | null) | null;
     onKey: ((event: any) => boolean | void) | null;
     onInterrupt: (() => void) | null;
+    _activeLineCommitted: boolean;
+    _cursorCol: number;
+    _pendingEscape: string;
+    _targetLineIdx: number;
+    _needsRewrite: boolean;
+    _activeLineEl: any;
     _mounted: boolean;
     _listeners: Array<any>;
     constructor(container?: any, options?: TerminalOptions);
@@ -67,8 +74,14 @@ export declare class PTYTerminalEngine {
     setPrompt(p: string | null): void;
     setCwd(cwd: string): void;
     setReplMode(enabled: boolean): void;
+    writeStreamChunk(data: any, type?: string): void;
     write(data: any, type?: string): void;
     writeln(data: any, type?: string): void;
+    _getActiveLine(type: string): TerminalLogItem;
+    _appendDomLine(line: TerminalLogItem): void;
+    _updateActiveDomLine(): void;
+    _getActiveLineSync(): TerminalLogItem | null;
+    _scrollToBottom(): void;
     clear(): void;
     getHistory(): string[];
     readLine(promptText?: string): Promise<string>;
