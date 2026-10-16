@@ -77,3 +77,60 @@ const createVirtualFs = runtimeModule.createVirtualFs || runtimeModule.default.c
   console.error('❌ git clone streaming test failed:', err && err.stack ? err.stack : err);
   process.exitCode = 1;
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cancellation: an in-flight `git clone` must be interruptible (Ctrl+C) and
+// resolve as aborted without leaking fatal/error noise.
+// ─────────────────────────────────────────────────────────────────────────────
+(async () => {
+  console.log('Testing `git clone` cancellation via AbortSignal...');
+
+  const vfs = createVirtualFs();
+  const ac = new AbortController();
+
+  const hangingFetch = (url, opts) => {
+    const u = String(url);
+    if (u.includes('/git/trees/')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ tree: [{ path: 'src/index.js', type: 'blob', size: 10 }] })
+      });
+    }
+    if (u.includes('api.github.com/repos/')) {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ default_branch: 'main' }) });
+    }
+    // File download hangs until the signal aborts, simulating a long clone.
+    return new Promise((resolve, reject) => {
+      const sig = opts && opts.signal;
+      const onAbort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      if (!sig) return;
+      if (sig.aborted) return onAbort();
+      sig.addEventListener('abort', onAbort, { once: true });
+    });
+  };
+
+  const shell = shellModule.createPosixShell({ vfs, fetchImpl: hangingFetch });
+
+  const clonePromise = shell.execute('git clone https://github.com/acme/hang-repo.git', {
+    signal: ac.signal
+  });
+
+  await new Promise((r) => setTimeout(r, 25));
+  ac.abort('SIGINT');
+
+  const res = await clonePromise;
+  assert.ok(
+    res.aborted === true || res.exitCode === 130 || res.code === 130,
+    `expected an aborted result, got ${JSON.stringify(res)}`
+  );
+  assert.ok(
+    !/fatal: clone cancelled|AbortError/i.test(String(res.stderr || '')),
+    'aborted clone must not leak fatal/AbortError text into stderr'
+  );
+
+  console.log('✅ git clone aborts cleanly on SIGINT (no orphaned download, no error spam)');
+})().catch((err) => {
+  console.error('❌ git clone cancellation test failed:', err && err.stack ? err.stack : err);
+  process.exitCode = 1;
+});

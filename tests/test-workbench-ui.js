@@ -813,21 +813,25 @@ async function runTier1() {
     if (fallbackWrap) assert.equal(fallbackWrap.style.display, 'none', 'Fallback wrap must be hidden in empty state');
   });
 
-  await registerTest('tier1', 'T1.F4.3', 'R2: .codelab-empty-editor renders quick-open action links for workspace files', () => {
+  await registerTest('tier1', 'T1.F4.3', 'R2: .codelab-empty-editor renders a minimal VS Code-style watermark without file quick-links', () => {
     const { container, workbench } = createTestLab();
     while (workbench.openTabs.length) workbench.closeTab(workbench.openTabs[0]);
+    const emptyEditor = container.querySelector('.codelab-empty-editor, #cl-empty-editor');
+    assert.ok(emptyEditor, '.codelab-empty-editor element must exist');
     const quickLinks = container.querySelectorAll('.codelab-empty-editor [data-cl-file], .codelab-empty-file-btn');
-    assert.ok(quickLinks.length > 0, 'Empty editor view must contain quick-open links for files');
+    assert.equal(quickLinks.length, 0, 'Empty editor must not list files (matches VS Code watermark)');
+    assert.ok(emptyEditor.querySelector('.codelab-empty-editor__watermark'), 'Watermark wordmark must render');
+    assert.ok(emptyEditor.querySelector('.codelab-empty-shortcut'), 'Watermark shortcut links must render');
   });
 
-  await registerTest('tier1', 'T1.F4.4', 'R2: Clicking quick-open link reopens file in openTabs and sets activeFile', () => {
+  await registerTest('tier1', 'T1.F4.4', 'R2: Watermark "Go to File" shortcut opens the file command palette', () => {
     const { container, workbench } = createTestLab();
     while (workbench.openTabs.length) workbench.closeTab(workbench.openTabs[0]);
-    const link = container.querySelector('.codelab-empty-editor [data-cl-file="lru.js"], [data-cl-file="lru.js"]');
-    assert.ok(link, 'Quick link for lru.js must exist');
-    link.click();
-    assert.ok(workbench.openTabs.includes('lru.js'), 'lru.js must be added back to openTabs');
-    assert.equal(workbench.activeFile, 'lru.js', 'lru.js must be activeFile');
+    const shortcut = container.querySelector('.codelab-empty-editor [data-cl-action="command-palette-files"]');
+    assert.ok(shortcut, 'Watermark must expose a Go to File shortcut');
+    shortcut.click();
+    assert.equal(workbench.paletteMode, 'files', 'Clicking the shortcut must open the file palette');
+    assert.ok(container.querySelector('.codelab-palette'), 'Command palette must render in the modal slot');
   });
 
   await registerTest('tier1', 'T1.F4.5', 'R2: Clicking file in explorer tree while in empty state mounts tab and dismisses empty state', () => {
@@ -1103,6 +1107,28 @@ async function runTier2() {
     }
   });
 
+  await registerTest('tier2', 'T2.F1.6', 'Boundary: Terminal Ctrl+C control is always present and triggers interrupt', () => {
+    const { container, workbench } = createTestLab();
+    const ctrlCBtn = container.querySelector('#cl-ctrl-c-btn');
+    assert.ok(ctrlCBtn, 'Ctrl+C control must exist in the terminal drawer header');
+    assert.equal(ctrlCBtn.getAttribute('data-cl-action'), 'interrupt', 'Ctrl+C control must dispatch the interrupt action');
+
+    // Idle: the control must remain clickable (unlike the top-bar Stop button).
+    assert.equal(ctrlCBtn.classList.contains('is-running'), false, 'Ctrl+C must not be highlighted while idle');
+
+    let interrupted = 0;
+    const original = workbench._handleInterrupt;
+    workbench._handleInterrupt = () => { interrupted += 1; };
+    ctrlCBtn.click();
+    workbench._handleInterrupt = original;
+    assert.equal(interrupted, 1, 'Clicking Ctrl+C must invoke _handleInterrupt()');
+
+    // Running: the control reflects the active state.
+    workbench.isRunning = true;
+    workbench._updateRunStateUI();
+    assert.equal(ctrlCBtn.classList.contains('is-running'), true, 'Ctrl+C must be highlighted while running');
+  });
+
   // ── F2 Boundaries ────────────────────────────────────────────────────────────
   await registerTest('tier2', 'T2.F2.1', 'Boundary: Empty steps array (steps: []) initializes cleanly without exception', () => {
     const { workbench } = createTestLab({ steps: [] });
@@ -1214,28 +1240,18 @@ async function runTier2() {
     assert.equal(workbench.activeFile, null, 'Shortcut in empty editor must execute without error');
   });
 
-  await registerTest('tier2', 'T2.F4.3', 'Boundary: Quick-action Run Demo in empty editor runs demo.js even if not open in tabs', () => {
+  await registerTest('tier2', 'T2.F4.3', 'Boundary: Watermark omits duplicate Run Demo (top toolbar owns run actions)', () => {
     const { container, workbench } = createTestLab();
     while (workbench.openTabs.length) workbench.closeTab(workbench.openTabs[0]);
-    let demoExecuted = false;
-    workbench.runDemo = () => { demoExecuted = true; };
-    const runDemoBtn = container.querySelector('.codelab-empty-editor [data-cl-action="run-demo"]');
-    if (runDemoBtn) {
-      runDemoBtn.click();
-      assert.equal(demoExecuted, true, 'Run Demo in empty editor must trigger runDemo()');
-    }
+    assert.equal(container.querySelector('.codelab-empty-editor [data-cl-action="run-demo"]'), null, 'Watermark must not duplicate Run Demo');
+    assert.ok(container.querySelector('.codelab-topbar [data-cl-action="run-demo"]'), 'Top toolbar must still own Run Demo');
   });
 
-  await registerTest('tier2', 'T2.F4.4', 'Boundary: Quick-action Run Tests in empty editor runs test.js even if not open in tabs', () => {
+  await registerTest('tier2', 'T2.F4.4', 'Boundary: Watermark omits duplicate Run Tests (workbench chrome owns run actions)', () => {
     const { container, workbench } = createTestLab();
     while (workbench.openTabs.length) workbench.closeTab(workbench.openTabs[0]);
-    let testExecuted = false;
-    workbench.runTests = () => { testExecuted = true; };
-    const runTestBtn = container.querySelector('.codelab-empty-editor [data-cl-action="run-tests"]');
-    if (runTestBtn) {
-      runTestBtn.click();
-      assert.equal(testExecuted, true, 'Run Tests in empty editor must trigger runTests()');
-    }
+    assert.equal(container.querySelector('.codelab-empty-editor [data-cl-action="run-tests"]'), null, 'Watermark must not duplicate Run Tests');
+    assert.ok(container.querySelector('[data-cl-action="run-tests"]'), 'Workbench chrome must still expose Run Tests');
   });
 
   await registerTest('tier2', 'T2.F4.5', 'Boundary: Markdown preview pane is hidden when empty editor state is active', () => {
