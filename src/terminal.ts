@@ -108,15 +108,73 @@ export function escapeHtml(str: any): string {
     .replace(/'/g, '&#39;');
 }
 
-export function ansiToHtml(str: any): string {
-  if (!str) return '';
-  const s = String(str);
-  if (!s.includes('\x1b[')) {
-    return escapeHtml(s);
+export function resolveAnsiControlCodes(raw: any): string {
+  if (!raw) return '';
+  const s = String(raw);
+  if (!s.includes('\x1b') && !s.includes('\r')) return s;
+
+  let text = s;
+  const lastClearScreen = text.lastIndexOf('\x1b[2J');
+  if (lastClearScreen !== -1) {
+    text = text.slice(lastClearScreen + 4);
+    text = text.replace(/^\x1b\[(?:1;1)?H/, '');
   }
 
-  // Strip non-color cursor control sequences
-  const cleaned = s.replace(/\x1b\[[0-9;?]*[A-LN-Za-z]/g, '');
+  text = text.replace(/\r\n/g, '\n');
+  const rawLines = text.split('\n');
+  const resolvedLines: string[] = [];
+
+  for (let l = 0; l < rawLines.length; l++) {
+    let line = rawLines[l];
+
+    while (/\x1b\[(?:1)?A/.test(line)) {
+      const upMatch = /\x1b\[(?:1)?A/.exec(line);
+      if (!upMatch) break;
+      const beforeUp = line.slice(0, upMatch.index);
+      let afterUp = line.slice(upMatch.index + upMatch[0].length);
+      if (resolvedLines.length > 0) {
+        if (afterUp.includes('\x1b[2K')) {
+          afterUp = afterUp.slice(afterUp.lastIndexOf('\x1b[2K') + 4);
+          resolvedLines[resolvedLines.length - 1] = afterUp;
+        } else if (afterUp.includes('\r')) {
+          const parts = afterUp.split('\r');
+          resolvedLines[resolvedLines.length - 1] = parts[parts.length - 1];
+        } else {
+          resolvedLines[resolvedLines.length - 1] = afterUp;
+        }
+        line = beforeUp;
+      } else {
+        line = beforeUp + afterUp;
+      }
+    }
+
+    if (line.includes('\x1b[2K')) {
+      const idx = line.lastIndexOf('\x1b[2K');
+      line = line.slice(idx + 4);
+    }
+
+    if (line.includes('\r')) {
+      const parts = line.split('\r');
+      line = parts[parts.length - 1];
+    }
+
+    line = line.replace(/\x1b\[[0]?K/g, '');
+    line = line.replace(/\x1b\[(?:1)?G/g, '');
+    resolvedLines.push(line);
+  }
+
+  return resolvedLines.join('\n');
+}
+
+export function ansiToHtml(str: any): string {
+  if (!str) return '';
+  const resolved = resolveAnsiControlCodes(String(str));
+  if (!resolved.includes('\x1b[')) {
+    return escapeHtml(resolved);
+  }
+
+  // Strip non-color cursor control sequences without stripping lowercase 'm' SGR codes
+  const cleaned = resolved.replace(/\x1b\[[0-9;?]*(?!m)[A-Za-z]/g, '');
 
   const tokenRegex = /\x1b\[([0-9;]*)m/g;
   let result = '';
@@ -270,6 +328,15 @@ export class PTYTerminalEngine {
   getCompletions: ((buffer: string, cursor: number) => CompletionResult | null) | null;
   onKey: ((event: any) => boolean | void) | null;
   onInterrupt: (() => void) | null;
+
+  // Stream & active line buffering state
+  _activeLineCommitted: boolean;
+  _cursorCol: number;
+  _pendingEscape: string;
+  _targetLineIdx: number;
+  _needsRewrite: boolean;
+  _activeLineEl: any;
+
   _mounted: boolean;
   _listeners: Array<any>;
 
@@ -304,6 +371,13 @@ export class PTYTerminalEngine {
     this.onKey = typeof this.options.onKey === 'function' ? this.options.onKey : null;
     this.onInterrupt = typeof this.options.onInterrupt === 'function' ? this.options.onInterrupt : null;
 
+    this._activeLineCommitted = true;
+    this._cursorCol = 0;
+    this._pendingEscape = '';
+    this._targetLineIdx = -1;
+    this._needsRewrite = false;
+    this._activeLineEl = null;
+
     this._mounted = false;
     this._listeners = [];
 
@@ -334,19 +408,192 @@ export class PTYTerminalEngine {
     this.updateActiveLine();
   }
 
+  writeStreamChunk(data: any, type: string = 'stdout'): void {
+    let str = String(data != null ? data : '');
+    if (!str) return;
+
+    if (this._pendingEscape) {
+      str = this._pendingEscape + str;
+      this._pendingEscape = '';
+    }
+
+    let modified = false;
+    let i = 0;
+
+    while (i < str.length) {
+      if (str[i] === '\x1b') {
+        const rest = str.slice(i);
+        if (/^\x1b(?:\[[0-9;?]*)?$/.test(rest)) {
+          this._pendingEscape = rest;
+          break;
+        }
+
+        const csiMatch = /^\x1b\[([0-9;?]*)([A-Za-z])/.exec(rest);
+        if (csiMatch) {
+          const params = csiMatch[1];
+          const cmd = csiMatch[2];
+          const seq = csiMatch[0];
+          i += seq.length;
+
+          if (cmd === 'K') {
+            const cur = this._getActiveLine(type);
+            if (params === '2') {
+              cur.text = '';
+              this._cursorCol = 0;
+              this._needsRewrite = false;
+            } else {
+              cur.text = cur.text.slice(0, this._cursorCol);
+              this._needsRewrite = false;
+            }
+            modified = true;
+          } else if (cmd === 'A') {
+            const count = parseInt(params, 10) || 1;
+            if (this.logs.length > 0) {
+              const baseIdx = this._activeLineCommitted ? this.logs.length : this.logs.length - 1;
+              this._targetLineIdx = Math.max(0, baseIdx - count);
+              this._activeLineCommitted = false;
+              this._cursorCol = 0;
+              this._needsRewrite = false;
+              const targetLine = this.logs[this._targetLineIdx];
+              if (targetLine) targetLine.text = '';
+              this._activeLineEl = null;
+            }
+          } else if (cmd === 'G') {
+            this._cursorCol = 0;
+            this._needsRewrite = true;
+          } else if (cmd === 'J' && params === '2') {
+            this.clear();
+          } else if (cmd === 'm') {
+            const cur = this._getActiveLine(type);
+            cur.text += seq;
+            modified = true;
+          }
+          continue;
+        }
+      }
+
+      const ch = str[i];
+      if (ch === '\r') {
+        this._cursorCol = 0;
+        this._needsRewrite = true;
+        i++;
+      } else if (ch === '\n') {
+        const cur = this._getActiveLine(type);
+        cur.text += '\n';
+        this._activeLineCommitted = true;
+        this._cursorCol = 0;
+        this._targetLineIdx = -1;
+        this._needsRewrite = false;
+        this._activeLineEl = null;
+        modified = true;
+        i++;
+      } else {
+        const cur = this._getActiveLine(type);
+        if (this._needsRewrite && this._cursorCol === 0 && cur.text.length > 0 && !cur.text.endsWith('\n')) {
+          cur.text = ch;
+          this._needsRewrite = false;
+        } else {
+          cur.text += ch;
+        }
+        this._cursorCol++;
+        modified = true;
+        i++;
+      }
+    }
+
+    if (modified) {
+      this._updateActiveDomLine();
+    }
+    this._scrollToBottom();
+  }
+
   write(data: any, type: string = 'stdout'): void {
-    const text = String(data);
-    this.logs.push({ text, type });
-    this.render();
+    this.writeStreamChunk(data, type);
   }
 
   writeln(data: any, type: string = 'stdout'): void {
-    this.write(String(data) + '\n', type);
+    this.writeStreamChunk(String(data) + '\n', type);
+  }
+
+  _getActiveLine(type: string): TerminalLogItem {
+    if (this._targetLineIdx >= 0 && this._targetLineIdx < this.logs.length) {
+      return this.logs[this._targetLineIdx];
+    }
+    if (this._activeLineCommitted || this.logs.length === 0) {
+      const newLine: TerminalLogItem = { text: '', type };
+      this.logs.push(newLine);
+      this._activeLineCommitted = false;
+      this._cursorCol = 0;
+      this._targetLineIdx = this.logs.length - 1;
+      this._needsRewrite = false;
+      this._appendDomLine(newLine);
+      return newLine;
+    }
+    this._targetLineIdx = this.logs.length - 1;
+    return this.logs[this.logs.length - 1];
+  }
+
+  _appendDomLine(line: TerminalLogItem): void {
+    if (!this.container || typeof document === 'undefined') return;
+    const logEl = this.container.querySelector('#cl-terminal-log');
+    if (!logEl) return;
+    const lineEl = document.createElement('div');
+    lineEl.className = 'codelab-log-line ' + (line.type || 'stdout');
+    lineEl.innerHTML = ansiToHtml(line.text);
+    logEl.appendChild(lineEl);
+    this._activeLineEl = lineEl;
+  }
+
+  _updateActiveDomLine(): void {
+    if (!this.container || typeof document === 'undefined') return;
+    const line = this._getActiveLineSync();
+    if (!line) return;
+    let lineEl = this._activeLineEl;
+    if (!lineEl || !lineEl.parentNode) {
+      const logEl = this.container.querySelector('#cl-terminal-log');
+      if (logEl) {
+        if (this._targetLineIdx >= 0 && this._targetLineIdx < logEl.children.length) {
+          lineEl = logEl.children[this._targetLineIdx];
+        } else {
+          lineEl = logEl.children[logEl.children.length - 1];
+        }
+        this._activeLineEl = lineEl;
+      }
+    }
+    if (lineEl) {
+      lineEl.className = 'codelab-log-line ' + (line.type || 'stdout');
+      lineEl.innerHTML = ansiToHtml(line.text);
+    }
+  }
+
+  _getActiveLineSync(): TerminalLogItem | null {
+    if (this._targetLineIdx >= 0 && this._targetLineIdx < this.logs.length) {
+      return this.logs[this._targetLineIdx];
+    }
+    return this.logs[this.logs.length - 1] || null;
+  }
+
+  _scrollToBottom(): void {
+    if (!this.container) return;
+    const surface = this.container.querySelector('#cl-terminal-surface') || this.container;
+    if (surface && typeof surface.scrollTop === 'number' && typeof surface.scrollHeight === 'number') {
+      surface.scrollTop = surface.scrollHeight;
+    }
   }
 
   clear(): void {
     this.logs.length = 0;
-    this.render();
+    this._activeLineCommitted = true;
+    this._cursorCol = 0;
+    this._targetLineIdx = -1;
+    this._needsRewrite = false;
+    this._activeLineEl = null;
+    if (this.container && typeof this.container.querySelector === 'function') {
+      const logEl = this.container.querySelector('#cl-terminal-log');
+      if (logEl) {
+        logEl.innerHTML = '';
+      }
+    }
   }
 
   getHistory(): string[] {
@@ -808,9 +1055,7 @@ export class PTYTerminalEngine {
       </div>
     `;
 
-    if (typeof this.container.scrollTop === 'number' && typeof this.container.scrollHeight === 'number') {
-      this.container.scrollTop = this.container.scrollHeight;
-    }
+    this._scrollToBottom();
 
     this._bindEvents();
 
@@ -845,7 +1090,8 @@ if (typeof globalThis !== 'undefined') {
       ansiToHtml,
       parseAnsiToHtml,
       escapeHtml,
-      ANSI_CODE_MAP
+      ANSI_CODE_MAP,
+      resolveAnsiControlCodes
     };
   }
 }

@@ -694,6 +694,17 @@ if (fs.existsSync(sampleHtmlPath)) {
   }
 }
 
+// 2c. Copy preview-sw.js to dist/preview-sw.js and to the host public root
+//     (root scope so `/__preview/:port/*` pop-out routing works).
+const previewSwPath = path.join(SRC_DIR, 'preview-sw.js');
+if (fs.existsSync(previewSwPath)) {
+  fs.copyFileSync(previewSwPath, path.join(DIST_DIR, 'preview-sw.js'));
+  const CLOUD_IDE_PUBLIC_ROOT = path.join(PKG_DIR, 'examples/cloud-ide/public');
+  if (fs.existsSync(CLOUD_IDE_PUBLIC_ROOT)) {
+    fs.copyFileSync(previewSwPath, path.join(CLOUD_IDE_PUBLIC_ROOT, 'preview-sw.js'));
+  }
+}
+
 // 3. Build Extensions (guided-lab)
 const EXT_DIR = path.join(DIST_DIR, 'extensions');
 fs.mkdirSync(EXT_DIR, { recursive: true });
@@ -729,5 +740,6 @@ console.log('✓ Built dist/terminal.js & terminal.esm.js');
 console.log('✓ Built dist/code-lab.d.ts');
 console.log('✓ Synced dist/code-lab.css');
 console.log('✓ Synced dist/sample.html');
+console.log('✓ Synced dist/preview-sw.js (Web Preview virtual loopback Service Worker)');
 
 

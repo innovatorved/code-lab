@@ -2378,6 +2378,53 @@
     return await ctx.shell.execute(cmd, { cwd: ctx.cwd, env: ctx.env });
   }
 
+  function evaluatePosixTest(args, ctx) {
+    const cleanArgs = [...args];
+    if (cleanArgs.length > 0 && cleanArgs[cleanArgs.length - 1] === ']') {
+      cleanArgs.pop();
+    }
+    if (cleanArgs.length === 0) return 1;
+
+    if (cleanArgs[0] === '!') {
+      return evaluatePosixTest(cleanArgs.slice(1), ctx) === 0 ? 1 : 0;
+    }
+
+    if (cleanArgs.length === 1) {
+      return cleanArgs[0] ? 0 : 1;
+    }
+
+    if (cleanArgs.length === 2) {
+      const [op, val] = cleanArgs;
+      if (op === '-z') return val.length === 0 ? 0 : 1;
+      if (op === '-n') return val.length > 0 ? 0 : 1;
+      if (op === '-e' || op === '-f' || op === '-d' || op === '-s') {
+        const p = ctx.resolvePath(val);
+        if (!ctx.vfs.existsSync(p)) return 1;
+        if (op === '-e') return 0;
+        const st = ctx.vfs.statSync(p);
+        if (op === '-f') return (typeof st.isFile === 'function' ? (st.isFile() ? 0 : 1) : (st.isFile ? 0 : 1));
+        if (op === '-d') return (typeof st.isDirectory === 'function' ? (st.isDirectory() ? 0 : 1) : (st.isDirectory ? 0 : 1));
+        if (op === '-s') return (st.size > 0 ? 0 : 1);
+      }
+    }
+
+    if (cleanArgs.length === 3) {
+      const [left, op, right] = cleanArgs;
+      if (op === '=' || op === '==') return left === right ? 0 : 1;
+      if (op === '!=') return left !== right ? 0 : 1;
+      const lNum = parseInt(left, 10);
+      const rNum = parseInt(right, 10);
+      if (op === '-eq') return lNum === rNum ? 0 : 1;
+      if (op === '-ne') return lNum !== rNum ? 0 : 1;
+      if (op === '-lt') return lNum < rNum ? 0 : 1;
+      if (op === '-le') return lNum <= rNum ? 0 : 1;
+      if (op === '-gt') return lNum > rNum ? 0 : 1;
+      if (op === '-ge') return lNum >= rNum ? 0 : 1;
+    }
+
+    return 1;
+  }
+
   // =========================================================================
   // 7. 40+ UNIX COREUTILS LIBRARY (POSIX Virtual Filesystem Implementations)
   // =========================================================================
@@ -4098,8 +4145,41 @@
 
     async sleep(args, ctx) {
       const sec = parseFloat(args[0]) || 0;
-      await new Promise(r => setTimeout(r, Math.max(0, sec * 1000)));
+      const ms = Math.max(0, sec * 1000);
+      if (ms <= 0) return { code: 0, stdout: '', stderr: '' };
+      if (ctx && ctx.signal && ctx.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '' };
+      }
+      await new Promise((resolve) => {
+        let timer = null;
+        const onAbort = () => {
+          if (timer) clearTimeout(timer);
+          resolve();
+        };
+        if (ctx && ctx.signal) {
+          ctx.signal.addEventListener('abort', onAbort, { once: true });
+        }
+        timer = setTimeout(() => {
+          if (ctx && ctx.signal) {
+            ctx.signal.removeEventListener('abort', onAbort);
+          }
+          resolve();
+        }, ms);
+      });
+      if (ctx && ctx.signal && ctx.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '' };
+      }
       return { code: 0, stdout: '', stderr: '' };
+    },
+
+    async '['(args, ctx) {
+      const code = evaluatePosixTest(args, ctx);
+      return { code, stdout: '', stderr: '' };
+    },
+
+    async test(args, ctx) {
+      const code = evaluatePosixTest(args, ctx);
+      return { code, stdout: '', stderr: '' };
     },
 
     async true() {
@@ -4787,7 +4867,10 @@
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -4801,7 +4884,10 @@
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -4837,7 +4923,10 @@
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
-            isBackground: ctx.isBackground
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
           });
           combinedOut += res.stdout;
           combinedErr += res.stderr;
@@ -4859,7 +4948,10 @@
         vfs: ctx.vfs,
         activePortTable: ctx.shell.portTable,
         pid: ctx.pid,
-        isBackground: ctx.isBackground
+        isBackground: ctx.isBackground,
+        onStdout: ctx.onStdout,
+        onStderr: ctx.onStderr,
+        signal: ctx.signal
       });
       return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
     },
@@ -4952,7 +5044,10 @@
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -4988,7 +5083,10 @@
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
-            isBackground: ctx.isBackground
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
           });
           combinedOut += res.stdout;
           combinedErr += res.stderr;
@@ -5012,7 +5110,10 @@
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
-            isBackground: ctx.isBackground
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
           });
           return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
         }
@@ -5033,7 +5134,10 @@
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
-          isBackground: ctx.isBackground
+          isBackground: ctx.isBackground,
+          onStdout: ctx.onStdout,
+          onStderr: ctx.onStderr,
+          signal: ctx.signal
         });
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
@@ -5432,7 +5536,7 @@
     async execute(commandLine, execOptions = {}) {
       const trimmed = (commandLine || '').trim();
       if (!trimmed || trimmed.startsWith('#')) {
-        return { code: 0, stdout: '', stderr: '' };
+        return { code: 0, exitCode: 0, stdout: '', stderr: '', ok: true };
       }
 
       this.history.push(trimmed);
@@ -5448,6 +5552,9 @@
       let lastCode = 0;
 
       for (const item of ast.items) {
+        if (execOptions.signal && execOptions.signal.aborted) {
+          return { code: 130, exitCode: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+        }
         if (item.background) {
           const pid = this.nextPid++;
           const jobId = this.nextJobId++;
@@ -5490,17 +5597,184 @@
           lastCode = res.code !== undefined ? res.code : 0;
           this.env['?'] = String(lastCode);
           Object.assign(currentEnv, this.env);
+          if (res.aborted || (execOptions.signal && execOptions.signal.aborted)) {
+            return { code: 130, exitCode: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+          }
         }
       }
 
-      return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr };
+      return { code: lastCode, exitCode: lastCode, stdout: combinedStdout, stderr: combinedStderr, ok: lastCode === 0 };
+    }
+
+    async _executeWithRedirects(redirects, context, execFn) {
+      if (!redirects || redirects.length === 0) {
+        return execFn(context);
+      }
+
+      const cmdEnv = Object.assign({}, this.env, context.env);
+      let fd1 = { type: 'stdout' };
+      let fd2 = { type: 'stderr' };
+      let effectiveStdin = context.stdin || '';
+
+      for (const red of redirects) {
+        if (red.type === '<') {
+          const target = await this.evaluateWord(red.target, cmdEnv);
+          const absTarget = this.resolvePath(target);
+          if (!this.vfs.existsSync(absTarget)) {
+            return { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` };
+          }
+          try {
+            effectiveStdin = this.vfs.readFileSync(absTarget, 'utf8');
+          } catch (err) {
+            return { code: 1, stdout: '', stderr: `shell: ${target}: ${err.message}\n` };
+          }
+        }
+      }
+
+      for (const red of redirects) {
+        if (red.type === '<') continue;
+        if (red.type === '>' || red.type === '>>' || red.type === '&>') {
+          const target = await this.evaluateWord(red.target, cmdEnv);
+          const abs = this.resolvePath(target);
+          const parentDir = PosixPath.dirname(abs);
+          if (!this.vfs.existsSync(parentDir)) {
+            return { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` };
+          }
+          if (red.type === '>') {
+            this.vfs.writeFileSync(abs, '');
+            this._emitVfsMutation('create', abs);
+            const dest = { type: 'file', path: abs, append: true };
+            if (red.sourceFd === 2) fd2 = dest;
+            else fd1 = dest;
+          } else if (red.type === '>>') {
+            if (!this.vfs.existsSync(abs)) {
+              this.vfs.writeFileSync(abs, '');
+              this._emitVfsMutation('create', abs);
+            }
+            const dest = { type: 'file', path: abs, append: true };
+            if (red.sourceFd === 2) fd2 = dest;
+            else fd1 = dest;
+          } else if (red.type === '&>') {
+            this.vfs.writeFileSync(abs, '');
+            this._emitVfsMutation('create', abs);
+            const dest = { type: 'file', path: abs, append: true };
+            fd1 = dest;
+            fd2 = dest;
+          }
+        } else if (red.type === '>&') {
+          if (red.sourceFd === 2 && red.targetFd === 1) fd2 = { ...fd1 };
+          else if (red.sourceFd === 1 && red.targetFd === 2) fd1 = { ...fd2 };
+        }
+      }
+
+      let finalStdout = '';
+      let finalStderr = '';
+
+      const routeChunk = (fd, text) => {
+        if (!text) return;
+        if (fd.type === 'stdout') {
+          finalStdout += text;
+          if (context.onStdout) context.onStdout(text);
+        } else if (fd.type === 'stderr') {
+          finalStderr += text;
+          if (context.onStderr) context.onStderr(text);
+        } else if (fd.type === 'file') {
+          this.vfs.appendFileSync(fd.path, text);
+          this._emitVfsMutation('change', fd.path);
+        }
+      };
+
+      const childContext = {
+        ...context,
+        stdin: effectiveStdin,
+        onStdout: (c) => routeChunk(fd1, c),
+        onStderr: (c) => routeChunk(fd2, c)
+      };
+
+      const res = await execFn(childContext);
+      return {
+        ...res,
+        stdout: finalStdout,
+        stderr: finalStderr
+      };
     }
 
     async _executeAstNode(node, context) {
       if (!node) return { code: 0, stdout: '', stderr: '' };
+      if (context.signal && context.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '', aborted: true };
+      }
 
+      // 1. Sequence
+      if (node.type === 'Sequence') {
+        let combinedStdout = '';
+        let combinedStderr = '';
+        let lastCode = 0;
+        let controlFlow = null;
+
+        for (const item of (node.items || [])) {
+          if (context.signal && context.signal.aborted) {
+            return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+          }
+          if (item.background) {
+            const pid = this.nextPid++;
+            const jobId = this.nextJobId++;
+            const job = {
+              id: jobId,
+              pid,
+              command: 'background',
+              status: 'Running',
+              startTime: Date.now()
+            };
+            this.jobs.set(jobId, job);
+            if (typeof this.options.onJobStart === 'function') this.options.onJobStart(job);
+
+            this._executeAstNode(item.node, { ...context, pid, isBackground: true })
+              .then(res => {
+                if (job.status !== 'Terminated') {
+                  job.status = 'Done';
+                  job.exitCode = res.code;
+                  if (typeof this.options.onJobEnd === 'function') this.options.onJobEnd(job);
+                }
+              })
+              .catch(err => {
+                if (job.status !== 'Terminated') {
+                  job.status = 'Failed';
+                  job.error = err;
+                  if (typeof this.options.onJobEnd === 'function') this.options.onJobEnd(job);
+                }
+              });
+
+            const bgMsg = `[${jobId}] ${pid}\n`;
+            combinedStdout += bgMsg;
+            lastCode = 0;
+            if (context.onStdout) context.onStdout(bgMsg);
+          } else {
+            const res = await this._executeAstNode(item.node, context);
+            combinedStdout += res.stdout || '';
+            combinedStderr += res.stderr || '';
+            lastCode = res.code !== undefined ? res.code : 0;
+            this.env['?'] = String(lastCode);
+            if (context.env) context.env['?'] = String(lastCode);
+            if (res.controlFlow) {
+              controlFlow = res.controlFlow;
+              break;
+            }
+            if (res.aborted || (context.signal && context.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+          }
+        }
+        return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow };
+      }
+
+      // 2. Logical (&&, ||)
       if (node.type === 'Logical') {
         const leftRes = await this._executeAstNode(node.left, context);
+        if (leftRes.aborted || (context.signal && context.signal.aborted)) {
+          return { ...leftRes, code: 130, aborted: true };
+        }
+        if (leftRes.controlFlow) return leftRes;
         if (node.op === '&&') {
           if (leftRes.code === 0) {
             const nextContext = {
@@ -5511,8 +5785,10 @@
             const rightRes = await this._executeAstNode(node.right, nextContext);
             return {
               code: rightRes.code,
-              stdout: leftRes.stdout + rightRes.stdout,
-              stderr: leftRes.stderr + rightRes.stderr
+              stdout: (leftRes.stdout || '') + (rightRes.stdout || ''),
+              stderr: (leftRes.stderr || '') + (rightRes.stderr || ''),
+              controlFlow: rightRes.controlFlow,
+              aborted: rightRes.aborted
             };
           }
           return leftRes;
@@ -5526,32 +5802,260 @@
             const rightRes = await this._executeAstNode(node.right, nextContext);
             return {
               code: rightRes.code,
-              stdout: leftRes.stdout + rightRes.stdout,
-              stderr: leftRes.stderr + rightRes.stderr
+              stdout: (leftRes.stdout || '') + (rightRes.stdout || ''),
+              stderr: (leftRes.stderr || '') + (rightRes.stderr || ''),
+              controlFlow: rightRes.controlFlow,
+              aborted: rightRes.aborted
             };
           }
           return leftRes;
         }
       }
 
+      // 3. Pipeline (|)
       if (node.type === 'Pipeline') {
         return this._executePipeline(node, context);
       }
 
+      // 4. Command
       if (node.type === 'Command') {
         return this._executeSimpleCommand(node, context);
+      }
+
+      // 5. FunctionDef
+      if (node.type === 'FunctionDef') {
+        if (!this.functions) this.functions = {};
+        this.functions[node.name] = node;
+        return { code: 0, stdout: '', stderr: '' };
+      }
+
+      // 6. For loop
+      if (node.type === 'For') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          let combinedStdout = '';
+          let combinedStderr = '';
+          let lastCode = 0;
+          const wordItems = [];
+          if (node.items) {
+            for (const itemTok of node.items) {
+              const expanded = await this.evaluateWordToArgs(itemTok, innerCtx.env);
+              wordItems.push(...expanded);
+            }
+          } else {
+            wordItems.push(...(innerCtx.positionalArgs || []));
+          }
+
+          for (const val of wordItems) {
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            innerCtx.env[node.varName] = val;
+            this.env[node.varName] = val;
+            const stepRes = await this._executeAstNode(node.body, innerCtx);
+            combinedStdout += stepRes.stdout || '';
+            combinedStderr += stepRes.stderr || '';
+            lastCode = stepRes.code !== undefined ? stepRes.code : 0;
+            this.env['?'] = String(lastCode);
+            if (innerCtx.env) innerCtx.env['?'] = String(lastCode);
+            if (stepRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (stepRes.controlFlow) {
+              if (stepRes.controlFlow.type === 'break') {
+                const count = stepRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'break', count: count - 1 } };
+                }
+                break;
+              } else if (stepRes.controlFlow.type === 'continue') {
+                const count = stepRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'continue', count: count - 1 } };
+                }
+                continue;
+              } else {
+                return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: stepRes.controlFlow };
+              }
+            }
+          }
+          return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr };
+        });
+      }
+
+      // 7. While & Until loops
+      if (node.type === 'While' || node.type === 'Until') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          const isWhile = node.type === 'While';
+          let combinedStdout = '';
+          let combinedStderr = '';
+          let lastCode = 0;
+
+          while (true) {
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            const condRes = await this._executeAstNode(node.cond, innerCtx);
+            combinedStdout += condRes.stdout || '';
+            combinedStderr += condRes.stderr || '';
+            if (condRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (condRes.controlFlow) {
+              return { code: condRes.code, stdout: combinedStdout, stderr: combinedStderr, controlFlow: condRes.controlFlow };
+            }
+            const condSuccess = (condRes.code === 0);
+            if (isWhile ? !condSuccess : condSuccess) {
+              break;
+            }
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            const bodyRes = await this._executeAstNode(node.body, innerCtx);
+            combinedStdout += bodyRes.stdout || '';
+            combinedStderr += bodyRes.stderr || '';
+            lastCode = bodyRes.code !== undefined ? bodyRes.code : 0;
+            this.env['?'] = String(lastCode);
+            if (innerCtx.env) innerCtx.env['?'] = String(lastCode);
+            if (bodyRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (bodyRes.controlFlow) {
+              if (bodyRes.controlFlow.type === 'break') {
+                const count = bodyRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'break', count: count - 1 } };
+                }
+                break;
+              } else if (bodyRes.controlFlow.type === 'continue') {
+                const count = bodyRes.controlFlow.count || 1;
+                if (count > 1) {
+                  return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: { type: 'continue', count: count - 1 } };
+                }
+                continue;
+              } else {
+                return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr, controlFlow: bodyRes.controlFlow };
+              }
+            }
+          }
+          return { code: lastCode, stdout: combinedStdout, stderr: combinedStderr };
+        });
+      }
+
+      // 8. If conditional
+      if (node.type === 'If') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          let combinedStdout = '';
+          let combinedStderr = '';
+          for (const branch of (node.branches || [])) {
+            if (innerCtx.signal && innerCtx.signal.aborted) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            const condRes = await this._executeAstNode(branch.cond, innerCtx);
+            combinedStdout += condRes.stdout || '';
+            combinedStderr += condRes.stderr || '';
+            if (condRes.aborted || (innerCtx.signal && innerCtx.signal.aborted)) {
+              return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
+            }
+            if (condRes.code === 0) {
+              const bodyRes = await this._executeAstNode(branch.body, innerCtx);
+              combinedStdout += bodyRes.stdout || '';
+              combinedStderr += bodyRes.stderr || '';
+              return {
+                code: bodyRes.code,
+                stdout: combinedStdout,
+                stderr: combinedStderr,
+                controlFlow: bodyRes.controlFlow,
+                aborted: bodyRes.aborted
+              };
+            }
+          }
+          if (node.elseBody) {
+            const elseRes = await this._executeAstNode(node.elseBody, innerCtx);
+            combinedStdout += elseRes.stdout || '';
+            combinedStderr += elseRes.stderr || '';
+            return {
+              code: elseRes.code,
+              stdout: combinedStdout,
+              stderr: combinedStderr,
+              controlFlow: elseRes.controlFlow,
+              aborted: elseRes.aborted
+            };
+          }
+          return { code: 0, stdout: combinedStdout, stderr: combinedStderr };
+        });
+      }
+
+      // 9. Brace Group
+      if (node.type === 'BraceGroup') {
+        return this._executeWithRedirects(node.redirects, context, (innerCtx) => {
+          return this._executeAstNode(node.body, innerCtx);
+        });
+      }
+
+      // 10. Subshell
+      if (node.type === 'Subshell') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          const subShell = new PosixShell({
+            ...this.options,
+            vfs: this.vfs,
+            portTable: this.portTable,
+            env: Object.assign({}, this.env, innerCtx.env || {})
+          });
+          subShell.cwd = innerCtx.cwd || this.cwd;
+          const subContext = {
+            ...innerCtx,
+            env: Object.assign({}, this.env, innerCtx.env || {}),
+            cwd: subShell.cwd
+          };
+          return subShell._executeAstNode(node.body, subContext);
+        });
+      }
+
+      // 11. Case statement
+      if (node.type === 'Case') {
+        return this._executeWithRedirects(node.redirects, context, async (innerCtx) => {
+          const targetWord = await this.evaluateWord(node.word, innerCtx.env);
+          for (const clause of (node.clauses || [])) {
+            let matched = false;
+            for (const patTok of (clause.patterns || [])) {
+              const patStr = await this.evaluateWord(patTok, innerCtx.env);
+              if (patStr === '*' || patStr === targetWord) {
+                matched = true;
+                break;
+              }
+              const reg = new RegExp('^' + patStr.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+              if (reg.test(targetWord)) {
+                matched = true;
+                break;
+              }
+            }
+            if (matched) {
+              return this._executeAstNode(clause.body, innerCtx);
+            }
+          }
+          return { code: 0, stdout: '', stderr: '' };
+        });
       }
 
       return { code: 0, stdout: '', stderr: '' };
     }
 
     async _executePipeline(pipelineNode, context) {
-      const commands = pipelineNode.commands;
+      const commands = pipelineNode.commands || [];
       let currentStdin = context.stdin || '';
       let combinedStderr = '';
       let lastResult = { code: 0, stdout: '', stderr: '' };
 
       for (let i = 0; i < commands.length; i++) {
+        if (context.signal && context.signal.aborted) {
+          return {
+            code: 130,
+            stdout: lastResult.stdout || '',
+            stderr: combinedStderr,
+            aborted: true
+          };
+        }
+
         const cmd = commands[i];
         const isLast = (i === commands.length - 1);
 
@@ -5563,16 +6067,32 @@
           onStderr: context.onStderr
         };
 
-        const res = await this._executeSimpleCommand(cmd, cmdContext);
-        currentStdin = res.stdout;
-        combinedStderr += res.stderr;
+        const res = await this._executeAstNode(cmd, cmdContext);
+        currentStdin = res.stdout || '';
+        combinedStderr += (res.stderr || '');
         lastResult = res;
+
+        if (res.aborted || (context.signal && context.signal.aborted)) {
+          return {
+            code: 130,
+            stdout: lastResult.stdout || '',
+            stderr: combinedStderr,
+            aborted: true
+          };
+        }
+      }
+
+      let finalCode = lastResult.code !== undefined ? lastResult.code : 0;
+      if (pipelineNode.negated && !lastResult.aborted) {
+        finalCode = (finalCode === 0) ? 1 : 0;
       }
 
       return {
-        code: lastResult.code,
-        stdout: lastResult.stdout,
-        stderr: combinedStderr
+        code: finalCode,
+        stdout: lastResult.stdout || '',
+        stderr: combinedStderr,
+        controlFlow: lastResult.controlFlow,
+        aborted: Boolean(lastResult.aborted || (context.signal && context.signal.aborted))
       };
     }
 
@@ -5606,7 +6126,25 @@
         args.push(...expanded);
       }
 
-      // 3. Process input redirection (<, 0<)
+      // 3. Built-in flow control
+      if (cmdName === 'break') {
+        const count = parseInt(args[0], 10) || 1;
+        return { code: 0, stdout: '', stderr: '', controlFlow: { type: 'break', count } };
+      }
+      if (cmdName === 'continue') {
+        const count = parseInt(args[0], 10) || 1;
+        return { code: 0, stdout: '', stderr: '', controlFlow: { type: 'continue', count } };
+      }
+      if (cmdName === 'return') {
+        const code = parseInt(args[0], 10) || 0;
+        return { code, stdout: '', stderr: '', controlFlow: { type: 'return', code } };
+      }
+
+      if (context.signal && context.signal.aborted) {
+        return { code: 130, stdout: '', stderr: '', aborted: true };
+      }
+
+      // 4. Process input redirection (<, 0<)
       let effectiveStdin = context.stdin || '';
       for (const red of cmdNode.redirects) {
         if (red.type === '<') {
@@ -5623,7 +6161,7 @@
         }
       }
 
-      // 4. Validate output redirections and setup file descriptors
+      // 5. Validate output redirections and setup file descriptors
       let fd1 = { type: 'stdout' };
       let fd2 = { type: 'stderr' };
 
@@ -5680,7 +6218,26 @@
         }
       }
 
-      // 5. Command execution dispatch
+      // 6. Setup output routing with stream tracking
+      let stdoutOut = '';
+      let stderrOut = '';
+      let streamedStdoutBytes = 0;
+      let streamedStderrBytes = 0;
+
+      const routeOutput = (fd, text, isStreamChunk = false) => {
+        if (!text) return;
+        if (fd.type === 'stdout') {
+          stdoutOut += text;
+          if (isStreamChunk && context.onStdout) context.onStdout(text);
+        } else if (fd.type === 'stderr') {
+          stderrOut += text;
+          if (isStreamChunk && context.onStderr) context.onStderr(text);
+        } else if (fd.type === 'file') {
+          this.vfs.appendFileSync(fd.path, text);
+          this._emitVfsMutation('change', fd.path);
+        }
+      };
+
       const cmdCtx = {
         vfs: this.vfs,
         shell: this,
@@ -5691,11 +6248,36 @@
         pid: context.pid || 1000,
         isBackground: Boolean(context.isBackground),
         resolvePath: (p) => this.resolvePath(p),
-        emitMutation: (type, p) => this._emitVfsMutation(type, p)
+        emitMutation: (type, p) => this._emitVfsMutation(type, p),
+        signal: context.signal,
+        onStdout: (chunk) => {
+          if (!chunk) return;
+          streamedStdoutBytes += chunk.length;
+          routeOutput(fd1, chunk, true);
+        },
+        onStderr: (chunk) => {
+          if (!chunk) return;
+          streamedStderrBytes += chunk.length;
+          routeOutput(fd2, chunk, true);
+        }
       };
 
+      // 7. Command execution dispatch
       let res;
-      if (this.commands[cmdName]) {
+      if (this.functions && this.functions[cmdName]) {
+        const fnDef = this.functions[cmdName];
+        const fnEnv = Object.assign({}, cmdEnv);
+        args.forEach((a, i) => { fnEnv[String(i + 1)] = a; });
+        fnEnv['#'] = String(args.length);
+        fnEnv['@'] = args.join(' ');
+        fnEnv['*'] = args.join(' ');
+        const fnRes = await this._executeAstNode(fnDef.body, { ...context, env: fnEnv, positionalArgs: args });
+        res = {
+          code: fnRes.controlFlow?.type === 'return' ? fnRes.controlFlow.code : (fnRes.code || 0),
+          stdout: fnRes.stdout || '',
+          stderr: fnRes.stderr || ''
+        };
+      } else if (this.commands[cmdName]) {
         res = await this.commands[cmdName](args, cmdCtx);
         if (cmdName === 'export' || cmdName === 'unset' || cmdName === 'cd') {
           for (const k of Object.keys(context.env)) {
@@ -5708,7 +6290,10 @@
         const spawned = await this.options.onProcessSpawn(cmdName, args, {
           cwd: this.cwd,
           env: cmdEnv,
-          stdin: effectiveStdin
+          stdin: effectiveStdin,
+          onStdout: cmdCtx.onStdout,
+          onStderr: cmdCtx.onStderr,
+          signal: context.signal
         });
         if (spawned !== undefined && spawned !== null) {
           res = spawned;
@@ -5719,32 +6304,36 @@
         res = { code: 127, stdout: '', stderr: `shell: ${cmdName}: command not found\n` };
       }
 
-      // 6. Route output according to file descriptors
-      let stdoutOut = '';
-      let stderrOut = '';
+      if (!res) res = { code: 0, stdout: '', stderr: '' };
 
-      const routeOutput = (fd, text) => {
-        if (!text) return;
-        if (fd.type === 'stdout') {
-          stdoutOut += text;
-        } else if (fd.type === 'stderr') {
-          stderrOut += text;
-        } else if (fd.type === 'file') {
-          this.vfs.appendFileSync(fd.path, text);
-          this._emitVfsMutation('change', fd.path);
+      // Route any remaining unstreamed output
+      if (res.stdout) {
+        if (streamedStdoutBytes > 0) {
+          if (res.stdout.length > streamedStdoutBytes) {
+            routeOutput(fd1, res.stdout.slice(streamedStdoutBytes), true);
+          }
+        } else {
+          routeOutput(fd1, res.stdout, false);
+          if (context.onStdout && stdoutOut) context.onStdout(stdoutOut);
         }
-      };
-
-      routeOutput(fd1, res.stdout || '');
-      routeOutput(fd2, res.stderr || '');
-
-      if (context.onStdout && stdoutOut) context.onStdout(stdoutOut);
-      if (context.onStderr && stderrOut) context.onStderr(stderrOut);
+      }
+      if (res.stderr) {
+        if (streamedStderrBytes > 0) {
+          if (res.stderr.length > streamedStderrBytes) {
+            routeOutput(fd2, res.stderr.slice(streamedStderrBytes), true);
+          }
+        } else {
+          routeOutput(fd2, res.stderr, false);
+          if (context.onStderr && stderrOut) context.onStderr(stderrOut);
+        }
+      }
 
       return {
         code: res.code !== undefined ? res.code : 0,
         stdout: stdoutOut,
-        stderr: stderrOut
+        stderr: stderrOut,
+        controlFlow: res.controlFlow,
+        aborted: res.aborted || (context.signal && context.signal.aborted)
       };
     }
   }
