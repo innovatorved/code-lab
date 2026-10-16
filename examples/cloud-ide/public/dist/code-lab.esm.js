@@ -18108,6 +18108,39 @@ declare module 'bun:sqlite' {
       const termSurface = this.container ? this.container.querySelector('#cl-terminal-surface') : null;
       const drawerBody = this.container ? this.container.querySelector('.codelab-drawer__body') : null;
 
+      // The workbench owns live terminal rendering. Only defer when an attached PTY
+      // engine is itself rendering into the DOM (it is created with a null container in
+      // production, so this remains the sole renderer there).
+      const ptyOwnsDom = Boolean(this.ptyEngine && this.ptyEngine.container);
+      const canPatchDom = Boolean(termLogEl && typeof document !== 'undefined' && !ptyOwnsDom);
+
+      // Write a single logical line into the live terminal DOM immediately, so output
+      // streams in as it is produced instead of appearing only when the command ends and
+      // the whole drawer is re-rendered. Reuses the current partial-line element when it
+      // is still attached (carriage-return overwrites / keep-alive updates).
+      const patchLineInDom = (text) => {
+        if (!canPatchDom) return;
+        const html = ansiToHtml ? ansiToHtml(text) : escapeHtml(text);
+        if (this._activeStreamEl && this._activeStreamEl.parentNode === termLogEl) {
+          this._activeStreamEl.className = 'codelab-log-line ' + escapeHtml(this._activeStreamType || type);
+          this._activeStreamEl.innerHTML = html;
+        } else {
+          const newEl = document.createElement('div');
+          newEl.className = 'codelab-log-line ' + escapeHtml(this._activeStreamType || type);
+          newEl.innerHTML = html;
+          termLogEl.appendChild(newEl);
+          this._activeStreamEl = newEl;
+        }
+      };
+
+      // A newline completes the current line: commit it to the log + DOM, then begin a fresh line.
+      const commitActiveLine = () => {
+        this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
+        patchLineInDom(this._activeStreamLine);
+        this._activeStreamLine = '';
+        this._activeStreamEl = null;
+      };
+
       let i = 0;
       while (i < rawText.length) {
         if (rawText.startsWith('\x1b[2K', i)) {
@@ -18142,20 +18175,22 @@ declare module 'bun:sqlite' {
         const ch = rawText[i];
         if (ch === '\r') {
           if (i + 1 < rawText.length && rawText[i + 1] === '\n') {
-            this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
-            this._activeStreamLine = '';
-            this._activeStreamEl = null;
+            commitActiveLine();
             i += 2;
             continue;
           } else {
+            // Bare carriage return: flush the current text into the active line, then
+            // keep overwriting that same DOM node (no extra line is appended).
+            const rendered = this._activeStreamLine;
+            if (rendered || this._activeStreamEl) {
+              patchLineInDom(rendered);
+            }
             this._activeStreamLine = '';
             i++;
             continue;
           }
         } else if (ch === '\n') {
-          this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
-          this._activeStreamLine = '';
-          this._activeStreamEl = null;
+          commitActiveLine();
           i++;
           continue;
         } else {
@@ -18164,20 +18199,9 @@ declare module 'bun:sqlite' {
         }
       }
 
-      if (termLogEl && typeof document !== 'undefined') {
-        if (this._activeStreamLine) {
-          const formattedHtml = ansiToHtml ? ansiToHtml(this._activeStreamLine) : escapeHtml(this._activeStreamLine);
-          if (this._activeStreamEl && this._activeStreamEl.parentNode === termLogEl) {
-            this._activeStreamEl.className = 'codelab-log-line ' + escapeHtml(this._activeStreamType || type);
-            this._activeStreamEl.innerHTML = formattedHtml;
-          } else {
-            const newEl = document.createElement('div');
-            newEl.className = 'codelab-log-line ' + escapeHtml(this._activeStreamType || type);
-            newEl.innerHTML = formattedHtml;
-            termLogEl.appendChild(newEl);
-            this._activeStreamEl = newEl;
-          }
-        }
+      // Render the still-open partial line so incremental progress stays visible.
+      if (this._activeStreamLine) {
+        patchLineInDom(this._activeStreamLine);
       }
 
       if (termSurface) {
