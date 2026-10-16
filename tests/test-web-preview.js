@@ -239,6 +239,30 @@ async function runSuite() {
     assert.ok(previewBtn, 'ports panel should include a Preview button');
   });
 
+  await test('C8 external URLs open in a new tab instead of the virtual frame', async () => {
+    const wb = workbenchWithServer('m3-external', 3000, '<html><head></head><body>x</body></html>');
+    await wb._openWebPreview(3000);
+    const opened = [];
+    const prevOpen = globalThis.window.open;
+    globalThis.window.open = (url, target) => { opened.push({ url, target }); return {}; };
+    try {
+      await wb._previewGo('https://google.com');
+      await wb._previewGo('example.com/docs');
+      await wb._previewGo('www.github.com');
+      // Loopback navigation must NOT spawn a new tab.
+      await wb._previewGo('http://127.0.0.1:3000/status');
+    } finally {
+      globalThis.window.open = prevOpen;
+    }
+    assert.equal(opened.length, 3, 'each external URL should open exactly one tab');
+    assert.equal(opened[0].url, 'https://google.com');
+    assert.equal(opened[0].target, '_blank');
+    assert.equal(opened[1].url, 'https://example.com/docs');
+    assert.equal(opened[2].url, 'https://www.github.com');
+    assert.equal(wb.previewState.port, 3000, 'external navigation leaves the virtual port untouched');
+    assert.equal(wb.previewState.path, '/status', 'loopback navigation still loads in-frame');
+  });
+
   console.log('\n--- Suite D: Service Worker Bridge ---');
 
   await test('D1 _handleServiceWorkerMessage dispatches via the port table and replies', async () => {

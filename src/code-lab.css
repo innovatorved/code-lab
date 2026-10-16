@@ -1803,12 +1803,26 @@ code-lab,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   height: 36px;
   padding: 0 14px;
   background: var(--cl-bg);
   border-bottom: 1px solid var(--cl-border);
   flex-shrink: 0;
   user-select: none;
+  min-width: 0;
+}
+
+/* Keep the Clear / minimize controls pinned while the tab strip scrolls. */
+.codelab-drawer__bar > div:last-child {
+  flex-shrink: 0;
+}
+
+/* On narrow/guided layouts, drop the tab pill badges so labels never wrap. */
+@media (max-width: 720px) {
+  .codelab-drawer__tab .codelab-drawer__pill {
+    display: none;
+  }
 }
 
 .codelab-drawer__tabs {
@@ -1816,6 +1830,17 @@ code-lab,
   align-items: center;
   gap: 4px;
   height: 100%;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.codelab-drawer__tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .codelab-drawer__tab {
@@ -1831,6 +1856,8 @@ code-lab,
   border: none;
   cursor: pointer;
   transition: all 100ms ease;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .codelab-drawer__tab:hover {
@@ -2319,7 +2346,7 @@ code-lab,
   font-size: 11.5px;
   color: var(--cl-fg-muted);
   user-select: none;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .codelab-guide__expand-btn {
@@ -2353,12 +2380,30 @@ code-lab,
   display: inline-flex;
 }
 
+.codelab-breadcrumbs__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .codelab-breadcrumbs__path {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
   white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.codelab-breadcrumbs__path::-webkit-scrollbar {
+  display: none;
+}
+
+.codelab-breadcrumbs__item--folder {
+  color: var(--cl-fg-muted);
 }
 
 .codelab-breadcrumbs__item {
@@ -2410,6 +2455,161 @@ code-lab,
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+/* ── Workspace Folder Switcher (breadcrumb dropdown) ───────────────────── */
+.codelab-folder-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.codelab-folder-switcher__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--cl-border);
+  border-radius: 4px;
+  background: var(--cl-bg);
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-sans);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.codelab-folder-switcher__toggle:hover,
+.codelab-folder-switcher.is-open .codelab-folder-switcher__toggle {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+  border-color: var(--cl-border-strong);
+}
+
+.codelab-folder-switcher__toggle.is-scoped {
+  color: var(--cl-fg);
+  border-color: var(--cl-border-strong);
+}
+
+.codelab-folder-switcher__label {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-folder-switcher__menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 90;
+  min-width: 230px;
+  max-width: 340px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--cl-bg-elevated);
+  border: 1px solid var(--cl-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.codelab-folder-switcher__section {
+  padding: 4px 8px 6px;
+  font-family: var(--cl-font-sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cl-fg-subtle);
+}
+
+.codelab-folder-switcher__option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codelab-folder-switcher__option:hover {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+}
+
+.codelab-folder-switcher__option.active {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+  font-weight: 600;
+}
+
+.codelab-folder-switcher__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cl-fg-subtle);
+}
+
+.codelab-folder-switcher__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-folder-switcher__path {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--cl-fg-subtle);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-folder-switcher__empty {
+  padding: 8px;
+  font-size: 11px;
+  color: var(--cl-fg-muted);
+}
+
+/* Scoped-explorer "back to workspace" row */
+.codelab-scope-up {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  margin-bottom: 2px;
+  border: none;
+  border-bottom: 1px dashed var(--cl-border);
+  background: transparent;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codelab-scope-up:hover {
+  color: var(--cl-fg);
+  background: var(--cl-bg-hover);
+}
+
+.codelab-scope-up__arrow {
+  color: var(--cl-fg-subtle);
 }
 
 .codelab-breadcrumb__btn,
@@ -3957,6 +4157,14 @@ code-lab,
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.codelab-toast--info .codelab-toast__icon { color: var(--cl-blue); }
+
+.codelab-toast--error {
+  border-color: var(--cl-red);
+}
+
+.codelab-toast--error .codelab-toast__icon { color: var(--cl-red); }
 
 .codelab-toast__icon {
   color: var(--cl-green);

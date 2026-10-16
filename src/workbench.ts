@@ -1171,6 +1171,8 @@ declare module 'bun:sqlite' {
       this.completedSteps = new Set(this.savedState.completedSteps || []);
       this.folders = new Set(this.savedState?.folders || []);
       this.collapsedFolders = new Set(this.savedState?.collapsedFolders || []);
+      this.explorerFolder = this.savedState?.explorerFolder || ''; // '' = workspace root, else folder path scope
+      this.folderSwitcherOpen = false;
       this.creatingItem = null; // { type: 'file' | 'folder', parentFolder: string } | null
       this.renamingItem = null;
       this._draggedFile = null;
@@ -1506,7 +1508,8 @@ declare module 'bun:sqlite' {
           openTabs: Array.isArray(this.openTabs) ? [...this.openTabs] : undefined,
           activeFile: this.activeFile,
           folders: Array.from(this.folders || []),
-          collapsedFolders: Array.from(this.collapsedFolders || [])
+          collapsedFolders: Array.from(this.collapsedFolders || []),
+          explorerFolder: this.explorerFolder || ''
         };
         this.savedState = state;
         if (this.options && this.options.persistState === false) {
@@ -1950,23 +1953,59 @@ declare module 'bun:sqlite' {
         </button>
       ` : '';
 
-      let pathHtml = `<button type="button" class="codelab-breadcrumb__item codelab-breadcrumb__root" data-action="command-palette-files" data-cl-action="command-palette-files" title="Quick Open File (⌘P)">workspace</button>`;
+      const folderOptions = this._listWorkspaceFolders();
+      const scope = this.explorerFolder || '';
+      const scopeLabel = scope ? scope.split('/').pop() : 'workspace';
+
+      const switcherHtml = `
+        <div class="codelab-folder-switcher ${this.folderSwitcherOpen ? 'is-open' : ''}">
+          <button type="button" class="codelab-folder-switcher__toggle ${scope ? 'is-scoped' : ''}" data-cl-action="toggle-folder-switcher" aria-haspopup="true" aria-expanded="${this.folderSwitcherOpen ? 'true' : 'false'}" title="Switch workspace folder">
+            ${CL_ICONS.folder}
+            <span class="codelab-folder-switcher__label">${escapeHtml(scopeLabel)}</span>
+            ${CL_ICONS.chevronDown}
+          </button>
+          ${this.folderSwitcherOpen ? `
+            <div class="codelab-folder-switcher__menu" role="menu" aria-label="Workspace folders">
+              <div class="codelab-folder-switcher__section">Switch Folder</div>
+              <button type="button" role="menuitem" class="codelab-folder-switcher__option ${!scope ? 'active' : ''}" data-cl-folder-option="">
+                <span class="codelab-folder-switcher__icon">${CL_ICONS.folder}</span>
+                <span class="codelab-folder-switcher__name">workspace</span>
+                <span class="codelab-folder-switcher__path">/</span>
+              </button>
+              ${folderOptions.map(f => {
+                const fDepth = f.split('/').length;
+                const fName = f.split('/').pop();
+                return `
+                  <button type="button" role="menuitem" class="codelab-folder-switcher__option ${scope === f ? 'active' : ''}" data-cl-folder-option="${escapeHtml(f)}" style="padding-left:${10 + (fDepth - 1) * 12}px;">
+                    <span class="codelab-folder-switcher__icon">${CL_ICONS.folder}</span>
+                    <span class="codelab-folder-switcher__name">${escapeHtml(fName)}</span>
+                    <span class="codelab-folder-switcher__path">${escapeHtml(f)}</span>
+                  </button>
+                `;
+              }).join('')}
+              ${folderOptions.length ? '' : '<div class="codelab-folder-switcher__empty">No subfolders yet</div>'}
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      let pathHtml = `<button type="button" class="codelab-breadcrumbs__item codelab-breadcrumbs__item--root" data-action="command-palette-files" data-cl-action="command-palette-files" title="Quick Open File (⌘P)">workspace</button>`;
 
       if (this.activeFile) {
         const segments = this.activeFile.split('/');
         for (let i = 0; i < segments.length - 1; i++) {
           const folderPath = segments.slice(0, i + 1).join('/');
-          pathHtml += `<span class="codelab-breadcrumb__sep" aria-hidden="true">›</span>`;
-          pathHtml += `<button type="button" class="codelab-breadcrumb__item codelab-breadcrumb__folder" data-cl-breadcrumb-folder="${escapeHtml(folderPath)}" data-folder="${escapeHtml(folderPath)}">${escapeHtml(segments[i])}</button>`;
+          pathHtml += `<span class="codelab-breadcrumbs__sep" aria-hidden="true">›</span>`;
+          pathHtml += `<button type="button" class="codelab-breadcrumbs__item codelab-breadcrumbs__item--folder" data-cl-breadcrumb-folder="${escapeHtml(folderPath)}" data-folder="${escapeHtml(folderPath)}" title="Scope explorer to ${escapeHtml(folderPath)}">${escapeHtml(segments[i])}</button>`;
         }
         const fileName = segments[segments.length - 1];
-        pathHtml += `<span class="codelab-breadcrumb__sep" aria-hidden="true">›</span>`;
-        pathHtml += `<button type="button" class="codelab-breadcrumb__item codelab-breadcrumb__file active" data-cl-breadcrumb-file="${escapeHtml(this.activeFile)}" data-file="${escapeHtml(this.activeFile)}">${escapeHtml(fileName)}</button>`;
+        pathHtml += `<span class="codelab-breadcrumbs__sep" aria-hidden="true">›</span>`;
+        pathHtml += `<button type="button" class="codelab-breadcrumbs__item codelab-breadcrumbs__item--file active" data-cl-breadcrumb-file="${escapeHtml(this.activeFile)}" data-file="${escapeHtml(this.activeFile)}">${escapeHtml(fileName)}</button>`;
 
         const symbol = this._detectActiveSymbol(this.activeFile);
         if (symbol) {
-          pathHtml += `<span class="codelab-breadcrumb__sep" aria-hidden="true">›</span>`;
-          pathHtml += `<span class="codelab-breadcrumb__symbol" data-cl-breadcrumb-symbol="${escapeHtml(symbol)}">ƒ ${escapeHtml(symbol)}</span>`;
+          pathHtml += `<span class="codelab-breadcrumbs__sep" aria-hidden="true">›</span>`;
+          pathHtml += `<span class="codelab-breadcrumbs__item codelab-breadcrumbs__item--symbol" data-cl-breadcrumb-symbol="${escapeHtml(symbol)}">ƒ ${escapeHtml(symbol)}</span>`;
         }
       }
 
@@ -1987,7 +2026,10 @@ declare module 'bun:sqlite' {
 
       host.innerHTML = `
         ${expandBtnHtml}
-        <div class="codelab-breadcrumbs__path">${pathHtml}</div>
+        <div class="codelab-breadcrumbs__left">
+          ${switcherHtml}
+          <div class="codelab-breadcrumbs__path">${pathHtml}</div>
+        </div>
         <div class="codelab-breadcrumbs__actions">
           ${diffBtnHtml}
           <button type="button" class="codelab-breadcrumb__btn" data-action="command-palette" data-cl-action="command-palette" title="Open Command Palette (⌘⇧P)">
@@ -2230,6 +2272,36 @@ declare module 'bun:sqlite' {
       return rootNode;
     }
 
+    _listWorkspaceFolders() {
+      const set = new Set();
+      if (this.folders) {
+        for (const f of this.folders) {
+          if (f) set.add(f);
+        }
+      }
+      for (const filePath of this._orderedFileNames()) {
+        const idx = filePath.lastIndexOf('/');
+        if (idx <= 0) continue;
+        const parts = filePath.slice(0, idx).split('/');
+        let running = '';
+        for (const p of parts) {
+          running = running ? `${running}/${p}` : p;
+          set.add(running);
+        }
+      }
+      return Array.from(set).sort((a, b) => a.localeCompare(b));
+    }
+
+    _resolveFolderNode(rootNode, folderPath) {
+      if (!rootNode || !folderPath) return null;
+      let current = rootNode;
+      for (const seg of folderPath.split('/')) {
+        if (!current || !current.folders || !current.folders.has(seg)) return null;
+        current = current.folders.get(seg);
+      }
+      return current || null;
+    }
+
     _renderFileLists() {
       const explorerEl = this.container.querySelector('#cl-explorer-list');
       const tabsEl = this.container.querySelector('#cl-file-tabs');
@@ -2238,6 +2310,12 @@ declare module 'bun:sqlite' {
       if (!explorerEl || !tabsEl) return;
 
       const treeRoot = this._buildFileTree();
+      if (this.explorerFolder && !this._resolveFolderNode(treeRoot, this.explorerFolder)) {
+        this.explorerFolder = '';
+      }
+      const scope = this.explorerFolder || '';
+      const renderRoot = scope ? this._resolveFolderNode(treeRoot, scope) : treeRoot;
+      const rootParent = scope;
       let treeHtml = '';
 
       const renderNode = (node, depth) => {
@@ -2292,7 +2370,7 @@ declare module 'bun:sqlite' {
         }
       };
 
-      if (this.creatingItem && this.creatingItem.parentFolder === '') {
+      if (this.creatingItem && this.creatingItem.parentFolder === rootParent) {
         treeHtml += `
           <div class="codelab-tree-create-row" style="padding-left: 10px;">
             <span class="codelab-tree-create-icon">${this.creatingItem.type === 'folder' ? CL_ICONS.folder : CL_ICONS.file}</span>
@@ -2301,7 +2379,16 @@ declare module 'bun:sqlite' {
         `;
       }
 
-      renderNode(treeRoot, 0);
+      if (scope) {
+        treeHtml += `
+          <button type="button" class="codelab-scope-up" data-cl-folder-option="" title="Back to workspace root">
+            <span class="codelab-scope-up__arrow">←</span>
+            <span class="codelab-scope-up__label">workspace</span>
+          </button>
+        `;
+      }
+
+      renderNode(renderRoot, 0);
       explorerEl.innerHTML = treeHtml;
 
       // Attach file drag events
@@ -3862,6 +3949,29 @@ declare module 'bun:sqlite' {
       this._portToasts.delete(p);
     }
 
+    _showToast(message, kind = 'info') {
+      const toastHost = this.container ? this.container.querySelector('#cl-toast-container') : null;
+      if (!toastHost || typeof document === 'undefined') return;
+      const toast = document.createElement('div');
+      toast.className = `codelab-toast codelab-toast--${kind === 'error' ? 'error' : 'info'}`;
+      const icon = kind === 'error' ? (CL_ICONS.x || '⚠') : (CL_ICONS.externalLink || CL_ICONS.radio || '');
+      toast.innerHTML = `
+        <div class="codelab-toast__icon">${icon}</div>
+        <div class="codelab-toast__body">
+          <div class="codelab-toast__meta">${escapeHtml(message)}</div>
+        </div>
+        <button type="button" class="codelab-toast__close" aria-label="Dismiss notification">${CL_ICONS.x || '×'}</button>
+      `;
+      const closeBtn = toast.querySelector('.codelab-toast__close');
+      const remove = () => {
+        if (typeof toast.remove === 'function') toast.remove();
+        else if (toast.parentNode) toast.parentNode.removeChild(toast);
+      };
+      if (closeBtn) closeBtn.addEventListener('click', remove);
+      toastHost.appendChild(toast);
+      setTimeout(remove, 5000);
+    }
+
     _registerPreviewServiceWorker() {
       if (typeof navigator === 'undefined' || !navigator.serviceWorker || typeof navigator.serviceWorker.register !== 'function') return;
       const url = (this.options && this.options.previewSwUrl) || 'preview-sw.js';
@@ -3952,9 +4062,53 @@ declare module 'bun:sqlite' {
     _previewGo(urlOrPath) {
       let url = String(urlOrPath || '').trim();
       if (!url) return Promise.resolve();
+
+      const loopbackPort = this.previewState.port || this._firstListeningPort() || 3000;
+      const localHostRe = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?(\/.*)?$/i;
+
+      // Normalize the input into an absolute URL.
       if (!/^https?:\/\//i.test(url)) {
-        url = `http://127.0.0.1:${this.previewState.port || this._firstListeningPort() || 3000}${url.startsWith('/') ? '' : '/'}${url}`;
+        if (localHostRe.test(url)) {
+          url = `http://${url}`;
+        } else if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?([/?#].*)?$/i.test(url)) {
+          // Bare public domain, e.g. "google.com" or "example.com/path".
+          url = `https://${url}`;
+        } else {
+          url = `http://127.0.0.1:${loopbackPort}${url.startsWith('/') ? '' : '/'}${url}`;
+        }
       }
+
+      // Public (non-loopback) URLs cannot be served by the virtual loopback Service
+      // Worker, so open them in a real browser tab instead of the in-browser frame.
+      let isExternal = false;
+      try {
+        const u = new URL(url);
+        const host = (u.hostname || '').toLowerCase();
+        isExternal = !(host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host === '[::1]');
+      } catch (_) { isExternal = false; }
+
+      if (isExternal) {
+        let opened = false;
+        if (typeof window !== 'undefined' && typeof window.open === 'function') {
+          try {
+            const win = window.open(url, '_blank');
+            if (win) {
+              try { win.opener = null; } catch (_) {}
+              opened = true;
+            }
+          } catch (_) { opened = false; }
+        }
+        if (typeof this._showToast === 'function') {
+          this._showToast(
+            opened ? `Opened ${url} in a new tab` : `Could not open ${url} — allow pop-ups and try again`,
+            opened ? 'info' : 'error'
+          );
+        }
+        const inputEl = this.container.querySelector('#cl-preview-url-input');
+        if (inputEl) inputEl.value = this.previewState.url || inputEl.value;
+        return Promise.resolve();
+      }
+
       let port = this.previewState.port;
       let path = '/';
       try {
@@ -4064,7 +4218,7 @@ declare module 'bun:sqlite' {
               <button type="button" class="codelab-preview-btn" data-cl-action="preview-reload" title="Reload">${CL_ICONS.refresh || '⟳'}</button>
             </div>
             <select class="codelab-preview-port-select" data-cl-action="preview-port-change" aria-label="Preview port">${portOptions}</select>
-            <input type="text" class="codelab-preview-url-input" id="cl-preview-url-input" value="${escapeHtml(this.previewState.url)}" placeholder="http://127.0.0.1:3000/" aria-label="Preview URL" />
+            <input type="text" class="codelab-preview-url-input" id="cl-preview-url-input" value="${escapeHtml(this.previewState.url)}" placeholder="127.0.0.1:3000/ or https://example.com" aria-label="Preview URL" title="Localhost/virtual ports load in-frame; public URLs open in a new tab" />
             <div class="codelab-preview-modes">
               <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'desktop' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="desktop" title="Desktop">${CL_ICONS.monitor || '▭'}</button>
               <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'tablet' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="tablet" title="Tablet">${CL_ICONS.tablet || '▢'}</button>
@@ -4683,6 +4837,11 @@ declare module 'bun:sqlite' {
           this._previewGo(previewInput.value);
           return;
         }
+        if (e.key === 'Escape' && this.folderSwitcherOpen) {
+          this.folderSwitcherOpen = false;
+          this._renderBreadcrumbs();
+          return;
+        }
         if (e.key === 'F1' || ((e.metaKey || e.ctrlKey) && e.shiftKey && keyLower === 'p')) {
           e.preventDefault();
           this.openCommandPalette('commands');
@@ -4883,12 +5042,39 @@ declare module 'bun:sqlite' {
           return;
         }
 
+        const fsToggle = e.target.closest('[data-cl-action="toggle-folder-switcher"]');
+        if (fsToggle) {
+          e.stopPropagation();
+          this.folderSwitcherOpen = !this.folderSwitcherOpen;
+          this._renderBreadcrumbs();
+          return;
+        }
+
+        const fsOption = e.target.closest('[data-cl-folder-option]');
+        if (fsOption) {
+          e.stopPropagation();
+          const scopeVal = fsOption.dataset.clFolderOption || '';
+          this.explorerFolder = scopeVal;
+          if (scopeVal) this.collapsedFolders.delete(scopeVal);
+          this.folderSwitcherOpen = false;
+          this._renderFileLists();
+          this._renderBreadcrumbs();
+          return;
+        }
+
+        if (this.folderSwitcherOpen && !e.target.closest('.codelab-folder-switcher')) {
+          this.folderSwitcherOpen = false;
+          this._renderBreadcrumbs();
+        }
+
         const bcFolder = e.target.closest('[data-cl-breadcrumb-folder]');
         if (bcFolder) {
           const folder = bcFolder.dataset.clBreadcrumbFolder;
           if (folder) {
             this.collapsedFolders.delete(folder);
+            this.explorerFolder = folder;
             this._renderFileLists();
+            this._renderBreadcrumbs();
           }
           return;
         }
@@ -5023,10 +5209,10 @@ declare module 'bun:sqlite' {
             this.isCreatingFile = true;
             this._renderFileLists();
           } else if (action === 'new-file-root') {
-            this.creatingItem = { type: 'file', parentFolder: '' };
+            this.creatingItem = { type: 'file', parentFolder: this.explorerFolder || '' };
             this._renderFileLists();
           } else if (action === 'new-folder-root') {
-            this.creatingItem = { type: 'folder', parentFolder: '' };
+            this.creatingItem = { type: 'folder', parentFolder: this.explorerFolder || '' };
             this._renderFileLists();
           } else if (action === 'new-file-folder') {
             const folder = actionBtn.dataset.clFolder || '';

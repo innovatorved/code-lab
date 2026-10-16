@@ -1,6 +1,6 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, and Web Worker Node.js/Bun Virtual Runtime.",
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",
@@ -72,7 +72,7 @@
     "build": "bun run tools/bundle.js",
     "typecheck": "bun x tsc --noEmit",
     "test": "bun run tests/test-all-builds.js",
-    "test:all": "bun run tools/bundle.js && bun run tests/test-all-builds.js && bun run tests/test-runtime-advanced.js && bun run tests/test-option1-shell-bun-http.js && bun run tests/test-coreutils-adversarial.js && bun run tests/test-stress-shell.js && bun run tests/test-workbench-ui.js && bun run tests/test-terminal-streaming.js && bun run tests/test-m1-adversarial-challenger.js && bun run tests/test-m1-interruption-lifecycle-stress.js && bun run tests/test-gfm-markdown.js && bun run tests/test-m2-adversarial-syntax.js && bun run tests/test-m2-adversarial-interactive.js && bun run tests/test-web-preview.js && bun run tests/test-preview-sw.js",
+    "test:all": "bun run tools/bundle.js && bun run tests/test-all-builds.js && bun run tests/test-runtime-advanced.js && bun run tests/test-option1-shell-bun-http.js && bun run tests/test-coreutils-adversarial.js && bun run tests/test-stress-shell.js && bun run tests/test-workbench-ui.js && bun run tests/test-terminal-streaming.js && bun run tests/test-git-clone-streaming.js && bun run tests/test-m1-adversarial-challenger.js && bun run tests/test-m1-interruption-lifecycle-stress.js && bun run tests/test-gfm-markdown.js && bun run tests/test-m2-adversarial-syntax.js && bun run tests/test-m2-adversarial-interactive.js && bun run tests/test-web-preview.js && bun run tests/test-preview-sw.js",
     "pack:check": "bun pm pack --dry-run"
   },
   "dependencies": {
