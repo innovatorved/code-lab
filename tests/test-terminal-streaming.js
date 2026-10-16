@@ -298,6 +298,56 @@ async function runTestSuite() {
     assert.equal(wb.terminalLogs[0].text, 'Installing 100%');
   });
 
+  await test('[T3.5] Workbench streams newline-terminated chunks to the live DOM immediately', () => {
+    const logDiv = {
+      children: [],
+      appendChild(el) { el.parentNode = this; this.children.push(el); },
+      lastElementChild: null
+    };
+    const mockContainer = {
+      querySelector: (sel) => (sel === '#cl-terminal-log' ? logDiv : null),
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    };
+    const prevDoc = globalThis.document;
+    globalThis.document = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      createElement: () => ({ innerHTML: '', className: '', parentNode: null, textContent: '' })
+    };
+
+    try {
+      const wb = new workbench.CodeLabWorkbench(mockContainer, { id: 'stream-dom-lab' });
+      // Production wires the PTY engine without a container, so the workbench is the renderer.
+      assert.ok(wb.ptyEngine, 'ptyEngine should be initialised');
+      assert.ok(!wb.ptyEngine.container, 'ptyEngine must not own the DOM in production wiring');
+
+      wb._appendTerminalStream('stdout', 'Cloning into demo...\n');
+      assert.equal(logDiv.children.length, 1, 'a newline-terminated chunk must render a DOM line immediately');
+      assert.equal(logDiv.children[0].innerHTML, 'Cloning into demo...');
+
+      wb._appendTerminalStream('stdout', 'Receiving objects: 50%\n');
+      assert.equal(logDiv.children.length, 2, 'each completed line must append without waiting for the command to finish');
+
+      // Carriage-return progress updates overwrite the active line in place (no new nodes).
+      wb._appendTerminalStream('stdout', 'Receiving objects: 80%\r');
+      wb._appendTerminalStream('stdout', 'Receiving objects: 100%\r');
+      wb._appendTerminalStream('stdout', 'Receiving objects: 100% (10/10), done.\n');
+      assert.equal(logDiv.children.length, 3, 'carriage-return updates must not accumulate extra DOM lines');
+      assert.equal(logDiv.children[2].innerHTML, 'Receiving objects: 100% (10/10), done.');
+
+      // A trailing partial line is shown, then reused when its newline arrives.
+      wb._appendTerminalStream('stdout', 'Resolving deltas');
+      assert.equal(logDiv.children.length, 4);
+      assert.equal(logDiv.children[3].innerHTML, 'Resolving deltas');
+      wb._appendTerminalStream('stdout', ': 100% done.\n');
+      assert.equal(logDiv.children.length, 4, 'finishing a partial line must reuse the same node');
+      assert.equal(logDiv.children[3].innerHTML, 'Resolving deltas: 100% done.');
+    } finally {
+      globalThis.document = prevDoc;
+    }
+  });
+
   // ───────────────────────────────────────────────────────────────────────────
   // Tier 4: ANSI Escape Sequences Handling
   // ───────────────────────────────────────────────────────────────────────────
