@@ -1766,6 +1766,9 @@ declare module 'bun:sqlite' {
                 <span>${(this.hasGuidedLab && this.mode === 'guided') ? 'Verify Step' : 'Run Tests'}</span>
                 <span class="codelab-btn__kbd">⌘↵</span>
               </button>
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-preview-app-btn" data-cl-action="preview-app" title="Run &amp; Preview in Browser (built-in dev server)" aria-label="Run and Preview in Browser">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </button>
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               ${this.hasGuidedLab ? `
               <button type="button" class="codelab-btn codelab-btn--icon ${isGuideCollapsed ? '' : 'active'}" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel" aria-pressed="${isGuideCollapsed ? 'false' : 'true'}">
@@ -4098,6 +4101,55 @@ declare module 'bun:sqlite' {
       return this._previewLoadPromise || Promise.resolve();
     }
 
+    // One-click "run the app in a browser": if nothing is listening yet, start the
+    // built-in preview server (which transpiles TS/JSX to browser-native ESM and
+    // resolves bare imports via jsDelivr) and then open the Web Preview.
+    async previewApp() {
+      const existing = this._firstListeningPort();
+      if (existing) {
+        this._openWebPreview(existing);
+        return existing;
+      }
+
+      const htmlCandidates = ['public/index.html', 'index.html', 'site/index.html', 'src/index.html'];
+      if (!htmlCandidates.some((f) => this.files && this.files[f])) {
+        this.drawerTab = 'terminal';
+        this.terminalLogs.push({
+          type: 'system',
+          text: '\nNo index.html found. Add an `index.html` (or run `serve <dir>` in the terminal) to preview your app.'
+        });
+        this._renderDrawerBody();
+        return null;
+      }
+
+      const rootDir = (this.files['public/index.html']) ? '/workspace/public'
+        : (this.files['site/index.html']) ? '/workspace/site'
+        : '/workspace';
+
+      if (!this.shell || typeof this.shell.execute !== 'function') return null;
+      this._syncFilesToShellVfs();
+      this.shell.cwd = this.cwd || '/workspace';
+      this.drawerTab = 'terminal';
+      this.terminalLogs.push({ type: 'system', text: `\n$ serve ${rootDir}` });
+      this._renderDrawerBody();
+
+      try {
+        const res = await this.shell.execute(`serve ${rootDir}`, {});
+        if (res && res.stdout) this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+        if (res && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+      } catch (err) {
+        this.terminalLogs.push({ type: 'stderr', text: String((err && err.message) || err) });
+      }
+      this._renderDrawerBody();
+
+      const port = this._firstListeningPort();
+      if (port) {
+        this._openWebPreview(port);
+        return port;
+      }
+      return null;
+    }
+
     _previewGo(urlOrPath) {
       let url = String(urlOrPath || '').trim();
       if (!url) return Promise.resolve();
@@ -4268,7 +4320,15 @@ declare module 'bun:sqlite' {
           <div class="codelab-preview-viewport codelab-preview-viewport--${this.previewState.frameMode}" id="cl-preview-viewport">
             <iframe class="codelab-preview-iframe" id="cl-preview-iframe" sandbox="allow-scripts allow-forms allow-same-origin allow-modals" title="Web Preview"></iframe>
           </div>
-          <div class="codelab-preview-hint">${servers.length ? 'Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.' : 'No listening ports detected. Run a server (e.g. <code>node server.js &amp;</code>) to bind a virtual port.'}</div>
+          ${servers.length
+            ? `<div class="codelab-preview-hint">Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.</div>`
+            : `<div class="codelab-preview-empty">
+                 <div class="codelab-preview-empty__icon">${CL_ICONS.globe || '🌐'}</div>
+                 <div class="codelab-preview-empty__title">No server running</div>
+                 <div class="codelab-preview-empty__text">Start the built-in preview server to render your <code>index.html</code>. TypeScript, TSX and JSX are transpiled for the browser automatically &mdash; no bundler required.</div>
+                 <button type="button" class="codelab-btn codelab-btn--primary codelab-btn--sm" data-cl-action="preview-app">${CL_ICONS.play || '▶'} <span>Run &amp; Preview</span></button>
+                 <div class="codelab-preview-empty__hint">or run <code>serve</code> in the terminal</div>
+               </div>`}
         </div>
       `;
       this._loadPreviewFrame();
@@ -5271,6 +5331,8 @@ declare module 'bun:sqlite' {
           } else if (action === 'open-web-preview') {
             const port = Number(actionBtn.dataset.port || actionBtn.dataset.clPort);
             if (port) this._openWebPreview(port);
+          } else if (action === 'preview-app') {
+            this.previewApp();
           } else if (action === 'dismiss-toast') {
             this._dismissPortToast(actionBtn.dataset.port);
           } else if (action === 'preview-back') {
@@ -7217,6 +7279,7 @@ declare module 'bun:sqlite' {
       cloneRepo(repoInput, opts) { return this._instance ? this._instance.cloneRepo(repoInput, opts) : Promise.reject(new Error('Workbench not mounted')); }
       runDemo() { return this._instance ? this._instance.runDemo() : Promise.resolve(); }
       runTests(filter) { return this._instance ? this._instance.runTests(filter) : Promise.resolve(); }
+      previewApp() { return this._instance ? this._instance.previewApp() : Promise.resolve(null); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
       reset() { if (this._instance) this._instance.reset(); }
       exportWorkspace(opts) { return this._instance ? this._instance.exportWorkspace(opts) : null; }

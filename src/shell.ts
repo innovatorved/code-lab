@@ -2421,9 +2421,31 @@ function __initShellModule(root: any) {
     return { name: raw.slice(0, at), range: raw.slice(at + 1) || null };
   }
 
+  function pickConditionalEntry(value) {
+    if (typeof value === 'string') return value;
+    if (!value || typeof value !== 'object') return null;
+    // This runtime executes CommonJS, so it prefers CJS-friendly conditions.
+    for (const key of ['require', 'node', 'default', 'browser', 'import', 'module']) {
+      if (value[key] !== undefined) {
+        const picked = pickConditionalEntry(value[key]);
+        if (picked) return picked;
+      }
+    }
+    return null;
+  }
+
   function resolveEntryRelPath(pkgJson) {
-    let entry = pkgJson.main || pkgJson.module ||
-      (typeof pkgJson.browser === 'string' ? pkgJson.browser : '') || 'index.js';
+    let entry = null;
+    const exp = pkgJson && pkgJson.exports;
+    if (typeof exp === 'string') {
+      entry = exp;
+    } else if (exp && typeof exp === 'object' && exp['.'] !== undefined) {
+      entry = pickConditionalEntry(exp['.']);
+    }
+    if (!entry) {
+      entry = pkgJson.main || pkgJson.module ||
+        (typeof pkgJson.browser === 'string' ? pkgJson.browser : '') || 'index.js';
+    }
     entry = String(entry).replace(/^[./]+/, '');
     return entry || 'index.js';
   }
@@ -2434,9 +2456,16 @@ function __initShellModule(root: any) {
 
   function extractRelativeSpecifiers(code) {
     const out = new Set();
-    const re = /(?:\brequire\s*\(\s*|\bimport\s+[\s\S]{0,120}?\bfrom\s*|\bimport\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g;
-    let m;
-    while ((m = re.exec(code)) !== null) out.add(m[1]);
+    const patterns = [
+      /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+      /\brequire\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+      /\bimport\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+      /\bimport\s*['"](\.{1,2}\/[^'"]+)['"]/g
+    ];
+    for (const re of patterns) {
+      let m;
+      while ((m = re.exec(code)) !== null) out.add(m[1]);
+    }
     return Array.from(out);
   }
 
@@ -2501,20 +2530,49 @@ function __initShellModule(root: any) {
     const entry = resolveEntryRelPath(meta);
     const files = [];
     const visited = new Set();
-    const queue = [entry];
-    while (queue.length > 0) {
-      const rel = stripRelPath(queue.shift());
-      if (!rel || visited.has(rel)) continue;
-      visited.add(rel);
-      const text = await fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/${rel}`);
-      if (text === null) continue;
-      files.push({ rel, content: text });
-      const baseDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
-      for (const spec of extractRelativeSpecifiers(text)) {
-        const target = normalizeRelPath(baseDir, spec);
-        for (const cand of [target, `${target}.js`, `${target}.json`, `${target}/index.js`]) {
-          const c = stripRelPath(cand);
-          if (c && !visited.has(c)) { queue.push(cand); break; }
+    // Seed with the package entry plus any declared `exports` subpaths, so a
+    // later `require('pkg/subpath')` (e.g. `entities/decode`) resolves offline.
+    const seed = [entry, `${entry}.js`, `${entry}.json`, `${entry}.mjs`, `${entry}.cjs`];
+    const expMap = meta.exports;
+    if (expMap && typeof expMap === 'object') {
+      let subCount = 0;
+      for (const key of Object.keys(expMap)) {
+        if (key === '.' || key.slice(0, 2) !== './' || subCount >= 25) continue;
+        const target = pickConditionalEntry(expMap[key]);
+        if (target) { seed.push(target); subCount++; }
+      }
+    }
+    let frontier = seed;
+    while (frontier.length > 0) {
+      const batch = [];
+      for (const raw of frontier) {
+        const rel = stripRelPath(raw);
+        if (!rel || visited.has(rel)) continue;
+        visited.add(rel);
+        batch.push(rel);
+      }
+      frontier = [];
+      if (batch.length === 0) break;
+      const texts = await Promise.all(
+        batch.map((rel) => fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/${rel}`))
+      );
+      for (let idx = 0; idx < batch.length; idx++) {
+        const rel = batch[idx];
+        const text = texts[idx];
+        if (text === null) continue;
+        files.push({ rel, content: text });
+        const baseDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+        for (const spec of extractRelativeSpecifiers(text)) {
+          const target = normalizeRelPath(baseDir, spec);
+          // Only guess extensions when the specifier omits one; non-existent
+          // candidates 404 harmlessly.
+          const cands = /\.[a-z0-9]+$/i.test(target)
+            ? [target]
+            : [target, `${target}.js`, `${target}.json`, `${target}.mjs`, `${target}.cjs`, `${target}/index.js`];
+          for (const cand of cands) {
+            const c = stripRelPath(cand);
+            if (c && !visited.has(c)) frontier.push(cand);
+          }
         }
       }
     }
@@ -2524,7 +2582,16 @@ function __initShellModule(root: any) {
       if (idxText !== null) files.push({ rel: 'index.js', content: idxText });
     }
 
-    return { ok: true, version, entry, files, deps: Object.keys(meta.dependencies || {}) };
+    // Declared dependencies plus non-optional peer dependencies (npm v7+ style),
+    // so e.g. `npm install react-dom` also pulls in `react`.
+    const depNames = Object.keys(meta.dependencies || {});
+    const peerMeta = meta.peerDependenciesMeta || {};
+    for (const peer of Object.keys(meta.peerDependencies || {})) {
+      if (peerMeta[peer] && peerMeta[peer].optional) continue;
+      if (depNames.indexOf(peer) === -1) depNames.push(peer);
+    }
+
+    return { ok: true, version, entry, files, deps: depNames, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
   }
 
   function installTargetDirs(ctx, name) {
@@ -2545,17 +2612,30 @@ function __initShellModule(root: any) {
       }
       const modPkgPath = PosixPath.join(dir, 'package.json');
       const modPkg = { name, version: info.version || '1.0.0', main: './' + (info.entry || 'index.js') };
+      if (info.pkgExports && typeof info.pkgExports === 'object') {
+        const normalized = { '.': './' + (info.entry || 'index.js') };
+        for (const key of Object.keys(info.pkgExports)) {
+          if (key === '.' || key.indexOf('*') !== -1) continue;
+          const target = pickConditionalEntry(info.pkgExports[key]);
+          if (target) normalized[key] = target.charAt(0) === '.' ? target : './' + target;
+        }
+        modPkg.exports = normalized;
+      }
       ctx.vfs.writeFileSync(modPkgPath, JSON.stringify(modPkg, null, 2) + '\n');
       if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', modPkgPath);
     }
   }
 
-  async function installPackage(pkgSpec, ctx) {
+  async function installPackage(pkgSpec, ctx, onLine, opts) {
+    const options = (onLine && typeof onLine === 'object') ? onLine : (opts || {});
+    const lineCb = (typeof onLine === 'function') ? onLine : (typeof options.onLine === 'function' ? options.onLine : null);
+    const isDev = Boolean(options.dev);
     const { name: pkgName, range } = parsePackageSpec(pkgSpec);
     if (!pkgName) return { name: null, ok: false, installed: [], warning: null };
 
     const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
-    if (!pkgData.dependencies) pkgData.dependencies = {};
+    const depField = isDev ? 'devDependencies' : 'dependencies';
+    if (!pkgData[depField]) pkgData[depField] = {};
 
     const fetchImpl = packageCtxFetch(ctx);
     const seen = (ctx.shell && ctx.shell._cdnSeen)
@@ -2581,11 +2661,13 @@ function __initShellModule(root: any) {
         });
         if (!warning) warning = info.reason;
         installed.push({ name: item.name, version: '0.0.0' });
+        if (typeof lineCb === 'function') lineCb({ name: item.name, version: '0.0.0', offline: true });
         continue;
       }
 
       writeInstalledPackageFiles(ctx, installTargetDirs(ctx, item.name), item.name, info);
       installed.push({ name: item.name, version: info.version || '1.0.0' });
+      if (typeof lineCb === 'function') lineCb({ name: item.name, version: info.version || '1.0.0', deduped: Boolean(info.deduped) });
       if (item.direct) directVersion = info.version || null;
 
       for (const dep of (info.deps || [])) {
@@ -2597,10 +2679,69 @@ function __initShellModule(root: any) {
       }
     }
 
-    pkgData.dependencies[pkgName] = range || (directVersion ? `^${directVersion}` : (pkgData.dependencies[pkgName] || 'latest'));
+    pkgData[depField][pkgName] = range || (directVersion ? `^${directVersion}` : (pkgData[depField][pkgName] || 'latest'));
     writePackageJson(ctx.vfs, pkgPath, pkgData, ctx.emitMutation);
 
     return { name: pkgName, ok: true, version: directVersion, installed, warning };
+  }
+
+  // Build a live install log: each line is streamed to the terminal as it
+  // happens (when possible) and accumulated so the command can also return it.
+  function createInstallEmitter(ctx, sink) {
+    const stream = (ctx && typeof ctx.onStdout === 'function') ? ctx.onStdout : null;
+    return function emit(text) {
+      if (!text) return;
+      sink.push(text);
+      if (stream) stream(text);
+    };
+  }
+
+  function formatInstallLine(info) {
+    if (!info || !info.name) return '';
+    const suffix = info.offline ? ' (offline fallback)' : (info.deduped ? ' (deduped)' : '');
+    return `  + ${info.name}@${info.version || '1.0.0'}${suffix}\n`;
+  }
+
+  function countInstalledPackages(results) {
+    const seen = new Set();
+    for (const r of results) {
+      if (!r) continue;
+      if (r.name) seen.add(r.name);
+      for (const p of (r.installed || [])) { if (p && p.name) seen.add(p.name); }
+    }
+    return seen.size;
+  }
+
+  // Resolve + install a list of specs while printing a realistic transcript,
+  // so `npm install` / `bun add` look like the real tools instead of a terse
+  // "saved N package(s)".
+  async function runInstallTranscript(pkgs, ctx, opts) {
+    const options = opts || {};
+    const manager = options.manager || 'bun';
+    const header = options.header || (manager === 'npm' ? 'npm install v10.2.0' : 'bun add v1.1.20 (1.1.20)');
+    const out = [];
+    const emit = createInstallEmitter(ctx, out);
+    const started = Date.now();
+    emit(`${header}\n\nResolving dependencies...\n`);
+    const results = [];
+    for (const p of pkgs) {
+      results.push(await installPackage(p, ctx, { onLine: (info) => emit(formatInstallLine(info)), dev: Boolean(options.dev) }));
+    }
+    const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+    const count = countInstalledPackages(results);
+    const ms = Date.now() - started;
+    if (manager === 'npm') {
+      emit(`\nadded ${count} package(s) in ${ms}ms\n`);
+    } else if (manager === 'pnpm') {
+      emit(`\nPackages: +${count}\n${'+'.repeat(Math.min(count, 40))}\nDone in ${ms}ms using pnpm v9.0.0\n`);
+    } else {
+      emit(`Saved lockfile\n\n${count} package(s) installed [${ms}ms]\n`);
+    }
+    return {
+      code: 0,
+      stdout: out.join(''),
+      stderr: warning ? `${manager === 'npm' ? 'npm warn' : manager === 'pnpm' ? 'pnpm warn' : 'bun warn'} ${warning}\n` : ''
+    };
   }
 
   function uninstallPackage(pkgName, ctx) {
@@ -2654,7 +2795,259 @@ function __initShellModule(root: any) {
     if (scriptArgs && scriptArgs.length > 0) {
       cmd += ' ' + scriptArgs.join(' ');
     }
+    const fallback = tryDevScriptFallback(scriptName, cmd, ctx);
+    if (fallback) return fallback;
     return await ctx.shell.execute(cmd, { cwd: ctx.cwd, env: ctx.env });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Built-in static preview server (`serve` / `npm run dev` fallback).
+  //
+  // Serves the virtual filesystem over a virtual port so the in-browser Web
+  // Preview can render a project. `.ts/.tsx/.jsx` sources are transpiled to
+  // browser-native ESM on the fly, and bare specifiers are resolved to jsDelivr
+  // `+esm` builds through an injected import map — no bundler required.
+  // ---------------------------------------------------------------------------
+
+  const CDN_ESM_BASE = 'https://cdn.jsdelivr.net/npm';
+
+  const PREVIEW_MIME = {
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.cjs': 'text/javascript; charset=utf-8',
+    '.jsx': 'text/javascript; charset=utf-8',
+    '.ts': 'text/javascript; charset=utf-8',
+    '.tsx': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.map': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.txt': 'text/plain; charset=utf-8'
+  };
+
+  function previewMimeFor(p) {
+    const lower = String(p).toLowerCase();
+    const dot = lower.lastIndexOf('.');
+    if (dot === -1) return 'application/octet-stream';
+    return PREVIEW_MIME[lower.slice(dot)] || 'application/octet-stream';
+  }
+
+  function isPreviewScriptPath(p) {
+    return /\.(?:[cm]?jsx?|tsx?)$/i.test(p) && !/\.d\.ts$/i.test(p);
+  }
+
+  // Collect bare (non-relative) module specifiers referenced by a source file.
+  function extractBareSpecifiers(code) {
+    const out = new Set();
+    const patterns = [
+      /\bfrom\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g,
+      /\brequire\s*\(\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g,
+      /\bimport\s*\(\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g,
+      /\bimport\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g
+    ];
+    for (const re of patterns) {
+      let m;
+      while ((m = re.exec(code)) !== null) {
+        const spec = m[1];
+        if (!spec || spec.startsWith('.') || spec.startsWith('/') || spec.includes(':')) continue;
+        out.add(spec);
+      }
+    }
+    return Array.from(out);
+  }
+
+  function normalizeVersionRange(range) {
+    if (!range || typeof range !== 'string') return 'latest';
+    const v = range.trim();
+    if (!v || v === '*' || /^(?:latest|next|beta|canary)$/.test(v)) return 'latest';
+    if (/^(?:file|link|workspace|portal|git|https?):/.test(v)) return 'latest';
+    return v.replace(/\s+/g, '').replace(/^[v=\s]+/, '') || 'latest';
+  }
+
+  function resolveBareVersion(vfs, rootDir, pkgName) {
+    try {
+      const modPkg = PosixPath.join(rootDir, 'node_modules', pkgName, 'package.json');
+      if (vfs.existsSync(modPkg)) {
+        const parsed = JSON.parse(vfs.readFileSync(modPkg, 'utf8'));
+        if (parsed && parsed.version) return parsed.version;
+      }
+    } catch (_) {}
+    try {
+      for (const dir of [rootDir, '/workspace']) {
+        const pkgPath = PosixPath.join(dir, 'package.json');
+        if (!vfs.existsSync(pkgPath)) continue;
+        const parsed = JSON.parse(vfs.readFileSync(pkgPath, 'utf8'));
+        const deps = Object.assign({}, parsed.dependencies || {}, parsed.devDependencies || {}, parsed.peerDependencies || {});
+        if (deps[pkgName]) return normalizeVersionRange(deps[pkgName]);
+      }
+    } catch (_) {}
+    return 'latest';
+  }
+
+  function cdnEsmUrl(pkgName, version, subpath) {
+    const base = `${CDN_ESM_BASE}/${pkgName}@${version}`;
+    const sub = subpath ? '/' + String(subpath).replace(/^\/+|\/+$/g, '') : '';
+    return `${base}${sub}/+esm`;
+  }
+
+  function buildPreviewImportMap(vfs, rootDir, specifiers) {
+    const imports = {};
+    for (const spec of specifiers) {
+      const parts = String(spec).split('/');
+      const pkgName = spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+      if (!pkgName) continue;
+      const subpath = spec.slice(pkgName.length).replace(/^\/+/, '');
+      const version = resolveBareVersion(vfs, rootDir, pkgName);
+      imports[spec] = cdnEsmUrl(pkgName, version, subpath || undefined);
+    }
+    return imports;
+  }
+
+  function collectPreviewScripts(vfs, rootDir, maxFiles = 200) {
+    const scripts = [];
+    const walk = (dir, depth) => {
+      if (depth > 8 || scripts.length >= maxFiles) return;
+      let entries = [];
+      try { entries = vfs.readdirSync(dir); } catch (_) { return; }
+      for (const name of entries) {
+        if (name === 'node_modules' || name.startsWith('.')) continue;
+        const full = PosixPath.join(dir, name);
+        let st;
+        try { st = vfs.statSync(full); } catch (_) { continue; }
+        const dirFlag = st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory);
+        if (dirFlag) {
+          walk(full, depth + 1);
+        } else if (isPreviewScriptPath(name) && scripts.length < maxFiles) {
+          try { scripts.push(vfs.readFileSync(full, 'utf8')); } catch (_) {}
+        }
+      }
+    };
+    walk(rootDir, 0);
+    return scripts;
+  }
+
+  function injectPreviewExtras(html, importMap) {
+    let out = html;
+    const importMapTag = `<script type="importmap">\n${JSON.stringify({ imports: importMap }, null, 2)}\n</script>`;
+    if (/<head[^>]*>/i.test(out)) {
+      out = out.replace(/<head[^>]*>/i, (m) => `${m}\n    ${importMapTag}`);
+    } else {
+      out = importMapTag + '\n' + out;
+    }
+    const shim = '<script>window.__CODELAB_PREVIEW__ = true;</script>';
+    if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, `${shim}\n</body>`);
+    else out = out + '\n' + shim;
+    return out;
+  }
+
+  function registerPreviewServer(ctx, rootDir, preferredPort) {
+    const portTable = ctx.shell && ctx.shell.portTable;
+    if (!portTable || typeof portTable.registerServer !== 'function') return null;
+
+    let port = Number(preferredPort) || 3000;
+    const taken = new Set((typeof portTable.listServers === 'function' ? portTable.listServers() : []).map((s) => Number(s.port)));
+    while (taken.has(port)) port++;
+
+    const specifiers = new Set();
+    for (const content of collectPreviewScripts(ctx.vfs, rootDir)) {
+      for (const s of extractBareSpecifiers(content)) specifiers.add(s);
+    }
+    const importMap = buildPreviewImportMap(ctx.vfs, rootDir, specifiers);
+
+    const exists = (p) => { try { return ctx.vfs.existsSync(p); } catch (_) { return false; } };
+    const isDir = (p) => {
+      try {
+        const st = ctx.vfs.statSync(p);
+        return Boolean(st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory));
+      } catch (_) { return false; }
+    };
+    const readText = (p) => { try { return ctx.vfs.readFileSync(p, 'utf8'); } catch (_) { return null; } };
+
+    const handler = async (request) => {
+      let pathname = '/';
+      try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (_) {}
+      const rel = pathname.replace(/^\/+/, '');
+      let target = PosixPath.join(rootDir, rel);
+      const hasExt = /\.[A-Za-z0-9]+$/.test(rel);
+
+      if (!rel || pathname.endsWith('/') || isDir(target)) {
+        target = PosixPath.join(target, 'index.html');
+      }
+      if (!exists(target) && !hasExt) {
+        // Resolve extensionless module specifiers (e.g. `./components/Counter`)
+        // the way a bundler / dev server would.
+        const cands = [
+          target + '.tsx', target + '.ts', target + '.jsx', target + '.js',
+          target + '.mjs', target + '.cjs',
+          PosixPath.join(target, 'index.tsx'), PosixPath.join(target, 'index.ts'),
+          PosixPath.join(target, 'index.jsx'), PosixPath.join(target, 'index.js')
+        ];
+        for (const c of cands) { if (exists(c)) { target = c; break; } }
+      }
+      if (!exists(target) && !hasExt) {
+        target = PosixPath.join(rootDir, 'index.html'); // SPA fallback
+      }
+      if (!exists(target)) {
+        return new Response(
+          `<!doctype html><meta charset="utf-8"><title>404</title><h1>404 Not Found</h1><p>${pathname}</p>`,
+          { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } }
+        );
+      }
+
+      let body = readText(target);
+      if (body === null) body = '';
+      if (/\.html?$/i.test(target)) {
+        body = injectPreviewExtras(body, importMap);
+      } else if (isPreviewScriptPath(target)) {
+        try {
+          const rm = getRuntimeModule();
+          if (rm && typeof rm.transpileForBrowser === 'function') {
+            body = rm.transpileForBrowser(body, target);
+          }
+        } catch (_) {}
+      }
+
+      return new Response(body, { status: 200, headers: { 'content-type': previewMimeFor(target) } });
+    };
+
+    const pid = (ctx.shell && typeof ctx.shell.nextPid === 'number') ? ctx.shell.nextPid++ : (ctx.pid || 1000);
+    return portTable.registerServer(port, {
+      server: { close() { try { portTable.unregisterServer(port); } catch (_) {} } },
+      fetch: handler,
+      name: 'code-lab-serve',
+      pid,
+      root: rootDir
+    });
+  }
+
+  // Common dev-server commands that cannot run inside the virtual runtime are
+  // transparently redirected to the built-in preview server.
+  const PREVIEW_TOOL_RE = /\b(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|serve|http-server)\b/;
+
+  function tryDevScriptFallback(scriptName, cmd, ctx) {
+    if (!PREVIEW_TOOL_RE.test(cmd)) return null;
+    // Only fall back when the referenced tool is not actually installed.
+    const bin = (cmd.match(PREVIEW_TOOL_RE) || [])[1];
+    const binPath = PosixPath.join('/workspace/node_modules/.bin', bin);
+    if (ctx.vfs.existsSync(binPath)) return null;
+    const portMatch = cmd.match(/--port(?:=|\s+)(\d+)/);
+    const defaultPorts = { ng: 4200, vite: 5173, astro: 4321, next: 3000 };
+    const port = portMatch ? Number(portMatch[1]) : (defaultPorts[bin] || 3000);
+    const entry = registerPreviewServer(ctx, ctx.cwd, port);
+    if (!entry) return null;
+    return {
+      code: 0,
+      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${bin} is not available in this virtual runtime — using the CodeLab preview server instead.\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
+      stderr: ''
+    };
   }
 
   function evaluatePosixTest(args, ctx) {
@@ -5155,7 +5548,8 @@ function __initShellModule(root: any) {
       stdout += '  date, sleep, clear     Date, delay, terminal screen control\n';
       stdout += '  history, ps, jobs, kill Process and job management\n';
       stdout += '  git [status diff log]  Built-in version control\n';
-      stdout += '  node, bun, npm, npx, bunx CLI runtime and package shims\n';
+      stdout += '  node, bun, npm, pnpm, npx, bunx CLI runtime and package shims\n';
+      stdout += '  serve [dir] [--port]   Built-in preview server (transpiles TS/JSX for the browser)\n';
       stdout += '  ports, curl            Port table inspection & HTTP requests\n';
       return { code: 0, stdout, stderr: '' };
     },
@@ -5340,26 +5734,25 @@ function __initShellModule(root: any) {
 
       if (sub === 'install' || sub === 'i' || sub === 'ci') {
         const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        const dev = args.some(a => a === '-D' || a === '--dev' || a === '--save-dev' || a === '-d');
         if (pkgs.length === 0) {
           const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
-          const deps = Object.keys(pkgData.dependencies || {});
-          const results = [];
-          for (const p of deps) results.push(await installPackage(p, ctx));
-          const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-          return { code: 0, stdout: deps.length === 0 ? 'up to date\n' : `installed ${deps.length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+          const deps = Object.keys(Object.assign({}, pkgData.dependencies || {}, pkgData.devDependencies || {}));
+          if (deps.length === 0) return { code: 0, stdout: 'up to date\n', stderr: '' };
+          return await runInstallTranscript(deps, ctx, { manager: 'bun', header: 'bun install v1.1.20 (1.1.20)' });
         }
-        const results = [];
-        for (const p of pkgs) results.push(await installPackage(p, ctx));
-        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-        return { code: 0, stdout: `saved ${results.filter(r => r && r.name).length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+        return await runInstallTranscript(pkgs, ctx, { manager: 'bun', dev, header: 'bun add v1.1.20 (1.1.20)' });
       }
 
       if (sub === 'add') {
-        const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
-        const results = [];
-        for (const p of pkgs) results.push(await installPackage(p, ctx));
-        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-        return { code: 0, stdout: `saved ${results.filter(r => r && r.name).length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+        let pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        const dev = args.some(a => a === '-D' || a === '--dev' || a === '--save-dev' || a === '-d');
+        if (pkgs.length === 0) {
+          const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+          pkgs = Object.keys(pkgData.dependencies || {});
+        }
+        if (pkgs.length === 0) return { code: 0, stdout: 'up to date\n', stderr: '' };
+        return await runInstallTranscript(pkgs, ctx, { manager: 'bun', dev, header: 'bun add v1.1.20 (1.1.20)' });
       }
 
       if (sub === 'remove' || sub === 'rm') {
@@ -5519,22 +5912,14 @@ function __initShellModule(root: any) {
       }
 
       if (sub === 'i' || sub === 'install' || sub === 'add') {
-        const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        let pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        const dev = args.some(a => a === '-D' || a === '--save-dev' || a === '--dev');
         if (pkgs.length === 0) {
           const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
-          const results = [];
-          for (const p of Object.keys(pkgData.dependencies || {})) {
-            results.push(await installPackage(p, ctx));
-          }
-          const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-          return { code: 0, stdout: 'up to date\n', stderr: warning ? `npm warn ${warning}\n` : '' };
+          pkgs = Object.keys(Object.assign({}, pkgData.dependencies || {}, pkgData.devDependencies || {}));
+          if (pkgs.length === 0) return { code: 0, stdout: 'up to date\n', stderr: '' };
         }
-        const results = [];
-        for (const p of pkgs) {
-          results.push(await installPackage(p, ctx));
-        }
-        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-        return { code: 0, stdout: `added ${results.filter(r => r && r.name).length} package(s) in 0.1s\n`, stderr: warning ? `npm warn ${warning}\n` : '' };
+        return await runInstallTranscript(pkgs, ctx, { manager: 'npm', dev, header: 'npm install v10.2.0' });
       }
 
       if (sub === 'uninstall' || sub === 'remove' || sub === 'rm') {
@@ -5584,6 +5969,123 @@ function __initShellModule(root: any) {
 
     async bunx(args, ctx) {
       return await this.npx(args, ctx);
+    },
+
+    async pnpm(args, ctx) {
+      if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+        return {
+          code: 0,
+          stdout: 'pnpm v9.0.0\nUsage: pnpm <command>\n\nCommands:\n  install, i      Install all dependencies\n  add <pkg>       Add a dependency (-D for dev)\n  remove, rm      Remove a dependency\n  list, ls        List dependencies\n  run <script>    Run a package script\n  exec <cmd>      Run a command from node_modules/.bin\n  dlx <pkg>       Fetch and run a package\n  --version, -v   Print the version\n',
+          stderr: ''
+        };
+      }
+      const sub = args[0];
+      if (sub === '--version' || sub === '-v') {
+        return { code: 0, stdout: '9.0.0\n', stderr: '' };
+      }
+      const dev = args.some((a) => a === '-D' || a === '--save-dev' || a === '--dev' || a === '-d');
+
+      if (sub === 'init') {
+        const pkgPath = PosixPath.join(ctx.cwd, 'package.json');
+        if (!ctx.vfs.existsSync(pkgPath)) {
+          ctx.vfs.writeFileSync(pkgPath, JSON.stringify({
+            name: PosixPath.basename(ctx.cwd) || 'app',
+            version: '1.0.0',
+            main: 'index.js',
+            scripts: { test: 'echo "Error: no test specified" && exit 1' }
+          }, null, 2) + '\n');
+          if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', pkgPath);
+        }
+        return { code: 0, stdout: 'Wrote to ' + pkgPath + '\n', stderr: '' };
+      }
+
+      if (sub === 'install' || sub === 'i' || sub === 'add') {
+        let pkgs = args.slice(1).filter((a) => !a.startsWith('-'));
+        if (pkgs.length === 0) {
+          const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+          pkgs = Object.keys(Object.assign({}, pkgData.dependencies || {}, pkgData.devDependencies || {}));
+          if (pkgs.length === 0) return { code: 0, stdout: 'Already up to date\n', stderr: '' };
+        }
+        const verb = (sub === 'add') ? 'add' : 'install';
+        return await runInstallTranscript(pkgs, ctx, { manager: 'pnpm', dev, header: `pnpm ${verb} v9.0.0` });
+      }
+
+      if (sub === 'remove' || sub === 'rm' || sub === 'uninstall') {
+        const pkgs = args.slice(1).filter((a) => !a.startsWith('-'));
+        for (const p of pkgs) uninstallPackage(p, ctx);
+        return { code: 0, stdout: `removed ${pkgs.length} package(s)\n`, stderr: '' };
+      }
+
+      if (sub === 'list' || sub === 'ls') {
+        return { code: 0, stdout: listDependencies(ctx), stderr: '' };
+      }
+
+      if (sub === 'run' || sub === 'run-script') {
+        const scriptName = args[1];
+        if (!scriptName) return { code: 1, stdout: '', stderr: 'pnpm: missing script name\n' };
+        return await runPackageScript(scriptName, args.slice(2), ctx);
+      }
+
+      if (sub === 'test') {
+        return await runPackageScript('test', args.slice(1), ctx);
+      }
+
+      if (sub === 'exec') {
+        const cmd = args[1];
+        if (!cmd) return { code: 1, stdout: '', stderr: 'pnpm: exec requires a command\n' };
+        const binPath = PosixPath.join('/workspace/node_modules/.bin', cmd);
+        if (ctx.vfs.existsSync(binPath)) return await ctx.commands.node([binPath, ...args.slice(2)], ctx);
+        return await ctx.shell.execute([cmd, ...args.slice(2)].join(' '));
+      }
+
+      if (sub === 'dlx') {
+        return await this.npx(args.slice(1), ctx);
+      }
+
+      const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+      if (pkgData.scripts && pkgData.scripts[sub]) {
+        return await runPackageScript(sub, args.slice(1), ctx);
+      }
+
+      return { code: 1, stdout: '', stderr: `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Unknown command: "${sub}"\n` };
+    },
+
+    async serve(args, ctx) {
+      if (args[0] === '--help' || args[0] === '-h') {
+        return {
+          code: 0,
+          stdout: 'Usage: serve [dir] [--port <n>]\n\n  Starts the built-in CodeLab preview server on the virtual port table.\n  HTML/CSS/JS are served statically, .ts/.tsx/.jsx are transpiled to\n  browser-native ESM on the fly, and bare imports resolve to jsDelivr ESM.\n\n  Open the Web Preview drawer (or http://127.0.0.1:<port>/) to view it.\n',
+          stderr: ''
+        };
+      }
+      const rootArg = (() => {
+        const positionals = [];
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === '--port' || a === '-p') { i++; continue; }
+          if (a.startsWith('-')) continue;
+          positionals.push(a);
+        }
+        return positionals[0];
+      })();
+      let port = 3000;
+      for (let i = 0; i < args.length; i++) {
+        if ((args[i] === '--port' || args[i] === '-p') && args[i + 1]) { port = Number(args[i + 1]) || port; i++; }
+        else if (args[i].startsWith('--port=')) port = Number(args[i].split('=')[1]) || port;
+      }
+      const rootDir = ctx.resolvePath(rootArg || '.');
+      if (!ctx.vfs.existsSync(rootDir)) {
+        return { code: 1, stdout: '', stderr: `serve: ${rootArg}: No such file or directory\n` };
+      }
+      const entry = registerPreviewServer(ctx, rootDir, port);
+      if (!entry) {
+        return { code: 1, stdout: '', stderr: 'serve: no virtual port table available\n' };
+      }
+      return {
+        code: 0,
+        stdout: `\n  ⚡ CodeLab preview server\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n  ➜  Root:    ${rootDir}\n  ➜  Preview: open the Web Preview drawer for port ${entry.port}\n\n`,
+        stderr: ''
+      };
     },
 
     // -----------------------------------------------------------------------

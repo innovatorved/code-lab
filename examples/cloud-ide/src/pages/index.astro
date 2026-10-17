@@ -612,6 +612,7 @@
               <span class="chip-item" data-repo="preactjs/preact">preactjs/preact</span>
               <span class="chip-item" data-repo="chalk/chalk">chalk/chalk</span>
               <span class="chip-item" data-repo="sindresorhus/ora">sindresorhus/ora</span>
+              <span class="chip-item chip-item--demo" data-demo="react">⚛ React App · live preview</span>
             </div>
           </div>
 
@@ -742,6 +743,10 @@
 
       chipItems.forEach(chip => {
         chip.addEventListener('click', () => {
+          if (chip.getAttribute('data-demo') === 'react') {
+            openFrameworkDemo();
+            return;
+          }
           const repo = chip.getAttribute('data-repo');
           if (repo) {
             repoInput.value = repo;
@@ -749,6 +754,34 @@
           }
         });
       });
+
+      // A ready-to-run React + TypeScript workspace. Opening it and pressing the
+      // toolbar globe (Run & Preview) renders the app in the in-browser preview.
+      const REACT_DEMO_FILES = {
+        'README.md': '# React + TypeScript Demo\n\nPress the globe button in the toolbar (or run `serve` in the terminal) to render this app in the in-browser Web Preview.\n\nTypeScript and TSX are transpiled to browser-native ESM automatically, and bare imports resolve to jsDelivr ESM builds \u2014 no bundler required.\n',
+        'index.html': '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>React + TypeScript \u00b7 code-lab</title>\n    <link rel="stylesheet" href="/styles.css" />\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/main.tsx"><\/script>\n  </body>\n</html>\n',
+        'styles.css': ':root { color-scheme: dark; }\nbody { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #0b0e14; color: #e6e6e6; }\n.app { max-width: 520px; margin: 12vh auto; padding: 32px; border: 1px solid #263041; border-radius: 16px; background: #0f141d; }\nh1 { margin: 0 0 4px; font-size: 22px; }\np.sub { margin: 0 0 24px; color: #8b97a8; font-size: 14px; }\nbutton { font: inherit; padding: 8px 16px; border-radius: 10px; border: 1px solid #2f6feb; background: #2f6feb; color: #fff; cursor: pointer; }\nbutton.ghost { background: transparent; color: #9db2d6; border-color: #263041; }\n.count { font-size: 42px; font-weight: 700; margin: 16px 0; }\n.row { display: flex; gap: 10px; align-items: center; }\n.badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #16233a; color: #7aa2f7; margin-left: 8px; }\ninput { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid #263041; background: #0b0e14; color: inherit; }\n',
+        'main.tsx': 'import React, { useState } from "react";\nimport { createRoot } from "react-dom/client";\nimport { Counter } from "./components/Counter";\n\nfunction App() {\n  const [name, setName] = useState("code-lab");\n  return (\n    <main className="app">\n      <h1>Hello from React<span className="badge">TSX</span></h1>\n      <p className="sub">Rendered entirely in your browser \u2014 no bundler, no server.</p>\n      <Counter initial={0} />\n      <p style={{ marginTop: 24 }}>\n        Editing <input value={name} onChange={(e) => setName(e.target.value)} />\n      </p>\n    </main>\n  );\n}\n\ncreateRoot(document.getElementById("root")!).render(<App />);\n',
+        'components/Counter.tsx': 'import React, { useState } from "react";\n\nexport function Counter({ initial = 0 }: { initial?: number }) {\n  const [n, setN] = useState(initial);\n  return (\n    <div>\n      <div className="count">{n}</div>\n      <div className="row">\n        <button onClick={() => setN(n + 1)}>Increment</button>\n        <button className="ghost" onClick={() => setN(initial)}>Reset</button>\n      </div>\n    </div>\n  );\n}\n',
+        'package.json': JSON.stringify({ name: 'react-tsx-demo', version: '1.0.0', private: true, dependencies: { react: '^19', 'react-dom': '^19' }, scripts: { dev: 'vite' } }, null, 2) + '\n'
+      };
+
+      function openFrameworkDemo() {
+        const ide = ensureIde({ files: REACT_DEMO_FILES, entry: 'main.tsx' });
+        landingOverlay.classList.add('hidden');
+        if (ide && typeof ide.setFiles === 'function') {
+          ide.setFiles(REACT_DEMO_FILES);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete('repo');
+        url.searchParams.set('demo', 'react');
+        window.history.replaceState({}, '', url.toString());
+        setTimeout(() => {
+          const ed = ide && (ide._editor || ide.editor);
+          if (ed && typeof ed.layout === 'function') ed.layout();
+          if (ide && typeof ide.previewApp === 'function') ide.previewApp();
+        }, 150);
+      }
 
       function openBlankWorkspace() {
         const ide = ensureIde();
@@ -800,10 +833,13 @@
         }
       });
 
-      // Auto-clone if URL has ?repo=
+      // Auto-clone if URL has ?repo=, or open the demo if ?demo=
       const initialParams = new URLSearchParams(window.location.search);
       const urlRepo = initialParams.get('repo');
-      if (urlRepo) {
+      const urlDemo = initialParams.get('demo');
+      if (urlDemo === 'react') {
+        openFrameworkDemo();
+      } else if (urlRepo) {
         repoInput.value = urlRepo;
         executeClone(urlRepo);
       }

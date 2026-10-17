@@ -4353,3 +4353,52 @@ code-lab,
   font-size: 11px;
   color: var(--cl-fg-faint);
 }
+
+.codelab-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px;
+  text-align: center;
+  border-top: 1px solid var(--cl-border);
+  background: var(--cl-bg-subtle, transparent);
+}
+
+.codelab-preview-empty__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: var(--cl-accent, #4f9cf9);
+  background: color-mix(in srgb, var(--cl-accent, #4f9cf9) 14%, transparent);
+}
+
+.codelab-preview-empty__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cl-fg);
+}
+
+.codelab-preview-empty__text {
+  max-width: 440px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cl-fg-muted);
+}
+
+.codelab-preview-empty__text code,
+.codelab-preview-empty__hint code {
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cl-fg, #fff) 8%, transparent);
+}
+
+.codelab-preview-empty__hint {
+  font-size: 11px;
+  color: var(--cl-fg-faint);
+}

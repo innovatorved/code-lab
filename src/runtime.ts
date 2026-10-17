@@ -3956,13 +3956,315 @@ function __initVirtualRuntime(rootScope) {
   }
 
   // =========================================================================
+  // 7b. JSX / TSX SUPPORT
+  // -------------------------------------------------------------------------
+  // Rewrites JSX syntax into classic `createElement(...)` calls. This runs
+  // BEFORE the string-masking pass so that JSX text (which routinely contains
+  // quotes/apostrophes, e.g. <p>Don't</p>) is captured verbatim, while genuine
+  // JS strings, comments and template literals are skipped untouched.
+  // =========================================================================
+  function detectJsxSyntax(source, filename) {
+    if (/\.(jsx|tsx)$/i.test(filename || '')) return true;
+    if (!source || source.indexOf('<') === -1) return false;
+    if (/@jsx\b/.test(source)) return true;
+    if (source.indexOf('<>') !== -1) return true;
+    if (/<\/[A-Za-z]/.test(source)) return true;
+    return false;
+  }
+
+  function readJsxPragma(source) {
+    let pragma = 'React.createElement';
+    let frag = null;
+    const m = /@jsx\s+([A-Za-z_$][\w$.]*)/.exec(source);
+    if (m) pragma = m[1];
+    const fm = /@jsxFrag\s+([A-Za-z_$][\w$.]*)/.exec(source);
+    if (fm) frag = fm[1];
+    if (!frag) frag = pragma === 'React.createElement' ? 'React.Fragment' : 'Fragment';
+    return { pragma, frag };
+  }
+
+  const JSX_WS_RE = /\s/;
+  const JSX_NAME_START_RE = /[A-Za-z_$]/;
+  const JSX_NAME_CHAR_RE = /[A-Za-z0-9_$:.\-]/;
+
+  function jsxThrow(message) {
+    const err = new Error(message);
+    err.jsxParse = true;
+    throw err;
+  }
+
+  // Returns the exclusive end index if a JS string / template / comment starts
+  // at `i`, otherwise -1. Regexes are deliberately ignored.
+  function jsxSkipJsLiteral(source, i) {
+    const ch = source[i];
+    const next = source[i + 1];
+    const len = source.length;
+    if (ch === '/' && next === '/') {
+      const e = source.indexOf('\n', i);
+      return e === -1 ? len : e;
+    }
+    if (ch === '/' && next === '*') {
+      const e = source.indexOf('*/', i + 2);
+      return e === -1 ? len : e + 2;
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      while (j < len) {
+        const c = source[j];
+        if (c === '\\') { j += 2; continue; }
+        if (c === ch) { j++; break; }
+        if (c === '\n') break;
+        j++;
+      }
+      return j;
+    }
+    if (ch === '`') {
+      let j = i + 1;
+      let depth = 0;
+      while (j < len) {
+        const c = source[j];
+        if (c === '\\') { j += 2; continue; }
+        if (c === '$' && source[j + 1] === '{') { depth++; j += 2; continue; }
+        if (c === '}' && depth > 0) { depth--; j++; continue; }
+        if (c === '`' && depth === 0) { j++; break; }
+        j++;
+      }
+      return j;
+    }
+    return -1;
+  }
+
+  function jsxReadName(source, i) {
+    if (!JSX_NAME_START_RE.test(source[i] || '')) jsxThrow('jsx: expected a tag name');
+    let j = i;
+    while (j < source.length && JSX_NAME_CHAR_RE.test(source[j])) j++;
+    return { name: source.slice(i, j), next: j };
+  }
+
+  function jsxSkipWs(source, i) {
+    while (i < source.length && JSX_WS_RE.test(source[i])) i++;
+    return i;
+  }
+
+  function normalizeJsxText(raw) {
+    if (!raw) return '';
+    let t = raw.replace(/\r/g, '');
+    if (t.indexOf('\n') !== -1) {
+      t = t.split('\n').map((s) => s.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join(' ');
+    } else if (!/\S/.test(t)) {
+      return '';
+    } else {
+      t = t.replace(/[ \t]+/g, ' ');
+    }
+    return t ? JSON.stringify(t) : '';
+  }
+
+  // Reads a balanced `{ ... }` expression container, skipping nested JSX and
+  // JS literals. Returns the raw inner source (later re-transformed) plus the
+  // index just past the closing brace.
+  function jsxReadBraced(source, i, opts) {
+    let depth = 0;
+    let j = i;
+    while (j < source.length) {
+      const lit = jsxSkipJsLiteral(source, j);
+      if (lit !== -1) { j = lit; continue; }
+      const c = source[j];
+      if (c === '{') { depth++; j++; continue; }
+      if (c === '}') {
+        depth--;
+        j++;
+        if (depth === 0) return { inner: source.slice(i + 1, j - 1), next: j };
+        continue;
+      }
+      if (c === '<' && (JSX_NAME_START_RE.test(source[j + 1] || '') || source[j + 1] === '>')) {
+        try {
+          const el = jsxParseElement(source, j, opts);
+          j = el.next;
+          continue;
+        } catch (e) {
+          if (!e || !e.jsxParse) throw e;
+        }
+      }
+      j++;
+    }
+    jsxThrow('jsx: unterminated expression container');
+  }
+
+  function jsxParseElement(source, i, opts) {
+    const o = opts || readJsxPragma(source);
+    let j = i + 1;
+    let isFragment = false;
+    let typeExpr;
+    if (source[j] === '>') {
+      isFragment = true;
+      typeExpr = o.frag;
+      j++;
+    } else {
+      const nm = jsxReadName(source, j);
+      j = nm.next;
+      const raw = nm.name;
+      const isReference = raw.indexOf('.') !== -1 || raw.indexOf(':') !== -1 || /^[A-Z_$]/.test(raw);
+      if (isReference) {
+        typeExpr = raw.replace(/:/g, '.');
+      } else {
+        typeExpr = JSON.stringify(raw);
+      }
+    }
+
+    const props = [];
+    let selfClosing = false;
+    if (!isFragment) {
+      for (;;) {
+        j = jsxSkipWs(source, j);
+        if (j >= source.length) jsxThrow('jsx: unexpected end of input inside a tag');
+        const c = source[j];
+        if (c === '/') {
+          if (source[j + 1] !== '>') jsxThrow('jsx: malformed self-closing tag');
+          j += 2;
+          selfClosing = true;
+          break;
+        }
+        if (c === '>') { j++; break; }
+        if (c === '{') {
+          const br = jsxReadBraced(source, j, o);
+          const inner = br.inner.trim();
+          if (inner.slice(0, 3) !== '...') jsxThrow('jsx: only a spread {...} may appear where an attribute is expected');
+          props.push({ spread: jsxTransform(inner.slice(3), o) });
+          j = br.next;
+          continue;
+        }
+        if (!JSX_NAME_START_RE.test(c)) jsxThrow('jsx: malformed attribute');
+        const am = jsxReadName(source, j);
+        const attrName = am.name;
+        j = jsxSkipWs(source, am.next);
+        let valueExpr = 'true';
+        if (source[j] === '=') {
+          j = jsxSkipWs(source, j + 1);
+          const vc = source[j];
+          if (vc === '"' || vc === "'") {
+            let k = j + 1;
+            while (k < source.length && source[k] !== vc) {
+              if (source[k] === '\\') k++;
+              k++;
+            }
+            if (k >= source.length) jsxThrow('jsx: unterminated attribute string');
+            valueExpr = JSON.stringify(source.slice(j + 1, k));
+            j = k + 1;
+          } else if (vc === '{') {
+            const br = jsxReadBraced(source, j, o);
+            valueExpr = jsxTransform(br.inner, o) || 'undefined';
+            j = br.next;
+          } else if (vc === '<') {
+            const el = jsxParseElement(source, j, o);
+            valueExpr = el.code;
+            j = el.next;
+          } else {
+            jsxThrow('jsx: unsupported attribute value');
+          }
+        }
+        const propKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attrName) ? attrName : JSON.stringify(attrName);
+        props.push({ key: propKey, value: valueExpr });
+      }
+    }
+
+    const children = [];
+    if (!selfClosing) {
+      for (;;) {
+        if (j >= source.length) jsxThrow('jsx: missing closing tag');
+        const c = source[j];
+        if (c === '<' && source[j + 1] === '/') {
+          j = jsxSkipWs(source, j + 2);
+          if (source[j] === '>') { j++; break; }
+          const cm = jsxReadName(source, j);
+          j = jsxSkipWs(source, cm.next);
+          if (source[j] !== '>') jsxThrow('jsx: malformed closing tag');
+          j++;
+          break;
+        }
+        if (c === '<') {
+          const el = jsxParseElement(source, j, o);
+          children.push(el.code);
+          j = el.next;
+          continue;
+        }
+        if (c === '{') {
+          const br = jsxReadBraced(source, j, o);
+          const inner = jsxTransform(br.inner, o);
+          if (inner && inner.trim()) children.push(inner);
+          j = br.next;
+          continue;
+        }
+        let k = j;
+        while (k < source.length && source[k] !== '<' && source[k] !== '{') k++;
+        const text = normalizeJsxText(source.slice(j, k));
+        if (text) children.push(text);
+        j = k;
+      }
+    }
+
+    let propsCode = 'null';
+    if (props.length) {
+      const parts = props.map((p) => (p.spread !== undefined ? '...(' + p.spread + ')' : p.key + ': ' + p.value));
+      propsCode = '{ ' + parts.join(', ') + ' }';
+    }
+
+    const args = [typeExpr, propsCode].concat(children);
+    return { code: o.pragma + '(' + args.join(', ') + ')', next: j };
+  }
+
+  function jsxTransform(source, opts) {
+    const o = opts || readJsxPragma(source);
+    let i = 0;
+    let out = '';
+    while (i < source.length) {
+      const lit = jsxSkipJsLiteral(source, i);
+      if (lit !== -1) { out += source.slice(i, lit); i = lit; continue; }
+      const ch = source[i];
+      if (ch === '<' && (JSX_NAME_START_RE.test(source[i + 1] || '') || source[i + 1] === '>')) {
+        try {
+          const el = jsxParseElement(source, i, o);
+          out += el.code;
+          i = el.next;
+          continue;
+        } catch (e) {
+          if (!e || !e.jsxParse) throw e;
+        }
+      }
+      out += ch;
+      i++;
+    }
+    return out;
+  }
+
+  // =========================================================================
   // 8. FAST TYPESCRIPT & ESM-TO-CJS TRANSPILER
   // =========================================================================
-  function transpileTS(source, filename = 'module.ts') {
+  function transpileTS(source, filename = 'module.ts', opts = {}) {
+    // `keepEsm` leaves `import`/`export` statements intact so the output can run
+    // natively in a browser as an ES module (used by the built-in preview server).
+    const keepEsm = Boolean(opts && opts.keepEsm);
     const isTS = /\.(ts|tsx|mts|cts)$/i.test(filename)
-      || /\b(interface\s+[A-Za-z_$]|type\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:<[^>]*>)?\s*=|enum\s+[A-Za-z_$]|abstract\s+class\s+|declare\s+(?:const|let|var|function|class|type|interface)\b|public\s+|private\s+|protected\s+|readonly\s+|satisfies\s+[A-Za-z_${]|\bas\s+(?:const|unknown|any|[A-Za-z_${]))/m.test(source);
-    const hasESM = /^\s*(import|export)\s+/m.test(source);
-    if (!isTS && !hasESM) return source;
+      || /^[ \t]*(?:export\s+)?(?:abstract\s+class\s+[A-Za-z_$]|declare\s+(?:const|let|var|function|class|namespace|module|global)\b|interface\s+[A-Za-z_$][A-Za-z0-9_$]*|type\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:<[^>]*>)?\s*=|enum\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\{|namespace\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\{)/m.test(source);
+    const hasESM = /^\s*(?:import|export)\b/m.test(source)
+      || /\bexport\s*\{/.test(source)
+      || /\bimport\s*\{/.test(source)
+      || /\bexport\s+default\b/.test(source);
+    const hasJsx = detectJsxSyntax(source, filename);
+    if (!isTS && !hasESM && !hasJsx) return source;
+
+    // JSX/TSX must be rewritten before masking so JSX text is kept verbatim.
+    if (hasJsx) {
+      const { pragma, frag } = readJsxPragma(source);
+      const needsReact = pragma === 'React.createElement' && !/\bReact\b/.test(source);
+      const transformed = jsxTransform(source, { pragma, frag });
+      if (transformed !== source) {
+        source = transformed;
+        // The classic runtime needs a React binding available to the JSX output.
+        if (needsReact) {
+          source = (keepEsm ? 'import React from "react";\n' : 'const React = require("react");\n') + source;
+        }
+      }
+    }
 
     // Step 1: Mask strings, template literals, regex literals, and comments so transforms never corrupt literals
     const placeholders = [];
@@ -4525,10 +4827,10 @@ function __initVirtualRuntime(rootScope) {
       } while (code !== prevCode);
     }
 
-    if (hasESM || isTS) {
+    if ((hasESM || isTS) && !keepEsm) {
       // Convert ES module imports (including multi-line `{ ... }`)
-      code = code.replace(/^\s*import\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = require($2);');
-      code = code.replace(/^\s*import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, defId, specifiers, mod) => {
+      code = code.replace(/\bimport\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = require($2);');
+      code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, defId, specifiers, mod) => {
         const cleaned = specifiers
           .split(',')
           .map((s) => s.trim())
@@ -4539,7 +4841,7 @@ function __initVirtualRuntime(rootScope) {
         return `const ${defId} = (function(m){ return m && m.__esModule ? m.default : m; })(require(${mTrim}));` +
           (cleaned ? ` const { ${cleaned} } = require(${mTrim});` : '');
       });
-      code = code.replace(/^\s*import\s+\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, specifiers, mod) => {
+      code = code.replace(/\bimport\s+\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, specifiers, mod) => {
         const cleaned = specifiers
           .split(',')
           .map((s) => s.trim())
@@ -4548,42 +4850,42 @@ function __initVirtualRuntime(rootScope) {
           .join(', ');
         return cleaned ? `const { ${cleaned} } = require(${mod.trim()});` : '';
       });
-      code = code.replace(/^\s*import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = (function(m){ return m && m.__esModule ? m.default : m; })(require($2));');
-      code = code.replace(/^\s*import\s+(\x00__LIT_\d+__\x00)\s*;?/gm, 'require($1);');
+      code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = (function(m){ return m && m.__esModule ? m.default : m; })(require($2));');
+      code = code.replace(/\bimport\s+(\x00__LIT_\d+__\x00)\s*;?/gm, 'require($1);');
 
       // Convert ES module exports
       const exportedNames = [];
       let defaultExportName = null;
       let hasEsmExport = false;
 
-      code = code.replace(/^\s*export\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, (_, ns, mod) => {
+      code = code.replace(/\bexport\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, (_, ns, mod) => {
         hasEsmExport = true;
         return `exports.${ns} = require(${mod.trim()});`;
       });
-      code = code.replace(/^\s*export\s+\*\s+from\s+([^\n;]+);?/gm, (_, mod) => {
+      code = code.replace(/\bexport\s+\*\s+from\s+([^\n;]+);?/gm, (_, mod) => {
         hasEsmExport = true;
         return `Object.assign(exports, require(${mod.trim()}));`;
       });
-      code = code.replace(/^\s*export\s+default\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+default\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         defaultExportName = name;
         return `${kw} ${name}`;
       });
-      code = code.replace(/^\s*export\s+default\s+/gm, () => {
+      code = code.replace(/\bexport\s+default\s+/gm, () => {
         hasEsmExport = true;
         return 'exports.default = ';
       });
-      code = code.replace(/^\s*export\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         exportedNames.push(name);
         return `${kw} ${name}`;
       });
-      code = code.replace(/^\s*export\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         exportedNames.push(name);
         return `${kw} ${name}`;
       });
-      code = code.replace(/^\s*export\s+\{([^}]+)\}\s+from\s+([^\n;]+);?/gm, (_, list, mod) => {
+      code = code.replace(/\bexport\s+\{([^}]+)\}\s+from\s+([^\n;]+);?/gm, (_, list, mod) => {
         hasEsmExport = true;
         const mTrim = mod.trim();
         return list.split(',').map((item) => {
@@ -4595,7 +4897,7 @@ function __initVirtualRuntime(rootScope) {
           return `exports.${exported} = require(${mTrim}).${local};`;
         }).join(' ');
       });
-      code = code.replace(/^\s*export\s+\{([^}]+)\}\s*;?/gm, (_, list) => {
+      code = code.replace(/\bexport\s+\{([^}]+)\}\s*;?/gm, (_, list) => {
         hasEsmExport = true;
         return list.split(',').map((item) => {
           const trimmed = item.trim();
@@ -7220,6 +7522,14 @@ function __initVirtualRuntime(rootScope) {
     };
   }
 
+  // Transpile a source file so it can run natively in a browser as an ES module:
+  // JSX is compiled to the classic runtime (auto-importing React when needed) and
+  // TypeScript annotations are stripped, but `import`/`export` are preserved so an
+  // import map can resolve bare specifiers to CDN ESM builds.
+  function transpileForBrowser(source, filename = 'module.js') {
+    return transpileTS(source, filename, { keepEsm: true });
+  }
+
   return {
     VirtualBuffer,
     VirtualCrypto,
@@ -7239,6 +7549,7 @@ function __initVirtualRuntime(rootScope) {
     createVirtualHttp,
     createVirtualNet,
     transpileTS,
+    transpileForBrowser,
     preloadNpmPackages,
     createVirtualPortTable,
     executeInVirtualRuntime
