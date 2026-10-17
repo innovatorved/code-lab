@@ -73,7 +73,8 @@ It is designed around two strictly decoupled layers that can be used together (`
   - File & Directory: `ls`, `cat`, `head`, `tail`, `wc`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `ln`, `pwd`, `cd`, `find`, `tree`, `stat`, `file`, `du`, `df`, `chmod`, `chown`, `mktemp`, `basename`, `dirname`, `realpath`.
   - Text & Data Processing: `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `tr`, `tee`, `xargs`, `diff`, `jq`, `xxd`, `hexdump`, `base64`, `md5sum`, `sha256sum`.
   - Networking, Process & Archive: `curl`, `nc`, `ping`, `dig`, `nslookup`, `lsof`, `netstat`, `ss`, `ps`, `top`, `kill`, `jobs`, `fg`, `bg`, `tar`, `gzip`, `gunzip`.
-  - Developer Toolchains: `node`, `bun`, `npm`, `npx`, `tsc`, `git` (`init`, `status`, `add`, `commit`, `log`, `diff`, `branch`, `checkout`).
+  - Developer Toolchains: `node`, `bun`, `npm`, `pnpm`, `npx`, `bunx`, `tsc`, `git` (`init`, `status`, `add`, `commit`, `log`, `diff`, `branch`, `checkout`).
+  - Web Preview: `serve` (built-in static dev server that transpiles TS/TSX/JSX to browser-native ESM and injects a jsDelivr `+esm` import map for bare specifiers).
 
 ---
 

@@ -21,8 +21,9 @@ Browser-native code IDE workbench, modular guided challenge engine (`@innovatorv
   - **Node.js**: 28 built-in modules (`fs`, `fs/promises`, `http`, `https`, `net`, `stream`, `events`, `crypto`, `zlib`, `vm`, `worker_threads`, `readline`, `node:sqlite`, `node:test`, `assert`).
   - **Bun**: Native `.ts` transpilation, `Bun.serve()`, `Bun.file()`, `Bun.write()`, `Bun.spawn()`, `Bun.password`, `Bun.hash()`, `bun:test`, and VFS-backed `bun:sqlite`.
 - **Persistent HTTP/TCP Servers & Dual Web Preview**: Start background servers (`node server.js &` or `bun run server.ts &`), query them with `curl http://localhost:3000` or global `fetch()`, and view live responses in the Ports table, an embedded **Web Preview** tab (URL bar, back/forward, device frames), or a popped-out browser tab backed by a virtual-loopback Service Worker (`/__preview/:port/*`). Public URLs (e.g. `https://example.com`) entered in the preview URL bar open in a real browser tab instead of the virtual frame.
+- **Built-in Preview Server (`serve`) & Toolbar *Run & Preview***: Render a real app in the browser with no bundler — `serve [dir] [--port]`, the toolbar globe button, or `npm run dev` all start a static server that transpiles `.ts` / `.tsx` / `.jsx` to browser-native ESM, resolves extensionless relative imports, and injects a jsDelivr `+esm` **import map** for bare specifiers (`react`, `react-dom/client`, `@angular/core`, …). Vite/`ng`/Astro/Next scripts that need native binaries transparently fall back to it.
 - **GitHub-Flavored Markdown Engine**: Zero-dependency GFM renderer (tables with column alignment, `[!NOTE]` / `[!TIP]` / `[!IMPORTANT]` / `[!WARNING]` / `[!CAUTION]` callout alerts, task-list checkboxes, and syntax-highlighted code blocks with one-click copy) powering the Guide tab, hints, and `.md` file previews.
-- **NPM & Bun Package Management**: `npm i <pkg>` / `bun add <pkg>` / `bun install` fetch the real package (and its transitive dependencies) from the jsDelivr CDN into virtual `/workspace/node_modules/<pkg>` and update `package.json`; packages stay `require()`-able from `node`/`bun run`, with a bundled offline fallback for common demo packages.
+- **NPM, pnpm & Bun Package Management**: `npm i <pkg>` / `pnpm add <pkg>` / `bun add <pkg>` / `bun install` fetch the real package (and its transitive dependencies, honouring `exports` maps, subpaths and peer deps) from the jsDelivr CDN into virtual `/workspace/node_modules/<pkg>` and update `package.json` (`-D` / `--save-dev` writes to `devDependencies`); packages stay `require()`-able from `node`/`bun run`, with a bundled offline fallback for common demo packages. Framework JSX/TSX (`React.createElement`, custom `@jsx` pragmas) and ESM (including minified bundles) are handled by the runtime transpiler.
 - **Guided Step-by-Step Challenges**: TutorialKit / Codedamn-style curriculum extension with targeted instructions, hints, automated test verification per step, and reference solutions.
 - **Headless Runtime**: Programmatic execution engine (`@innovatorved/code-lab/runtime`) for grading, testing, or automated evaluation with zero UI.
 
@@ -143,7 +144,8 @@ bun run build
 bun run test:all
 bun run tests/test-all-builds.js             # 15/15 builds & 226 unit tests
 bun run tests/test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
-bun run tests/test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports
+bun run tests/test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports, npm/pnpm
+bun run tests/test-frameworks.js             # React/Preact/Vue/Angular support + browser preview server
 bun run tests/test-coreutils-adversarial.js  # Adversarial stress tests on 40+ coreutils
 bun run tests/test-stress-shell.js           # Deep pipelines, redirections, large stdout
 bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
