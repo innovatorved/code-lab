@@ -39,7 +39,7 @@ export declare const createVirtualFs: (options?: any) => any;
 export declare const createVirtualHttp: (portTable?: any, vfs?: any) => any;
 export declare const createVirtualNet: (portTable?: any) => any;
 export declare const transpileTS: (code: string, filename?: string) => string;
-export declare const preloadNpmPackages: (packages?: Record<string, any>) => void;
+export declare const preloadNpmPackages: (files?: Record<string, any>, onProgressOrCache?: ((pkg: string) => void) | Map<string, string>, onProgress?: (pkg: string) => void) => Promise<Record<string, string>>;
 export declare const createVirtualPortTable: () => any;
 export declare const executeInVirtualRuntime: (options?: any) => Promise<RuntimeExecutionResult>;
 export declare const createWorkerRuntimeSource: () => string;

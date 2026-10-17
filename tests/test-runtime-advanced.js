@@ -587,6 +587,79 @@ async function runTests() {
     }
   });
 
+  await check('preloadNpmPackages: onProgress callback overload + Map cache overload (regression: existingCache.has)', async () => {
+    const prevFetch = globalThis.fetch;
+    try {
+      // 1) Workbench contract: pass a progress callback as the 2nd argument.
+      //    Before the fix this threw "existingCache.has is not a function".
+      const requested = [];
+      globalThis.fetch = async (url) => {
+        requested.push(String(url));
+        return { ok: true, text: async () => `/* stub ${url} */`, json: async () => ({}) };
+      };
+      const seen = [];
+      const loaded = await runtime.preloadNpmPackages(
+        {
+          'package.json': JSON.stringify({ dependencies: { 'cl-alpha-pkg': '^1.0.0', 'cl-beta-pkg': '^1.0.0' } }),
+          'index.js': "const a = require('cl-alpha-pkg');\n"
+        },
+        (name) => { seen.push(name); }
+      );
+      assert.deepEqual(seen.slice().sort(), ['cl-alpha-pkg', 'cl-beta-pkg']);
+      const moduleUrls = requested.filter(u => !u.endsWith('/package.json'));
+      assert.equal(moduleUrls.length, 2, 'one module fetch per package');
+      assert.ok(loaded['cl-alpha-pkg'] && loaded['cl-beta-pkg']);
+
+      // 2) Back-compat: passing a Map as the 2nd argument reuses cached text and skips fetching.
+      globalThis.fetch = async () => { throw new Error('fetch must not run for a cached package'); };
+      const cache = new Map([['cl-gamma-pkg', 'module.exports = 42;']]);
+      const loaded2 = await runtime.preloadNpmPackages(
+        { 'entry.js': "require('cl-gamma-pkg')" },
+        cache
+      );
+      assert.equal(loaded2['cl-gamma-pkg'], 'module.exports = 42;');
+
+      // 3) Both: Map cache in 2nd position, callback in 3rd.
+      const seen3 = [];
+      globalThis.fetch = async (url) => ({ ok: true, text: async () => `/* c */`, json: async () => ({}) });
+      await runtime.preloadNpmPackages(
+        { 'entry.js': "require('cl-delta-pkg')" },
+        new Map(),
+        (name) => { seen3.push(name); }
+      );
+      assert.deepEqual(seen3, ['cl-delta-pkg']);
+    } finally {
+      globalThis.fetch = prevFetch;
+    }
+  });
+
+  await check('preloadNpmPackages: follows transitive dependencies declared in package.json', async () => {
+    const prevFetch = globalThis.fetch;
+    try {
+      const canned = {
+        'is-even-x/package.json': JSON.stringify({ name: 'is-even-x', version: '1.0.0', dependencies: { 'is-odd-x': '^1' } }),
+        'is-even-x': 'module.exports = 1;',
+        'is-odd-x/package.json': JSON.stringify({ name: 'is-odd-x', version: '1.0.0', dependencies: {} }),
+        'is-odd-x': 'module.exports = 2;'
+      };
+      const called = [];
+      globalThis.fetch = async (url) => {
+        const key = String(url).replace('https://cdn.jsdelivr.net/npm/', '');
+        called.push(key);
+        const val = canned[key];
+        return val !== undefined
+          ? { ok: true, status: 200, text: async () => val, json: async () => JSON.parse(val) }
+          : { ok: false, status: 404, text: async () => '', json: async () => ({}) };
+      };
+      const loaded = await runtime.preloadNpmPackages({ 'package.json': JSON.stringify({ dependencies: { 'is-even-x': '^1' } }) });
+      assert.ok(loaded['is-even-x'] !== undefined, 'direct package should be loaded');
+      assert.ok(loaded['is-odd-x'] !== undefined, 'transitive dependency should be loaded');
+      assert.ok(called.includes('is-odd-x/package.json'), 'metadata for the transitive dep must be fetched');
+    } finally {
+      globalThis.fetch = prevFetch;
+    }
+  });
+
   console.log(`\n=== Summary: ${passed} passed, ${failed} failed ===`);
   if (failed > 0) process.exit(1);
 }

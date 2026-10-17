@@ -2,14 +2,14 @@
  * @file test-option1-shell-bun-http.js
  * CodeLab Option 1: End-to-End Test Suite
  *
- * Comprehensive programmatic verification across 7 suites and 67 test cases:
+ * Comprehensive programmatic verification across 7 suites and 74 test cases:
  *  - Suite 1: POSIX Shell AST, Pipelines, Redirections, Globs & Lexer (13 tests)
- *  - Suite 2: 35+ UNIX Coreutils on Virtual Filesystem (16 tests)
+ *  - Suite 2: 35+ UNIX Coreutils on Virtual Filesystem (17 tests)
  *  - Suite 3: Node.js CLI & Runtime Workflows (6 tests)
- *  - Suite 4: Bun CLI & Bun Runtime Engine (Bun.*, bun:test, bun:sqlite) (15 tests)
- *  - Suite 5: Package Management (npm & bun) (6 tests)
+ *  - Suite 4: Bun CLI & Bun Runtime Engine (Bun.*, bun:test, bun:sqlite) (16 tests)
+ *  - Suite 5: Package Management (npm & bun) (10 tests)
  *  - Suite 6: Persistent HTTP Servers, curl, and fetch() Routing (8 tests)
- *  - Suite 7: Complex Real-World System Design Workloads (3 tests)
+ *  - Suite 7: Complex Real-World System Design Workloads (4 tests)
  *
  * Requirements:
  *  - Pure Node.js zero external dependencies (node:assert/strict, node:path, node:fs)
@@ -125,6 +125,23 @@ function getShellEngine(options = {}) {
   }
 
   throw new Error('createPosixShell is not implemented. Ensure ./src/shell.js or runtime.createPosixShell is exported.');
+}
+
+// Deterministic fake fetch that 404s everything, driving the offline fallback path.
+function offlineFetchImpl() {
+  return async () => ({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
+}
+
+// Canned jsDelivr responses so the "real CDN" install path can be tested hermetically.
+function cannedCdnFetchImpl(canned, calls) {
+  return async (url) => {
+    const key = String(url).replace('https://cdn.jsdelivr.net/npm/', '');
+    if (calls) calls.push(key);
+    if (Object.prototype.hasOwnProperty.call(canned, key)) {
+      return { ok: true, status: 200, text: async () => canned[key], json: async () => JSON.parse(canned[key]) };
+    }
+    return { ok: false, status: 404, text: async () => 'not found', json: async () => ({}) };
+  };
 }
 
 /**
@@ -1151,6 +1168,22 @@ async function main() {
       }
     });
 
+    await test('4.16 bun --version / -v / --help behave like the real CLI', async () => {
+      const vfs = createVirtualFs();
+      const shell = getShellEngine({ vfs });
+
+      const vLong = await executeShell(shell, 'bun --version');
+      assert.strictEqual(vLong.code, 0, vLong.stderr);
+      assert.strictEqual(vLong.stdout.trim(), '1.1.20');
+
+      const vShort = await executeShell(shell, 'bun -v');
+      assert.strictEqual(vShort.stdout.trim(), '1.1.20');
+
+      const help = await executeShell(shell, 'bun --help');
+      assert.strictEqual(help.code, 0, help.stderr);
+      assert.ok(help.stdout.includes('Usage: bun'), help.stdout);
+    });
+
   });
 
   // ===========================================================================
@@ -1162,7 +1195,7 @@ async function main() {
       const vfs = createVirtualFs({
         '/workspace/package.json': JSON.stringify({ name: 'my-project', dependencies: {} })
       });
-      const shell = getShellEngine({ vfs });
+      const shell = getShellEngine({ vfs, fetchImpl: offlineFetchImpl() });
 
       const res = await executeShell(shell, 'npm i is-even');
       assert.strictEqual(res.code, 0, res.stderr);
@@ -1173,7 +1206,7 @@ async function main() {
       const vfs = createVirtualFs({
         '/workspace/package.json': JSON.stringify({ name: 'pkg-test', dependencies: {} })
       });
-      const shell = getShellEngine({ vfs });
+      const shell = getShellEngine({ vfs, fetchImpl: offlineFetchImpl() });
 
       await executeShell(shell, 'bun add tiny-invariant');
       const pkgJson = JSON.parse(vfs.readFileSync('/workspace/package.json', 'utf8'));
@@ -1241,6 +1274,74 @@ async function main() {
       });
       assert.strictEqual(res.ok, true, res.stderr);
       assert.strictEqual(res.stdout.trim(), 'Hello from my-lib!');
+    });
+
+    await test('5.7 bun install / bun i installs all dependencies from package.json', async () => {
+      const vfs = createVirtualFs({
+        '/workspace/package.json': JSON.stringify({ name: 'bun-install-test', dependencies: { 'is-even': '^1.0.0' } })
+      });
+      const shell = getShellEngine({ vfs, fetchImpl: offlineFetchImpl() });
+
+      const res = await executeShell(shell, 'bun install');
+      assert.strictEqual(res.code, 0, res.stderr);
+      assert.ok(vfs.existsSync('/workspace/node_modules/is-even/package.json') || vfs.existsSync('/workspace/node_modules/is-even/index.js'));
+
+      const res2 = await executeShell(shell, 'bun i');
+      assert.strictEqual(res2.code, 0, res2.stderr);
+    });
+
+    await test('5.8 bun install with no dependencies prints up to date', async () => {
+      const vfs = createVirtualFs({
+        '/workspace/package.json': JSON.stringify({ name: 'empty', dependencies: {} })
+      });
+      const shell = getShellEngine({ vfs, fetchImpl: offlineFetchImpl() });
+
+      const res = await executeShell(shell, 'bun install');
+      assert.strictEqual(res.code, 0, res.stderr);
+      assert.strictEqual(res.stdout.trim(), 'up to date');
+    });
+
+    await test('5.9 npm install fetches real package code + transitive deps from the CDN', async () => {
+      const CANNED = {
+        'is-even/package.json': JSON.stringify({ name: 'is-even', version: '1.0.0', main: 'index.js', dependencies: { 'is-odd': '^0.1.2' } }),
+        'is-even@1.0.0/index.js': "module.exports = function isEven(n){ return !require('is-odd')(n); };\n",
+        'is-odd/package.json': JSON.stringify({ name: 'is-odd', version: '0.1.2', main: 'index.js', dependencies: { 'is-number': '^3.0.0' } }),
+        'is-odd@0.1.2/index.js': "module.exports = function isOdd(n){ return require('is-number')(n) && Math.abs(n) % 2 === 1; };\n",
+        'is-number/package.json': JSON.stringify({ name: 'is-number', version: '3.0.0', main: 'index.js', dependencies: {} }),
+        'is-number@3.0.0/index.js': "module.exports = function isNumber(n){ return typeof n === 'number' && n === n; };\n"
+      };
+      const calls = [];
+      const vfs = createVirtualFs({
+        '/workspace/package.json': JSON.stringify({ name: 'cdn-test', dependencies: {} }),
+        '/workspace/even.js': "const isEven = require('is-even');\nconsole.log('even:', isEven(4), isEven(7));\n"
+      });
+      const shell = getShellEngine({ vfs, fetchImpl: cannedCdnFetchImpl(CANNED, calls) });
+
+      const res = await executeShell(shell, 'npm install is-even');
+      assert.strictEqual(res.code, 0, res.stderr);
+      assert.ok(calls.includes('is-even@1.0.0/index.js'), 'must fetch the real package module');
+      assert.ok(vfs.existsSync('/workspace/node_modules/is-odd/index.js'), 'must install transitive dep is-odd');
+      assert.ok(vfs.existsSync('/workspace/node_modules/is-number/index.js'), 'must install transitive dep is-number');
+      const pkgJson = JSON.parse(vfs.readFileSync('/workspace/package.json', 'utf8'));
+      assert.ok(pkgJson.dependencies['is-even'], 'direct dep recorded in package.json');
+
+      const run = await executeShell(shell, 'node even.js');
+      assert.strictEqual(run.code, 0, run.stderr);
+      assert.strictEqual(run.stdout.trim(), 'even: true false');
+    });
+
+    await test('5.10 offline install falls back to a bundled implementation (still requireable)', async () => {
+      const vfs = createVirtualFs({
+        '/workspace/package.json': JSON.stringify({ name: 'offline-test', dependencies: {} }),
+        '/workspace/index.js': "const lp = require('left-pad');\nconsole.log(lp('7', 3, '0'));\n"
+      });
+      const shell = getShellEngine({ vfs, fetchImpl: offlineFetchImpl() });
+
+      const res = await executeShell(shell, 'npm install left-pad');
+      assert.strictEqual(res.code, 0, res.stderr);
+      const run = await executeShell(shell, 'node index.js');
+      assert.strictEqual(run.code, 0, run.stderr);
+      assert.strictEqual(run.stdout.trim(), '007');
     });
 
   });

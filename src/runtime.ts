@@ -4662,8 +4662,22 @@ function __initVirtualRuntime(rootScope) {
   }
 
   const _npmPackageCache = new Map();
+  const _npmMetadataCache = new Map();
 
-  async function preloadNpmPackages(files = {}, existingCache = _npmPackageCache) {
+  async function preloadNpmPackages(files = {}, secondArg = null, thirdArg = null) {
+    // The 2nd/3rd arguments are overloaded for backwards compatibility:
+    //   preloadNpmPackages(files)
+    //   preloadNpmPackages(files, onProgress)                // progress callback (used by the Workbench)
+    //   preloadNpmPackages(files, existingCache)             // package-text cache (Map)
+    //   preloadNpmPackages(files, existingCache, onProgress)
+    const isCacheLike = (v: any) => !!v && typeof v !== 'function' && typeof v.has === 'function' && typeof v.get === 'function';
+    let onProgress: any = null;
+    let existingCache: any = _npmPackageCache;
+    if (typeof secondArg === 'function') onProgress = secondArg;
+    else if (isCacheLike(secondArg)) existingCache = secondArg;
+    if (typeof thirdArg === 'function') onProgress = onProgress || thirdArg;
+    else if (isCacheLike(thirdArg)) existingCache = thirdArg;
+
     const specs = new Set();
     const builtinSet = new Set([
       'fs', 'fs/promises', 'path', 'os', 'crypto', 'zlib', 'http', 'https', 'net',
@@ -4699,20 +4713,51 @@ function __initVirtualRuntime(rootScope) {
       while ((m = impRe.exec(content)) !== null) addSpec(m[1]);
     }
 
+    // Follow declared dependencies transitively (best effort, bounded). Metadata
+    // is memoised across calls so repeated preloads stay cheap.
+    if (typeof fetch === 'function') {
+      let pass = 0;
+      while (pass < 6) {
+        const pending: string[] = [];
+        for (const pkg of specs) {
+          if (!_npmMetadataCache.has(pkg)) pending.push(pkg as string);
+        }
+        if (pending.length === 0) break;
+        pass++;
+        await Promise.all(pending.map(async (pkg) => {
+          let deps: string[] = [];
+          try {
+            const res = await fetch(`https://cdn.jsdelivr.net/npm/${pkg}/package.json`);
+            if (res && res.ok) {
+              const meta = await res.json();
+              deps = Object.keys((meta && meta.dependencies) || {});
+            }
+          } catch (_) {}
+          _npmMetadataCache.set(pkg, deps);
+        }));
+        for (const pkg of pending) {
+          for (const dep of (_npmMetadataCache.get(pkg) || [])) addSpec(dep);
+        }
+      }
+    }
+
     const loaded = {};
     for (const pkg of specs) {
       const nmKey = `node_modules/${pkg}/index.js`;
       if (files[nmKey] || files[`/workspace/${nmKey}`]) continue;
-      if (existingCache && existingCache.has(pkg)) {
+      if (existingCache.has(pkg)) {
         loaded[pkg] = existingCache.get(pkg);
         continue;
+      }
+      if (typeof onProgress === 'function') {
+        try { onProgress(pkg); } catch (_) {}
       }
       if (typeof fetch === 'function') {
         try {
           const res = await fetch(`https://cdn.jsdelivr.net/npm/${pkg}`);
           if (res && res.ok) {
             const text = await res.text();
-            if (existingCache) existingCache.set(pkg, text);
+            if (typeof existingCache.set === 'function') existingCache.set(pkg, text);
             loaded[pkg] = text;
           }
         } catch (_) {}
@@ -7502,7 +7547,11 @@ export const createVirtualFs: (options?: any) => any = _hostRuntime.createVirtua
 export const createVirtualHttp: (portTable?: any, vfs?: any) => any = _hostRuntime.createVirtualHttp;
 export const createVirtualNet: (portTable?: any) => any = _hostRuntime.createVirtualNet;
 export const transpileTS: (code: string, filename?: string) => string = _hostRuntime.transpileTS;
-export const preloadNpmPackages: (packages?: Record<string, any>) => void = _hostRuntime.preloadNpmPackages;
+export const preloadNpmPackages: (
+  files?: Record<string, any>,
+  onProgressOrCache?: ((pkg: string) => void) | Map<string, string>,
+  onProgress?: (pkg: string) => void
+) => Promise<Record<string, string>> = _hostRuntime.preloadNpmPackages;
 export const createVirtualPortTable: () => any = _hostRuntime.createVirtualPortTable;
 export const executeInVirtualRuntime: (options?: any) => Promise<RuntimeExecutionResult> = _hostRuntime.executeInVirtualRuntime;
 export const createWorkerRuntimeSource: () => string = _hostRuntime.createWorkerRuntimeSource;

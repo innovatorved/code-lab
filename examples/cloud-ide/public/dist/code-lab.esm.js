@@ -4681,8 +4681,22 @@ function __initVirtualRuntime(rootScope) {
   }
 
   const _npmPackageCache = new Map();
+  const _npmMetadataCache = new Map();
 
-  async function preloadNpmPackages(files = {}, existingCache = _npmPackageCache) {
+  async function preloadNpmPackages(files = {}, secondArg = null, thirdArg = null) {
+    // The 2nd/3rd arguments are overloaded for backwards compatibility:
+    //   preloadNpmPackages(files)
+    //   preloadNpmPackages(files, onProgress)                // progress callback (used by the Workbench)
+    //   preloadNpmPackages(files, existingCache)             // package-text cache (Map)
+    //   preloadNpmPackages(files, existingCache, onProgress)
+    const isCacheLike = (v) => !!v && typeof v !== 'function' && typeof v.has === 'function' && typeof v.get === 'function';
+    let onProgress = null;
+    let existingCache = _npmPackageCache;
+    if (typeof secondArg === 'function') onProgress = secondArg;
+    else if (isCacheLike(secondArg)) existingCache = secondArg;
+    if (typeof thirdArg === 'function') onProgress = onProgress || thirdArg;
+    else if (isCacheLike(thirdArg)) existingCache = thirdArg;
+
     const specs = new Set();
     const builtinSet = new Set([
       'fs', 'fs/promises', 'path', 'os', 'crypto', 'zlib', 'http', 'https', 'net',
@@ -4718,20 +4732,51 @@ function __initVirtualRuntime(rootScope) {
       while ((m = impRe.exec(content)) !== null) addSpec(m[1]);
     }
 
+    // Follow declared dependencies transitively (best effort, bounded). Metadata
+    // is memoised across calls so repeated preloads stay cheap.
+    if (typeof fetch === 'function') {
+      let pass = 0;
+      while (pass < 6) {
+        const pending = [];
+        for (const pkg of specs) {
+          if (!_npmMetadataCache.has(pkg)) pending.push(pkg);
+        }
+        if (pending.length === 0) break;
+        pass++;
+        await Promise.all(pending.map(async (pkg) => {
+          let deps = [];
+          try {
+            const res = await fetch(`https://cdn.jsdelivr.net/npm/${pkg}/package.json`);
+            if (res && res.ok) {
+              const meta = await res.json();
+              deps = Object.keys((meta && meta.dependencies) || {});
+            }
+          } catch (_) {}
+          _npmMetadataCache.set(pkg, deps);
+        }));
+        for (const pkg of pending) {
+          for (const dep of (_npmMetadataCache.get(pkg) || [])) addSpec(dep);
+        }
+      }
+    }
+
     const loaded = {};
     for (const pkg of specs) {
       const nmKey = `node_modules/${pkg}/index.js`;
       if (files[nmKey] || files[`/workspace/${nmKey}`]) continue;
-      if (existingCache && existingCache.has(pkg)) {
+      if (existingCache.has(pkg)) {
         loaded[pkg] = existingCache.get(pkg);
         continue;
+      }
+      if (typeof onProgress === 'function') {
+        try { onProgress(pkg); } catch (_) {}
       }
       if (typeof fetch === 'function') {
         try {
           const res = await fetch(`https://cdn.jsdelivr.net/npm/${pkg}`);
           if (res && res.ok) {
             const text = await res.text();
-            if (existingCache) existingCache.set(pkg, text);
+            if (typeof existingCache.set === 'function') existingCache.set(pkg, text);
             loaded[pkg] = text;
           }
         } catch (_) {}
@@ -9826,38 +9871,221 @@ if (typeof module !== 'undefined' && module.exports) {
     } catch (_) {}
   }
 
-  function installPackage(pkgSpec, ctx) {
-    const parts = pkgSpec.split('@').filter(Boolean);
-    const pkgName = pkgSpec.startsWith('@') ? '@' + parts[0] : parts[0];
-    const pkgVersion = parts[1] || '^1.0.0';
+  // ---------------------------------------------------------------------------
+  // Real npm package installation via the jsDelivr CDN
+  // ---------------------------------------------------------------------------
+  const CDN_NPM_BASE = 'https://cdn.jsdelivr.net/npm';
+
+  // Minimal offline registry, used only when the CDN is unreachable so common
+  // demos still resolve without network access.
+  const OFFLINE_PACKAGE_FALLBACKS = {
+    'is-even': 'module.exports = function isEven(n) { return (Number(n) % 2) === 0; };\n',
+    'tiny-invariant': 'module.exports = function invariant(condition, message) { if (!condition) throw new Error(message || "Invariant failed"); };\n',
+    'lodash': 'module.exports = { isArray: Array.isArray, isObject: function (v) { return v !== null && typeof v === "object"; } };\n',
+    'left-pad': 'module.exports = function leftPad(str, len, ch) { str = String(str); ch = (ch === undefined ? " " : String(ch)); while (str.length < len) str = ch + str; return str.slice(-len); };\n'
+  };
+
+  function packageCtxFetch(ctx) {
+    if (ctx && ctx.shell && ctx.shell.options && typeof ctx.shell.options.fetchImpl === 'function') {
+      return ctx.shell.options.fetchImpl;
+    }
+    if (typeof fetch === 'function') return fetch.bind(globalThis);
+    return null;
+  }
+
+  function parsePackageSpec(spec) {
+    const raw = String(spec || '').trim();
+    if (!raw) return { name: '', range: null };
+    if (raw.startsWith('@')) {
+      const at = raw.indexOf('@', 1);
+      if (at === -1) return { name: raw, range: null };
+      return { name: raw.slice(0, at), range: raw.slice(at + 1) || null };
+    }
+    const at = raw.indexOf('@');
+    if (at <= 0) return { name: raw, range: null };
+    return { name: raw.slice(0, at), range: raw.slice(at + 1) || null };
+  }
+
+  function resolveEntryRelPath(pkgJson) {
+    let entry = pkgJson.main || pkgJson.module ||
+      (typeof pkgJson.browser === 'string' ? pkgJson.browser : '') || 'index.js';
+    entry = String(entry).replace(/^[./]+/, '');
+    return entry || 'index.js';
+  }
+
+  function stripRelPath(rel) {
+    return String(rel || '').replace(/^[./]+/, '');
+  }
+
+  function extractRelativeSpecifiers(code) {
+    const out = new Set();
+    const re = /(?:\brequire\s*\(\s*|\bimport\s+[\s\S]{0,120}?\bfrom\s*|\bimport\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g;
+    let m;
+    while ((m = re.exec(code)) !== null) out.add(m[1]);
+    return Array.from(out);
+  }
+
+  function normalizeRelPath(baseDir, rel) {
+    const parts = String(baseDir || '').split('/').filter(Boolean);
+    for (const seg of String(rel).split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') parts.pop();
+      else parts.push(seg);
+    }
+    return parts.join('/');
+  }
+
+  async function fetchTextFromCdn(fetchImpl, url) {
+    try {
+      const res = await fetchImpl(url);
+      if (!res) return null;
+      const ok = (res.ok === true) || res.status === 200 || res.status === undefined;
+      if (!ok) return null;
+      if (typeof res.text === 'function') return await res.text();
+      return String(res.body != null ? res.body : '');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function resolvePackageMetadata(fetchImpl, name, range) {
+    const urls = range
+      ? [`${CDN_NPM_BASE}/${name}@${range}/package.json`, `${CDN_NPM_BASE}/${name}/package.json`]
+      : [`${CDN_NPM_BASE}/${name}/package.json`];
+    for (const url of urls) {
+      const text = await fetchTextFromCdn(fetchImpl, url);
+      if (!text) continue;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && parsed.version) return parsed;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // Download a package's entry module, its relative submodules and record its
+  // declared dependencies so the caller can resolve them transitively.
+  async function downloadPackageFiles(fetchImpl, name, range, seen) {
+    const meta = await resolvePackageMetadata(fetchImpl, name, range);
+    if (!meta) {
+      const fallback = OFFLINE_PACKAGE_FALLBACKS[name];
+      if (fallback) {
+        const v = range ? range.replace(/^[\^~>=<\s]+/, '') || '1.0.0' : '1.0.0';
+        return { ok: true, offline: true, version: v, entry: 'index.js', files: [{ rel: 'index.js', content: fallback }], deps: [] };
+      }
+      return { ok: false, reason: `${name}: package metadata not found on the registry (offline?)` };
+    }
+
+    const version = meta.version;
+    const key = `${name}@${version}`;
+    if (seen.has(key)) {
+      return { ok: true, deduped: true, version, entry: resolveEntryRelPath(meta), files: [], deps: [] };
+    }
+    seen.add(key);
+
+    const entry = resolveEntryRelPath(meta);
+    const files = [];
+    const visited = new Set();
+    const queue = [entry];
+    while (queue.length > 0) {
+      const rel = stripRelPath(queue.shift());
+      if (!rel || visited.has(rel)) continue;
+      visited.add(rel);
+      const text = await fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/${rel}`);
+      if (text === null) continue;
+      files.push({ rel, content: text });
+      const baseDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+      for (const spec of extractRelativeSpecifiers(text)) {
+        const target = normalizeRelPath(baseDir, spec);
+        for (const cand of [target, `${target}.js`, `${target}.json`, `${target}/index.js`]) {
+          const c = stripRelPath(cand);
+          if (c && !visited.has(c)) { queue.push(cand); break; }
+        }
+      }
+    }
+    // The declared entry may be missing on the CDN; fall back to index.js.
+    if (!files.some(f => f.rel === entry)) {
+      const idxText = await fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/index.js`);
+      if (idxText !== null) files.push({ rel: 'index.js', content: idxText });
+    }
+
+    return { ok: true, version, entry, files, deps: Object.keys(meta.dependencies || {}) };
+  }
+
+  function installTargetDirs(ctx, name) {
+    const dirs = ['/workspace/node_modules/' + name];
+    const cwdTarget = PosixPath.join(ctx.cwd || '/workspace', 'node_modules', name);
+    if (!dirs.includes(cwdTarget)) dirs.push(cwdTarget);
+    return dirs;
+  }
+
+  function writeInstalledPackageFiles(ctx, dirs, name, info) {
+    for (const dir of dirs) {
+      ensureDirSync(ctx.vfs, dir, ctx.emitMutation);
+      for (const f of info.files) {
+        const full = PosixPath.join(dir, f.rel);
+        ensureDirSync(ctx.vfs, PosixPath.dirname(full), ctx.emitMutation);
+        ctx.vfs.writeFileSync(full, f.content);
+        if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', full);
+      }
+      const modPkgPath = PosixPath.join(dir, 'package.json');
+      const modPkg = { name, version: info.version || '1.0.0', main: './' + (info.entry || 'index.js') };
+      ctx.vfs.writeFileSync(modPkgPath, JSON.stringify(modPkg, null, 2) + '\n');
+      if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', modPkgPath);
+    }
+  }
+
+  async function installPackage(pkgSpec, ctx) {
+    const { name: pkgName, range } = parsePackageSpec(pkgSpec);
+    if (!pkgName) return { name: null, ok: false, installed: [], warning: null };
 
     const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
     if (!pkgData.dependencies) pkgData.dependencies = {};
-    pkgData.dependencies[pkgName] = pkgVersion;
+
+    const fetchImpl = packageCtxFetch(ctx);
+    const seen = (ctx.shell && ctx.shell._cdnSeen)
+      ? ctx.shell._cdnSeen
+      : (ctx.shell ? (ctx.shell._cdnSeen = new Set()) : new Set());
+
+    const queue = [{ name: pkgName, range, direct: true }];
+    const requested = new Set([pkgName]);
+    const installed = [];
+    let warning = null;
+    let directVersion = null;
+
+    while (queue.length > 0) {
+      const item = queue.shift();
+      const info = fetchImpl
+        ? await downloadPackageFiles(fetchImpl, item.name, item.range, seen)
+        : { ok: false, reason: `${item.name}: no fetch implementation available` };
+
+      if (!info.ok) {
+        // Final fallback: an empty stub so offline demos still resolve the module.
+        writeInstalledPackageFiles(ctx, installTargetDirs(ctx, item.name), item.name, {
+          version: '0.0.0', entry: 'index.js', files: [{ rel: 'index.js', content: 'module.exports = {};\n' }]
+        });
+        if (!warning) warning = info.reason;
+        installed.push({ name: item.name, version: '0.0.0' });
+        continue;
+      }
+
+      writeInstalledPackageFiles(ctx, installTargetDirs(ctx, item.name), item.name, info);
+      installed.push({ name: item.name, version: info.version || '1.0.0' });
+      if (item.direct) directVersion = info.version || null;
+
+      for (const dep of (info.deps || [])) {
+        const parsed = parsePackageSpec(dep);
+        if (parsed.name && !requested.has(parsed.name)) {
+          requested.add(parsed.name);
+          queue.push({ name: parsed.name, range: null, direct: false });
+        }
+      }
+    }
+
+    pkgData.dependencies[pkgName] = range || (directVersion ? `^${directVersion}` : (pkgData.dependencies[pkgName] || 'latest'));
     writePackageJson(ctx.vfs, pkgPath, pkgData, ctx.emitMutation);
 
-    const targetDirs = ['/workspace/node_modules/' + pkgName];
-    const cwdTarget = PosixPath.join(ctx.cwd || '/workspace', 'node_modules', pkgName);
-    if (!targetDirs.includes(cwdTarget)) targetDirs.push(cwdTarget);
-
-    for (const modDir of targetDirs) {
-      ensureDirSync(ctx.vfs, modDir, ctx.emitMutation);
-      const modPkgPath = PosixPath.join(modDir, 'package.json');
-      const modIndexPath = PosixPath.join(modDir, 'index.js');
-      ctx.vfs.writeFileSync(modPkgPath, JSON.stringify({ name: pkgName, version: pkgVersion.replace(/^[\^~]/, ''), main: './index.js' }, null, 2) + '\n');
-      if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', modPkgPath);
-
-      let code = 'module.exports = {};\n';
-      if (pkgName === 'is-even') {
-        code = 'module.exports = function isEven(n) { return (Number(n) % 2) === 0; };\n';
-      } else if (pkgName === 'tiny-invariant') {
-        code = 'module.exports = function invariant(condition, message) { if (!condition) throw new Error(message || "Invariant failed"); };\n';
-      } else if (pkgName === 'lodash') {
-        code = 'module.exports = { isArray: Array.isArray, isObject: function(v) { return v !== null && typeof v === "object"; } };\n';
-      }
-      ctx.vfs.writeFileSync(modIndexPath, code);
-      if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', modIndexPath);
-    }
+    return { name: pkgName, ok: true, version: directVersion, installed, warning };
   }
 
   function uninstallPackage(pkgName, ctx) {
@@ -12534,6 +12762,18 @@ if (typeof module !== 'undefined' && module.exports) {
 
       const sub = args[0];
 
+      if (sub === '--version' || sub === '-v' || sub === '--revision') {
+        return { code: 0, stdout: '1.1.20\n', stderr: '' };
+      }
+
+      if (sub === '--help' || sub === '-h') {
+        return {
+          code: 0,
+          stdout: 'Bun v1.1.20\nUsage: bun <command> [flags]\n\nCommands:\n  run <file|script>    Run a file or package script\n  install, i, add      Install dependencies\n  remove, rm           Remove dependencies\n  test                 Run tests\n  init                 Scaffold a new project\n  -e <code>            Evaluate JavaScript\n',
+          stderr: ''
+        };
+      }
+
       if (sub === 'init') {
         const pkgPath = PosixPath.join(ctx.cwd, 'package.json');
         const dirName = PosixPath.basename(ctx.cwd) || 'app';
@@ -12583,12 +12823,28 @@ if (typeof module !== 'undefined' && module.exports) {
         return { code: 0, stdout: 'Done! A package.json file was created in ' + ctx.cwd + '\n', stderr: '' };
       }
 
+      if (sub === 'install' || sub === 'i' || sub === 'ci') {
+        const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        if (pkgs.length === 0) {
+          const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+          const deps = Object.keys(pkgData.dependencies || {});
+          const results = [];
+          for (const p of deps) results.push(await installPackage(p, ctx));
+          const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+          return { code: 0, stdout: deps.length === 0 ? 'up to date\n' : `installed ${deps.length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+        }
+        const results = [];
+        for (const p of pkgs) results.push(await installPackage(p, ctx));
+        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+        return { code: 0, stdout: `saved ${results.filter(r => r && r.name).length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+      }
+
       if (sub === 'add') {
         const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
-        for (const p of pkgs) {
-          installPackage(p, ctx);
-        }
-        return { code: 0, stdout: `saved ${pkgs.length} package(s)\n`, stderr: '' };
+        const results = [];
+        for (const p of pkgs) results.push(await installPackage(p, ctx));
+        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+        return { code: 0, stdout: `saved ${results.filter(r => r && r.name).length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
       }
 
       if (sub === 'remove' || sub === 'rm') {
@@ -12751,15 +13007,19 @@ if (typeof module !== 'undefined' && module.exports) {
         const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
         if (pkgs.length === 0) {
           const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+          const results = [];
           for (const p of Object.keys(pkgData.dependencies || {})) {
-            installPackage(p, ctx);
+            results.push(await installPackage(p, ctx));
           }
-          return { code: 0, stdout: 'up to date\n', stderr: '' };
+          const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+          return { code: 0, stdout: 'up to date\n', stderr: warning ? `npm warn ${warning}\n` : '' };
         }
+        const results = [];
         for (const p of pkgs) {
-          installPackage(p, ctx);
+          results.push(await installPackage(p, ctx));
         }
-        return { code: 0, stdout: `added ${pkgs.length} package(s) in 0.1s\n`, stderr: '' };
+        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+        return { code: 0, stdout: `added ${results.filter(r => r && r.name).length} package(s) in 0.1s\n`, stderr: warning ? `npm warn ${warning}\n` : '' };
       }
 
       if (sub === 'uninstall' || sub === 'remove' || sub === 'rm') {
@@ -12982,6 +13242,16 @@ if (typeof module !== 'undefined' && module.exports) {
     resolvePath(p) {
       if (!p) return this.cwd;
       return PosixPath.resolve(this.cwd, p);
+    }
+
+    // True when `name` resolves to a shell function or coreutil (used by the
+    // workbench to route recognised commands straight to the shell instead of
+    // treating flag-looking input such as `node --version` as a JS expression).
+    hasCommand(name) {
+      if (!name) return false;
+      const n = String(name);
+      if (this.functions && Object.prototype.hasOwnProperty.call(this.functions, n)) return true;
+      return !!this.commands && Object.prototype.hasOwnProperty.call(this.commands, n);
     }
 
     _emitVfsMutation(type, absPath) {
@@ -21070,14 +21340,14 @@ declare module 'bun:sqlite' {
                 </div>
                 ${pkgs.length === 0 ? `
                   <div style="padding:12px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-bg);color:var(--cl-fg-muted);font-size:12.5px;">
-                    No external npm packages imported yet. Any <code>import ... from 'pkg'</code> or <code>require('pkg')</code> in your code is automatically resolved via <strong>esm.sh</strong> when you run or test.
+                    No external npm packages imported yet. Any <code>import ... from 'pkg'</code> or <code>require('pkg')</code> in your code is automatically resolved via <strong>jsDelivr</strong> when you run or test.
                   </div>
                 ` : `
                   <div style="display:flex;flex-direction:column;gap:6px;">
                     ${pkgs.map(p => `
                       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-bg);font-family:var(--cl-font-mono);font-size:12px;">
                         <span style="color:var(--cl-fg);font-weight:600;">${escapeHtml(p.name)}</span>
-                        <span style="color:var(--cl-accent);">${escapeHtml(p.version)} · esm.sh</span>
+                        <span style="color:var(--cl-accent);">${escapeHtml(p.version)} · jsDelivr</span>
                       </div>
                     `).join('')}
                   </div>
@@ -21211,9 +21481,14 @@ declare module 'bun:sqlite' {
           if (detectedList.length > 0) {
             this._setRuntimeStatus('fetching', `Fetching ${detectedList.map(d => typeof d === 'string' ? d : d.name).join(', ')}...`);
           }
-          await root.CodeLabRuntime.preloadNpmPackages(payload.files, pkgName => {
-            this._setRuntimeStatus('fetching', `Fetching ${pkgName} from esm.sh...`);
+          const preloaded = await root.CodeLabRuntime.preloadNpmPackages(payload.files, pkgName => {
+            this._setRuntimeStatus('fetching', `Fetching ${pkgName} from jsDelivr CDN...`);
           });
+          // Hand the fetched module sources to the runtime so the Web Worker
+          // (which has an isolated module cache) can resolve them from node_modules.
+          if (preloaded && typeof preloaded === 'object' && Object.keys(preloaded).length > 0) {
+            payload.packages = Object.assign({}, preloaded, payload.packages || {});
+          }
         }
         this._setRuntimeStatus('running', `Running ${payload.entry || payload.mode || 'script'}...`);
         let res;
@@ -21550,8 +21825,17 @@ declare module 'bun:sqlite' {
         return;
       }
 
-      const looksLikeJsExpr = /^(const|let|var|function|class|await|return|typeof|instanceof|new\s+|Math\.|JSON\.|Object\.|Array\.|Promise\.|console\.|process\.|Buffer\.|require\s*\(|import\s*\(|[0-9]+\s*[\+\-\*\/\%]|['"`\[{])/.test(trimmed)
-        || /^[a-zA-Z_$][\w$]*\s*(\.|===|!==|==|!=|<=|>=|\+=|-=|\*=|\(|\+\+|--)/.test(trimmed);
+      const firstWord = (trimmed.split(/\s+/)[0] || '').replace(/^.*\//, '');
+      const shellKnowsCommand = Boolean(
+        firstWord &&
+        this.shell &&
+        typeof this.shell.hasCommand === 'function' &&
+        this.shell.hasCommand(firstWord)
+      );
+      const looksLikeJsExpr = !shellKnowsCommand && (
+        /^(const|let|var|function|class|await|return|typeof|instanceof|new\s+|Math\.|JSON\.|Object\.|Array\.|Promise\.|console\.|process\.|Buffer\.|require\s*\(|import\s*\(|[0-9]+\s*[\+\-\*\/\%]|['"`\[{])/.test(trimmed)
+        || /^[a-zA-Z_$][\w$]*\s*(\.|===|!==|==|!=|<=|>=|\+=|-=|\*=|\(|\+\+|--)/.test(trimmed)
+      );
 
       if (this.shell && typeof this.shell.execute === 'function' && !looksLikeJsExpr) {
         const abortCtrl = new AbortController();
