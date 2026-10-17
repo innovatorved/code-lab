@@ -83,6 +83,10 @@
     "esbuild": "^0.24.0",
     "typescript": "^5.6.3"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "keywords": [
     "ide",
     "code-playground",
