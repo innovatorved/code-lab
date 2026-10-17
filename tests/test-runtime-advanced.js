@@ -660,6 +660,45 @@ async function runTests() {
     }
   });
 
+  // 17. JSX / TSX transpilation (classic createElement runtime)
+  await check('JSX: TSX element is rewritten to React.createElement with an auto React binding', async () => {
+    const out = runtime.transpileTS('const el = <div id="a">Hi</div>;', 'app.tsx');
+    assert.ok(out.includes('React.createElement("div"'), out);
+    assert.ok(out.includes('{ id: "a" }'), out);
+    assert.ok(out.includes('"Hi"'), out);
+    assert.ok(out.includes('const React = require("react")'), 'classic runtime injects a React binding');
+  });
+
+  await check('JSX: text containing an apostrophe survives the literal-masking pass', async () => {
+    const out = runtime.transpileTS("const el = <p>Don't panic</p>;", 'app.tsx');
+    assert.ok(out.includes('"Don\'t panic"'), out);
+  });
+
+  await check('JSX: fragments and nested elements transform to createElement/Fragment', async () => {
+    const out = runtime.transpileTS('const el = <><span>a</span><b/></>;', 'app.jsx');
+    assert.ok(out.includes('React.createElement(React.Fragment'), out);
+    assert.ok(out.includes('React.createElement("span"'), out);
+    assert.ok(out.includes('React.createElement("b", null)'), out);
+  });
+
+  await check('JSX: custom pragma via @jsx comment is honoured (Preact h)', async () => {
+    const out = runtime.transpileTS('/** @jsx h */\nconst el = <div>hi</div>;', 'app.jsx');
+    assert.ok(out.includes('h("div"'), out);
+    assert.ok(!out.includes('React.createElement'), 'custom pragma must not use React');
+  });
+
+  await check('JSX: JS strings/templates that merely look like markup are left untouched', async () => {
+    const src = 'const a = "<div>{x}</div>";\nconst b = `<div>${x}</div>`;\n';
+    const out = runtime.transpileTS(src, 'plain.js');
+    assert.equal(out, src, 'markup-only strings must not be transpiled');
+  });
+
+  await check('TS: prose in comments ("used as ES2015") no longer triggers the TS transpiler', async () => {
+    const src = '/** Used as ES2015 template strings. */\nmodule.exports = function f(a) { return a; };\n';
+    const out = runtime.transpileTS(src, 'lodash-like.js');
+    assert.equal(out, src, 'plain JS with prose comments must be returned unchanged');
+  });
+
   console.log(`\n=== Summary: ${passed} passed, ${failed} failed ===`);
   if (failed > 0) process.exit(1);
 }

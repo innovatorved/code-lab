@@ -2,12 +2,12 @@
  * @file test-option1-shell-bun-http.js
  * CodeLab Option 1: End-to-End Test Suite
  *
- * Comprehensive programmatic verification across 7 suites and 74 test cases:
+ * Comprehensive programmatic verification across 7 suites and 77 test cases:
  *  - Suite 1: POSIX Shell AST, Pipelines, Redirections, Globs & Lexer (13 tests)
  *  - Suite 2: 35+ UNIX Coreutils on Virtual Filesystem (17 tests)
  *  - Suite 3: Node.js CLI & Runtime Workflows (6 tests)
  *  - Suite 4: Bun CLI & Bun Runtime Engine (Bun.*, bun:test, bun:sqlite) (16 tests)
- *  - Suite 5: Package Management (npm & bun) (10 tests)
+ *  - Suite 5: Package Management (npm, pnpm & bun) (13 tests)
  *  - Suite 6: Persistent HTTP Servers, curl, and fetch() Routing (8 tests)
  *  - Suite 7: Complex Real-World System Design Workloads (4 tests)
  *
@@ -1342,6 +1342,115 @@ async function main() {
       const run = await executeShell(shell, 'node index.js');
       assert.strictEqual(run.code, 0, run.stderr);
       assert.strictEqual(run.stdout.trim(), '007');
+    });
+
+    await test('5.11 Install prints a realistic resolution transcript (versions, deps, summary)', async () => {
+      const CANNED = {
+        'is-even/package.json': JSON.stringify({ name: 'is-even', version: '1.0.0', main: 'index.js', dependencies: { 'is-odd': '^0.1.2' } }),
+        'is-even@1.0.0/index.js': "module.exports = function isEven(n){ return !require('is-odd')(n); };\n",
+        'is-odd/package.json': JSON.stringify({ name: 'is-odd', version: '0.1.2', main: 'index.js', dependencies: { 'is-number': '^3.0.0' } }),
+        'is-odd@0.1.2/index.js': "module.exports = function isOdd(n){ return require('is-number')(n) && Math.abs(n) % 2 === 1; };\n",
+        'is-number/package.json': JSON.stringify({ name: 'is-number', version: '3.0.0', main: 'index.js', dependencies: {} }),
+        'is-number@3.0.0/index.js': "module.exports = function isNumber(n){ return typeof n === 'number' && n === n; };\n"
+      };
+
+      const npmVfs = createVirtualFs({ '/workspace/package.json': JSON.stringify({ name: 'transcript-npm', dependencies: {} }) });
+      const npmShell = getShellEngine({ vfs: npmVfs, fetchImpl: cannedCdnFetchImpl(CANNED, []) });
+      const npmRes = await executeShell(npmShell, 'npm install is-even');
+      assert.strictEqual(npmRes.code, 0, npmRes.stderr);
+      assert.ok(npmRes.stdout.includes('Resolving dependencies'), 'npm install should print a resolution step');
+      assert.ok(npmRes.stdout.includes('is-even@1.0.0'), 'npm install should list the direct package and resolved version');
+      assert.ok(npmRes.stdout.includes('is-number@3.0.0'), 'npm install should list transitive dependencies');
+      assert.ok(/added \d+ package/.test(npmRes.stdout), 'npm install should print an "added N package(s)" summary');
+
+      const bunVfs = createVirtualFs({ '/workspace/package.json': JSON.stringify({ name: 'transcript-bun', dependencies: {} }) });
+      const bunShell = getShellEngine({ vfs: bunVfs, fetchImpl: cannedCdnFetchImpl(CANNED, []) });
+      const bunRes = await executeShell(bunShell, 'bun add is-even');
+      assert.strictEqual(bunRes.code, 0, bunRes.stderr);
+      assert.ok(bunRes.stdout.includes('bun add v1.1.20'), 'bun add should print a version header');
+      assert.ok(bunRes.stdout.includes('is-even@1.0.0'), 'bun add should list the resolved package');
+      assert.ok(/package\(s\) installed/.test(bunRes.stdout), 'bun add should print an install summary');
+
+      const emptyVfs = createVirtualFs({ '/workspace/package.json': JSON.stringify({ name: 'empty', dependencies: {} }) });
+      const emptyShell = getShellEngine({ vfs: emptyVfs, fetchImpl: offlineFetchImpl() });
+      const emptyRes = await executeShell(emptyShell, 'bun install');
+      assert.strictEqual(emptyRes.stdout.trim(), 'up to date', 'empty bun install stays terse');
+    });
+
+    await test('5.12 exports maps, subpath exports, relative chunks & peer deps resolve like real npm', async () => {
+      const CANNED = {
+        'modern-lib/package.json': JSON.stringify({
+          name: 'modern-lib',
+          version: '2.0.0',
+          exports: {
+            '.': { types: './dist/index.d.ts', require: './dist/index.cjs.js', default: './dist/index.mjs' },
+            './sub': { types: './dist/sub.d.ts', default: './dist/sub.js' }
+          },
+          peerDependencies: { 'peer-dep': '^1', 'opt-dep': '^2' },
+          peerDependenciesMeta: { 'opt-dep': { optional: true } }
+        }),
+        'modern-lib@2.0.0/dist/index.cjs.js': "module.exports = { hello: require('peer-dep'), sub: require('./sub.js') };\n",
+        'modern-lib@2.0.0/dist/sub.js': "module.exports = 'SUB';\n",
+        'peer-dep/package.json': JSON.stringify({ name: 'peer-dep', version: '1.2.3', main: 'index.js', dependencies: {} }),
+        'peer-dep@1.2.3/index.js': "module.exports = 'PEER';\n"
+      };
+      const calls = [];
+      const vfs = createVirtualFs({
+        '/workspace/package.json': JSON.stringify({ name: 'exports-test', dependencies: {} })
+      });
+      const shell = getShellEngine({ vfs, fetchImpl: cannedCdnFetchImpl(CANNED, calls) });
+
+      const res = await executeShell(shell, 'npm install modern-lib');
+      assert.strictEqual(res.code, 0, res.stderr);
+      assert.ok(calls.includes('modern-lib@2.0.0/dist/index.cjs.js'), 'must prefer the CJS (require) export condition');
+      assert.ok(vfs.existsSync('/workspace/node_modules/modern-lib/dist/sub.js'), 'must follow relative chunks');
+      assert.ok(vfs.existsSync('/workspace/node_modules/peer-dep/index.js'), 'must install non-optional peer deps');
+      assert.ok(!vfs.existsSync('/workspace/node_modules/opt-dep'), 'optional peer deps must be skipped');
+
+      const pkg = JSON.parse(vfs.readFileSync('/workspace/node_modules/modern-lib/package.json', 'utf8'));
+      assert.strictEqual(pkg.main, './dist/index.cjs.js');
+      assert.strictEqual(pkg.exports['./sub'], './dist/sub.js', 'subpath exports must be preserved for the runtime resolver');
+
+      const run = await executeShell(shell, "node -e \"const m = require('modern-lib'); const s = require('modern-lib/sub'); console.log(m.hello, m.sub, s);\"");
+      assert.strictEqual(run.code, 0, run.stderr);
+      assert.strictEqual(run.stdout.trim(), 'PEER SUB SUB');
+    });
+
+    await test('5.13 pnpm: install, add -D, list, run scripts and require installed packages', async () => {
+      const CANNED = {
+        'is-even/package.json': JSON.stringify({ name: 'is-even', version: '1.0.0', main: 'index.js', dependencies: {} }),
+        'is-even@1.0.0/index.js': "module.exports = function(n){ return n % 2 === 0; };\n",
+        'typescript/package.json': JSON.stringify({ name: 'typescript', version: '5.6.0', main: 'index.js', dependencies: {} }),
+        'typescript@5.6.0/index.js': "module.exports = { version: '5.6.0' };\n"
+      };
+      const vfs = createVirtualFs({
+        '/workspace/package.json': JSON.stringify({ name: 'pnpm-app', version: '1.0.0', scripts: { greet: 'echo hi-from-script' }, dependencies: {} })
+      });
+      const shell = getShellEngine({ vfs, fetchImpl: cannedCdnFetchImpl(CANNED, []) });
+
+      const ver = await executeShell(shell, 'pnpm --version');
+      assert.strictEqual(ver.stdout.trim(), '9.0.0');
+
+      const inst = await executeShell(shell, 'pnpm install is-even');
+      assert.strictEqual(inst.code, 0, inst.stderr);
+      assert.ok(inst.stdout.includes('is-even@1.0.0'), 'pnpm should list the installed package');
+      assert.ok(inst.stdout.includes('Packages: +1'), 'pnpm should print a Packages count');
+      assert.ok(vfs.existsSync('/workspace/node_modules/is-even/index.js'), 'pnpm must install into node_modules');
+
+      const dev = await executeShell(shell, 'pnpm add -D typescript');
+      assert.strictEqual(dev.code, 0, dev.stderr);
+      const pkg = JSON.parse(vfs.readFileSync('/workspace/package.json', 'utf8'));
+      assert.ok(pkg.dependencies['is-even'], 'runtime dependency recorded in dependencies');
+      assert.ok(pkg.devDependencies['typescript'], '-D recorded in devDependencies');
+
+      const list = await executeShell(shell, 'pnpm list');
+      assert.ok(list.stdout.includes('is-even'), 'pnpm list should show installed deps');
+
+      const script = await executeShell(shell, 'pnpm run greet');
+      assert.strictEqual(script.stdout.trim(), 'hi-from-script');
+
+      const run = await executeShell(shell, "node -e \"console.log('4 even?', require('is-even')(4))\"");
+      assert.strictEqual(run.stdout.trim(), '4 even? true');
     });
 
   });

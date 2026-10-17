@@ -263,6 +263,35 @@ async function runSuite() {
     assert.equal(wb.previewState.path, '/status', 'loopback navigation still loads in-frame');
   });
 
+  await test('C9 previewApp() boots the built-in preview server for a project and opens it', async () => {
+    const wb = new CodeLabWorkbench(makeContainer(), {
+      labId: 'm3-preview-app',
+      files: {
+        'index.html': '<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/main.jsx"></script></body></html>',
+        'main.jsx': 'import React from "react";\nconsole.log(<h1>hi</h1>);\n'
+      }
+    });
+    assert.equal(wb.portTable.listServers().length, 0, 'nothing listening initially');
+    const port = await wb.previewApp();
+    assert.ok(port, 'previewApp resolves with a port');
+    const servers = wb.portTable.listServers();
+    assert.ok(servers.some((s) => Number(s.port) === Number(port)), 'built-in preview server is listening');
+    assert.equal(wb.drawerTab, 'preview', 'drawer switches to the preview tab');
+
+    const res = await wb.portTable.dispatchRequest(`http://127.0.0.1:${port}/`);
+    const html = await res.text();
+    assert.ok(html.includes('<script type="importmap">'), 'served HTML carries the import map');
+  });
+
+  await test('C10 previewApp() with no index.html explains how to preview instead of crashing', async () => {
+    const wb = new CodeLabWorkbench(makeContainer(), { labId: 'm3-preview-empty', files: { 'demo.js': 'console.log(1);' } });
+    const port = await wb.previewApp();
+    assert.equal(port, null);
+    assert.equal(wb.portTable.listServers().length, 0);
+    assert.equal(wb.drawerTab, 'terminal');
+    assert.ok(wb.terminalLogs.some((l) => /No index\.html found/.test(l.text)), 'shows guidance');
+  });
+
   console.log('\n--- Suite D: Service Worker Bridge ---');
 
   await test('D1 _handleServiceWorkerMessage dispatches via the port table and replies', async () => {

@@ -3975,13 +3975,315 @@ function __initVirtualRuntime(rootScope) {
   }
 
   // =========================================================================
+  // 7b. JSX / TSX SUPPORT
+  // -------------------------------------------------------------------------
+  // Rewrites JSX syntax into classic `createElement(...)` calls. This runs
+  // BEFORE the string-masking pass so that JSX text (which routinely contains
+  // quotes/apostrophes, e.g. <p>Don't</p>) is captured verbatim, while genuine
+  // JS strings, comments and template literals are skipped untouched.
+  // =========================================================================
+  function detectJsxSyntax(source, filename) {
+    if (/\.(jsx|tsx)$/i.test(filename || '')) return true;
+    if (!source || source.indexOf('<') === -1) return false;
+    if (/@jsx\b/.test(source)) return true;
+    if (source.indexOf('<>') !== -1) return true;
+    if (/<\/[A-Za-z]/.test(source)) return true;
+    return false;
+  }
+
+  function readJsxPragma(source) {
+    let pragma = 'React.createElement';
+    let frag = null;
+    const m = /@jsx\s+([A-Za-z_$][\w$.]*)/.exec(source);
+    if (m) pragma = m[1];
+    const fm = /@jsxFrag\s+([A-Za-z_$][\w$.]*)/.exec(source);
+    if (fm) frag = fm[1];
+    if (!frag) frag = pragma === 'React.createElement' ? 'React.Fragment' : 'Fragment';
+    return { pragma, frag };
+  }
+
+  const JSX_WS_RE = /\s/;
+  const JSX_NAME_START_RE = /[A-Za-z_$]/;
+  const JSX_NAME_CHAR_RE = /[A-Za-z0-9_$:.\-]/;
+
+  function jsxThrow(message) {
+    const err = new Error(message);
+    err.jsxParse = true;
+    throw err;
+  }
+
+  // Returns the exclusive end index if a JS string / template / comment starts
+  // at `i`, otherwise -1. Regexes are deliberately ignored.
+  function jsxSkipJsLiteral(source, i) {
+    const ch = source[i];
+    const next = source[i + 1];
+    const len = source.length;
+    if (ch === '/' && next === '/') {
+      const e = source.indexOf('\n', i);
+      return e === -1 ? len : e;
+    }
+    if (ch === '/' && next === '*') {
+      const e = source.indexOf('*/', i + 2);
+      return e === -1 ? len : e + 2;
+    }
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      while (j < len) {
+        const c = source[j];
+        if (c === '\\') { j += 2; continue; }
+        if (c === ch) { j++; break; }
+        if (c === '\n') break;
+        j++;
+      }
+      return j;
+    }
+    if (ch === '`') {
+      let j = i + 1;
+      let depth = 0;
+      while (j < len) {
+        const c = source[j];
+        if (c === '\\') { j += 2; continue; }
+        if (c === '$' && source[j + 1] === '{') { depth++; j += 2; continue; }
+        if (c === '}' && depth > 0) { depth--; j++; continue; }
+        if (c === '`' && depth === 0) { j++; break; }
+        j++;
+      }
+      return j;
+    }
+    return -1;
+  }
+
+  function jsxReadName(source, i) {
+    if (!JSX_NAME_START_RE.test(source[i] || '')) jsxThrow('jsx: expected a tag name');
+    let j = i;
+    while (j < source.length && JSX_NAME_CHAR_RE.test(source[j])) j++;
+    return { name: source.slice(i, j), next: j };
+  }
+
+  function jsxSkipWs(source, i) {
+    while (i < source.length && JSX_WS_RE.test(source[i])) i++;
+    return i;
+  }
+
+  function normalizeJsxText(raw) {
+    if (!raw) return '';
+    let t = raw.replace(/\r/g, '');
+    if (t.indexOf('\n') !== -1) {
+      t = t.split('\n').map((s) => s.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join(' ');
+    } else if (!/\S/.test(t)) {
+      return '';
+    } else {
+      t = t.replace(/[ \t]+/g, ' ');
+    }
+    return t ? JSON.stringify(t) : '';
+  }
+
+  // Reads a balanced `{ ... }` expression container, skipping nested JSX and
+  // JS literals. Returns the raw inner source (later re-transformed) plus the
+  // index just past the closing brace.
+  function jsxReadBraced(source, i, opts) {
+    let depth = 0;
+    let j = i;
+    while (j < source.length) {
+      const lit = jsxSkipJsLiteral(source, j);
+      if (lit !== -1) { j = lit; continue; }
+      const c = source[j];
+      if (c === '{') { depth++; j++; continue; }
+      if (c === '}') {
+        depth--;
+        j++;
+        if (depth === 0) return { inner: source.slice(i + 1, j - 1), next: j };
+        continue;
+      }
+      if (c === '<' && (JSX_NAME_START_RE.test(source[j + 1] || '') || source[j + 1] === '>')) {
+        try {
+          const el = jsxParseElement(source, j, opts);
+          j = el.next;
+          continue;
+        } catch (e) {
+          if (!e || !e.jsxParse) throw e;
+        }
+      }
+      j++;
+    }
+    jsxThrow('jsx: unterminated expression container');
+  }
+
+  function jsxParseElement(source, i, opts) {
+    const o = opts || readJsxPragma(source);
+    let j = i + 1;
+    let isFragment = false;
+    let typeExpr;
+    if (source[j] === '>') {
+      isFragment = true;
+      typeExpr = o.frag;
+      j++;
+    } else {
+      const nm = jsxReadName(source, j);
+      j = nm.next;
+      const raw = nm.name;
+      const isReference = raw.indexOf('.') !== -1 || raw.indexOf(':') !== -1 || /^[A-Z_$]/.test(raw);
+      if (isReference) {
+        typeExpr = raw.replace(/:/g, '.');
+      } else {
+        typeExpr = JSON.stringify(raw);
+      }
+    }
+
+    const props = [];
+    let selfClosing = false;
+    if (!isFragment) {
+      for (;;) {
+        j = jsxSkipWs(source, j);
+        if (j >= source.length) jsxThrow('jsx: unexpected end of input inside a tag');
+        const c = source[j];
+        if (c === '/') {
+          if (source[j + 1] !== '>') jsxThrow('jsx: malformed self-closing tag');
+          j += 2;
+          selfClosing = true;
+          break;
+        }
+        if (c === '>') { j++; break; }
+        if (c === '{') {
+          const br = jsxReadBraced(source, j, o);
+          const inner = br.inner.trim();
+          if (inner.slice(0, 3) !== '...') jsxThrow('jsx: only a spread {...} may appear where an attribute is expected');
+          props.push({ spread: jsxTransform(inner.slice(3), o) });
+          j = br.next;
+          continue;
+        }
+        if (!JSX_NAME_START_RE.test(c)) jsxThrow('jsx: malformed attribute');
+        const am = jsxReadName(source, j);
+        const attrName = am.name;
+        j = jsxSkipWs(source, am.next);
+        let valueExpr = 'true';
+        if (source[j] === '=') {
+          j = jsxSkipWs(source, j + 1);
+          const vc = source[j];
+          if (vc === '"' || vc === "'") {
+            let k = j + 1;
+            while (k < source.length && source[k] !== vc) {
+              if (source[k] === '\\') k++;
+              k++;
+            }
+            if (k >= source.length) jsxThrow('jsx: unterminated attribute string');
+            valueExpr = JSON.stringify(source.slice(j + 1, k));
+            j = k + 1;
+          } else if (vc === '{') {
+            const br = jsxReadBraced(source, j, o);
+            valueExpr = jsxTransform(br.inner, o) || 'undefined';
+            j = br.next;
+          } else if (vc === '<') {
+            const el = jsxParseElement(source, j, o);
+            valueExpr = el.code;
+            j = el.next;
+          } else {
+            jsxThrow('jsx: unsupported attribute value');
+          }
+        }
+        const propKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attrName) ? attrName : JSON.stringify(attrName);
+        props.push({ key: propKey, value: valueExpr });
+      }
+    }
+
+    const children = [];
+    if (!selfClosing) {
+      for (;;) {
+        if (j >= source.length) jsxThrow('jsx: missing closing tag');
+        const c = source[j];
+        if (c === '<' && source[j + 1] === '/') {
+          j = jsxSkipWs(source, j + 2);
+          if (source[j] === '>') { j++; break; }
+          const cm = jsxReadName(source, j);
+          j = jsxSkipWs(source, cm.next);
+          if (source[j] !== '>') jsxThrow('jsx: malformed closing tag');
+          j++;
+          break;
+        }
+        if (c === '<') {
+          const el = jsxParseElement(source, j, o);
+          children.push(el.code);
+          j = el.next;
+          continue;
+        }
+        if (c === '{') {
+          const br = jsxReadBraced(source, j, o);
+          const inner = jsxTransform(br.inner, o);
+          if (inner && inner.trim()) children.push(inner);
+          j = br.next;
+          continue;
+        }
+        let k = j;
+        while (k < source.length && source[k] !== '<' && source[k] !== '{') k++;
+        const text = normalizeJsxText(source.slice(j, k));
+        if (text) children.push(text);
+        j = k;
+      }
+    }
+
+    let propsCode = 'null';
+    if (props.length) {
+      const parts = props.map((p) => (p.spread !== undefined ? '...(' + p.spread + ')' : p.key + ': ' + p.value));
+      propsCode = '{ ' + parts.join(', ') + ' }';
+    }
+
+    const args = [typeExpr, propsCode].concat(children);
+    return { code: o.pragma + '(' + args.join(', ') + ')', next: j };
+  }
+
+  function jsxTransform(source, opts) {
+    const o = opts || readJsxPragma(source);
+    let i = 0;
+    let out = '';
+    while (i < source.length) {
+      const lit = jsxSkipJsLiteral(source, i);
+      if (lit !== -1) { out += source.slice(i, lit); i = lit; continue; }
+      const ch = source[i];
+      if (ch === '<' && (JSX_NAME_START_RE.test(source[i + 1] || '') || source[i + 1] === '>')) {
+        try {
+          const el = jsxParseElement(source, i, o);
+          out += el.code;
+          i = el.next;
+          continue;
+        } catch (e) {
+          if (!e || !e.jsxParse) throw e;
+        }
+      }
+      out += ch;
+      i++;
+    }
+    return out;
+  }
+
+  // =========================================================================
   // 8. FAST TYPESCRIPT & ESM-TO-CJS TRANSPILER
   // =========================================================================
-  function transpileTS(source, filename = 'module.ts') {
+  function transpileTS(source, filename = 'module.ts', opts = {}) {
+    // `keepEsm` leaves `import`/`export` statements intact so the output can run
+    // natively in a browser as an ES module (used by the built-in preview server).
+    const keepEsm = Boolean(opts && opts.keepEsm);
     const isTS = /\.(ts|tsx|mts|cts)$/i.test(filename)
-      || /\b(interface\s+[A-Za-z_$]|type\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:<[^>]*>)?\s*=|enum\s+[A-Za-z_$]|abstract\s+class\s+|declare\s+(?:const|let|var|function|class|type|interface)\b|public\s+|private\s+|protected\s+|readonly\s+|satisfies\s+[A-Za-z_${]|\bas\s+(?:const|unknown|any|[A-Za-z_${]))/m.test(source);
-    const hasESM = /^\s*(import|export)\s+/m.test(source);
-    if (!isTS && !hasESM) return source;
+      || /^[ \t]*(?:export\s+)?(?:abstract\s+class\s+[A-Za-z_$]|declare\s+(?:const|let|var|function|class|namespace|module|global)\b|interface\s+[A-Za-z_$][A-Za-z0-9_$]*|type\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:<[^>]*>)?\s*=|enum\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\{|namespace\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\{)/m.test(source);
+    const hasESM = /^\s*(?:import|export)\b/m.test(source)
+      || /\bexport\s*\{/.test(source)
+      || /\bimport\s*\{/.test(source)
+      || /\bexport\s+default\b/.test(source);
+    const hasJsx = detectJsxSyntax(source, filename);
+    if (!isTS && !hasESM && !hasJsx) return source;
+
+    // JSX/TSX must be rewritten before masking so JSX text is kept verbatim.
+    if (hasJsx) {
+      const { pragma, frag } = readJsxPragma(source);
+      const needsReact = pragma === 'React.createElement' && !/\bReact\b/.test(source);
+      const transformed = jsxTransform(source, { pragma, frag });
+      if (transformed !== source) {
+        source = transformed;
+        // The classic runtime needs a React binding available to the JSX output.
+        if (needsReact) {
+          source = (keepEsm ? 'import React from "react";\n' : 'const React = require("react");\n') + source;
+        }
+      }
+    }
 
     // Step 1: Mask strings, template literals, regex literals, and comments so transforms never corrupt literals
     const placeholders = [];
@@ -4544,10 +4846,10 @@ function __initVirtualRuntime(rootScope) {
       } while (code !== prevCode);
     }
 
-    if (hasESM || isTS) {
+    if ((hasESM || isTS) && !keepEsm) {
       // Convert ES module imports (including multi-line `{ ... }`)
-      code = code.replace(/^\s*import\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = require($2);');
-      code = code.replace(/^\s*import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, defId, specifiers, mod) => {
+      code = code.replace(/\bimport\s*\*\s*as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*from\s*([^\n;]+);?/gm, 'const $1 = require($2);');
+      code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*\{([\s\S]*?)\}\s*from\s*([^\n;]+);?/gm, (_, defId, specifiers, mod) => {
         const cleaned = specifiers
           .split(',')
           .map((s) => s.trim())
@@ -4558,7 +4860,7 @@ function __initVirtualRuntime(rootScope) {
         return `const ${defId} = (function(m){ return m && m.__esModule ? m.default : m; })(require(${mTrim}));` +
           (cleaned ? ` const { ${cleaned} } = require(${mTrim});` : '');
       });
-      code = code.replace(/^\s*import\s+\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, specifiers, mod) => {
+      code = code.replace(/\bimport\s*\{([\s\S]*?)\}\s*from\s*([^\n;]+);?/gm, (_, specifiers, mod) => {
         const cleaned = specifiers
           .split(',')
           .map((s) => s.trim())
@@ -4567,42 +4869,42 @@ function __initVirtualRuntime(rootScope) {
           .join(', ');
         return cleaned ? `const { ${cleaned} } = require(${mod.trim()});` : '';
       });
-      code = code.replace(/^\s*import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = (function(m){ return m && m.__esModule ? m.default : m; })(require($2));');
-      code = code.replace(/^\s*import\s+(\x00__LIT_\d+__\x00)\s*;?/gm, 'require($1);');
+      code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = (function(m){ return m && m.__esModule ? m.default : m; })(require($2));');
+      code = code.replace(/\bimport\s+(\x00__LIT_\d+__\x00)\s*;?/gm, 'require($1);');
 
       // Convert ES module exports
       const exportedNames = [];
       let defaultExportName = null;
       let hasEsmExport = false;
 
-      code = code.replace(/^\s*export\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, (_, ns, mod) => {
+      code = code.replace(/\bexport\s*\*\s*as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*from\s*([^\n;]+);?/gm, (_, ns, mod) => {
         hasEsmExport = true;
         return `exports.${ns} = require(${mod.trim()});`;
       });
-      code = code.replace(/^\s*export\s+\*\s+from\s+([^\n;]+);?/gm, (_, mod) => {
+      code = code.replace(/\bexport\s*\*\s*from\s*([^\n;]+);?/gm, (_, mod) => {
         hasEsmExport = true;
         return `Object.assign(exports, require(${mod.trim()}));`;
       });
-      code = code.replace(/^\s*export\s+default\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+default\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         defaultExportName = name;
         return `${kw} ${name}`;
       });
-      code = code.replace(/^\s*export\s+default\s+/gm, () => {
+      code = code.replace(/\bexport\s+default\s+/gm, () => {
         hasEsmExport = true;
         return 'exports.default = ';
       });
-      code = code.replace(/^\s*export\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         exportedNames.push(name);
         return `${kw} ${name}`;
       });
-      code = code.replace(/^\s*export\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         exportedNames.push(name);
         return `${kw} ${name}`;
       });
-      code = code.replace(/^\s*export\s+\{([^}]+)\}\s+from\s+([^\n;]+);?/gm, (_, list, mod) => {
+      code = code.replace(/\bexport\s*\{([^}]+)\}\s*from\s*([^\n;]+);?/gm, (_, list, mod) => {
         hasEsmExport = true;
         const mTrim = mod.trim();
         return list.split(',').map((item) => {
@@ -4614,7 +4916,7 @@ function __initVirtualRuntime(rootScope) {
           return `exports.${exported} = require(${mTrim}).${local};`;
         }).join(' ');
       });
-      code = code.replace(/^\s*export\s+\{([^}]+)\}\s*;?/gm, (_, list) => {
+      code = code.replace(/\bexport\s*\{([^}]+)\}\s*;?/gm, (_, list) => {
         hasEsmExport = true;
         return list.split(',').map((item) => {
           const trimmed = item.trim();
@@ -7239,6 +7541,14 @@ function __initVirtualRuntime(rootScope) {
     };
   }
 
+  // Transpile a source file so it can run natively in a browser as an ES module:
+  // JSX is compiled to the classic runtime (auto-importing React when needed) and
+  // TypeScript annotations are stripped, but `import`/`export` are preserved so an
+  // import map can resolve bare specifiers to CDN ESM builds.
+  function transpileForBrowser(source, filename = 'module.js') {
+    return transpileTS(source, filename, { keepEsm: true });
+  }
+
   return {
     VirtualBuffer,
     VirtualCrypto,
@@ -7258,6 +7568,7 @@ function __initVirtualRuntime(rootScope) {
     createVirtualHttp,
     createVirtualNet,
     transpileTS,
+    transpileForBrowser,
     preloadNpmPackages,
     createVirtualPortTable,
     executeInVirtualRuntime
@@ -9906,9 +10217,31 @@ if (typeof module !== 'undefined' && module.exports) {
     return { name: raw.slice(0, at), range: raw.slice(at + 1) || null };
   }
 
+  function pickConditionalEntry(value) {
+    if (typeof value === 'string') return value;
+    if (!value || typeof value !== 'object') return null;
+    // This runtime executes CommonJS, so it prefers CJS-friendly conditions.
+    for (const key of ['require', 'node', 'default', 'browser', 'import', 'module']) {
+      if (value[key] !== undefined) {
+        const picked = pickConditionalEntry(value[key]);
+        if (picked) return picked;
+      }
+    }
+    return null;
+  }
+
   function resolveEntryRelPath(pkgJson) {
-    let entry = pkgJson.main || pkgJson.module ||
-      (typeof pkgJson.browser === 'string' ? pkgJson.browser : '') || 'index.js';
+    let entry = null;
+    const exp = pkgJson && pkgJson.exports;
+    if (typeof exp === 'string') {
+      entry = exp;
+    } else if (exp && typeof exp === 'object' && exp['.'] !== undefined) {
+      entry = pickConditionalEntry(exp['.']);
+    }
+    if (!entry) {
+      entry = pkgJson.main || pkgJson.module ||
+        (typeof pkgJson.browser === 'string' ? pkgJson.browser : '') || 'index.js';
+    }
     entry = String(entry).replace(/^[./]+/, '');
     return entry || 'index.js';
   }
@@ -9919,9 +10252,16 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function extractRelativeSpecifiers(code) {
     const out = new Set();
-    const re = /(?:\brequire\s*\(\s*|\bimport\s+[\s\S]{0,120}?\bfrom\s*|\bimport\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g;
-    let m;
-    while ((m = re.exec(code)) !== null) out.add(m[1]);
+    const patterns = [
+      /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+      /\brequire\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+      /\bimport\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+      /\bimport\s*['"](\.{1,2}\/[^'"]+)['"]/g
+    ];
+    for (const re of patterns) {
+      let m;
+      while ((m = re.exec(code)) !== null) out.add(m[1]);
+    }
     return Array.from(out);
   }
 
@@ -9986,20 +10326,49 @@ if (typeof module !== 'undefined' && module.exports) {
     const entry = resolveEntryRelPath(meta);
     const files = [];
     const visited = new Set();
-    const queue = [entry];
-    while (queue.length > 0) {
-      const rel = stripRelPath(queue.shift());
-      if (!rel || visited.has(rel)) continue;
-      visited.add(rel);
-      const text = await fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/${rel}`);
-      if (text === null) continue;
-      files.push({ rel, content: text });
-      const baseDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
-      for (const spec of extractRelativeSpecifiers(text)) {
-        const target = normalizeRelPath(baseDir, spec);
-        for (const cand of [target, `${target}.js`, `${target}.json`, `${target}/index.js`]) {
-          const c = stripRelPath(cand);
-          if (c && !visited.has(c)) { queue.push(cand); break; }
+    // Seed with the package entry plus any declared `exports` subpaths, so a
+    // later `require('pkg/subpath')` (e.g. `entities/decode`) resolves offline.
+    const seed = [entry, `${entry}.js`, `${entry}.json`, `${entry}.mjs`, `${entry}.cjs`];
+    const expMap = meta.exports;
+    if (expMap && typeof expMap === 'object') {
+      let subCount = 0;
+      for (const key of Object.keys(expMap)) {
+        if (key === '.' || key.slice(0, 2) !== './' || subCount >= 25) continue;
+        const target = pickConditionalEntry(expMap[key]);
+        if (target) { seed.push(target); subCount++; }
+      }
+    }
+    let frontier = seed;
+    while (frontier.length > 0) {
+      const batch = [];
+      for (const raw of frontier) {
+        const rel = stripRelPath(raw);
+        if (!rel || visited.has(rel)) continue;
+        visited.add(rel);
+        batch.push(rel);
+      }
+      frontier = [];
+      if (batch.length === 0) break;
+      const texts = await Promise.all(
+        batch.map((rel) => fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/${rel}`))
+      );
+      for (let idx = 0; idx < batch.length; idx++) {
+        const rel = batch[idx];
+        const text = texts[idx];
+        if (text === null) continue;
+        files.push({ rel, content: text });
+        const baseDir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+        for (const spec of extractRelativeSpecifiers(text)) {
+          const target = normalizeRelPath(baseDir, spec);
+          // Only guess extensions when the specifier omits one; non-existent
+          // candidates 404 harmlessly.
+          const cands = /\.[a-z0-9]+$/i.test(target)
+            ? [target]
+            : [target, `${target}.js`, `${target}.json`, `${target}.mjs`, `${target}.cjs`, `${target}/index.js`];
+          for (const cand of cands) {
+            const c = stripRelPath(cand);
+            if (c && !visited.has(c)) frontier.push(cand);
+          }
         }
       }
     }
@@ -10009,7 +10378,16 @@ if (typeof module !== 'undefined' && module.exports) {
       if (idxText !== null) files.push({ rel: 'index.js', content: idxText });
     }
 
-    return { ok: true, version, entry, files, deps: Object.keys(meta.dependencies || {}) };
+    // Declared dependencies plus non-optional peer dependencies (npm v7+ style),
+    // so e.g. `npm install react-dom` also pulls in `react`.
+    const depNames = Object.keys(meta.dependencies || {});
+    const peerMeta = meta.peerDependenciesMeta || {};
+    for (const peer of Object.keys(meta.peerDependencies || {})) {
+      if (peerMeta[peer] && peerMeta[peer].optional) continue;
+      if (depNames.indexOf(peer) === -1) depNames.push(peer);
+    }
+
+    return { ok: true, version, entry, files, deps: depNames, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
   }
 
   function installTargetDirs(ctx, name) {
@@ -10030,17 +10408,30 @@ if (typeof module !== 'undefined' && module.exports) {
       }
       const modPkgPath = PosixPath.join(dir, 'package.json');
       const modPkg = { name, version: info.version || '1.0.0', main: './' + (info.entry || 'index.js') };
+      if (info.pkgExports && typeof info.pkgExports === 'object') {
+        const normalized = { '.': './' + (info.entry || 'index.js') };
+        for (const key of Object.keys(info.pkgExports)) {
+          if (key === '.' || key.indexOf('*') !== -1) continue;
+          const target = pickConditionalEntry(info.pkgExports[key]);
+          if (target) normalized[key] = target.charAt(0) === '.' ? target : './' + target;
+        }
+        modPkg.exports = normalized;
+      }
       ctx.vfs.writeFileSync(modPkgPath, JSON.stringify(modPkg, null, 2) + '\n');
       if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', modPkgPath);
     }
   }
 
-  async function installPackage(pkgSpec, ctx) {
+  async function installPackage(pkgSpec, ctx, onLine, opts) {
+    const options = (onLine && typeof onLine === 'object') ? onLine : (opts || {});
+    const lineCb = (typeof onLine === 'function') ? onLine : (typeof options.onLine === 'function' ? options.onLine : null);
+    const isDev = Boolean(options.dev);
     const { name: pkgName, range } = parsePackageSpec(pkgSpec);
     if (!pkgName) return { name: null, ok: false, installed: [], warning: null };
 
     const { path: pkgPath, data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
-    if (!pkgData.dependencies) pkgData.dependencies = {};
+    const depField = isDev ? 'devDependencies' : 'dependencies';
+    if (!pkgData[depField]) pkgData[depField] = {};
 
     const fetchImpl = packageCtxFetch(ctx);
     const seen = (ctx.shell && ctx.shell._cdnSeen)
@@ -10066,11 +10457,13 @@ if (typeof module !== 'undefined' && module.exports) {
         });
         if (!warning) warning = info.reason;
         installed.push({ name: item.name, version: '0.0.0' });
+        if (typeof lineCb === 'function') lineCb({ name: item.name, version: '0.0.0', offline: true });
         continue;
       }
 
       writeInstalledPackageFiles(ctx, installTargetDirs(ctx, item.name), item.name, info);
       installed.push({ name: item.name, version: info.version || '1.0.0' });
+      if (typeof lineCb === 'function') lineCb({ name: item.name, version: info.version || '1.0.0', deduped: Boolean(info.deduped) });
       if (item.direct) directVersion = info.version || null;
 
       for (const dep of (info.deps || [])) {
@@ -10082,10 +10475,69 @@ if (typeof module !== 'undefined' && module.exports) {
       }
     }
 
-    pkgData.dependencies[pkgName] = range || (directVersion ? `^${directVersion}` : (pkgData.dependencies[pkgName] || 'latest'));
+    pkgData[depField][pkgName] = range || (directVersion ? `^${directVersion}` : (pkgData[depField][pkgName] || 'latest'));
     writePackageJson(ctx.vfs, pkgPath, pkgData, ctx.emitMutation);
 
     return { name: pkgName, ok: true, version: directVersion, installed, warning };
+  }
+
+  // Build a live install log: each line is streamed to the terminal as it
+  // happens (when possible) and accumulated so the command can also return it.
+  function createInstallEmitter(ctx, sink) {
+    const stream = (ctx && typeof ctx.onStdout === 'function') ? ctx.onStdout : null;
+    return function emit(text) {
+      if (!text) return;
+      sink.push(text);
+      if (stream) stream(text);
+    };
+  }
+
+  function formatInstallLine(info) {
+    if (!info || !info.name) return '';
+    const suffix = info.offline ? ' (offline fallback)' : (info.deduped ? ' (deduped)' : '');
+    return `  + ${info.name}@${info.version || '1.0.0'}${suffix}\n`;
+  }
+
+  function countInstalledPackages(results) {
+    const seen = new Set();
+    for (const r of results) {
+      if (!r) continue;
+      if (r.name) seen.add(r.name);
+      for (const p of (r.installed || [])) { if (p && p.name) seen.add(p.name); }
+    }
+    return seen.size;
+  }
+
+  // Resolve + install a list of specs while printing a realistic transcript,
+  // so `npm install` / `bun add` look like the real tools instead of a terse
+  // "saved N package(s)".
+  async function runInstallTranscript(pkgs, ctx, opts) {
+    const options = opts || {};
+    const manager = options.manager || 'bun';
+    const header = options.header || (manager === 'npm' ? 'npm install v10.2.0' : 'bun add v1.1.20 (1.1.20)');
+    const out = [];
+    const emit = createInstallEmitter(ctx, out);
+    const started = Date.now();
+    emit(`${header}\n\nResolving dependencies...\n`);
+    const results = [];
+    for (const p of pkgs) {
+      results.push(await installPackage(p, ctx, { onLine: (info) => emit(formatInstallLine(info)), dev: Boolean(options.dev) }));
+    }
+    const warning = results.map(r => r && r.warning).filter(Boolean)[0];
+    const count = countInstalledPackages(results);
+    const ms = Date.now() - started;
+    if (manager === 'npm') {
+      emit(`\nadded ${count} package(s) in ${ms}ms\n`);
+    } else if (manager === 'pnpm') {
+      emit(`\nPackages: +${count}\n${'+'.repeat(Math.min(count, 40))}\nDone in ${ms}ms using pnpm v9.0.0\n`);
+    } else {
+      emit(`Saved lockfile\n\n${count} package(s) installed [${ms}ms]\n`);
+    }
+    return {
+      code: 0,
+      stdout: out.join(''),
+      stderr: warning ? `${manager === 'npm' ? 'npm warn' : manager === 'pnpm' ? 'pnpm warn' : 'bun warn'} ${warning}\n` : ''
+    };
   }
 
   function uninstallPackage(pkgName, ctx) {
@@ -10139,7 +10591,259 @@ if (typeof module !== 'undefined' && module.exports) {
     if (scriptArgs && scriptArgs.length > 0) {
       cmd += ' ' + scriptArgs.join(' ');
     }
+    const fallback = tryDevScriptFallback(scriptName, cmd, ctx);
+    if (fallback) return fallback;
     return await ctx.shell.execute(cmd, { cwd: ctx.cwd, env: ctx.env });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Built-in static preview server (`serve` / `npm run dev` fallback).
+  //
+  // Serves the virtual filesystem over a virtual port so the in-browser Web
+  // Preview can render a project. `.ts/.tsx/.jsx` sources are transpiled to
+  // browser-native ESM on the fly, and bare specifiers are resolved to jsDelivr
+  // `+esm` builds through an injected import map — no bundler required.
+  // ---------------------------------------------------------------------------
+
+  const CDN_ESM_BASE = 'https://cdn.jsdelivr.net/npm';
+
+  const PREVIEW_MIME = {
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.cjs': 'text/javascript; charset=utf-8',
+    '.jsx': 'text/javascript; charset=utf-8',
+    '.ts': 'text/javascript; charset=utf-8',
+    '.tsx': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.map': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.txt': 'text/plain; charset=utf-8'
+  };
+
+  function previewMimeFor(p) {
+    const lower = String(p).toLowerCase();
+    const dot = lower.lastIndexOf('.');
+    if (dot === -1) return 'application/octet-stream';
+    return PREVIEW_MIME[lower.slice(dot)] || 'application/octet-stream';
+  }
+
+  function isPreviewScriptPath(p) {
+    return /\.(?:[cm]?jsx?|tsx?)$/i.test(p) && !/\.d\.ts$/i.test(p);
+  }
+
+  // Collect bare (non-relative) module specifiers referenced by a source file.
+  function extractBareSpecifiers(code) {
+    const out = new Set();
+    const patterns = [
+      /\bfrom\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g,
+      /\brequire\s*\(\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g,
+      /\bimport\s*\(\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g,
+      /\bimport\s*['"]((?:@[^'"/]+\/)?[^'"./][^'"]*)['"]/g
+    ];
+    for (const re of patterns) {
+      let m;
+      while ((m = re.exec(code)) !== null) {
+        const spec = m[1];
+        if (!spec || spec.startsWith('.') || spec.startsWith('/') || spec.includes(':')) continue;
+        out.add(spec);
+      }
+    }
+    return Array.from(out);
+  }
+
+  function normalizeVersionRange(range) {
+    if (!range || typeof range !== 'string') return 'latest';
+    const v = range.trim();
+    if (!v || v === '*' || /^(?:latest|next|beta|canary)$/.test(v)) return 'latest';
+    if (/^(?:file|link|workspace|portal|git|https?):/.test(v)) return 'latest';
+    return v.replace(/\s+/g, '').replace(/^[v=\s]+/, '') || 'latest';
+  }
+
+  function resolveBareVersion(vfs, rootDir, pkgName) {
+    try {
+      const modPkg = PosixPath.join(rootDir, 'node_modules', pkgName, 'package.json');
+      if (vfs.existsSync(modPkg)) {
+        const parsed = JSON.parse(vfs.readFileSync(modPkg, 'utf8'));
+        if (parsed && parsed.version) return parsed.version;
+      }
+    } catch (_) {}
+    try {
+      for (const dir of [rootDir, '/workspace']) {
+        const pkgPath = PosixPath.join(dir, 'package.json');
+        if (!vfs.existsSync(pkgPath)) continue;
+        const parsed = JSON.parse(vfs.readFileSync(pkgPath, 'utf8'));
+        const deps = Object.assign({}, parsed.dependencies || {}, parsed.devDependencies || {}, parsed.peerDependencies || {});
+        if (deps[pkgName]) return normalizeVersionRange(deps[pkgName]);
+      }
+    } catch (_) {}
+    return 'latest';
+  }
+
+  function cdnEsmUrl(pkgName, version, subpath) {
+    const base = `${CDN_ESM_BASE}/${pkgName}@${version}`;
+    const sub = subpath ? '/' + String(subpath).replace(/^\/+|\/+$/g, '') : '';
+    return `${base}${sub}/+esm`;
+  }
+
+  function buildPreviewImportMap(vfs, rootDir, specifiers) {
+    const imports = {};
+    for (const spec of specifiers) {
+      const parts = String(spec).split('/');
+      const pkgName = spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+      if (!pkgName) continue;
+      const subpath = spec.slice(pkgName.length).replace(/^\/+/, '');
+      const version = resolveBareVersion(vfs, rootDir, pkgName);
+      imports[spec] = cdnEsmUrl(pkgName, version, subpath || undefined);
+    }
+    return imports;
+  }
+
+  function collectPreviewScripts(vfs, rootDir, maxFiles = 200) {
+    const scripts = [];
+    const walk = (dir, depth) => {
+      if (depth > 8 || scripts.length >= maxFiles) return;
+      let entries = [];
+      try { entries = vfs.readdirSync(dir); } catch (_) { return; }
+      for (const name of entries) {
+        if (name === 'node_modules' || name.startsWith('.')) continue;
+        const full = PosixPath.join(dir, name);
+        let st;
+        try { st = vfs.statSync(full); } catch (_) { continue; }
+        const dirFlag = st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory);
+        if (dirFlag) {
+          walk(full, depth + 1);
+        } else if (isPreviewScriptPath(name) && scripts.length < maxFiles) {
+          try { scripts.push(vfs.readFileSync(full, 'utf8')); } catch (_) {}
+        }
+      }
+    };
+    walk(rootDir, 0);
+    return scripts;
+  }
+
+  function injectPreviewExtras(html, importMap) {
+    let out = html;
+    const importMapTag = `<script type="importmap">\n${JSON.stringify({ imports: importMap }, null, 2)}\n</script>`;
+    if (/<head[^>]*>/i.test(out)) {
+      out = out.replace(/<head[^>]*>/i, (m) => `${m}\n    ${importMapTag}`);
+    } else {
+      out = importMapTag + '\n' + out;
+    }
+    const shim = '<script>window.__CODELAB_PREVIEW__ = true;</script>';
+    if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, `${shim}\n</body>`);
+    else out = out + '\n' + shim;
+    return out;
+  }
+
+  function registerPreviewServer(ctx, rootDir, preferredPort) {
+    const portTable = ctx.shell && ctx.shell.portTable;
+    if (!portTable || typeof portTable.registerServer !== 'function') return null;
+
+    let port = Number(preferredPort) || 3000;
+    const taken = new Set((typeof portTable.listServers === 'function' ? portTable.listServers() : []).map((s) => Number(s.port)));
+    while (taken.has(port)) port++;
+
+    const specifiers = new Set();
+    for (const content of collectPreviewScripts(ctx.vfs, rootDir)) {
+      for (const s of extractBareSpecifiers(content)) specifiers.add(s);
+    }
+    const importMap = buildPreviewImportMap(ctx.vfs, rootDir, specifiers);
+
+    const exists = (p) => { try { return ctx.vfs.existsSync(p); } catch (_) { return false; } };
+    const isDir = (p) => {
+      try {
+        const st = ctx.vfs.statSync(p);
+        return Boolean(st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory));
+      } catch (_) { return false; }
+    };
+    const readText = (p) => { try { return ctx.vfs.readFileSync(p, 'utf8'); } catch (_) { return null; } };
+
+    const handler = async (request) => {
+      let pathname = '/';
+      try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (_) {}
+      const rel = pathname.replace(/^\/+/, '');
+      let target = PosixPath.join(rootDir, rel);
+      const hasExt = /\.[A-Za-z0-9]+$/.test(rel);
+
+      if (!rel || pathname.endsWith('/') || isDir(target)) {
+        target = PosixPath.join(target, 'index.html');
+      }
+      if (!exists(target) && !hasExt) {
+        // Resolve extensionless module specifiers (e.g. `./components/Counter`)
+        // the way a bundler / dev server would.
+        const cands = [
+          target + '.tsx', target + '.ts', target + '.jsx', target + '.js',
+          target + '.mjs', target + '.cjs',
+          PosixPath.join(target, 'index.tsx'), PosixPath.join(target, 'index.ts'),
+          PosixPath.join(target, 'index.jsx'), PosixPath.join(target, 'index.js')
+        ];
+        for (const c of cands) { if (exists(c)) { target = c; break; } }
+      }
+      if (!exists(target) && !hasExt) {
+        target = PosixPath.join(rootDir, 'index.html'); // SPA fallback
+      }
+      if (!exists(target)) {
+        return new Response(
+          `<!doctype html><meta charset="utf-8"><title>404</title><h1>404 Not Found</h1><p>${pathname}</p>`,
+          { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } }
+        );
+      }
+
+      let body = readText(target);
+      if (body === null) body = '';
+      if (/\.html?$/i.test(target)) {
+        body = injectPreviewExtras(body, importMap);
+      } else if (isPreviewScriptPath(target)) {
+        try {
+          const rm = getRuntimeModule();
+          if (rm && typeof rm.transpileForBrowser === 'function') {
+            body = rm.transpileForBrowser(body, target);
+          }
+        } catch (_) {}
+      }
+
+      return new Response(body, { status: 200, headers: { 'content-type': previewMimeFor(target) } });
+    };
+
+    const pid = (ctx.shell && typeof ctx.shell.nextPid === 'number') ? ctx.shell.nextPid++ : (ctx.pid || 1000);
+    return portTable.registerServer(port, {
+      server: { close() { try { portTable.unregisterServer(port); } catch (_) {} } },
+      fetch: handler,
+      name: 'code-lab-serve',
+      pid,
+      root: rootDir
+    });
+  }
+
+  // Common dev-server commands that cannot run inside the virtual runtime are
+  // transparently redirected to the built-in preview server.
+  const PREVIEW_TOOL_RE = /\b(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|serve|http-server)\b/;
+
+  function tryDevScriptFallback(scriptName, cmd, ctx) {
+    if (!PREVIEW_TOOL_RE.test(cmd)) return null;
+    // Only fall back when the referenced tool is not actually installed.
+    const bin = (cmd.match(PREVIEW_TOOL_RE) || [])[1];
+    const binPath = PosixPath.join('/workspace/node_modules/.bin', bin);
+    if (ctx.vfs.existsSync(binPath)) return null;
+    const portMatch = cmd.match(/--port(?:=|\s+)(\d+)/);
+    const defaultPorts = { ng: 4200, vite: 5173, astro: 4321, next: 3000 };
+    const port = portMatch ? Number(portMatch[1]) : (defaultPorts[bin] || 3000);
+    const entry = registerPreviewServer(ctx, ctx.cwd, port);
+    if (!entry) return null;
+    return {
+      code: 0,
+      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${bin} is not available in this virtual runtime — using the CodeLab preview server instead.\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
+      stderr: ''
+    };
   }
 
   function evaluatePosixTest(args, ctx) {
@@ -12640,7 +13344,8 @@ if (typeof module !== 'undefined' && module.exports) {
       stdout += '  date, sleep, clear     Date, delay, terminal screen control\n';
       stdout += '  history, ps, jobs, kill Process and job management\n';
       stdout += '  git [status diff log]  Built-in version control\n';
-      stdout += '  node, bun, npm, npx, bunx CLI runtime and package shims\n';
+      stdout += '  node, bun, npm, pnpm, npx, bunx CLI runtime and package shims\n';
+      stdout += '  serve [dir] [--port]   Built-in preview server (transpiles TS/JSX for the browser)\n';
       stdout += '  ports, curl            Port table inspection & HTTP requests\n';
       return { code: 0, stdout, stderr: '' };
     },
@@ -12825,26 +13530,25 @@ if (typeof module !== 'undefined' && module.exports) {
 
       if (sub === 'install' || sub === 'i' || sub === 'ci') {
         const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        const dev = args.some(a => a === '-D' || a === '--dev' || a === '--save-dev' || a === '-d');
         if (pkgs.length === 0) {
           const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
-          const deps = Object.keys(pkgData.dependencies || {});
-          const results = [];
-          for (const p of deps) results.push(await installPackage(p, ctx));
-          const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-          return { code: 0, stdout: deps.length === 0 ? 'up to date\n' : `installed ${deps.length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+          const deps = Object.keys(Object.assign({}, pkgData.dependencies || {}, pkgData.devDependencies || {}));
+          if (deps.length === 0) return { code: 0, stdout: 'up to date\n', stderr: '' };
+          return await runInstallTranscript(deps, ctx, { manager: 'bun', header: 'bun install v1.1.20 (1.1.20)' });
         }
-        const results = [];
-        for (const p of pkgs) results.push(await installPackage(p, ctx));
-        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-        return { code: 0, stdout: `saved ${results.filter(r => r && r.name).length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+        return await runInstallTranscript(pkgs, ctx, { manager: 'bun', dev, header: 'bun add v1.1.20 (1.1.20)' });
       }
 
       if (sub === 'add') {
-        const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
-        const results = [];
-        for (const p of pkgs) results.push(await installPackage(p, ctx));
-        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-        return { code: 0, stdout: `saved ${results.filter(r => r && r.name).length} package(s)\n`, stderr: warning ? `bun warn ${warning}\n` : '' };
+        let pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        const dev = args.some(a => a === '-D' || a === '--dev' || a === '--save-dev' || a === '-d');
+        if (pkgs.length === 0) {
+          const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+          pkgs = Object.keys(pkgData.dependencies || {});
+        }
+        if (pkgs.length === 0) return { code: 0, stdout: 'up to date\n', stderr: '' };
+        return await runInstallTranscript(pkgs, ctx, { manager: 'bun', dev, header: 'bun add v1.1.20 (1.1.20)' });
       }
 
       if (sub === 'remove' || sub === 'rm') {
@@ -13004,22 +13708,14 @@ if (typeof module !== 'undefined' && module.exports) {
       }
 
       if (sub === 'i' || sub === 'install' || sub === 'add') {
-        const pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        let pkgs = args.slice(1).filter(a => !a.startsWith('-'));
+        const dev = args.some(a => a === '-D' || a === '--save-dev' || a === '--dev');
         if (pkgs.length === 0) {
           const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
-          const results = [];
-          for (const p of Object.keys(pkgData.dependencies || {})) {
-            results.push(await installPackage(p, ctx));
-          }
-          const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-          return { code: 0, stdout: 'up to date\n', stderr: warning ? `npm warn ${warning}\n` : '' };
+          pkgs = Object.keys(Object.assign({}, pkgData.dependencies || {}, pkgData.devDependencies || {}));
+          if (pkgs.length === 0) return { code: 0, stdout: 'up to date\n', stderr: '' };
         }
-        const results = [];
-        for (const p of pkgs) {
-          results.push(await installPackage(p, ctx));
-        }
-        const warning = results.map(r => r && r.warning).filter(Boolean)[0];
-        return { code: 0, stdout: `added ${results.filter(r => r && r.name).length} package(s) in 0.1s\n`, stderr: warning ? `npm warn ${warning}\n` : '' };
+        return await runInstallTranscript(pkgs, ctx, { manager: 'npm', dev, header: 'npm install v10.2.0' });
       }
 
       if (sub === 'uninstall' || sub === 'remove' || sub === 'rm') {
@@ -13069,6 +13765,123 @@ if (typeof module !== 'undefined' && module.exports) {
 
     async bunx(args, ctx) {
       return await this.npx(args, ctx);
+    },
+
+    async pnpm(args, ctx) {
+      if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+        return {
+          code: 0,
+          stdout: 'pnpm v9.0.0\nUsage: pnpm <command>\n\nCommands:\n  install, i      Install all dependencies\n  add <pkg>       Add a dependency (-D for dev)\n  remove, rm      Remove a dependency\n  list, ls        List dependencies\n  run <script>    Run a package script\n  exec <cmd>      Run a command from node_modules/.bin\n  dlx <pkg>       Fetch and run a package\n  --version, -v   Print the version\n',
+          stderr: ''
+        };
+      }
+      const sub = args[0];
+      if (sub === '--version' || sub === '-v') {
+        return { code: 0, stdout: '9.0.0\n', stderr: '' };
+      }
+      const dev = args.some((a) => a === '-D' || a === '--save-dev' || a === '--dev' || a === '-d');
+
+      if (sub === 'init') {
+        const pkgPath = PosixPath.join(ctx.cwd, 'package.json');
+        if (!ctx.vfs.existsSync(pkgPath)) {
+          ctx.vfs.writeFileSync(pkgPath, JSON.stringify({
+            name: PosixPath.basename(ctx.cwd) || 'app',
+            version: '1.0.0',
+            main: 'index.js',
+            scripts: { test: 'echo "Error: no test specified" && exit 1' }
+          }, null, 2) + '\n');
+          if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', pkgPath);
+        }
+        return { code: 0, stdout: 'Wrote to ' + pkgPath + '\n', stderr: '' };
+      }
+
+      if (sub === 'install' || sub === 'i' || sub === 'add') {
+        let pkgs = args.slice(1).filter((a) => !a.startsWith('-'));
+        if (pkgs.length === 0) {
+          const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+          pkgs = Object.keys(Object.assign({}, pkgData.dependencies || {}, pkgData.devDependencies || {}));
+          if (pkgs.length === 0) return { code: 0, stdout: 'Already up to date\n', stderr: '' };
+        }
+        const verb = (sub === 'add') ? 'add' : 'install';
+        return await runInstallTranscript(pkgs, ctx, { manager: 'pnpm', dev, header: `pnpm ${verb} v9.0.0` });
+      }
+
+      if (sub === 'remove' || sub === 'rm' || sub === 'uninstall') {
+        const pkgs = args.slice(1).filter((a) => !a.startsWith('-'));
+        for (const p of pkgs) uninstallPackage(p, ctx);
+        return { code: 0, stdout: `removed ${pkgs.length} package(s)\n`, stderr: '' };
+      }
+
+      if (sub === 'list' || sub === 'ls') {
+        return { code: 0, stdout: listDependencies(ctx), stderr: '' };
+      }
+
+      if (sub === 'run' || sub === 'run-script') {
+        const scriptName = args[1];
+        if (!scriptName) return { code: 1, stdout: '', stderr: 'pnpm: missing script name\n' };
+        return await runPackageScript(scriptName, args.slice(2), ctx);
+      }
+
+      if (sub === 'test') {
+        return await runPackageScript('test', args.slice(1), ctx);
+      }
+
+      if (sub === 'exec') {
+        const cmd = args[1];
+        if (!cmd) return { code: 1, stdout: '', stderr: 'pnpm: exec requires a command\n' };
+        const binPath = PosixPath.join('/workspace/node_modules/.bin', cmd);
+        if (ctx.vfs.existsSync(binPath)) return await ctx.commands.node([binPath, ...args.slice(2)], ctx);
+        return await ctx.shell.execute([cmd, ...args.slice(2)].join(' '));
+      }
+
+      if (sub === 'dlx') {
+        return await this.npx(args.slice(1), ctx);
+      }
+
+      const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
+      if (pkgData.scripts && pkgData.scripts[sub]) {
+        return await runPackageScript(sub, args.slice(1), ctx);
+      }
+
+      return { code: 1, stdout: '', stderr: `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Unknown command: "${sub}"\n` };
+    },
+
+    async serve(args, ctx) {
+      if (args[0] === '--help' || args[0] === '-h') {
+        return {
+          code: 0,
+          stdout: 'Usage: serve [dir] [--port <n>]\n\n  Starts the built-in CodeLab preview server on the virtual port table.\n  HTML/CSS/JS are served statically, .ts/.tsx/.jsx are transpiled to\n  browser-native ESM on the fly, and bare imports resolve to jsDelivr ESM.\n\n  Open the Web Preview drawer (or http://127.0.0.1:<port>/) to view it.\n',
+          stderr: ''
+        };
+      }
+      const rootArg = (() => {
+        const positionals = [];
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === '--port' || a === '-p') { i++; continue; }
+          if (a.startsWith('-')) continue;
+          positionals.push(a);
+        }
+        return positionals[0];
+      })();
+      let port = 3000;
+      for (let i = 0; i < args.length; i++) {
+        if ((args[i] === '--port' || args[i] === '-p') && args[i + 1]) { port = Number(args[i + 1]) || port; i++; }
+        else if (args[i].startsWith('--port=')) port = Number(args[i].split('=')[1]) || port;
+      }
+      const rootDir = ctx.resolvePath(rootArg || '.');
+      if (!ctx.vfs.existsSync(rootDir)) {
+        return { code: 1, stdout: '', stderr: `serve: ${rootArg}: No such file or directory\n` };
+      }
+      const entry = registerPreviewServer(ctx, rootDir, port);
+      if (!entry) {
+        return { code: 1, stdout: '', stderr: 'serve: no virtual port table available\n' };
+      }
+      return {
+        code: 0,
+        stdout: `\n  ⚡ CodeLab preview server\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n  ➜  Root:    ${rootDir}\n  ➜  Preview: open the Web Preview drawer for port ${entry.port}\n\n`,
+        stderr: ''
+      };
     },
 
     // -----------------------------------------------------------------------
@@ -17021,6 +17834,9 @@ declare module 'bun:sqlite' {
                 <span>${(this.hasGuidedLab && this.mode === 'guided') ? 'Verify Step' : 'Run Tests'}</span>
                 <span class="codelab-btn__kbd">⌘↵</span>
               </button>
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-preview-app-btn" data-cl-action="preview-app" title="Run &amp; Preview in Browser (built-in dev server)" aria-label="Run and Preview in Browser">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </button>
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               ${this.hasGuidedLab ? `
               <button type="button" class="codelab-btn codelab-btn--icon ${isGuideCollapsed ? '' : 'active'}" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel" aria-pressed="${isGuideCollapsed ? 'false' : 'true'}">
@@ -19353,6 +20169,55 @@ declare module 'bun:sqlite' {
       return this._previewLoadPromise || Promise.resolve();
     }
 
+    // One-click "run the app in a browser": if nothing is listening yet, start the
+    // built-in preview server (which transpiles TS/JSX to browser-native ESM and
+    // resolves bare imports via jsDelivr) and then open the Web Preview.
+    async previewApp() {
+      const existing = this._firstListeningPort();
+      if (existing) {
+        this._openWebPreview(existing);
+        return existing;
+      }
+
+      const htmlCandidates = ['public/index.html', 'index.html', 'site/index.html', 'src/index.html'];
+      if (!htmlCandidates.some((f) => this.files && this.files[f])) {
+        this.drawerTab = 'terminal';
+        this.terminalLogs.push({
+          type: 'system',
+          text: '\nNo index.html found. Add an `index.html` (or run `serve <dir>` in the terminal) to preview your app.'
+        });
+        this._renderDrawerBody();
+        return null;
+      }
+
+      const rootDir = (this.files['public/index.html']) ? '/workspace/public'
+        : (this.files['site/index.html']) ? '/workspace/site'
+        : '/workspace';
+
+      if (!this.shell || typeof this.shell.execute !== 'function') return null;
+      this._syncFilesToShellVfs();
+      this.shell.cwd = this.cwd || '/workspace';
+      this.drawerTab = 'terminal';
+      this.terminalLogs.push({ type: 'system', text: `\n$ serve ${rootDir}` });
+      this._renderDrawerBody();
+
+      try {
+        const res = await this.shell.execute(`serve ${rootDir}`, {});
+        if (res && res.stdout) this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+        if (res && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+      } catch (err) {
+        this.terminalLogs.push({ type: 'stderr', text: String((err && err.message) || err) });
+      }
+      this._renderDrawerBody();
+
+      const port = this._firstListeningPort();
+      if (port) {
+        this._openWebPreview(port);
+        return port;
+      }
+      return null;
+    }
+
     _previewGo(urlOrPath) {
       let url = String(urlOrPath || '').trim();
       if (!url) return Promise.resolve();
@@ -19523,7 +20388,15 @@ declare module 'bun:sqlite' {
           <div class="codelab-preview-viewport codelab-preview-viewport--${this.previewState.frameMode}" id="cl-preview-viewport">
             <iframe class="codelab-preview-iframe" id="cl-preview-iframe" sandbox="allow-scripts allow-forms allow-same-origin allow-modals" title="Web Preview"></iframe>
           </div>
-          <div class="codelab-preview-hint">${servers.length ? 'Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.' : 'No listening ports detected. Run a server (e.g. <code>node server.js &amp;</code>) to bind a virtual port.'}</div>
+          ${servers.length
+            ? `<div class="codelab-preview-hint">Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.</div>`
+            : `<div class="codelab-preview-empty">
+                 <div class="codelab-preview-empty__icon">${CL_ICONS.globe || '🌐'}</div>
+                 <div class="codelab-preview-empty__title">No server running</div>
+                 <div class="codelab-preview-empty__text">Start the built-in preview server to render your <code>index.html</code>. TypeScript, TSX and JSX are transpiled for the browser automatically &mdash; no bundler required.</div>
+                 <button type="button" class="codelab-btn codelab-btn--primary codelab-btn--sm" data-cl-action="preview-app">${CL_ICONS.play || '▶'} <span>Run &amp; Preview</span></button>
+                 <div class="codelab-preview-empty__hint">or run <code>serve</code> in the terminal</div>
+               </div>`}
         </div>
       `;
       this._loadPreviewFrame();
@@ -20526,6 +21399,8 @@ declare module 'bun:sqlite' {
           } else if (action === 'open-web-preview') {
             const port = Number(actionBtn.dataset.port || actionBtn.dataset.clPort);
             if (port) this._openWebPreview(port);
+          } else if (action === 'preview-app') {
+            this.previewApp();
           } else if (action === 'dismiss-toast') {
             this._dismissPortToast(actionBtn.dataset.port);
           } else if (action === 'preview-back') {
@@ -22472,6 +23347,7 @@ declare module 'bun:sqlite' {
       cloneRepo(repoInput, opts) { return this._instance ? this._instance.cloneRepo(repoInput, opts) : Promise.reject(new Error('Workbench not mounted')); }
       runDemo() { return this._instance ? this._instance.runDemo() : Promise.resolve(); }
       runTests(filter) { return this._instance ? this._instance.runTests(filter) : Promise.resolve(); }
+      previewApp() { return this._instance ? this._instance.previewApp() : Promise.resolve(null); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
       reset() { if (this._instance) this._instance.reset(); }
       exportWorkspace(opts) { return this._instance ? this._instance.exportWorkspace(opts) : null; }
