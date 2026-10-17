@@ -1129,6 +1129,14 @@ async function runTier2() {
     assert.equal(ctrlCBtn.classList.contains('is-running'), true, 'Ctrl+C must be highlighted while running');
   });
 
+  await registerTest('tier2', 'T2.F1.7', 'Boundary: flag-style shell commands (node --version) route to the shell, not the JS evaluator', async () => {
+    const { workbench } = createTestLab();
+    await workbench._handleReplCommand('node --version');
+    const stream = workbench.terminalLogs.map(l => `${l.type}:${l.text}`).join('\n');
+    assert.match(stream, /v22\.0\.0/, 'node --version must resolve through the POSIX shell and print the Node version');
+    assert.doesNotMatch(stream, /SyntaxError|is not a function|ReferenceError/, 'flag-style commands must not be hijacked by the JS/TS expression evaluator');
+  });
+
   // ── F2 Boundaries ────────────────────────────────────────────────────────────
   await registerTest('tier2', 'T2.F2.1', 'Boundary: Empty steps array (steps: []) initializes cleanly without exception', () => {
     const { workbench } = createTestLab({ steps: [] });

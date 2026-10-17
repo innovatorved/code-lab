@@ -591,7 +591,8 @@ export interface CodeLabRuntimeAPI {
   executeInVirtualRuntime(options?: CodeLabExecutionOptions): Promise<CodeLabExecutionResult>;
   executeInWorker(options?: CodeLabExecutionOptions): Promise<CodeLabExecutionResult>;
   cancelWorkerExecution(reason?: string, instanceId?: string): boolean;
-  preloadNpmPackages(files?: Record<string, string>, existingCache?: Map<string, string>): Promise<Record<string, string>>;
+  preloadNpmPackages(files?: Record<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
+  preloadNpmPackages(files: Record<string, string> | undefined, existingCache: Map<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   transpileTS(source: string, filename?: string): string;
   createVirtualFs(initialFiles?: Record<string, string>): any;
   createVirtualHttp(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;

@@ -6085,14 +6085,14 @@ declare module 'bun:sqlite' {
                 </div>
                 ${pkgs.length === 0 ? `
                   <div style="padding:12px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-bg);color:var(--cl-fg-muted);font-size:12.5px;">
-                    No external npm packages imported yet. Any <code>import ... from 'pkg'</code> or <code>require('pkg')</code> in your code is automatically resolved via <strong>esm.sh</strong> when you run or test.
+                    No external npm packages imported yet. Any <code>import ... from 'pkg'</code> or <code>require('pkg')</code> in your code is automatically resolved via <strong>jsDelivr</strong> when you run or test.
                   </div>
                 ` : `
                   <div style="display:flex;flex-direction:column;gap:6px;">
                     ${pkgs.map(p => `
                       <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-bg);font-family:var(--cl-font-mono);font-size:12px;">
                         <span style="color:var(--cl-fg);font-weight:600;">${escapeHtml(p.name)}</span>
-                        <span style="color:var(--cl-accent);">${escapeHtml(p.version)} · esm.sh</span>
+                        <span style="color:var(--cl-accent);">${escapeHtml(p.version)} · jsDelivr</span>
                       </div>
                     `).join('')}
                   </div>
@@ -6226,9 +6226,14 @@ declare module 'bun:sqlite' {
           if (detectedList.length > 0) {
             this._setRuntimeStatus('fetching', `Fetching ${detectedList.map(d => typeof d === 'string' ? d : d.name).join(', ')}...`);
           }
-          await root.CodeLabRuntime.preloadNpmPackages(payload.files, pkgName => {
-            this._setRuntimeStatus('fetching', `Fetching ${pkgName} from esm.sh...`);
+          const preloaded = await root.CodeLabRuntime.preloadNpmPackages(payload.files, pkgName => {
+            this._setRuntimeStatus('fetching', `Fetching ${pkgName} from jsDelivr CDN...`);
           });
+          // Hand the fetched module sources to the runtime so the Web Worker
+          // (which has an isolated module cache) can resolve them from node_modules.
+          if (preloaded && typeof preloaded === 'object' && Object.keys(preloaded).length > 0) {
+            payload.packages = Object.assign({}, preloaded, payload.packages || {});
+          }
         }
         this._setRuntimeStatus('running', `Running ${payload.entry || payload.mode || 'script'}...`);
         let res;
@@ -6565,8 +6570,17 @@ declare module 'bun:sqlite' {
         return;
       }
 
-      const looksLikeJsExpr = /^(const|let|var|function|class|await|return|typeof|instanceof|new\s+|Math\.|JSON\.|Object\.|Array\.|Promise\.|console\.|process\.|Buffer\.|require\s*\(|import\s*\(|[0-9]+\s*[\+\-\*\/\%]|['"`\[{])/.test(trimmed)
-        || /^[a-zA-Z_$][\w$]*\s*(\.|===|!==|==|!=|<=|>=|\+=|-=|\*=|\(|\+\+|--)/.test(trimmed);
+      const firstWord = (trimmed.split(/\s+/)[0] || '').replace(/^.*\//, '');
+      const shellKnowsCommand = Boolean(
+        firstWord &&
+        this.shell &&
+        typeof this.shell.hasCommand === 'function' &&
+        this.shell.hasCommand(firstWord)
+      );
+      const looksLikeJsExpr = !shellKnowsCommand && (
+        /^(const|let|var|function|class|await|return|typeof|instanceof|new\s+|Math\.|JSON\.|Object\.|Array\.|Promise\.|console\.|process\.|Buffer\.|require\s*\(|import\s*\(|[0-9]+\s*[\+\-\*\/\%]|['"`\[{])/.test(trimmed)
+        || /^[a-zA-Z_$][\w$]*\s*(\.|===|!==|==|!=|<=|>=|\+=|-=|\*=|\(|\+\+|--)/.test(trimmed)
+      );
 
       if (this.shell && typeof this.shell.execute === 'function' && !looksLikeJsExpr) {
         const abortCtrl = new AbortController();
