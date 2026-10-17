@@ -99,6 +99,7 @@ ${workbenchCode}
       cancelWorkerExecution: CodeLabRuntime.cancelWorkerExecution,
       preloadNpmPackages: CodeLabRuntime.preloadNpmPackages,
       transpileTS: CodeLabRuntime.transpileTS,
+      transpileForBrowser: CodeLabRuntime.transpileForBrowser,
       createVirtualFs: CodeLabRuntime.createVirtualFs,
       createVirtualHttp: CodeLabRuntime.createVirtualHttp,
       createVirtualNet: CodeLabRuntime.createVirtualNet,
@@ -143,6 +144,7 @@ const executeInWorker = CodeLabRuntime.executeInWorker;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
 const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const transpileTS = CodeLabRuntime.transpileTS;
+const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
 const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
@@ -157,7 +159,11 @@ const PTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : 
 const mount = CodeLab ? CodeLab.mount : null;
 const create = CodeLab ? CodeLab.create : null;
 const unmount = CodeLab ? CodeLab.unmount : null;
-const version = CodeLab ? CodeLab.version : '1.4.0';
+const version = CodeLab ? CodeLab.version : '2.0.0';
+const renderMarkdown = CodeLab ? CodeLab.renderMarkdown : null;
+const renderSimpleMarkdown = CodeLab ? CodeLab.renderSimpleMarkdown : null;
+const cloneRepo = CodeLab ? CodeLab.cloneRepo : null;
+const extensions = CodeLab ? CodeLab.extensions : null;
 
 export {
   CodeLab,
@@ -174,6 +180,10 @@ export {
   create,
   unmount,
   version,
+  renderMarkdown,
+  renderSimpleMarkdown,
+  cloneRepo,
+  extensions,
   createPosixShell,
   cloneGitHubRepository,
   parseGitHubRepoUrl,
@@ -185,6 +195,7 @@ export {
   cancelWorkerExecution,
   preloadNpmPackages,
   transpileTS,
+  transpileForBrowser,
   createVirtualFs,
   createVirtualHttp,
   createVirtualNet,
@@ -211,27 +222,59 @@ ${runtimeCode}
 })();
 
 const CodeLabRuntime = _root.CodeLabRuntime;
-const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
-const executeInWorker = CodeLabRuntime.executeInWorker;
-const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
-const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
-const transpileTS = CodeLabRuntime.transpileTS;
+const VirtualBuffer = CodeLabRuntime.VirtualBuffer;
+const VirtualCrypto = CodeLabRuntime.VirtualCrypto;
+const VirtualZlib = CodeLabRuntime.VirtualZlib;
+const VirtualPath = CodeLabRuntime.VirtualPath;
+const VirtualOs = CodeLabRuntime.VirtualOs;
+const VirtualAssert = CodeLabRuntime.VirtualAssert;
+const EventEmitter = CodeLabRuntime.EventEmitter;
+const VirtualUtil = CodeLabRuntime.VirtualUtil;
+const VirtualUrl = CodeLabRuntime.VirtualUrl;
+const VirtualQuerystring = CodeLabRuntime.VirtualQuerystring;
+const VirtualStream = CodeLabRuntime.VirtualStream;
+const VirtualStreamPromises = CodeLabRuntime.VirtualStreamPromises;
+const VirtualStringDecoder = CodeLabRuntime.VirtualStringDecoder;
+const VirtualDns = CodeLabRuntime.VirtualDns;
 const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
+const transpileTS = CodeLabRuntime.transpileTS;
+const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
+const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
+const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
+const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
+const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
+const executeInWorker = CodeLabRuntime.executeInWorker;
 
 export {
   CodeLabRuntime,
-  executeInVirtualRuntime,
-  executeInWorker,
-  cancelWorkerExecution,
-  preloadNpmPackages,
-  transpileTS,
+  VirtualBuffer,
+  VirtualCrypto,
+  VirtualZlib,
+  VirtualPath,
+  VirtualOs,
+  VirtualAssert,
+  EventEmitter,
+  VirtualUtil,
+  VirtualUrl,
+  VirtualQuerystring,
+  VirtualStream,
+  VirtualStreamPromises,
+  VirtualStringDecoder,
+  VirtualDns,
   createVirtualFs,
   createVirtualHttp,
   createVirtualNet,
-  createVirtualPortTable
+  transpileTS,
+  transpileForBrowser,
+  preloadNpmPackages,
+  createVirtualPortTable,
+  executeInVirtualRuntime,
+  createWorkerRuntimeSource,
+  cancelWorkerExecution,
+  executeInWorker
 };
 export default CodeLabRuntime;
 `;
@@ -304,6 +347,9 @@ const createTerminal = CodeLabTerminal.createTerminal;
 const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine;
 const ansiToHtml = CodeLabTerminal.ansiToHtml;
 const parseAnsiToHtml = CodeLabTerminal.parseAnsiToHtml;
+const escapeHtml = CodeLabTerminal.escapeHtml;
+const ANSI_CODE_MAP = CodeLabTerminal.ANSI_CODE_MAP;
+const resolveAnsiControlCodes = CodeLabTerminal.resolveAnsiControlCodes;
 
 export {
   CodeLabTerminal,
@@ -311,13 +357,16 @@ export {
   createTerminal,
   createPTYTerminalEngine,
   ansiToHtml,
-  parseAnsiToHtml
+  parseAnsiToHtml,
+  escapeHtml,
+  ANSI_CODE_MAP,
+  resolveAnsiControlCodes
 };
 export default CodeLabTerminal;
 `;
 
 const DTS_CONTENT = `/**
- * TypeScript Definitions for @innovatorved/code-lab v1.4.0
+ * TypeScript Definitions for @innovatorved/code-lab v2.0.0
  */
 
 export interface CodeLabStep {
@@ -594,6 +643,7 @@ export interface CodeLabRuntimeAPI {
   preloadNpmPackages(files?: Record<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   preloadNpmPackages(files: Record<string, string> | undefined, existingCache: Map<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   transpileTS(source: string, filename?: string): string;
+  transpileForBrowser(source: string, filename?: string): string;
   createVirtualFs(initialFiles?: Record<string, string>): any;
   createVirtualHttp(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;
   createVirtualNet(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;
@@ -606,6 +656,7 @@ export declare const executeInWorker: CodeLabRuntimeAPI['executeInWorker'];
 export declare const cancelWorkerExecution: CodeLabRuntimeAPI['cancelWorkerExecution'];
 export declare const preloadNpmPackages: CodeLabRuntimeAPI['preloadNpmPackages'];
 export declare const transpileTS: CodeLabRuntimeAPI['transpileTS'];
+export declare const transpileForBrowser: CodeLabRuntimeAPI['transpileForBrowser'];
 export declare const createVirtualFs: CodeLabRuntimeAPI['createVirtualFs'];
 export declare const createVirtualHttp: CodeLabRuntimeAPI['createVirtualHttp'];
 export declare const createVirtualNet: CodeLabRuntimeAPI['createVirtualNet'];
@@ -717,6 +768,15 @@ try {
   console.log('✓ Built dist/extensions/guided-lab.js & guided-lab.esm.js');
 } catch (e) {
   console.error('Failed to bundle guided-lab extension:', e.message);
+}
+
+// 3b. Bundle Zod schemas (the `./schemas` subpath export)
+try {
+  execSync('npx esbuild src/schemas.ts --bundle --format=cjs --outfile=dist/schemas.js', { stdio: 'inherit', cwd: PKG_DIR });
+  execSync('npx esbuild src/schemas.ts --bundle --format=esm --outfile=dist/schemas.esm.js', { stdio: 'inherit', cwd: PKG_DIR });
+  console.log('✓ Built dist/schemas.js & schemas.esm.js');
+} catch (e) {
+  console.error('Failed to bundle schemas:', e.message);
 }
 
 // 4. Emit TypeScript Declarations (.d.ts)

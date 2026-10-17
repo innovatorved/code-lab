@@ -1,5 +1,5 @@
 /**
- * TypeScript Definitions for @innovatorved/code-lab v1.4.0
+ * TypeScript Definitions for @innovatorved/code-lab v2.0.0
  */
 
 export interface CodeLabStep {
@@ -276,6 +276,7 @@ export interface CodeLabRuntimeAPI {
   preloadNpmPackages(files?: Record<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   preloadNpmPackages(files: Record<string, string> | undefined, existingCache: Map<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   transpileTS(source: string, filename?: string): string;
+  transpileForBrowser(source: string, filename?: string): string;
   createVirtualFs(initialFiles?: Record<string, string>): any;
   createVirtualHttp(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;
   createVirtualNet(resourceTracker?: any, sharedTrace?: any[], activePortTable?: any): any;
@@ -288,6 +289,7 @@ export declare const executeInWorker: CodeLabRuntimeAPI['executeInWorker'];
 export declare const cancelWorkerExecution: CodeLabRuntimeAPI['cancelWorkerExecution'];
 export declare const preloadNpmPackages: CodeLabRuntimeAPI['preloadNpmPackages'];
 export declare const transpileTS: CodeLabRuntimeAPI['transpileTS'];
+export declare const transpileForBrowser: CodeLabRuntimeAPI['transpileForBrowser'];
 export declare const createVirtualFs: CodeLabRuntimeAPI['createVirtualFs'];
 export declare const createVirtualHttp: CodeLabRuntimeAPI['createVirtualHttp'];
 export declare const createVirtualNet: CodeLabRuntimeAPI['createVirtualNet'];

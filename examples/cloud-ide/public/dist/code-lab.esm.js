@@ -829,8 +829,77 @@ function __initVirtualRuntime(rootScope) {
         crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
       }
       return (crc ^ 0xffffffff) >>> 0;
+    },
+    // The full Node zlib constant surface. Packages such as axios read these at
+    // module-load time (e.g. `zlib.constants.Z_SYNC_FLUSH`) even when they never
+    // actually compress, so a missing table breaks the whole module graph.
+    constants: {
+      Z_NO_FLUSH: 0, Z_PARTIAL_FLUSH: 1, Z_SYNC_FLUSH: 2, Z_FULL_FLUSH: 3, Z_FINISH: 4,
+      Z_BLOCK: 5, Z_TREES: 6, Z_OK: 0, Z_STREAM_END: 1, Z_NEED_DICT: 2, Z_ERRNO: -1,
+      Z_STREAM_ERROR: -2, Z_DATA_ERROR: -3, Z_MEM_ERROR: -4, Z_BUF_ERROR: -5,
+      Z_VERSION_ERROR: -6, Z_NO_COMPRESSION: 0, Z_BEST_SPEED: 1, Z_BEST_COMPRESSION: 9,
+      Z_DEFAULT_COMPRESSION: -1, Z_FILTERED: 1, Z_HUFFMAN_ONLY: 2, Z_RLE: 3, Z_FIXED: 4,
+      Z_DEFAULT_STRATEGY: 0, ZLIB_VERNUM: 0x1310, DEFLATE: 1, INFLATE: 2, GZIP: 3,
+      GUNZIP: 4, DEFLATERAW: 5, INFLATERAW: 6, UNZIP: 7, BROTLI_DECODE: 8,
+      BROTLI_ENCODE: 9, Z_MIN_WINDOWBITS: 8, Z_MAX_WINDOWBITS: 15,
+      Z_DEFAULT_WINDOWBITS: 15, Z_MIN_CHUNK: 64, Z_MAX_CHUNK: Infinity,
+      Z_DEFAULT_CHUNK: 16384, Z_MIN_MEMLEVEL: 1, Z_MAX_MEMLEVEL: 9,
+      Z_DEFAULT_MEMLEVEL: 8, Z_MIN_LEVEL: -1, Z_MAX_LEVEL: 9, Z_DEFAULT_LEVEL: -1
     }
   };
+
+  // Compression: delegate to the host's real zlib when the runtime is embedded in
+  // Node (same process). In a pure browser worker there is no synchronous zlib, so
+  // the async APIs use CompressionStream/DecompressionStream and the *Sync variants
+  // throw a descriptive error instead of silently corrupting data.
+  (() => {
+    let hostZlib = null;
+    try { hostZlib = (typeof require === 'function') ? require('zlib') : null; } catch (_) { hostZlib = null; }
+    const names = [
+      'gzip', 'gunzip', 'deflate', 'inflate', 'deflateRaw', 'inflateRaw', 'unzip',
+      'gzipSync', 'gunzipSync', 'deflateSync', 'inflateSync', 'deflateRawSync', 'inflateRawSync', 'unzipSync',
+      'createGzip', 'createGunzip', 'createDeflate', 'createInflate', 'createDeflateRaw', 'createInflateRaw'
+    ];
+    if (hostZlib) {
+      for (const n of names) {
+        if (typeof hostZlib[n] === 'function') VirtualZlib[n] = hostZlib[n].bind(hostZlib);
+      }
+      return;
+    }
+    const asyncVariant = (format, kind) => (data, optsOrCb, maybeCb) => {
+      const cb = typeof optsOrCb === 'function' ? optsOrCb : (typeof maybeCb === 'function' ? maybeCb : null);
+      const p = (async () => {
+        if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined' || typeof Response === 'undefined') {
+          throw new Error('zlib.' + kind + ' is not supported in this environment');
+        }
+        const decompress = /^(gunzip|unzip|inflate)/.test(kind);
+        const stream = decompress ? new DecompressionStream(format) : new CompressionStream(format);
+        const writer = stream.writable.getWriter();
+        const input = data instanceof Uint8Array ? data : VirtualBuffer.from(data);
+        writer.write(input);
+        writer.close();
+        const ab = await new Response(stream.readable).arrayBuffer();
+        return VirtualBuffer.from(ab);
+      })();
+      if (cb) { p.then((out) => cb(null, out), (err) => cb(err)); return undefined; }
+      return p;
+    };
+    VirtualZlib.gzip = asyncVariant('gzip', 'gzip');
+    VirtualZlib.gunzip = asyncVariant('gzip', 'gunzip');
+    VirtualZlib.unzip = asyncVariant('gzip', 'unzip');
+    VirtualZlib.deflate = asyncVariant('deflate', 'deflate');
+    VirtualZlib.inflate = asyncVariant('deflate', 'inflate');
+    VirtualZlib.deflateRaw = asyncVariant('deflate-raw', 'deflateRaw');
+    VirtualZlib.inflateRaw = asyncVariant('deflate-raw', 'inflateRaw');
+    const unsupported = (kind) => () => { throw new Error('zlib.' + kind + ' is not supported in a browser worker (use the async API)'); };
+    VirtualZlib.gzipSync = unsupported('gzipSync');
+    VirtualZlib.gunzipSync = unsupported('gunzipSync');
+    VirtualZlib.deflateSync = unsupported('deflateSync');
+    VirtualZlib.inflateSync = unsupported('inflateSync');
+    VirtualZlib.deflateRawSync = unsupported('deflateRawSync');
+    VirtualZlib.inflateRawSync = unsupported('inflateRawSync');
+    VirtualZlib.unzipSync = unsupported('unzipSync');
+  })();
 
   // =========================================================================
   // 4. PATH & OS SHIMS
@@ -4870,7 +4939,13 @@ function __initVirtualRuntime(rootScope) {
         return cleaned ? `const { ${cleaned} } = require(${mod.trim()});` : '';
       });
       code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = (function(m){ return m && m.__esModule ? m.default : m; })(require($2));');
-      code = code.replace(/\bimport\s+(\x00__LIT_\d+__\x00)\s*;?/gm, 'require($1);');
+      // Dynamic `import("pkg")` — resolve through the CJS loader instead of the
+      // host's dynamic import, which cannot see the virtual filesystem.
+      code = code.replace(/\bimport\s*\(\s*(\x00__LIT_\d+__\x00)\s*\)/g, 'Promise.resolve().then(() => require($1))');
+      // Side-effect import `import"pkg"` / `import "pkg"`. By this point the
+      // specifier is literal-masked, and minified modules emit no whitespace
+      // between `import` and the string, so `\s*` (not `\s+`) is required.
+      code = code.replace(/\bimport\s*(\x00__LIT_\d+__\x00)\s*;?/gm, 'require($1);');
 
       // Convert ES module exports
       const exportedNames = [];
@@ -5003,8 +5078,12 @@ function __initVirtualRuntime(rootScope) {
     const builtinSet = new Set([
       'fs', 'fs/promises', 'path', 'os', 'crypto', 'zlib', 'http', 'https', 'net',
       'dns', 'dns/promises', 'string_decoder', 'child_process', 'process',
-      'assert', 'assert/strict', 'events', 'util', 'url', 'querystring',
-      'stream', 'stream/promises', 'test', 'perf_hooks', 'timers', 'timers/promises', 'buffer',
+      'assert', 'assert/strict', 'events', 'util', 'util/types', 'url', 'querystring',
+      'stream', 'stream/promises', 'stream/web', 'stream/consumers', 'test', 'perf_hooks',
+      'timers', 'timers/promises', 'buffer', 'tty', 'tls', 'dgram', 'readline', 'readline/promises',
+      'async_hooks', 'worker_threads', 'v8', 'vm', 'module', 'constants', 'domain',
+      'diagnostics_channel', 'http2', 'cluster', 'repl', 'inspector', 'trace_events',
+      'wasi', 'console',
       'bun', 'bun:test', 'bun:sqlite'
     ]);
 
@@ -6914,6 +6993,285 @@ function __initVirtualRuntime(rootScope) {
     })();
 
     // Built-in Node module table
+    // ── Additional Node builtin shims ────────────────────────────────────────
+    // Widely-used packages require these at load time (e.g. `debug` requires
+    // `tty`). Without an entry `require('tty')` throws MODULE_NOT_FOUND and the
+    // whole app fails to start. Implementations are deliberately minimal but
+    // shape-compatible; anything that genuinely cannot work in the sandbox
+    // throws an explicit, descriptive error rather than silently misbehaving.
+    const VirtualTty = {
+      isatty() { return false; },
+      ReadStream: class TtyReadStream extends EventEmitter {},
+      WriteStream: class TtyWriteStream extends EventEmitter {
+        constructor(fd) { super(); this.fd = fd; this.columns = 80; this.rows = 24; this.isTTY = false; }
+        getColorDepth() { return 1; }
+        hasColors() { return false; }
+        cursorTo() { return true; }
+        clearLine() { return true; }
+        moveCursor() { return true; }
+      }
+    };
+
+    function makeReadlineInterface() {
+      const iface = new EventEmitter();
+      iface.terminal = false;
+      iface.line = '';
+      iface.cursor = 0;
+      iface.question = (query, cb) => { if (typeof cb === 'function') queueMicrotask(() => cb('')); };
+      iface.prompt = () => {};
+      iface.setPrompt = () => {};
+      iface.getPrompt = () => '';
+      iface.write = () => {};
+      iface.pause = () => iface;
+      iface.resume = () => iface;
+      iface.close = () => { queueMicrotask(() => iface.emit('close')); return iface; };
+      iface[Symbol.asyncIterator] = async function* () {};
+      return iface;
+    }
+    const VirtualReadline = {
+      createInterface: makeReadlineInterface,
+      Interface: class ReadlineInterface extends EventEmitter {},
+      clearLine: () => true,
+      clearScreenDown: () => true,
+      cursorTo: () => true,
+      moveCursor: () => true,
+      emitKeypressEvents: () => {}
+    };
+    const VirtualReadlinePromises = {
+      createInterface: () => {
+        const iface = makeReadlineInterface();
+        iface.question = () => Promise.resolve('');
+        return iface;
+      },
+      Interface: class ReadlinePromisesInterface extends EventEmitter {}
+    };
+
+    const VirtualAsyncHooks = {
+      AsyncLocalStorage: class AsyncLocalStorage {
+        constructor() { this._store = undefined; }
+        getStore() { return this._store; }
+        run(store, fn, ...args) {
+          const prev = this._store;
+          this._store = store;
+          try { return fn(...args); } finally { this._store = prev; }
+        }
+        exit(fn, ...args) {
+          const prev = this._store;
+          this._store = undefined;
+          try { return fn(...args); } finally { this._store = prev; }
+        }
+        enterWith(store) { this._store = store; }
+        disable() { this._store = undefined; }
+      },
+      AsyncResource: class AsyncResource {
+        constructor(type) { this.type = type || 'AsyncResource'; }
+        runInAsyncScope(fn, thisArg, ...args) { return fn.apply(thisArg, args); }
+        emitDestroy() { return this; }
+        asyncId() { return 0; }
+        triggerAsyncId() { return 0; }
+        static bind(fn) { return fn; }
+      },
+      createHook() { return { enable() {}, disable() {} }; },
+      executionAsyncId() { return 0; },
+      triggerAsyncId() { return 0; },
+      executionAsyncResource() { return null; }
+    };
+
+    const VirtualWorkerThreads = {
+      isMainThread: true,
+      threadId: 0,
+      parentPort: null,
+      workerData: null,
+      resourceLimits: {},
+      SHARE_ENV: Symbol('nodejs.worker_threads.SHARE_ENV'),
+      receiveMessageOnPort() { return undefined; },
+      Worker: class Worker extends EventEmitter {
+        constructor(filename) {
+          super();
+          this.threadId = -1;
+          this.filename = filename;
+          queueMicrotask(() => this.emit('error', new Error('worker_threads.Worker is not supported in the virtual runtime.')));
+        }
+        postMessage() {}
+        terminate() { return Promise.resolve(0); }
+        ref() { return this; }
+        unref() { return this; }
+      },
+      MessageChannel: class MessageChannel {},
+      MessagePort: class MessagePort extends EventEmitter {}
+    };
+
+    const VirtualV8 = {
+      serialize(value) { return VirtualBuffer.from(JSON.stringify(value === undefined ? null : value), 'utf8'); },
+      deserialize(buf) { try { return JSON.parse(String(buf)); } catch (_) { return undefined; } },
+      getHeapStatistics() {
+        return {
+          total_heap_size: 0, total_heap_size_executable: 0, total_physical_size: 0,
+          total_available_size: 0, used_heap_size: 0, heap_size_limit: 0,
+          malloced_memory: 0, peak_malloced_memory: 0, does_zap_garbage: 0,
+          number_of_native_contexts: 1, number_of_detached_contexts: 0
+        };
+      },
+      getHeapSpaceStatistics() { return []; },
+      setFlagsFromString() {},
+      cachedDataVersionTag() { return 0; },
+      Serializer: class Serializer {
+        constructor() { this._value = undefined; }
+        writeHeader() {}
+        writeValue(value) { this._value = value; }
+        releaseBuffer() { return VirtualBuffer.from(JSON.stringify(this._value === undefined ? null : this._value), 'utf8'); }
+      },
+      Deserializer: class Deserializer {
+        constructor(buffer) { this._buffer = buffer; }
+        readHeader() { return true; }
+        readValue() { try { return JSON.parse(String(this._buffer)); } catch (_) { return undefined; } }
+      }
+    };
+
+    const VirtualVm = {
+      createContext(sandbox) { return sandbox && typeof sandbox === 'object' ? sandbox : {}; },
+      isContext() { return false; },
+      createScript() { throw new Error('vm code compilation is not supported in the virtual runtime.'); },
+      runInContext() { throw new Error('vm.runInContext is not supported in the virtual runtime.'); },
+      runInNewContext() { throw new Error('vm.runInNewContext is not supported in the virtual runtime.'); },
+      runInThisContext() { throw new Error('vm.runInThisContext is not supported in the virtual runtime.'); },
+      compileFunction() { throw new Error('vm.compileFunction is not supported in the virtual runtime.'); },
+      Script: class Script {
+        runInThisContext() { throw new Error('vm.Script is not supported in the virtual runtime.'); }
+        runInContext() { throw new Error('vm.Script is not supported in the virtual runtime.'); }
+        runInNewContext() { throw new Error('vm.Script is not supported in the virtual runtime.'); }
+      }
+    };
+
+    const VirtualDomain = {
+      create() {
+        const d = new EventEmitter();
+        d.members = [];
+        d.add = () => d;
+        d.remove = () => d;
+        d.bind = (fn) => fn;
+        d.intercept = (fn) => fn;
+        d.run = (fn, ...args) => fn(...args);
+        d.dispose = () => d;
+        return d;
+      },
+      createDomain() { return VirtualDomain.create(); }
+    };
+
+    const VirtualDiagnosticsChannel = {
+      _channels: new Map(),
+      channel(name) {
+        const key = String(name);
+        if (!VirtualDiagnosticsChannel._channels.has(key)) {
+          const ch = new EventEmitter();
+          ch.name = key;
+          ch.hasSubscribers = false;
+          ch.subscribe = () => { ch.hasSubscribers = true; };
+          ch.unsubscribe = () => { ch.hasSubscribers = false; };
+          VirtualDiagnosticsChannel._channels.set(key, ch);
+        }
+        return VirtualDiagnosticsChannel._channels.get(key);
+      },
+      subscribe(name, cb) {
+        const ch = VirtualDiagnosticsChannel.channel(name);
+        ch.subscribe();
+        if (typeof cb === 'function') ch.on('message', cb);
+      },
+      unsubscribe(name) { VirtualDiagnosticsChannel.channel(name).unsubscribe(); },
+      Channel: class Channel extends EventEmitter {}
+    };
+
+    const notSupported = (what) => () => { throw new Error(what + ' is not supported in the virtual runtime.'); };
+    const VirtualTls = {
+      DEFAULT_MIN_VERSION: 'TLSv1.2',
+      DEFAULT_MAX_VERSION: 'TLSv1.3',
+      rootCertificates: [],
+      createSecureContext() { return { context: {} }; },
+      SecureContext: class SecureContext {},
+      TLSSocket: class TLSSocket extends EventEmitter {},
+      Server: class TLSServer extends EventEmitter {},
+      checkServerIdentity() { return undefined; },
+      connect: notSupported('tls.connect'),
+      createServer: notSupported('tls.createServer')
+    };
+    const VirtualDgram = {
+      createSocket(type) {
+        const sock = new EventEmitter();
+        sock.type = type || 'udp4';
+        sock.bind = (...args) => { const cb = args[args.length - 1]; if (typeof cb === 'function') queueMicrotask(cb); return sock; };
+        sock.close = (cb) => { queueMicrotask(() => { sock.emit('close'); if (typeof cb === 'function') cb(); }); return sock; };
+        sock.send = notSupported('dgram.send');
+        sock.address = () => ({ address: '0.0.0.0', family: 'IPv4', port: 0 });
+        sock.setBroadcast = () => sock;
+        sock.setTTL = () => sock;
+        sock.addMembership = () => {};
+        sock.dropMembership = () => {};
+        return sock;
+      },
+      Socket: class Socket extends EventEmitter {}
+    };
+    const VirtualHttp2 = {
+      constants: { NGHTTP2_REFUSED_STREAM: 7, NGHTTP2_CANCEL: 8 },
+      connect: notSupported('http2.connect'),
+      createServer: notSupported('http2.createServer'),
+      createSecureServer: notSupported('http2.createSecureServer')
+    };
+    const VirtualCluster = {
+      isPrimary: true,
+      isMaster: true,
+      isWorker: false,
+      workers: {},
+      fork: notSupported('cluster.fork'),
+      setupPrimary: notSupported('cluster.setupPrimary'),
+      setupMaster: notSupported('cluster.setupMaster'),
+      disconnect: () => {}
+    };
+    const VirtualRepl = { start: notSupported('repl.start') };
+    const VirtualInspector = {
+      open: () => null,
+      close: () => {},
+      url: () => '',
+      Session: class Session { connect() {} disconnect() {} post() {} }
+    };
+    const VirtualTraceEvents = {
+      createTracing: () => ({ enable() {}, disable() {} }),
+      getEnabledCategories: () => ''
+    };
+    const VirtualWasi = {
+      WASI: class WASI { constructor() { throw new Error('wasi is not supported in the virtual runtime.'); } }
+    };
+
+    const VirtualStreamWeb = {
+      ReadableStream: typeof ReadableStream !== 'undefined' ? ReadableStream : undefined,
+      WritableStream: typeof WritableStream !== 'undefined' ? WritableStream : undefined,
+      TransformStream: typeof TransformStream !== 'undefined' ? TransformStream : undefined
+    };
+    async function consumeStream(kind, stream) {
+      const chunks = [];
+      if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of stream) chunks.push(chunk);
+      } else if (stream && typeof stream.on === 'function') {
+        await new Promise((resolve, reject) => {
+          stream.on('data', (c) => chunks.push(c));
+          stream.on('end', resolve);
+          stream.on('error', reject);
+        });
+      }
+      const bufs = chunks.map((c) => (typeof c === 'string' ? VirtualBuffer.from(c) : VirtualBuffer.from(c)));
+      const buf = VirtualBuffer.concat(bufs);
+      if (kind === 'buffer') return buf;
+      if (kind === 'arrayBuffer') return buf.buffer ? buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) : new ArrayBuffer(0);
+      if (kind === 'text') return buf.toString('utf8');
+      if (kind === 'json') return JSON.parse(buf.toString('utf8'));
+      return buf;
+    }
+    const VirtualStreamConsumers = {
+      text: (s) => consumeStream('text', s),
+      json: (s) => consumeStream('json', s),
+      buffer: (s) => consumeStream('buffer', s),
+      arrayBuffer: (s) => consumeStream('arrayBuffer', s)
+    };
+
     const builtinModules = {
       fs: vfs,
       'node:fs': vfs,
@@ -6974,8 +7332,58 @@ function __initVirtualRuntime(rootScope) {
       bun: BunObj,
       'node:bun': BunObj,
       'bun:test': bunTestModule,
-      'bun:sqlite': { Database: SqliteDatabase }
+      'bun:sqlite': { Database: SqliteDatabase },
+      tty: VirtualTty,
+      tls: VirtualTls,
+      dgram: VirtualDgram,
+      readline: VirtualReadline,
+      'readline/promises': VirtualReadlinePromises,
+      async_hooks: VirtualAsyncHooks,
+      worker_threads: VirtualWorkerThreads,
+      v8: VirtualV8,
+      vm: VirtualVm,
+      domain: VirtualDomain,
+      diagnostics_channel: VirtualDiagnosticsChannel,
+      http2: VirtualHttp2,
+      cluster: VirtualCluster,
+      repl: VirtualRepl,
+      inspector: VirtualInspector,
+      trace_events: VirtualTraceEvents,
+      wasi: VirtualWasi,
+      constants: vfs.constants,
+      'util/types': VirtualUtil.types,
+      'stream/web': VirtualStreamWeb,
+      'stream/consumers': VirtualStreamConsumers
     };
+
+    // Auto-alias every builtin under the `node:` prefix (node:tty, node:readline…)
+    // so both spellings resolve identically without hand-maintaining two lists.
+    for (const __builtinName of Object.keys(builtinModules)) {
+      if (!__builtinName.startsWith('node:') && !__builtinName.startsWith('bun:')) {
+        builtinModules['node:' + __builtinName] = builtinModules[__builtinName];
+      }
+    }
+
+    // `module` must reference the now-complete builtin table, so it is attached
+    // after the object literal above.
+    const VirtualModule = {
+      builtinModules: Object.keys(builtinModules),
+      Module: class Module {},
+      isBuiltin(name) { return Object.prototype.hasOwnProperty.call(builtinModules, String(name)); },
+      createRequire(from) {
+        const base = typeof from === 'string' ? from : '/workspace';
+        const dir = /\.(?:js|mjs|cjs|ts|json)$/.test(base) ? VirtualPath.dirname(base) : base;
+        const req = (id) => {
+          if (Object.prototype.hasOwnProperty.call(builtinModules, id)) return builtinModules[id];
+          return loadModule(resolveModulePath(id, dir), false);
+        };
+        req.resolve = (id) => resolveModulePath(id, dir);
+        req.cache = {};
+        return req;
+      }
+    };
+    builtinModules.module = VirtualModule;
+    builtinModules['node:module'] = VirtualModule;
 
     const moduleCache = new Map();
     let mainModule = null;
@@ -10219,6 +10627,15 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function pickConditionalEntry(value) {
     if (typeof value === 'string') return value;
+    // `exports` subpaths may be an array of fallbacks, e.g.
+    // `"./shams": [{ "types": "...", "default": "./shams.js" }, "./shams.js"]`.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const picked = pickConditionalEntry(item);
+        if (picked) return picked;
+      }
+      return null;
+    }
     if (!value || typeof value !== 'object') return null;
     // This runtime executes CommonJS, so it prefers CJS-friendly conditions.
     for (const key of ['require', 'node', 'default', 'browser', 'import', 'module']) {
@@ -10275,17 +10692,50 @@ if (typeof module !== 'undefined' && module.exports) {
     return parts.join('/');
   }
 
+  // Small promise-based delay. Used only for CDN retry backoff; falls back to an
+  // immediate resolve if `setTimeout` is unavailable in the host.
+  function cdnBackoff(ms) {
+    return new Promise((resolve) => {
+      if (typeof setTimeout === 'function') setTimeout(resolve, ms);
+      else resolve();
+    });
+  }
+
   async function fetchTextFromCdn(fetchImpl, url) {
-    try {
-      const res = await fetchImpl(url);
-      if (!res) return null;
-      const ok = (res.ok === true) || res.status === 200 || res.status === undefined;
-      if (!ok) return null;
-      if (typeof res.text === 'function') return await res.text();
-      return String(res.body != null ? res.body : '');
-    } catch (_) {
-      return null;
+    // A single flaky jsDelivr response used to silently produce an *incomplete*
+    // install (the module graph then failed at require-time). Retry transient
+    // failures (network error, 429/408, 5xx) but treat 4xx as final.
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetchImpl(url);
+        if (!res) {
+          if (attempt < maxAttempts) { await cdnBackoff(attempt * 150); continue; }
+          return null;
+        }
+        const ok = (res.ok === true) || res.status === 200 || res.status === undefined;
+        if (!ok) {
+          const transient = res.status >= 500 || res.status === 429 || res.status === 408;
+          if (transient && attempt < maxAttempts) { await cdnBackoff(attempt * 150); continue; }
+          return null;
+        }
+        // jsDelivr answers a *directory* path (e.g. `/pkg@1/libcjs/`) with HTTP 200
+        // and an HTML directory listing. Storing that as a module both corrupts the
+        // package and later collides with the real directory (EISDIR).
+        const contentType = (res.headers && typeof res.headers.get === 'function')
+          ? (res.headers.get('content-type') || '')
+          : '';
+        const isHtmlUrl = /\.html?(?:[?#]|$)/i.test(url);
+        if (/text\/html/i.test(contentType) && !isHtmlUrl) return null;
+        const text = typeof res.text === 'function' ? await res.text() : String(res.body != null ? res.body : '');
+        if (!isHtmlUrl && /^\s*(?:<!doctype\s+html|<html[\s>]|<head[\s>])/i.test(text)) return null;
+        return text;
+      } catch (_) {
+        if (attempt < maxAttempts) { await cdnBackoff(attempt * 150); continue; }
+        return null;
+      }
     }
+    return null;
   }
 
   async function resolvePackageMetadata(fetchImpl, name, range) {
@@ -10328,14 +10778,25 @@ if (typeof module !== 'undefined' && module.exports) {
     const visited = new Set();
     // Seed with the package entry plus any declared `exports` subpaths, so a
     // later `require('pkg/subpath')` (e.g. `entities/decode`) resolves offline.
-    const seed = [entry, `${entry}.js`, `${entry}.json`, `${entry}.mjs`, `${entry}.cjs`];
+    // A `main` may point at a *directory* (e.g. chalk: `"main": "source"`); Node
+    // resolves that to `<dir>/index.<ext>`, so those candidates must be seeded
+    // too or the package installs with only its manifest.
+    const seed = [
+      entry,
+      `${entry}.js`, `${entry}.json`, `${entry}.mjs`, `${entry}.cjs`,
+      `${entry}/index.js`, `${entry}/index.json`, `${entry}/index.mjs`, `${entry}/index.cjs`
+    ];
     const expMap = meta.exports;
     if (expMap && typeof expMap === 'object') {
-      let subCount = 0;
+      // Seed *every* declared subpath. A low cap silently dropped the tail of
+      // packages that list each file in `exports` (lit-html has 29 keys, so
+      // `lit-html/is-server.js` was never fetched and `require` failed later).
+      // Wildcard keys (`./*`) need no seeding — their files are reached through
+      // the relative-require closure or fetched on demand.
       for (const key of Object.keys(expMap)) {
-        if (key === '.' || key.slice(0, 2) !== './' || subCount >= 25) continue;
+        if (key === '.' || key.slice(0, 2) !== './' || key.includes('*')) continue;
         const target = pickConditionalEntry(expMap[key]);
-        if (target) { seed.push(target); subCount++; }
+        if (target) seed.push(target);
       }
     }
     let frontier = seed;
@@ -10343,7 +10804,9 @@ if (typeof module !== 'undefined' && module.exports) {
       const batch = [];
       for (const raw of frontier) {
         const rel = stripRelPath(raw);
-        if (!rel || visited.has(rel)) continue;
+        // Directory targets (e.g. `exports["./lib/"] === "./libcjs/"`) must never
+        // be fetched as files — that is what produced the EISDIR crash.
+        if (!rel || rel.endsWith('/') || visited.has(rel)) continue;
         visited.add(rel);
         batch.push(rel);
       }
@@ -10379,15 +10842,29 @@ if (typeof module !== 'undefined' && module.exports) {
     }
 
     // Declared dependencies plus non-optional peer dependencies (npm v7+ style),
-    // so e.g. `npm install react-dom` also pulls in `react`.
-    const depNames = Object.keys(meta.dependencies || {});
+    // so e.g. `npm install react-dom` also pulls in `react`. The *ranges* are
+    // preserved (not just the names) so transitives resolve to the version the
+    // parent actually asked for — e.g. chalk@4 needs ansi-styles@^4, which itself
+    // needs color-convert. Resolving transitive names as "latest" silently breaks
+    // the tree (ansi-styles@6 has no deps at all).
+    const depSpecs = [];
+    const depSeen = new Set();
+    const declared = meta.dependencies || {};
+    for (const depName of Object.keys(declared)) {
+      if (depSeen.has(depName)) continue;
+      depSeen.add(depName);
+      depSpecs.push({ name: depName, range: declared[depName] || null });
+    }
     const peerMeta = meta.peerDependenciesMeta || {};
-    for (const peer of Object.keys(meta.peerDependencies || {})) {
+    const peers = meta.peerDependencies || {};
+    for (const peer of Object.keys(peers)) {
       if (peerMeta[peer] && peerMeta[peer].optional) continue;
-      if (depNames.indexOf(peer) === -1) depNames.push(peer);
+      if (depSeen.has(peer)) continue;
+      depSeen.add(peer);
+      depSpecs.push({ name: peer, range: peers[peer] || null });
     }
 
-    return { ok: true, version, entry, files, deps: depNames, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
+    return { ok: true, version, entry, files, deps: depSpecs, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
   }
 
   function installTargetDirs(ctx, name) {
@@ -10401,7 +10878,13 @@ if (typeof module !== 'undefined' && module.exports) {
     for (const dir of dirs) {
       ensureDirSync(ctx.vfs, dir, ctx.emitMutation);
       for (const f of info.files) {
+        if (!f || !f.rel || f.rel.endsWith('/')) continue;
         const full = PosixPath.join(dir, f.rel);
+        // Never overwrite a directory with a file body (defensive: a stray
+        // directory target would otherwise raise EISDIR).
+        try {
+          if (ctx.vfs.existsSync(full) && ctx.vfs.statSync(full).isDirectory()) continue;
+        } catch (_) {}
         ensureDirSync(ctx.vfs, PosixPath.dirname(full), ctx.emitMutation);
         ctx.vfs.writeFileSync(full, f.content);
         if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', full);
@@ -10467,10 +10950,11 @@ if (typeof module !== 'undefined' && module.exports) {
       if (item.direct) directVersion = info.version || null;
 
       for (const dep of (info.deps || [])) {
-        const parsed = parsePackageSpec(dep);
-        if (parsed.name && !requested.has(parsed.name)) {
-          requested.add(parsed.name);
-          queue.push({ name: parsed.name, range: null, direct: false });
+        const depName = (dep && typeof dep === 'object') ? dep.name : parsePackageSpec(dep).name;
+        const depRange = (dep && typeof dep === 'object') ? dep.range : parsePackageSpec(dep).range;
+        if (depName && !requested.has(depName)) {
+          requested.add(depName);
+          queue.push({ name: depName, range: depRange || null, direct: false });
         }
       }
     }
@@ -10827,21 +11311,29 @@ if (typeof module !== 'undefined' && module.exports) {
   // Common dev-server commands that cannot run inside the virtual runtime are
   // transparently redirected to the built-in preview server.
   const PREVIEW_TOOL_RE = /\b(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|serve|http-server)\b/;
+  // The same tools, when typed directly at the prompt (`ng serve`, `vite`).
+  // `serve` is omitted: it is a first-class builtin shell command.
+  const DIRECT_DEV_TOOL_RE = /^(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|http-server)$/;
 
-  function tryDevScriptFallback(scriptName, cmd, ctx) {
+  function tryDevScriptFallback(scriptName, cmd, ctx, opts) {
     if (!PREVIEW_TOOL_RE.test(cmd)) return null;
     // Only fall back when the referenced tool is not actually installed.
     const bin = (cmd.match(PREVIEW_TOOL_RE) || [])[1];
+    const force = Boolean(opts && opts.force);
     const binPath = PosixPath.join('/workspace/node_modules/.bin', bin);
-    if (ctx.vfs.existsSync(binPath)) return null;
+    if (!force && ctx.vfs.existsSync(binPath)) return null;
     const portMatch = cmd.match(/--port(?:=|\s+)(\d+)/);
     const defaultPorts = { ng: 4200, vite: 5173, astro: 4321, next: 3000 };
     const port = portMatch ? Number(portMatch[1]) : (defaultPorts[bin] || 3000);
-    const entry = registerPreviewServer(ctx, ctx.cwd, port);
+    const rootDir = typeof ctx.resolvePath === 'function' ? ctx.resolvePath('.') : (ctx.cwd || '/workspace');
+    const entry = registerPreviewServer(ctx, rootDir, port);
     if (!entry) return null;
+    const note = force
+      ? `${bin} is a native dev server and cannot execute inside this virtual runtime — using the CodeLab preview server instead.`
+      : `${bin} is not available in this virtual runtime — using the CodeLab preview server instead.`;
     return {
       code: 0,
-      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${bin} is not available in this virtual runtime — using the CodeLab preview server instead.\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
+      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${note}\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
       stderr: ''
     };
   }
@@ -14940,6 +15432,13 @@ if (typeof module !== 'undefined' && module.exports) {
           Object.assign(context.env, this.env);
           context.cwd = this.cwd;
         }
+      } else if (DIRECT_DEV_TOOL_RE.test(cmdName)) {
+        // A native dev server (vite/ng/astro/…) typed directly. It cannot run in
+        // this runtime — whether or not it was installed — so route it to the
+        // built-in preview server rather than reporting a misleading "command
+        // not found".
+        const fb = tryDevScriptFallback(cmdName, [cmdName, ...args].join(' '), cmdCtx, { force: true });
+        res = fb || { code: 127, stdout: '', stderr: `shell: ${cmdName}: command not found\n` };
       } else if (typeof this.options.onProcessSpawn === 'function') {
         const spawned = await this.options.onProcessSpawn(cmdName, args, {
           cwd: this.cwd,
@@ -23434,6 +23933,7 @@ const executeInWorker = CodeLabRuntime.executeInWorker;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
 const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const transpileTS = CodeLabRuntime.transpileTS;
+const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
 const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
@@ -23448,7 +23948,11 @@ const PTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : 
 const mount = CodeLab ? CodeLab.mount : null;
 const create = CodeLab ? CodeLab.create : null;
 const unmount = CodeLab ? CodeLab.unmount : null;
-const version = CodeLab ? CodeLab.version : '1.4.0';
+const version = CodeLab ? CodeLab.version : '2.0.0';
+const renderMarkdown = CodeLab ? CodeLab.renderMarkdown : null;
+const renderSimpleMarkdown = CodeLab ? CodeLab.renderSimpleMarkdown : null;
+const cloneRepo = CodeLab ? CodeLab.cloneRepo : null;
+const extensions = CodeLab ? CodeLab.extensions : null;
 
 export {
   CodeLab,
@@ -23465,6 +23969,10 @@ export {
   create,
   unmount,
   version,
+  renderMarkdown,
+  renderSimpleMarkdown,
+  cloneRepo,
+  extensions,
   createPosixShell,
   cloneGitHubRepository,
   parseGitHubRepoUrl,
@@ -23476,6 +23984,7 @@ export {
   cancelWorkerExecution,
   preloadNpmPackages,
   transpileTS,
+  transpileForBrowser,
   createVirtualFs,
   createVirtualHttp,
   createVirtualNet,

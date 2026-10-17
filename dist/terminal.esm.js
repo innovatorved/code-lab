@@ -1071,6 +1071,9 @@ const createTerminal = CodeLabTerminal.createTerminal;
 const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine;
 const ansiToHtml = CodeLabTerminal.ansiToHtml;
 const parseAnsiToHtml = CodeLabTerminal.parseAnsiToHtml;
+const escapeHtml = CodeLabTerminal.escapeHtml;
+const ANSI_CODE_MAP = CodeLabTerminal.ANSI_CODE_MAP;
+const resolveAnsiControlCodes = CodeLabTerminal.resolveAnsiControlCodes;
 
 export {
   CodeLabTerminal,
@@ -1078,6 +1081,9 @@ export {
   createTerminal,
   createPTYTerminalEngine,
   ansiToHtml,
-  parseAnsiToHtml
+  parseAnsiToHtml,
+  escapeHtml,
+  ANSI_CODE_MAP,
+  resolveAnsiControlCodes
 };
 export default CodeLabTerminal;

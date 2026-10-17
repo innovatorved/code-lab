@@ -322,6 +322,30 @@ async function runSuite() {
     assert.ok(!/<!doctype html>/i.test(js), 'must not return index.html for a module import');
   });
 
+  await check('B9 a native dev server typed directly (`ng serve`) falls back to the preview server', async () => {
+    const { portTable, shell } = makeShell();
+    const res = await shell.execute('ng serve --port 4200');
+    assert.equal(res.code, 0, res.stderr);
+    assert.ok(/preview server/i.test(res.stdout), 'explains the fallback');
+    assert.ok(res.stdout.includes('http://127.0.0.1:4200/'), 'uses the requested port');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 4200), 'registered on the port table');
+  });
+
+  await check('B10 `astro dev` typed directly falls back on the Astro default port', async () => {
+    const { portTable, shell } = makeShell();
+    const res = await shell.execute('astro dev');
+    assert.equal(res.code, 0, res.stderr);
+    assert.ok(res.stdout.includes('http://127.0.0.1:4321/'), 'uses the Astro default port');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 4321));
+  });
+
+  await check('B11 genuinely unknown commands still report "command not found"', async () => {
+    const { shell } = makeShell();
+    const res = await shell.execute('definitely-not-a-tool');
+    assert.notEqual(res.code, 0);
+    assert.match(res.stderr, /command not found/);
+  });
+
   console.log(`\n=== Framework Suite Summary: ${passed} passed, ${failed} failed ===`);
   if (failed > 0) {
     for (const f of failures) console.error(`  FAILED: ${f.name}`);
