@@ -2373,6 +2373,15 @@
 
   function pickConditionalEntry(value) {
     if (typeof value === 'string') return value;
+    // `exports` subpaths may be an array of fallbacks, e.g.
+    // `"./shams": [{ "types": "...", "default": "./shams.js" }, "./shams.js"]`.
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const picked = pickConditionalEntry(item);
+        if (picked) return picked;
+      }
+      return null;
+    }
     if (!value || typeof value !== 'object') return null;
     // This runtime executes CommonJS, so it prefers CJS-friendly conditions.
     for (const key of ['require', 'node', 'default', 'browser', 'import', 'module']) {
@@ -2429,17 +2438,50 @@
     return parts.join('/');
   }
 
+  // Small promise-based delay. Used only for CDN retry backoff; falls back to an
+  // immediate resolve if `setTimeout` is unavailable in the host.
+  function cdnBackoff(ms) {
+    return new Promise((resolve) => {
+      if (typeof setTimeout === 'function') setTimeout(resolve, ms);
+      else resolve();
+    });
+  }
+
   async function fetchTextFromCdn(fetchImpl, url) {
-    try {
-      const res = await fetchImpl(url);
-      if (!res) return null;
-      const ok = (res.ok === true) || res.status === 200 || res.status === undefined;
-      if (!ok) return null;
-      if (typeof res.text === 'function') return await res.text();
-      return String(res.body != null ? res.body : '');
-    } catch (_) {
-      return null;
+    // A single flaky jsDelivr response used to silently produce an *incomplete*
+    // install (the module graph then failed at require-time). Retry transient
+    // failures (network error, 429/408, 5xx) but treat 4xx as final.
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetchImpl(url);
+        if (!res) {
+          if (attempt < maxAttempts) { await cdnBackoff(attempt * 150); continue; }
+          return null;
+        }
+        const ok = (res.ok === true) || res.status === 200 || res.status === undefined;
+        if (!ok) {
+          const transient = res.status >= 500 || res.status === 429 || res.status === 408;
+          if (transient && attempt < maxAttempts) { await cdnBackoff(attempt * 150); continue; }
+          return null;
+        }
+        // jsDelivr answers a *directory* path (e.g. `/pkg@1/libcjs/`) with HTTP 200
+        // and an HTML directory listing. Storing that as a module both corrupts the
+        // package and later collides with the real directory (EISDIR).
+        const contentType = (res.headers && typeof res.headers.get === 'function')
+          ? (res.headers.get('content-type') || '')
+          : '';
+        const isHtmlUrl = /\.html?(?:[?#]|$)/i.test(url);
+        if (/text\/html/i.test(contentType) && !isHtmlUrl) return null;
+        const text = typeof res.text === 'function' ? await res.text() : String(res.body != null ? res.body : '');
+        if (!isHtmlUrl && /^\s*(?:<!doctype\s+html|<html[\s>]|<head[\s>])/i.test(text)) return null;
+        return text;
+      } catch (_) {
+        if (attempt < maxAttempts) { await cdnBackoff(attempt * 150); continue; }
+        return null;
+      }
     }
+    return null;
   }
 
   async function resolvePackageMetadata(fetchImpl, name, range) {
@@ -2482,14 +2524,25 @@
     const visited = new Set();
     // Seed with the package entry plus any declared `exports` subpaths, so a
     // later `require('pkg/subpath')` (e.g. `entities/decode`) resolves offline.
-    const seed = [entry, `${entry}.js`, `${entry}.json`, `${entry}.mjs`, `${entry}.cjs`];
+    // A `main` may point at a *directory* (e.g. chalk: `"main": "source"`); Node
+    // resolves that to `<dir>/index.<ext>`, so those candidates must be seeded
+    // too or the package installs with only its manifest.
+    const seed = [
+      entry,
+      `${entry}.js`, `${entry}.json`, `${entry}.mjs`, `${entry}.cjs`,
+      `${entry}/index.js`, `${entry}/index.json`, `${entry}/index.mjs`, `${entry}/index.cjs`
+    ];
     const expMap = meta.exports;
     if (expMap && typeof expMap === 'object') {
-      let subCount = 0;
+      // Seed *every* declared subpath. A low cap silently dropped the tail of
+      // packages that list each file in `exports` (lit-html has 29 keys, so
+      // `lit-html/is-server.js` was never fetched and `require` failed later).
+      // Wildcard keys (`./*`) need no seeding — their files are reached through
+      // the relative-require closure or fetched on demand.
       for (const key of Object.keys(expMap)) {
-        if (key === '.' || key.slice(0, 2) !== './' || subCount >= 25) continue;
+        if (key === '.' || key.slice(0, 2) !== './' || key.includes('*')) continue;
         const target = pickConditionalEntry(expMap[key]);
-        if (target) { seed.push(target); subCount++; }
+        if (target) seed.push(target);
       }
     }
     let frontier = seed;
@@ -2497,7 +2550,9 @@
       const batch = [];
       for (const raw of frontier) {
         const rel = stripRelPath(raw);
-        if (!rel || visited.has(rel)) continue;
+        // Directory targets (e.g. `exports["./lib/"] === "./libcjs/"`) must never
+        // be fetched as files — that is what produced the EISDIR crash.
+        if (!rel || rel.endsWith('/') || visited.has(rel)) continue;
         visited.add(rel);
         batch.push(rel);
       }
@@ -2533,15 +2588,29 @@
     }
 
     // Declared dependencies plus non-optional peer dependencies (npm v7+ style),
-    // so e.g. `npm install react-dom` also pulls in `react`.
-    const depNames = Object.keys(meta.dependencies || {});
+    // so e.g. `npm install react-dom` also pulls in `react`. The *ranges* are
+    // preserved (not just the names) so transitives resolve to the version the
+    // parent actually asked for — e.g. chalk@4 needs ansi-styles@^4, which itself
+    // needs color-convert. Resolving transitive names as "latest" silently breaks
+    // the tree (ansi-styles@6 has no deps at all).
+    const depSpecs = [];
+    const depSeen = new Set();
+    const declared = meta.dependencies || {};
+    for (const depName of Object.keys(declared)) {
+      if (depSeen.has(depName)) continue;
+      depSeen.add(depName);
+      depSpecs.push({ name: depName, range: declared[depName] || null });
+    }
     const peerMeta = meta.peerDependenciesMeta || {};
-    for (const peer of Object.keys(meta.peerDependencies || {})) {
+    const peers = meta.peerDependencies || {};
+    for (const peer of Object.keys(peers)) {
       if (peerMeta[peer] && peerMeta[peer].optional) continue;
-      if (depNames.indexOf(peer) === -1) depNames.push(peer);
+      if (depSeen.has(peer)) continue;
+      depSeen.add(peer);
+      depSpecs.push({ name: peer, range: peers[peer] || null });
     }
 
-    return { ok: true, version, entry, files, deps: depNames, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
+    return { ok: true, version, entry, files, deps: depSpecs, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
   }
 
   function installTargetDirs(ctx, name) {
@@ -2555,7 +2624,13 @@
     for (const dir of dirs) {
       ensureDirSync(ctx.vfs, dir, ctx.emitMutation);
       for (const f of info.files) {
+        if (!f || !f.rel || f.rel.endsWith('/')) continue;
         const full = PosixPath.join(dir, f.rel);
+        // Never overwrite a directory with a file body (defensive: a stray
+        // directory target would otherwise raise EISDIR).
+        try {
+          if (ctx.vfs.existsSync(full) && ctx.vfs.statSync(full).isDirectory()) continue;
+        } catch (_) {}
         ensureDirSync(ctx.vfs, PosixPath.dirname(full), ctx.emitMutation);
         ctx.vfs.writeFileSync(full, f.content);
         if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', full);
@@ -2621,10 +2696,11 @@
       if (item.direct) directVersion = info.version || null;
 
       for (const dep of (info.deps || [])) {
-        const parsed = parsePackageSpec(dep);
-        if (parsed.name && !requested.has(parsed.name)) {
-          requested.add(parsed.name);
-          queue.push({ name: parsed.name, range: null, direct: false });
+        const depName = (dep && typeof dep === 'object') ? dep.name : parsePackageSpec(dep).name;
+        const depRange = (dep && typeof dep === 'object') ? dep.range : parsePackageSpec(dep).range;
+        if (depName && !requested.has(depName)) {
+          requested.add(depName);
+          queue.push({ name: depName, range: depRange || null, direct: false });
         }
       }
     }
@@ -2981,21 +3057,29 @@
   // Common dev-server commands that cannot run inside the virtual runtime are
   // transparently redirected to the built-in preview server.
   const PREVIEW_TOOL_RE = /\b(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|serve|http-server)\b/;
+  // The same tools, when typed directly at the prompt (`ng serve`, `vite`).
+  // `serve` is omitted: it is a first-class builtin shell command.
+  const DIRECT_DEV_TOOL_RE = /^(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|http-server)$/;
 
-  function tryDevScriptFallback(scriptName, cmd, ctx) {
+  function tryDevScriptFallback(scriptName, cmd, ctx, opts) {
     if (!PREVIEW_TOOL_RE.test(cmd)) return null;
     // Only fall back when the referenced tool is not actually installed.
     const bin = (cmd.match(PREVIEW_TOOL_RE) || [])[1];
+    const force = Boolean(opts && opts.force);
     const binPath = PosixPath.join('/workspace/node_modules/.bin', bin);
-    if (ctx.vfs.existsSync(binPath)) return null;
+    if (!force && ctx.vfs.existsSync(binPath)) return null;
     const portMatch = cmd.match(/--port(?:=|\s+)(\d+)/);
     const defaultPorts = { ng: 4200, vite: 5173, astro: 4321, next: 3000 };
     const port = portMatch ? Number(portMatch[1]) : (defaultPorts[bin] || 3000);
-    const entry = registerPreviewServer(ctx, ctx.cwd, port);
+    const rootDir = typeof ctx.resolvePath === 'function' ? ctx.resolvePath('.') : (ctx.cwd || '/workspace');
+    const entry = registerPreviewServer(ctx, rootDir, port);
     if (!entry) return null;
+    const note = force
+      ? `${bin} is a native dev server and cannot execute inside this virtual runtime — using the CodeLab preview server instead.`
+      : `${bin} is not available in this virtual runtime — using the CodeLab preview server instead.`;
     return {
       code: 0,
-      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${bin} is not available in this virtual runtime — using the CodeLab preview server instead.\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
+      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${note}\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
       stderr: ''
     };
   }
@@ -7094,6 +7178,13 @@
           Object.assign(context.env, this.env);
           context.cwd = this.cwd;
         }
+      } else if (DIRECT_DEV_TOOL_RE.test(cmdName)) {
+        // A native dev server (vite/ng/astro/…) typed directly. It cannot run in
+        // this runtime — whether or not it was installed — so route it to the
+        // built-in preview server rather than reporting a misleading "command
+        // not found".
+        const fb = tryDevScriptFallback(cmdName, [cmdName, ...args].join(' '), cmdCtx, { force: true });
+        res = fb || { code: 127, stdout: '', stderr: `shell: ${cmdName}: command not found\n` };
       } else if (typeof this.options.onProcessSpawn === 'function') {
         const spawned = await this.options.onProcessSpawn(cmdName, args, {
           cwd: this.cwd,
