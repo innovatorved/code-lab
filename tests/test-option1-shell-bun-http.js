@@ -25,7 +25,7 @@ const fs = require('node:fs');
 const EventEmitter = require('node:events');
 
 // Load virtual runtime
-const runtime = require('../src/runtime.js');
+const runtime = require('../src/runtime.ts');
 const {
   executeInVirtualRuntime,
   createWorkerRuntimeSource,
@@ -37,7 +37,7 @@ const {
 // Resolve shell module (created in Milestone 1 or exposed via runtime)
 let shellModule = null;
 try {
-  shellModule = require('../src/shell.js');
+  shellModule = require('../src/shell.ts');
 } catch (err) {
   if (runtime.createPosixShell || runtime.Shell) {
     shellModule = runtime;
@@ -124,7 +124,7 @@ function getShellEngine(options = {}) {
     return runtime.Shell.create(Object.assign({}, options, { vfs, env }));
   }
 
-  throw new Error('createPosixShell is not implemented. Ensure ./src/shell.js or runtime.createPosixShell is exported.');
+  throw new Error('createPosixShell is not implemented. Ensure ./src/shell.ts or runtime.createPosixShell is exported.');
 }
 
 // Deterministic fake fetch that 404s everything, driving the offline fallback path.

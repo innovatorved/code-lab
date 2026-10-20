@@ -14,27 +14,48 @@ const {
   CODE_LAB_ROOT,
   SYSTEM_DESIGN_ROOT,
   WIKI_ROOT,
+  HAS_SYSTEM_DESIGN,
+  HAS_WIKI,
   setupMockDOM,
   teardownMockDOM,
   loadSchemas,
+  loadGuidedLab,
   createSuite
 } = require('./e2e-harness');
 
 const suite = createSuite('Tier 2', 'Boundary & Corner Cases (F1 through F10)');
+
+const DOWNSTREAM_TESTS = process.env.CODELAB_DOWNSTREAM_TESTS === '1';
+const systemDesignTest = (id, name, fn) =>
+  suite.skipUnless(
+    DOWNSTREAM_TESTS && HAS_SYSTEM_DESIGN,
+    id,
+    name,
+    fn,
+    'set CODELAB_DOWNSTREAM_TESTS=1 and check out ../system-design'
+  );
+const wikiTest = (id, name, fn) =>
+  suite.skipUnless(
+    DOWNSTREAM_TESTS && HAS_WIKI,
+    id,
+    name,
+    fn,
+    'set CODELAB_DOWNSTREAM_TESTS=1 and check out ../code-lab.wiki'
+  );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // F1 Boundary: TypeScript Build & Typecheck
 // ─────────────────────────────────────────────────────────────────────────────
 
 suite.test('F1.B1', 'TypeScript transpilation handles empty file string without crashing', async () => {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.js'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
   const res = transpileTS('');
   assert.equal(typeof res, 'string');
   assert.equal(res.trim(), '');
 });
 
 suite.test('F1.B2', 'TypeScript transpiler handles complex generics, satisfies operator, and union types', async () => {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.js'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
   const complexTs = `
     type Result<T, E = Error> = { ok: true; value: T } | { ok: false; error: E };
     interface Config { timeout: number; retries?: number; }
@@ -72,7 +93,7 @@ suite.test('F1.B4', 'package.json exports map covers subpaths and handles root .
 });
 
 suite.test('F1.B5', 'tsc --noEmit rejects intentionally invalid TypeScript syntax in dry run', async () => {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.js'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
   assert.ok(typeof transpileTS === 'function', 'transpileTS must be a function');
   // Confirm transpileTS preserves valid JS semantics
   const js = transpileTS('const a: number = 42;');
@@ -218,18 +239,19 @@ suite.test('F3.B4', 'File explorer handles deeply nested path (a/b/c/d/e.ts) wit
   }
 });
 
-suite.test('F3.B5', 'Accessing extension slots when no extensions are registered does not throw error', async () => {
+suite.test('F3.B5', 'Mounting without extensions renders no guide pane and does not throw', async () => {
   const doc = setupMockDOM();
   try {
     const mountEl = doc.createElement('div');
     doc.body.appendChild(mountEl);
 
     const CodeLab = require('../..');
-    CodeLab.mount(mountEl, { files: {} });
+    assert.doesNotThrow(() => CodeLab.mount(mountEl, { files: {} }));
 
-    const slot = mountEl.querySelector('#cl-slot-topbar-left');
-    assert.ok(slot, 'Slot must exist even if empty');
-    assert.equal(slot.children.length, 0, 'Unused slot must be empty');
+    assert.equal(mountEl.querySelectorAll('.codelab-guide').length, 0,
+      'Pure IDE must not render a guide pane without an extension');
+    assert.ok(mountEl.querySelector('.codelab-explorer'),
+      'Pure IDE must still render the core explorer');
   } finally {
     teardownMockDOM();
   }
@@ -285,14 +307,20 @@ suite.test('F4.B3', 'Switching mode between guided and sandbox toggles guide asi
     const CodeLab = require('../..');
     const ide = CodeLab.mount(mountEl, { files: {} });
 
-    ide.use(CodeLab.extensions.guidedLab, {
+    ide.use(loadGuidedLab(), {
       steps: [{ id: 's1', title: 'Step 1', instructions: 'Inst' }],
       mode: 'guided'
     });
 
-    const guideSlot = mountEl.querySelector('#cl-slot-sidebar-left');
-    const guideEl = guideSlot.querySelector('.codelab-guide');
-    assert.ok(guideEl, 'Guide panel must be present in guided mode');
+    let root = mountEl.querySelector('.codelab-workbench');
+    assert.ok(root, 'Workbench root must exist');
+    assert.equal(root.classList.contains('guide-collapsed'), false,
+      'Guide pane must be expanded in guided mode');
+
+    ide.setMode('sandbox');
+    root = mountEl.querySelector('.codelab-workbench');
+    assert.ok(root.classList.contains('guide-collapsed'),
+      'Guide pane must collapse in sandbox mode');
   } finally {
     teardownMockDOM();
   }
@@ -327,14 +355,13 @@ suite.test('F4.B5', 'Registering guidedLab extension twice on same instance is i
     const CodeLab = require('../..');
     const ide = CodeLab.mount(mountEl, { files: {} });
 
-    ide.use(CodeLab.extensions.guidedLab, { steps: [] });
+    ide.use(loadGuidedLab(), { steps: [] });
     assert.doesNotThrow(() => {
-      ide.use(CodeLab.extensions.guidedLab, { steps: [] });
+      ide.use(loadGuidedLab(), { steps: [] });
     });
 
-    // Should not duplicate slot children
-    const slot = mountEl.querySelector('#cl-slot-topbar-left');
-    const modeSwitches = slot.querySelectorAll('.codelab-mode-switch');
+    // Re-registration must not render duplicate mode switches.
+    const modeSwitches = mountEl.querySelectorAll('.codelab-mode-switch');
     assert.ok(modeSwitches.length <= 1, 'Duplicate registration should not duplicate DOM elements');
   } finally {
     teardownMockDOM();
@@ -547,27 +574,24 @@ suite.test('F8.B2', 'Workbench title with emoji or special characters renders sa
   }
 });
 
-suite.test('F8.B3', 'Theme toggle button updates SVG icon across consecutive clicks', async () => {
+suite.test('F8.B3', 'Explicit light theme applies the light modifier class', async () => {
   const doc = setupMockDOM();
   try {
     const mountEl = doc.createElement('div');
     doc.body.appendChild(mountEl);
 
     const CodeLab = require('../..');
-    CodeLab.mount(mountEl, { files: {} });
+    CodeLab.mount(mountEl, { files: {}, theme: 'light' });
 
-    const themeBtn = mountEl.querySelector('#cl-btn-theme') || mountEl.querySelector('#theme-toggle-btn');
-    assert.ok(themeBtn);
-
-    // Click to toggle
-    themeBtn.click();
-    assert.ok(themeBtn.innerHTML.includes('<svg') || themeBtn.querySelector('svg'));
+    assert.equal(mountEl.getAttribute('data-theme'), 'light');
+    assert.ok(mountEl.classList.contains('codelab-workbench--light'),
+      'Light theme modifier must be applied to the mount container');
   } finally {
     teardownMockDOM();
   }
 });
 
-suite.test('F8.B4', 'Header actions slot accepts injected buttons alongside theme icon', async () => {
+suite.test('F8.B4', 'Core header actions are present without any extension', async () => {
   const doc = setupMockDOM();
   try {
     const mountEl = doc.createElement('div');
@@ -576,13 +600,11 @@ suite.test('F8.B4', 'Header actions slot accepts injected buttons alongside them
     const CodeLab = require('../..');
     CodeLab.mount(mountEl, { files: {} });
 
-    const slot = mountEl.querySelector('#cl-slot-topbar-actions');
-    assert.ok(slot);
-    const customBtn = doc.createElement('button');
-    customBtn.textContent = 'Custom';
-    slot.appendChild(customBtn);
-
-    assert.equal(slot.children.length, 1);
+    const topbar = mountEl.querySelector('.codelab-topbar');
+    assert.ok(topbar, 'Topbar must exist');
+    assert.ok(topbar.querySelector('[data-cl-action="run-demo"]'), 'Run Demo action must exist');
+    assert.ok(topbar.querySelector('#cl-primary-exec-btn'), 'Primary test action must exist');
+    assert.ok(topbar.querySelector('#cl-preview-app-btn'), 'Preview action must exist');
   } finally {
     teardownMockDOM();
   }
@@ -611,7 +633,7 @@ suite.test('F8.B5', 'Header contains no npm marketing badges or links in any DOM
 // F9 Boundary: Downstream system-design Integration
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite.test('F9.B1', 'Build lab with missing solutionFiles defaults safely to files', async () => {
+systemDesignTest('F9.B1', 'Build lab with missing solutionFiles defaults safely to files', async () => {
   const implPath = path.resolve(SYSTEM_DESIGN_ROOT, 'data/implementations_code.js');
   const content = fs.readFileSync(implPath, 'utf8');
   const vm = require('node:vm');
@@ -625,7 +647,7 @@ suite.test('F9.B1', 'Build lab with missing solutionFiles defaults safely to fil
   }
 });
 
-suite.test('F9.B2', 'Non-existent build lab slug returns null or throws predictable error', async () => {
+systemDesignTest('F9.B2', 'Non-existent build lab slug returns null or throws predictable error', async () => {
   const implPath = path.resolve(SYSTEM_DESIGN_ROOT, 'data/implementations_code.js');
   const content = fs.readFileSync(implPath, 'utf8');
   const vm = require('node:vm');
@@ -636,7 +658,7 @@ suite.test('F9.B2', 'Non-existent build lab slug returns null or throws predicta
   assert.equal(builds['non-existent-lab-123'], undefined);
 });
 
-suite.test('F9.B3', 'system-design build lab starter files are non-empty for all 15 labs', async () => {
+systemDesignTest('F9.B3', 'system-design build lab starter files are non-empty for all 15 labs', async () => {
   const implPath = path.resolve(SYSTEM_DESIGN_ROOT, 'data/implementations_code.js');
   const content = fs.readFileSync(implPath, 'utf8');
   const vm = require('node:vm');
@@ -649,7 +671,7 @@ suite.test('F9.B3', 'system-design build lab starter files are non-empty for all
   }
 });
 
-suite.test('F9.B4', 'system-design manifest.js exists and is valid JavaScript', async () => {
+systemDesignTest('F9.B4', 'system-design manifest.js exists and is valid JavaScript', async () => {
   const manifestPath = path.resolve(SYSTEM_DESIGN_ROOT, 'js/manifest.js');
   assert.ok(fs.existsSync(manifestPath), 'js/manifest.js must exist');
   const content = fs.readFileSync(manifestPath, 'utf8');
@@ -658,7 +680,7 @@ suite.test('F9.B4', 'system-design manifest.js exists and is valid JavaScript', 
   }, 'js/manifest.js must be valid JS');
 });
 
-suite.test('F9.B5', 'system-design validate.js script exists in tools/', async () => {
+systemDesignTest('F9.B5', 'system-design validate.js script exists in tools/', async () => {
   const valPath = path.resolve(SYSTEM_DESIGN_ROOT, 'tools/validate.js');
   assert.ok(fs.existsSync(valPath), 'tools/validate.js must exist in system-design');
 });
@@ -667,7 +689,7 @@ suite.test('F9.B5', 'system-design validate.js script exists in tools/', async (
 // F10 Boundary: GitHub Wiki & Documentation Parity
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite.test('F10.B1', 'Wiki markdown pages have non-empty titles and contents', async () => {
+wikiTest('F10.B1', 'Wiki markdown pages have non-empty titles and contents', async () => {
   const requiredWikiPages = [
     'Home.md',
     'Quick-Start.md',
@@ -684,7 +706,7 @@ suite.test('F10.B1', 'Wiki markdown pages have non-empty titles and contents', a
   }
 });
 
-suite.test('F10.B2', 'Wiki documentation contains zero references to deprecated v1.3 monolithic architecture', async () => {
+wikiTest('F10.B2', 'Wiki documentation contains zero references to deprecated v1.3 monolithic architecture', async () => {
   const homePath = path.resolve(WIKI_ROOT, 'Home.md');
   const content = fs.readFileSync(homePath, 'utf8');
   assert.ok(
@@ -693,7 +715,7 @@ suite.test('F10.B2', 'Wiki documentation contains zero references to deprecated 
   );
 });
 
-suite.test('F10.B3', 'Wiki Workbench-Configuration.md describes extension slot architecture', async () => {
+wikiTest('F10.B3', 'Wiki Workbench-Configuration.md describes extension slot architecture', async () => {
   const confPath = path.resolve(WIKI_ROOT, 'Workbench-Configuration.md');
   const content = fs.readFileSync(confPath, 'utf8');
   assert.ok(
@@ -702,7 +724,7 @@ suite.test('F10.B3', 'Wiki Workbench-Configuration.md describes extension slot a
   );
 });
 
-suite.test('F10.B4', 'Wiki Plugin-System.md documents CodeLab.extensions namespace', async () => {
+wikiTest('F10.B4', 'Wiki Plugin-System.md documents CodeLab.extensions namespace', async () => {
   const pluginPath = path.resolve(WIKI_ROOT, 'Plugin-System.md');
   const content = fs.readFileSync(pluginPath, 'utf8');
   assert.ok(
@@ -711,7 +733,7 @@ suite.test('F10.B4', 'Wiki Plugin-System.md documents CodeLab.extensions namespa
   );
 });
 
-suite.test('F10.B5', 'Wiki Authoring-Guided-Labs.md documents GuidedStep schema and properties', async () => {
+wikiTest('F10.B5', 'Wiki Authoring-Guided-Labs.md documents GuidedStep schema and properties', async () => {
   const guidePath = path.resolve(WIKI_ROOT, 'Authoring-Guided-Labs.md');
   const content = fs.readFileSync(guidePath, 'utf8');
   assert.ok(

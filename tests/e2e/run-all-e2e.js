@@ -55,6 +55,7 @@ async function main() {
   let grandTotal = 0;
   let grandPassed = 0;
   let grandFailed = 0;
+  let grandSkipped = 0;
   const tierSummaries = [];
   const allErrors = [];
   const suiteStartTime = Date.now();
@@ -66,6 +67,7 @@ async function main() {
     grandTotal += summary.total;
     grandPassed += summary.passed;
     grandFailed += summary.failed;
+    grandSkipped += summary.skipped || 0;
     tierSummaries.push(summary);
 
     if (summary.errors && summary.errors.length > 0) {
@@ -80,22 +82,24 @@ async function main() {
   console.log(`\n╔═══════════════════════════════════════════════════════════════════════╗`);
   console.log(`║                         E2E EXECUTION SUMMARY                         ║`);
   console.log(`╚═══════════════════════════════════════════════════════════════════════╝`);
-  console.log(`┌──────────────────────────────────────────────┬───────┬──────┬──────┐`);
-  console.log(`│ Test Tier                                    │ Total │ Pass │ Fail │`);
-  console.log(`├──────────────────────────────────────────────┼───────┼──────┼──────┤`);
+  console.log(`┌──────────────────────────────────────────────┬───────┬──────┬──────┬──────┐`);
+  console.log(`│ Test Tier                                    │ Total │ Pass │ Fail │ Skip │`);
+  console.log(`├──────────────────────────────────────────────┼───────┼──────┼──────┼──────┤`);
   for (const s of tierSummaries) {
     const namePadded = s.name.padEnd(44, ' ').slice(0, 44);
     const tot = String(s.total).padStart(5, ' ');
     const pass = String(s.passed).padStart(4, ' ');
     const fail = String(s.failed).padStart(4, ' ');
-    console.log(`│ ${namePadded} │ ${tot} │ ${pass} │ ${fail} │`);
+    const skip = String(s.skipped || 0).padStart(4, ' ');
+    console.log(`│ ${namePadded} │ ${tot} │ ${pass} │ ${fail} │ ${skip} │`);
   }
-  console.log(`├──────────────────────────────────────────────┼───────┼──────┼──────┤`);
+  console.log(`├──────────────────────────────────────────────┼───────┼──────┼──────┼──────┤`);
   const grandTotStr = String(grandTotal).padStart(5, ' ');
   const grandPassStr = String(grandPassed).padStart(4, ' ');
   const grandFailStr = String(grandFailed).padStart(4, ' ');
-  console.log(`│ ${'OVERALL TOTAL'.padEnd(44, ' ')} │ ${grandTotStr} │ ${grandPassStr} │ ${grandFailStr} │`);
-  console.log(`└──────────────────────────────────────────────┴───────┴──────┴──────┘`);
+  const grandSkipStr = String(grandSkipped).padStart(4, ' ');
+  console.log(`│ ${'OVERALL TOTAL'.padEnd(44, ' ')} │ ${grandTotStr} │ ${grandPassStr} │ ${grandFailStr} │ ${grandSkipStr} │`);
+  console.log(`└──────────────────────────────────────────────┴───────┴──────┴──────┴──────┘`);
   console.log(`Total Duration: ${totalDuration}ms`);
 
   if (allErrors.length > 0) {

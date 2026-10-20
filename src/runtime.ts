@@ -4898,8 +4898,8 @@ function __initVirtualRuntime(rootScope) {
 
     if ((hasESM || isTS) && !keepEsm) {
       // Convert ES module imports (including multi-line `{ ... }`)
-      code = code.replace(/\bimport\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, 'const $1 = require($2);');
-      code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, defId, specifiers, mod) => {
+      code = code.replace(/\bimport\s*\*\s*as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*from\s*([^\n;]+);?/gm, 'const $1 = require($2);');
+      code = code.replace(/\bimport\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*\{([\s\S]*?)\}\s*from\s*([^\n;]+);?/gm, (_, defId, specifiers, mod) => {
         const cleaned = specifiers
           .split(',')
           .map((s) => s.trim())
@@ -4910,7 +4910,7 @@ function __initVirtualRuntime(rootScope) {
         return `const ${defId} = (function(m){ return m && m.__esModule ? m.default : m; })(require(${mTrim}));` +
           (cleaned ? ` const { ${cleaned} } = require(${mTrim});` : '');
       });
-      code = code.replace(/\bimport\s+\{([\s\S]*?)\}\s+from\s+([^\n;]+);?/gm, (_, specifiers, mod) => {
+      code = code.replace(/\bimport\s*\{([\s\S]*?)\}\s*from\s*([^\n;]+);?/gm, (_, specifiers, mod) => {
         const cleaned = specifiers
           .split(',')
           .map((s) => s.trim())
@@ -4933,11 +4933,11 @@ function __initVirtualRuntime(rootScope) {
       let defaultExportName = null;
       let hasEsmExport = false;
 
-      code = code.replace(/\bexport\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+([^\n;]+);?/gm, (_, ns, mod) => {
+      code = code.replace(/\bexport\s*\*\s*as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*from\s*([^\n;]+);?/gm, (_, ns, mod) => {
         hasEsmExport = true;
         return `exports.${ns} = require(${mod.trim()});`;
       });
-      code = code.replace(/\bexport\s+\*\s+from\s+([^\n;]+);?/gm, (_, mod) => {
+      code = code.replace(/\bexport\s*\*\s*from\s*([^\n;]+);?/gm, (_, mod) => {
         hasEsmExport = true;
         return `Object.assign(exports, require(${mod.trim()}));`;
       });
@@ -4960,7 +4960,7 @@ function __initVirtualRuntime(rootScope) {
         exportedNames.push(name);
         return `${kw} ${name}`;
       });
-      code = code.replace(/\bexport\s+\{([^}]+)\}\s+from\s+([^\n;]+);?/gm, (_, list, mod) => {
+      code = code.replace(/\bexport\s*\{([^}]+)\}\s*from\s*([^\n;]+);?/gm, (_, list, mod) => {
         hasEsmExport = true;
         const mTrim = mod.trim();
         return list.split(',').map((item) => {
@@ -4972,7 +4972,7 @@ function __initVirtualRuntime(rootScope) {
           return `exports.${exported} = require(${mTrim}).${local};`;
         }).join(' ');
       });
-      code = code.replace(/\bexport\s+\{([^}]+)\}\s*;?/gm, (_, list) => {
+      code = code.replace(/\bexport\s*\{([^}]+)\}\s*;?/gm, (_, list) => {
         hasEsmExport = true;
         return list.split(',').map((item) => {
           const trimmed = item.trim();
@@ -5047,9 +5047,9 @@ function __initVirtualRuntime(rootScope) {
     //   preloadNpmPackages(files, onProgress)                // progress callback (used by the Workbench)
     //   preloadNpmPackages(files, existingCache)             // package-text cache (Map)
     //   preloadNpmPackages(files, existingCache, onProgress)
-    const isCacheLike = (v: any) => !!v && typeof v !== 'function' && typeof v.has === 'function' && typeof v.get === 'function';
-    let onProgress: any = null;
-    let existingCache: any = _npmPackageCache;
+    const isCacheLike = (v) => !!v && typeof v !== 'function' && typeof v.has === 'function' && typeof v.get === 'function';
+    let onProgress = null;
+    let existingCache = _npmPackageCache;
     if (typeof secondArg === 'function') onProgress = secondArg;
     else if (isCacheLike(secondArg)) existingCache = secondArg;
     if (typeof thirdArg === 'function') onProgress = onProgress || thirdArg;
@@ -5099,14 +5099,14 @@ function __initVirtualRuntime(rootScope) {
     if (typeof fetch === 'function') {
       let pass = 0;
       while (pass < 6) {
-        const pending: string[] = [];
+        const pending = [];
         for (const pkg of specs) {
-          if (!_npmMetadataCache.has(pkg)) pending.push(pkg as string);
+          if (!_npmMetadataCache.has(pkg)) pending.push(pkg);
         }
         if (pending.length === 0) break;
         pass++;
         await Promise.all(pending.map(async (pkg) => {
-          let deps: string[] = [];
+          let deps = [];
           try {
             const res = await fetch(`https://cdn.jsdelivr.net/npm/${pkg}/package.json`);
             if (res && res.ok) {
@@ -7702,20 +7702,20 @@ function __initVirtualRuntime(rootScope) {
       }
     }
 
-    function raceWithAbort<T = any>(promise: Promise<T>): Promise<T | undefined> {
-      if (!promise || typeof (promise as any).then !== 'function') {
-        return Promise.resolve(promise as any);
+    function raceWithAbort(promise) {
+      if (!promise || typeof promise.then !== 'function') {
+        return Promise.resolve(promise);
       }
       if (hasExited || isSigintAborted || Boolean(signal && signal.aborted)) {
         if (!hasExited) handleSigint();
-        return Promise.resolve(undefined);
+        return Promise.resolve();
       }
 
       // Absorb late rejections after abort to avoid unhandled promise rejection warnings
-      (promise as any).catch(() => {});
+      promise.catch(() => {});
 
-      return new Promise<T | undefined>((resolve, reject) => {
-        let timer: any = null;
+      return new Promise((resolve, reject) => {
+        let timer = null;
         let settled = false;
 
         const cleanup = () => {
@@ -7735,7 +7735,7 @@ function __initVirtualRuntime(rootScope) {
         const onAbort = () => {
           cleanup();
           handleSigint();
-          resolve(undefined);
+          resolve();
         };
 
         if (signal) {
@@ -7750,7 +7750,7 @@ function __initVirtualRuntime(rootScope) {
         if (remainingMs > 0 && Number.isFinite(remainingMs)) {
           timer = setTimeout(() => {
             cleanup();
-            resolve(undefined);
+            resolve();
           }, remainingMs);
           if (timer && typeof timer.unref === 'function') {
             timer.unref();
@@ -7758,11 +7758,11 @@ function __initVirtualRuntime(rootScope) {
         }
 
         promise.then(
-          (val: any) => {
+          (val) => {
             cleanup();
             resolve(val);
           },
-          (err: any) => {
+          (err) => {
             cleanup();
             reject(err);
           }
@@ -7995,11 +7995,12 @@ function __workerMessageLoop(workerScope) {
   };
 }
 
-const _hostRuntime: any = __initVirtualRuntime(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : global));
-
-_hostRuntime.createWorkerRuntimeSource = function createWorkerRuntimeSource() {
+function createWorkerRuntimeSource() {
   return `'use strict';\nself.__virtualRuntime = (${__initVirtualRuntime.toString()})(self);\n(${__workerMessageLoop.toString()})(self);\n`;
-};
+}
+
+const _hostRuntime = __initVirtualRuntime(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : global));
+_hostRuntime.createWorkerRuntimeSource = createWorkerRuntimeSource;
 
 let _cachedWorkerUrl = null;
 let _warmWorker = null;
@@ -8008,7 +8009,7 @@ const _activeWorkerJobs = new Map();
 
 function _ensureWorkerUrl() {
   if (!_cachedWorkerUrl) {
-    const blob = new Blob([_hostRuntime.createWorkerRuntimeSource()], { type: 'application/javascript' });
+    const blob = new Blob([createWorkerRuntimeSource()], { type: 'application/javascript' });
     _cachedWorkerUrl = URL.createObjectURL(blob);
   }
   return _cachedWorkerUrl;
@@ -8228,54 +8229,43 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 
-export interface RuntimeExecutionResult {
-  ok: boolean;
-  exitCode: number;
-  durationMs: number;
-  stdout: string;
-  stderr: string;
-  testResults: any[];
-  fsSnapshot: any[];
-  httpTrace: any[];
-  error?: { message: string; stack?: string };
-  outputTruncated?: boolean;
-  replValue?: any;
-  cancelled?: boolean;
-  testSummary?: {
-    total: number;
-    passed: number;
-    failed: number;
-  };
-}
+// ── TypeScript module surface (stripped from browser bundles) ──────────────
+// The implementation above is a UMD script that attaches itself to the global
+// object. These aliases give TypeScript consumers named exports without
+// duplicating the implementation. tools/bundle.js removes this footer before
+// concatenating the script into the browser bundle.
+const _runtimeApi: any = (typeof globalThis !== 'undefined' ? (globalThis as any).CodeLabRuntime : undefined)
+  || (typeof module !== 'undefined' && module.exports ? module.exports : {});
 
-export const VirtualBuffer: any = _hostRuntime.VirtualBuffer;
-export const VirtualCrypto: any = _hostRuntime.VirtualCrypto;
-export const VirtualZlib: any = _hostRuntime.VirtualZlib;
-export const VirtualPath: any = _hostRuntime.VirtualPath;
-export const VirtualOs: any = _hostRuntime.VirtualOs;
-export const VirtualAssert: any = _hostRuntime.VirtualAssert;
-export const EventEmitter: any = _hostRuntime.EventEmitter;
-export const VirtualUtil: any = _hostRuntime.VirtualUtil;
-export const VirtualUrl: any = _hostRuntime.VirtualUrl;
-export const VirtualQuerystring: any = _hostRuntime.VirtualQuerystring;
-export const VirtualStream: any = _hostRuntime.VirtualStream;
-export const VirtualStreamPromises: any = _hostRuntime.VirtualStreamPromises;
-export const VirtualStringDecoder: any = _hostRuntime.VirtualStringDecoder;
-export const VirtualDns: any = _hostRuntime.VirtualDns;
-export const createVirtualFs: (options?: any) => any = _hostRuntime.createVirtualFs;
-export const createVirtualHttp: (portTable?: any, vfs?: any) => any = _hostRuntime.createVirtualHttp;
-export const createVirtualNet: (portTable?: any) => any = _hostRuntime.createVirtualNet;
-export const transpileTS: (code: string, filename?: string) => string = _hostRuntime.transpileTS;
-export const transpileForBrowser: (source: string, filename?: string) => string = _hostRuntime.transpileForBrowser;
+export const VirtualBuffer: any = _runtimeApi.VirtualBuffer;
+export const VirtualCrypto: any = _runtimeApi.VirtualCrypto;
+export const VirtualZlib: any = _runtimeApi.VirtualZlib;
+export const VirtualPath: any = _runtimeApi.VirtualPath;
+export const VirtualOs: any = _runtimeApi.VirtualOs;
+export const VirtualAssert: any = _runtimeApi.VirtualAssert;
+export const EventEmitter: any = _runtimeApi.EventEmitter;
+export const VirtualUtil: any = _runtimeApi.VirtualUtil;
+export const VirtualUrl: any = _runtimeApi.VirtualUrl;
+export const VirtualQuerystring: any = _runtimeApi.VirtualQuerystring;
+export const VirtualStream: any = _runtimeApi.VirtualStream;
+export const VirtualStreamPromises: any = _runtimeApi.VirtualStreamPromises;
+export const VirtualStringDecoder: any = _runtimeApi.VirtualStringDecoder;
+export const VirtualDns: any = _runtimeApi.VirtualDns;
+export const createVirtualFs: (options?: any) => any = _runtimeApi.createVirtualFs;
+export const createVirtualHttp: (portTable?: any, vfs?: any) => any = _runtimeApi.createVirtualHttp;
+export const createVirtualNet: (portTable?: any) => any = _runtimeApi.createVirtualNet;
+export const transpileTS: (code: string, filename?: string) => string = _runtimeApi.transpileTS;
+export const transpileForBrowser: (source: string, filename?: string) => string = _runtimeApi.transpileForBrowser;
 export const preloadNpmPackages: (
   files?: Record<string, any>,
   onProgressOrCache?: ((pkg: string) => void) | Map<string, string>,
   onProgress?: (pkg: string) => void
-) => Promise<Record<string, string>> = _hostRuntime.preloadNpmPackages;
-export const createVirtualPortTable: () => any = _hostRuntime.createVirtualPortTable;
-export const executeInVirtualRuntime: (options?: any) => Promise<RuntimeExecutionResult> = _hostRuntime.executeInVirtualRuntime;
-export const createWorkerRuntimeSource: () => string = _hostRuntime.createWorkerRuntimeSource;
-export const cancelWorkerExecution: (reason?: string, instanceId?: string) => boolean = _hostRuntime.cancelWorkerExecution;
-export const executeInWorker: (options?: any) => Promise<RuntimeExecutionResult> = _hostRuntime.executeInWorker;
+) => Promise<Record<string, string>> = _runtimeApi.preloadNpmPackages;
+export const createVirtualPortTable: () => any = _runtimeApi.createVirtualPortTable;
+export const executeInVirtualRuntime: (options?: any) => Promise<any> = _runtimeApi.executeInVirtualRuntime;
+const createWorkerRuntimeSourceExport: () => string = _runtimeApi.createWorkerRuntimeSource;
+export { createWorkerRuntimeSourceExport as createWorkerRuntimeSource };
+export const cancelWorkerExecution: (reason?: string, instanceId?: string) => boolean = _runtimeApi.cancelWorkerExecution;
+export const executeInWorker: (options?: any) => Promise<any> = _runtimeApi.executeInWorker;
 
-export default _hostRuntime;
+export default _runtimeApi;

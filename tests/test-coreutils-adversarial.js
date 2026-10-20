@@ -11,8 +11,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { createPosixShell, COREUTILS } = require('../src/shell.js');
-const { createVirtualFs } = require('../src/runtime.js');
+const { createPosixShell, COREUTILS } = require('../src/shell.ts');
+const { createVirtualFs } = require('../src/runtime.ts');
 
 const results = {
   total: 0,
@@ -566,7 +566,11 @@ async function runAdversarialSuite() {
     for (const f of results.failures) {
       console.log(` - [${f.id}] ${f.name}: ${f.details}`);
     }
+    process.exitCode = 1;
   }
 }
 
-runAdversarialSuite().catch(console.error);
+runAdversarialSuite().catch((err) => {
+  console.error('Adversarial suite crashed:', err);
+  process.exitCode = 1;
+});

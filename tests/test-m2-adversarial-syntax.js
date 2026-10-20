@@ -312,7 +312,7 @@ globalThis.localStorage = localStorageMock;
 globalThis.Event = DOMEvent;
 
 // Require workbench module
-const CodeLabSDK = require('../src/workbench.js');
+const CodeLabSDK = require('../src/workbench.ts');
 const { renderSimpleMarkdown, renderMarkdown, CodeLabWorkbench } = CodeLabSDK;
 
 // ── Test Runner ──────────────────────────────────────────────────────────────

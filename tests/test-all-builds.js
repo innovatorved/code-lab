@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Verification Harness for Virtual Node.js Runtime (`src/runtime.js`)
+ * Verification Harness for Virtual Node.js Runtime (`src/runtime.ts`)
  * Executes all 15 system design builds (both `demo.js` and `test.js`) inside the
  * zero-dependency in-memory Virtual Runtime and verifies 100% pass rate,
  * plus TypeScript/ESM transpilation, Virtual FS Snapshot, Virtual HTTP Trace,
@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
-const runtime = require('../src/runtime.js');
+const runtime = require('../src/runtime.ts');
 const { executeInVirtualRuntime, createWorkerRuntimeSource, transpileTS } = runtime;
 
 const implCandidates = [
@@ -540,4 +540,7 @@ if (implPath && fs.existsSync(implPath)) {
   console.log('✅ Warm Worker Pool reuse & instant cancellation (executeInWorker / cancelWorkerExecution) passed');
 
   console.log('\n🎉 ALL VERIFICATION & STRESS CHECKS PASSED 100%!');
-})();
+})().catch((err) => {
+  console.error('Verification suite failed:', err);
+  process.exitCode = 1;
+});

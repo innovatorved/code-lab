@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const runtime = require('../src/runtime.js');
+const runtime = require('../src/runtime.ts');
 
 async function runTests() {
   let passed = 0;

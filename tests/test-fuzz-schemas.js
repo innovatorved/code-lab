@@ -18,7 +18,7 @@ const CODE_LAB_ROOT = path.resolve(__dirname, '..');
 
 // Load schemas via runtime transpileTS
 function loadSchemas() {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.js'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
   const tsCode = fs.readFileSync(path.resolve(CODE_LAB_ROOT, 'src/schemas.ts'), 'utf8');
   const jsCode = transpileTS(tsCode);
   const mod = { exports: {} };

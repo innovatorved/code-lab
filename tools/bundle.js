@@ -22,15 +22,39 @@ const PKG_DIR = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(PKG_DIR, 'src');
 const DIST_DIR = path.join(PKG_DIR, 'dist');
 
-const runtimeCode = fs.readFileSync(path.join(SRC_DIR, 'runtime.js'), 'utf8');
-const shellCode = fs.readFileSync(path.join(SRC_DIR, 'shell.js'), 'utf8');
-const terminalCode = fs.readFileSync(path.join(SRC_DIR, 'terminal.js'), 'utf8');
-const workbenchCode = fs.readFileSync(path.join(SRC_DIR, 'workbench.js'), 'utf8');
+const PKG = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8'));
+const PKG_VERSION = PKG.version;
+if (!PKG_VERSION || !/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(PKG_VERSION)) {
+  throw new Error(`package.json has an invalid version: ${JSON.stringify(PKG_VERSION)}`);
+}
+
+const TS_MODULE_SURFACE = '// ── TypeScript module surface';
+
+// The .ts sources end with a TypeScript-only export footer so `tsc` can emit
+// declarations. Browser bundles are classic scripts, so strip that footer
+// before concatenation.
+function stripTypeScriptModuleSurface(code) {
+  const marker = code.indexOf(TS_MODULE_SURFACE);
+  return marker === -1 ? code : code.slice(0, marker);
+}
+
+const runtimeCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'runtime.ts'), 'utf8'));
+const shellCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'shell.ts'), 'utf8'));
+const terminalCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'terminal.ts'), 'utf8'));
+let workbenchCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'workbench.ts'), 'utf8'));
 const cssPath = path.join(SRC_DIR, 'code-lab.css');
+
+// Single source of truth for the shipped SDK version. Fail the build if the
+// injection point disappears rather than silently shipping a stale version.
+const VERSION_SENTINEL = /const CODELAB_VERSION = '[^']*';/;
+if (!VERSION_SENTINEL.test(workbenchCode)) {
+  throw new Error('src/workbench.ts must declare `const CODELAB_VERSION = ...` for the build to inject package.json.version');
+}
+workbenchCode = workbenchCode.replace(VERSION_SENTINEL, `const CODELAB_VERSION = '${PKG_VERSION}';`);
 
 const BANNER = `/**
  * ============================================================
- * @innovatorved/code-lab v2.0.0 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v${PKG_VERSION} — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -159,7 +183,7 @@ const PTYTerminalEngine = CodeLabTerminal ? CodeLabTerminal.PTYTerminalEngine : 
 const mount = CodeLab ? CodeLab.mount : null;
 const create = CodeLab ? CodeLab.create : null;
 const unmount = CodeLab ? CodeLab.unmount : null;
-const version = CodeLab ? CodeLab.version : '2.0.0';
+const version = CodeLab ? CodeLab.version : '${PKG_VERSION}';
 const renderMarkdown = CodeLab ? CodeLab.renderMarkdown : null;
 const renderSimpleMarkdown = CodeLab ? CodeLab.renderSimpleMarkdown : null;
 const cloneRepo = CodeLab ? CodeLab.cloneRepo : null;
@@ -366,7 +390,7 @@ export default CodeLabTerminal;
 `;
 
 const DTS_CONTENT = `/**
- * TypeScript Definitions for @innovatorved/code-lab v2.0.0
+ * TypeScript Definitions for @innovatorved/code-lab v${PKG_VERSION}
  */
 
 export interface CodeLabStep {
@@ -788,8 +812,10 @@ try {
 }
 
 // 5. Sync dist/ to examples/cloud-ide/public/dist
-const CLOUD_IDE_PUBLIC_DIST = path.join(PKG_DIR, 'examples/cloud-ide/public/dist');
-if (fs.existsSync(CLOUD_IDE_PUBLIC_DIST)) {
+const CLOUD_IDE_PUBLIC_ROOT = path.join(PKG_DIR, 'examples/cloud-ide/public');
+const CLOUD_IDE_PUBLIC_DIST = path.join(CLOUD_IDE_PUBLIC_ROOT, 'dist');
+if (fs.existsSync(CLOUD_IDE_PUBLIC_ROOT)) {
+  fs.mkdirSync(CLOUD_IDE_PUBLIC_DIST, { recursive: true });
   fs.cpSync(DIST_DIR, CLOUD_IDE_PUBLIC_DIST, { recursive: true });
   console.log('✓ Synced dist/ into examples/cloud-ide/public/dist/');
 }

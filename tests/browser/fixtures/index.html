@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>code-lab browser tests</title>
+    <link rel="stylesheet" href="/dist/code-lab.css" />
+    <style>
+      html, body { margin: 0; height: 100%; }
+      #app { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/dist/code-lab.js"></script>
+    <script>
+      // Expose small hooks so specs can mount/unmount without re-implementing
+      // the SDK bootstrap.
+      window.__codelabTest = {
+        mount(options) {
+          const el = document.getElementById('app');
+          window.__codelabTest.ide = window.CodeLab.mount(el, options || {
+            files: {
+              'index.js': 'console.log("hello from code-lab");'
+            }
+          });
+          return Boolean(window.__codelabTest.ide);
+        },
+        unmount() {
+          window.CodeLab.unmount(document.getElementById('app'));
+          window.__codelabTest.ide = null;
+        }
+      };
+
+      window.__codelabTest.mount();
+    </script>
+  </body>
+</html>

@@ -15,10 +15,10 @@
  */
 
 const assert = require('node:assert/strict');
-const runtime = require('../src/runtime.js');
-const shell = require('../src/shell.js');
-const terminal = require('../src/terminal.js');
-const workbench = require('../src/workbench.js');
+const runtime = require('../src/runtime.ts');
+const shell = require('../src/shell.ts');
+const terminal = require('../src/terminal.ts');
+const workbench = require('../src/workbench.ts');
 
 async function runChallengerSuite() {
   const summary = {

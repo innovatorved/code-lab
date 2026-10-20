@@ -5,12 +5,12 @@
  * incrementally (via onStdout) instead of dumping everything at the end.
  *
  * Covers the real shell path used by the interactive Terminal & REPL
- * (i.e. src/shell.js -> commands.git -> cmdCtx.onStdout).
+ * (i.e. src/shell.ts -> commands.git -> cmdCtx.onStdout).
  */
 
 const assert = require('node:assert/strict');
-const shellModule = require('../src/shell.js');
-const runtimeModule = require('../src/runtime.js');
+const shellModule = require('../src/shell.ts');
+const runtimeModule = require('../src/runtime.ts');
 
 const createVirtualFs = runtimeModule.createVirtualFs || runtimeModule.default.createVirtualFs;
 

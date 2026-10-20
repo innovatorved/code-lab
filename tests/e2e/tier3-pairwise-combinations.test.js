@@ -14,13 +14,16 @@ const {
   CODE_LAB_ROOT,
   SYSTEM_DESIGN_ROOT,
   WIKI_ROOT,
+  HAS_SYSTEM_DESIGN,
   setupMockDOM,
   teardownMockDOM,
   loadSchemas,
+  loadGuidedLab,
   createSuite
 } = require('./e2e-harness');
 
 const suite = createSuite('Tier 3', 'Pairwise Cross-Feature Combinations (>= 10 tests)');
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // P1: F1 (TypeScript Build) × F2 (Zod Schema Validation)
@@ -71,7 +74,7 @@ suite.test('P2', 'F2 × F3: Schema-validated options mount pure Core IDE with ze
 // P3: F3 (Pure Core IDE) × F4 (Modular Guided Lab Extension)
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite.test('P3', 'F3 × F4: Mounting pure IDE and dynamically calling ide.use(guidedLab) populates slots', async () => {
+suite.test('P3', 'F3 × F4: Mounting pure IDE and dynamically calling ide.use(guidedLab) enables guided mode', async () => {
   const doc = setupMockDOM();
   try {
     const mountEl = doc.createElement('div');
@@ -80,19 +83,20 @@ suite.test('P3', 'F3 × F4: Mounting pure IDE and dynamically calling ide.use(gu
     const CodeLab = require('../..');
     const ide = CodeLab.mount(mountEl, { files: {} });
 
-    // Before extension: slots are empty
-    const topbarSlot = mountEl.querySelector('#cl-slot-topbar-left');
-    assert.ok(topbarSlot);
-    assert.equal(topbarSlot.children.length, 0);
+    // Before extension: pure IDE, no guided chrome.
+    assert.equal(ide.hasGuidedLab, false);
+    assert.equal(mountEl.querySelectorAll('.codelab-mode-switch').length, 0);
+    assert.equal(mountEl.querySelectorAll('.codelab-guide').length, 0);
 
-    // After extension: slots are populated
-    ide.use(CodeLab.extensions.guidedLab, {
+    // After extension: guided chrome is rendered.
+    ide.use(loadGuidedLab(), {
       steps: [{ id: 's1', title: 'Step 1', instructions: 'Implement hash' }],
       mode: 'guided'
     });
 
-    assert.ok(topbarSlot.children.length > 0, 'Slot must be populated after ide.use()');
-    assert.ok(topbarSlot.querySelector('.codelab-mode-switch'));
+    assert.equal(ide.hasGuidedLab, true);
+    assert.ok(mountEl.querySelector('.codelab-mode-switch'));
+    assert.ok(mountEl.querySelector('.codelab-guide'));
   } finally {
     teardownMockDOM();
   }
@@ -102,7 +106,7 @@ suite.test('P3', 'F3 × F4: Mounting pure IDE and dynamically calling ide.use(gu
 // P4: F3 (Pure Core IDE) × F8 (Minimal Header Branding)
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite.test('P4', 'F3 × F8: Pure IDE renders minimal code-lab brand and icon-only theme button without badges', async () => {
+suite.test('P4', 'F3 × F8: Pure IDE renders the minimal code-lab brand without marketing badges', async () => {
   const doc = setupMockDOM();
   try {
     const mountEl = doc.createElement('div');
@@ -112,11 +116,8 @@ suite.test('P4', 'F3 × F8: Pure IDE renders minimal code-lab brand and icon-onl
     CodeLab.mount(mountEl, { files: {} });
 
     const titleEl = mountEl.querySelector('.codelab-title') || mountEl.querySelector('.codelab-brand');
+    assert.ok(titleEl, 'Brand element must exist');
     assert.equal(titleEl.textContent.trim(), 'code-lab');
-
-    const themeBtn = mountEl.querySelector('#cl-btn-theme') || mountEl.querySelector('#theme-toggle-btn');
-    assert.ok(themeBtn);
-    assert.notEqual(themeBtn.textContent.trim(), 'Theme');
 
     assert.equal(mountEl.querySelectorAll('.studio-badge').length, 0);
     assert.equal(mountEl.querySelectorAll('.preset-pill').length, 0);
@@ -183,17 +184,16 @@ suite.test('P6', 'F6 × F7: ide.cloneRepo on same-origin workbench forwards stre
 // P7: F4 (Modular Guided Lab Extension) × F9 (Downstream system-design Integration)
 // ─────────────────────────────────────────────────────────────────────────────
 
-suite.test('P7', 'F4 × F9: Downstream build labs attach to workbench using guidedLab extension', async () => {
-  const implPath = path.resolve(SYSTEM_DESIGN_ROOT, 'data/implementations_code.js');
-  const content = fs.readFileSync(implPath, 'utf8');
-  const vm = require('node:vm');
-  const ctx = { window: {} };
-  vm.runInNewContext(content, ctx);
-
-  const builds = ctx.window.IMPLEMENTATIONS_DATA || {};
-  const tokenBucket = builds['sliding-window-rate-limiter'] || builds['token-bucket'] || Object.values(builds)[0];
-
-  assert.ok(tokenBucket, 'Sample system design build lab must exist');
+suite.test('P7', 'F4 × F9: Downstream-style build labs attach to workbench using guidedLab extension', async () => {
+  const buildLab = {
+    title: 'Sliding Window Rate Limiter',
+    files: {
+      'rate-limiter.js': 'class RateLimiter {}\nmodule.exports = { RateLimiter };'
+    },
+    steps: [
+      { id: 'step-1', title: 'Step 1: Setup', instructions: 'Setup tokens' }
+    ]
+  };
 
   const doc = setupMockDOM();
   try {
@@ -202,18 +202,17 @@ suite.test('P7', 'F4 × F9: Downstream build labs attach to workbench using guid
 
     const CodeLab = require('../..');
     const ide = CodeLab.mount(mountEl, {
-      title: tokenBucket.title || 'Rate Limiter',
-      files: tokenBucket.files
+      title: buildLab.title,
+      files: buildLab.files
     });
 
-    ide.use(CodeLab.extensions.guidedLab, {
-      steps: [
-        { id: 'step-1', title: 'Step 1: Setup', instructions: 'Setup tokens' }
-      ],
+    ide.use(loadGuidedLab(), {
+      steps: buildLab.steps,
       mode: 'guided'
     });
 
     assert.ok(mountEl.querySelector('.codelab-guide'));
+    assert.equal(ide.steps.length, 1);
   } finally {
     teardownMockDOM();
   }

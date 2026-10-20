@@ -150,6 +150,47 @@ async function run() {
     assert.equal(called, false);
   });
 
+  await test('SW8 HTML responses carry the preview CSP header', async () => {
+    const { listeners } = loadWorker({ onDispatch: defaultReply });
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    const csp = res.headers.get('content-security-policy') || '';
+    assert.match(csp, /default-src 'self' data: blob:/);
+    assert.match(csp, /object-src 'none'/);
+    assert.match(csp, /frame-ancestors 'self'/);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  });
+
+  await test('SW9 HTML body receives exactly one CSP meta tag', async () => {
+    const { listeners } = loadWorker({ onDispatch: defaultReply });
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    const body = await res.text();
+    assert.equal((body.match(/Content-Security-Policy/g) || []).length, 1);
+    assert.equal((body.match(/<base\b/g) || []).length, 1);
+    assert.ok(body.indexOf('Content-Security-Policy') < body.indexOf('<body>'));
+  });
+
+  await test('SW10 non-HTML responses are not rewritten', async () => {
+    const { listeners } = loadWorker({
+      onDispatch: (msg, port) => port.postMessage({
+        status: 200,
+        statusText: 'OK',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"ok":true}'
+      })
+    });
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/api'));
+    assert.equal(await res.text(), '{"ok":true}');
+    assert.equal(res.headers.get('content-security-policy'), null);
+  });
+
+  await test('SW11 error responses carry the preview CSP', async () => {
+    const { listeners } = loadWorker({ clients: [], onDispatch: defaultReply });
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    assert.equal(res.status, 503);
+    assert.match(res.headers.get('content-security-policy') || '', /default-src 'self'/);
+    assert.match(await res.text(), /http-equiv="Content-Security-Policy"/);
+  });
+
   console.log('\n════════════════════════════════════════════════════════════════════════════');
   console.log(`M3 Service Worker Suite Complete: ${passed} passed, ${failed} failed`);
   console.log('════════════════════════════════════════════════════════════════════════════\n');

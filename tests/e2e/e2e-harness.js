@@ -21,6 +21,12 @@ const WIKI_ROOT = fs.existsSync('/tmp/code-lab-wiki-survey')
   ? '/tmp/code-lab-wiki-survey'
   : path.resolve(CODE_LAB_ROOT, '../code-lab.wiki');
 
+// Tests that depend on the author's sibling repositories are skipped unless
+// those repositories are actually present. The suite must be hermetic on a
+// clean clone: no test may fail because an unrelated checkout is missing.
+const HAS_SYSTEM_DESIGN = fs.existsSync(SYSTEM_DESIGN_ROOT);
+const HAS_WIKI = fs.existsSync(WIKI_ROOT);
+
 // ── Virtual DOM Implementation ──────────────────────────────────────────────
 
 class DOMNode {
@@ -604,7 +610,7 @@ function loadSchemas() {
 
   const srcTsPath = path.resolve(CODE_LAB_ROOT, 'src/schemas.ts');
   if (fs.existsSync(srcTsPath)) {
-    const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.js'));
+    const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
     const tsCode = fs.readFileSync(srcTsPath, 'utf8');
     const jsCode = transpileTS(tsCode);
     const mod = { exports: {} };
@@ -618,7 +624,7 @@ function loadSchemas() {
 }
 
 function loadWorkbench() {
-  const wbPath = path.resolve(CODE_LAB_ROOT, 'src/workbench.js');
+  const wbPath = path.resolve(CODE_LAB_ROOT, 'src/workbench.ts');
   const distPath = path.resolve(CODE_LAB_ROOT, 'dist/code-lab.js');
   if (fs.existsSync(distPath)) {
     return require(distPath);
@@ -653,15 +659,27 @@ function runCommand(command, opts = {}) {
 
 function createSuite(tierName, description) {
   const tests = [];
+  const skipped = [];
 
   return {
     test(id, name, fn) {
       tests.push({ id, name, fn });
     },
+    skip(id, name, reason) {
+      skipped.push({ id, name, reason });
+    },
+    skipUnless(condition, id, name, fn, reason) {
+      if (condition) this.test(id, name, fn);
+      else this.skip(id, name, reason || 'prerequisite not available');
+    },
     async run() {
       console.log(`\n═══════════════════════════════════════════════════════════════════════`);
       console.log(`▶ ${tierName}: ${description}`);
       console.log(`═══════════════════════════════════════════════════════════════════════`);
+
+      for (const s of skipped) {
+        console.log(`  ○ [${s.id}] ${s.name} — skipped: ${s.reason}`);
+      }
 
       let passed = 0;
       let failed = 0;
@@ -686,7 +704,7 @@ function createSuite(tierName, description) {
 
       const totalDur = Date.now() - startTime;
       console.log(`───────────────────────────────────────────────────────────────────────`);
-      console.log(`Tier Results: ${passed} passed, ${failed} failed, ${tests.length} total (${totalDur}ms)`);
+      console.log(`Tier Results: ${passed} passed, ${failed} failed, ${skipped.length} skipped (${tests.length} executed, ${totalDur}ms)`);
       if (failed > 0) {
         console.log(`Errors summary:`);
         for (const e of errors) {
@@ -700,6 +718,8 @@ function createSuite(tierName, description) {
         total: tests.length,
         passed,
         failed,
+        skipped: skipped.length,
+        skipDetails: skipped,
         errors,
         durationMs: totalDur
       };
@@ -707,10 +727,46 @@ function createSuite(tierName, description) {
   };
 }
 
+// ── Extension Loader ────────────────────────────────────────────────────────
+
+let cachedGuidedLab = null;
+
+/**
+ * Loads the separately-bundled guided-lab extension.
+ *
+ * The extension is deliberately not part of `dist/code-lab.js` (it pulls in
+ * Zod); it ships as `dist/extensions/guided-lab.js`. That IIFE exposes
+ * `CodeLabGuidedLab`, so evaluate it in a VM context instead of relying on
+ * CommonJS interop.
+ */
+function loadGuidedLab() {
+  if (cachedGuidedLab) return cachedGuidedLab;
+
+  const distPath = path.resolve(CODE_LAB_ROOT, 'dist/extensions/guided-lab.js');
+  if (!fs.existsSync(distPath)) {
+    throw new Error(`Missing guided-lab bundle at ${distPath}. Run \`bun run build\`.`);
+  }
+
+  const vm = require('node:vm');
+  const sandbox = { module: { exports: {} }, exports: {}, console };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(fs.readFileSync(distPath, 'utf8'), sandbox, { filename: distPath });
+
+  const mod = sandbox.CodeLabGuidedLab || sandbox.module.exports || {};
+  const extension = mod.guidedLabExtension || mod.default;
+  if (typeof extension !== 'function') {
+    throw new Error('guided-lab bundle did not export a guidedLabExtension function');
+  }
+  cachedGuidedLab = extension;
+  return cachedGuidedLab;
+}
+
 module.exports = {
   CODE_LAB_ROOT,
   SYSTEM_DESIGN_ROOT,
   WIKI_ROOT,
+  HAS_SYSTEM_DESIGN,
+  HAS_WIKI,
   DOMDocument,
   DOMElement,
   DOMEvent,
@@ -719,6 +775,7 @@ module.exports = {
   mockMonaco,
   loadSchemas,
   loadWorkbench,
+  loadGuidedLab,
   runCommand,
   createSuite
 };

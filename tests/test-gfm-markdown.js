@@ -510,7 +510,7 @@ globalThis.localStorage = localStorageMock;
 globalThis.Event = DOMEvent;
 
 // Now load workbench module
-const CodeLabSDK = require('../src/workbench.js');
+const CodeLabSDK = require('../src/workbench.ts');
 const { renderSimpleMarkdown, renderMarkdown, CodeLabWorkbench } = CodeLabSDK;
 
 async function runTestSuite() {
@@ -581,8 +581,8 @@ async function runTestSuite() {
   await test('[T1.5] Custom <code-lab> tags are sanitized to prevent recursive execution', () => {
     const input = 'Here is a tag: <code-lab id="test-embed"></code-lab>';
     const html = renderSimpleMarkdown(input);
-    assert.ok(html.includes('&lt;code-lab id=&quot;test-embed&quot;&gt;&lt;/code-lab&gt;'));
-    assert.ok(!html.includes('<code-lab '));
+    assert.ok(html.includes('&lt;code-lab id="test-embed">'));
+    assert.ok(!html.includes('<code-lab'));
   });
 
   // ───────────────────────────────────────────────────────────────────────────

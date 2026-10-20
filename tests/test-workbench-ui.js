@@ -576,7 +576,7 @@ const mockMonaco = {
 globalThis.monaco = mockMonaco;
 
 // Require CodeLabWorkbench
-const wbPath = path.resolve(__dirname, '../src/workbench.js');
+const wbPath = path.resolve(__dirname, '../src/workbench.ts');
 const CodeLabModule = require(wbPath);
 const CodeLabWorkbench = CodeLabModule.CodeLabWorkbench || CodeLabModule.Workbench;
 

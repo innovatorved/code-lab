@@ -87,4 +87,7 @@ const { createVirtualFs } = require('../src/runtime.ts');
   }
 
   console.log('✅ cloneGitHubRepository streaming onProgress verified 100%!');
-})();
+})().catch((err) => {
+  console.error('Streaming clone suite failed:', err);
+  process.exitCode = 1;
+});

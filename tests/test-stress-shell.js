@@ -1,14 +1,14 @@
 /**
  * @file test-stress-shell.js
- * Adversarial Stress & Edge Case Test Suite for POSIX Shell Engine (src/shell.js)
+ * Adversarial Stress & Edge Case Test Suite for POSIX Shell Engine (src/shell.ts)
  * Milestone 1 Empirical Verification
  */
 
 'use strict';
 
 const assert = require('node:assert/strict');
-const shellModule = require('../src/shell.js');
-const runtime = require('../src/runtime.js');
+const shellModule = require('../src/shell.ts');
+const runtime = require('../src/runtime.ts');
 
 const results = {
   total: 0,
@@ -34,7 +34,7 @@ async function testCase(name, fn) {
 
 async function runAll() {
   console.log('======================================================================');
-  console.log('  STARTING ADVERSARIAL STRESS TEST SUITE ON src/shell.js');
+  console.log('  STARTING ADVERSARIAL STRESS TEST SUITE ON src/shell.ts');
   console.log('======================================================================\n');
 
   // -------------------------------------------------------------------------

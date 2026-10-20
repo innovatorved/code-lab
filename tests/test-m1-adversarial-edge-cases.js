@@ -82,4 +82,7 @@ const { createVirtualFs } = require('../src/runtime.ts');
   assert.strictEqual(res.stdout.trim(), '20');
 
   console.log('✅ All extreme boundary & adversarial checks passed!');
-})();
+})().catch((err) => {
+  console.error('Edge-case suite failed:', err);
+  process.exitCode = 1;
+});

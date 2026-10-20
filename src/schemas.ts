@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Zod Schemas and Inferred TypeScript Types for code-lab v2.0.0
+ * Zod Schemas and Inferred TypeScript Types for code-lab v0.1.6
  */
 
 // ── 1. Guided Step ──────────────────────────────────────────────────────────
@@ -152,6 +152,9 @@ export const WorkbenchOptionsSchema = z.object({
   testFile: z.string().optional(),
   backLabel: z.string().default('Back'),
   monacoUrl: z.string().optional(),
+  previewOrigin: z.string().optional(),
+  logger: z.any().optional(),
+  debug: z.boolean().optional(),
   onClose: z.function().returns(z.void()).optional(),
   onRun: z.function().args(z.any()).returns(z.void()).optional(),
   onTestResult: z.function().args(z.any()).returns(z.void()).optional(),

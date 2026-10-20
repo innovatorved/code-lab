@@ -20,8 +20,8 @@ const assert = require('node:assert/strict');
 // Shared DOM/browser mock (installs globalThis.document/window/localStorage/Event).
 const { DOMEvent, DOMDocument, doc, localStorageStore } = require('./helpers/mock-dom.js');
 
-const runtime = require('../src/runtime.js');
-const CodeLabSDK = require('../src/workbench.js');
+const runtime = require('../src/runtime.ts');
+const CodeLabSDK = require('../src/workbench.ts');
 const { CodeLabWorkbench } = CodeLabSDK;
 
 function makeContainer() {

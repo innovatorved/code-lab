@@ -183,10 +183,14 @@ async function runSuite() {
 
   console.log('\n--- Suite E: honest version metadata in the shipped declarations ---');
 
-  await test('E1 code-lab.d.ts header carries the SDK version, not a stale 1.x string', () => {
+  await test('E1 code-lab.d.ts header carries the package.json version', () => {
     const dts = fs.readFileSync(path.join(DIST, 'code-lab.d.ts'), 'utf8');
     assert.doesNotMatch(dts, /v1\.4\.0/, 'stale v1.4.0 header leaked into dist/code-lab.d.ts');
-    assert.match(dts, /@innovatorved\/code-lab v2\.0\.0/, 'expected the v2.0.0 SDK banner');
+    assert.match(
+      dts,
+      new RegExp(`@innovatorved/code-lab v${pkg.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+      `expected the v${pkg.version} SDK banner`
+    );
   });
 
   console.log('\n--- Suite F: ESM parity holds for the subpath maps the docs promise ---');

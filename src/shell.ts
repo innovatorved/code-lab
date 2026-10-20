@@ -1,64 +1,55 @@
 // @ts-nocheck
-'use strict';
 /**
- * @innovatorved/code-lab - POSIX Shell Engine & UNIX Coreutils (TypeScript)
+ * @innovatorved/code-lab - POSIX Shell Engine & UNIX Coreutils
  *
  * Full-fidelity, CSP-safe POSIX shell AST interpreter and 35+ standard UNIX
  * coreutils operating directly on the in-memory virtual filesystem (VFS).
  *
+ * Capabilities:
+ * - Deterministic lexer and AST parser (zero dynamic eval, zero new Function)
+ * - Pipelines (cmd1 | cmd2 | cmd3) with streaming stdin/stdout chaining
+ * - Output redirection (>, >>, 1>, 2>, 2>&1, 1>&2, &>)
+ * - Input redirection (<, 0<)
+ * - Logical operators (&&, ||, ;)
+ * - Background job execution (cmd &) with job table & PID tracking
+ * - Variable expansion ($VAR, ${VAR}, ${VAR:-def}, $?, $PWD, $HOME, $USER)
+ * - Command substitution ($(cmd), `cmd`)
+ * - Glob expansion (*.js, src/**\/*.ts, [0-9]*.txt) against VFS
+ * - 40+ UNIX coreutils (ls, cd, pwd, cat, head, tail, grep, find, wc, sort, uniq,
+ *   sed, awk, cut, tr, diff, tree, cp, mv, rm, mkdir, touch, chmod, stat, echo,
+ *   printf, env, export, unset, which, whoami, uname, date, sleep, true, false,
+ *   clear, history, ps, jobs, kill, git, help, dirname, basename, seq, tee)
+ * - Bidirectional VFS mutation bridge (touch, mkdir, rm, mv, cp, echo >, sed -i)
+ *
  * (C) 2026 InnovatorVed / CodeLab. MIT License.
  */
 
-import type { CloneProgressEvent, CloneProgressPhase, GitHubCloneOptions } from './schemas.js';
-
-export type { CloneProgressEvent, CloneProgressPhase, GitHubCloneOptions };
-
-export interface CloneResult {
-  owner: string;
-  repo: string;
-  branch: string;
-  url: string;
-  targetDir: string;
-  count: number;
-  fileCount: number;
-  filesWritten: number;
-  totalBytes: number;
-  commits: Array<{ hash: string; author: string; date: string; message: string }>;
-  headSnapshot: Record<string, string>;
-}
-
-export interface ShellExecResult {
-  code: number;
-  exitCode?: number;
-  ok?: boolean;
-  stdout: string;
-  stderr: string;
-  controlFlow?: { type: string; count?: number; code?: number };
-  aborted?: boolean;
-}
-
-export interface ShellExecOptions {
-  cwd?: string;
-  env?: Record<string, string>;
-  vfs?: any;
-  portTable?: any;
-  onStdout?: (chunk: string) => void;
-  onStderr?: (chunk: string) => void;
-  stdin?: string;
-  fetchImpl?: any;
-  onProgress?: (event: CloneProgressEvent) => void;
-  signal?: AbortSignal;
-}
-
-function __initShellModule(root: any) {
-
+(function (root, factory) {
+  const exports = factory(root);
+  if (root) {
+    root.CodeLabShell = exports;
+    root.createPosixShell = exports.createPosixShell;
+    root.PosixShell = exports.PosixShell;
+    root.parseShellCommand = exports.parseShellCommand;
+    root.tokenizeShell = exports.tokenizeShell;
+    root.COREUTILS = exports.COREUTILS;
+    root.createVirtualPortTable = exports.createVirtualPortTable;
+    root.parseGitHubRepoUrl = exports.parseGitHubRepoUrl;
+    root.cloneGitHubRepository = exports.cloneGitHubRepository;
+  }
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exports;
+  } else if (typeof define === 'function' && define.amd) {
+    define([], function () { return exports; });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
 
   function getRuntimeModule() {
     if (typeof root !== 'undefined' && root && root.CodeLabRuntime) return root.CodeLabRuntime;
     if (typeof globalThis !== 'undefined' && globalThis.CodeLabRuntime) return globalThis.CodeLabRuntime;
     try {
-      if (typeof require !== 'undefined') { try { return require('./runtime.js'); } catch (_) {} try { return require('./runtime'); } catch (_) {} try { return require('../dist/runtime.js'); } catch (_) {} }
+      if (typeof require !== 'undefined') return require('./runtime.js');
     } catch (_) {}
     return null;
   }
@@ -1995,325 +1986,302 @@ function __initShellModule(root: any) {
     return 10 + depth * 0.1;
   }
 
-  async function cloneGitHubRepository(repoInput, vfs, options = {}) {
+  async function _cloneGitHubRepository(repoInput, vfs, options = {}) {
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+    if (onProgress) {
+      onProgress({ phase: 'connecting', message: `Connecting to repository '${repoInput}'...` });
+    }
+    const parsed = parseGitHubRepoUrl(repoInput);
+    if (!parsed) {
+      throw new Error(`fatal: repository '${repoInput}' does not exist or is not a valid GitHub repository URL`);
+    }
+    if (!vfs) {
+      throw new Error('fatal: virtual filesystem (vfs) is required to clone repository');
+    }
 
+    const fetchFn = options.fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+    if (!fetchFn) {
+      throw new Error('fatal: global fetch API is unavailable in this environment');
+    }
+
+    const targetDir = PosixPath.normalize(options.targetDir || '/workspace');
+    const maxFiles = options.maxFiles || 250;
+    const maxFileSize = options.maxFileSize || 512 * 1024;
+    const requestedBranch = options.branch || parsed.branch || null;
+    const { owner, repo } = parsed;
+
+    const signal = options.signal || null;
+    const throwIfAborted = () => {
+      if (signal && signal.aborted) {
+        const abortErr = new Error('fatal: clone cancelled (SIGINT)');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+    };
+    throwIfAborted();
+
+    let resolvedBranch = requestedBranch;
+    let rawTreeEntries = null;
+    let repoNotFound = false;
+
+    if (onProgress) {
+      onProgress({ phase: 'metadata', message: `Fetching repository metadata for ${owner}/${repo}...` });
+    }
+
+    // Strategy A: GitHub REST API (with automatic fallback if rate-limited)
     try {
-      if (onProgress) {
-        onProgress({
-          phase: 'connecting',
-          message: `Connecting to repository '${repoInput}'...`
+      if (!resolvedBranch) {
+        const metaRes = await fetchFn(`https://api.github.com/repos/${owner}/${repo}`, {
+          headers: { Accept: 'application/vnd.github.v3+json' },
+          signal
         });
-      }
-
-      const parsed = parseGitHubRepoUrl(repoInput);
-      if (!parsed) {
-        throw new Error(`fatal: repository '${repoInput}' does not exist or is not a valid GitHub repository URL`);
-      }
-      if (!vfs) {
-        throw new Error('fatal: virtual filesystem (vfs) is required to clone repository');
-      }
-
-      const fetchFn = options.fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
-      if (!fetchFn) {
-        throw new Error('fatal: global fetch API is unavailable in this environment');
-      }
-
-      const targetDir = PosixPath.normalize(options.targetDir || '/workspace');
-      const maxFiles = options.maxFiles || 250;
-      const maxFileSize = options.maxFileSize || 512 * 1024;
-      const requestedBranch = options.branch || parsed.branch || null;
-      const { owner, repo } = parsed;
-
-      const signal = options.signal || null;
-      const throwIfAborted = () => {
-        if (signal && signal.aborted) {
-          const abortErr = new Error('fatal: clone cancelled (SIGINT)');
-          abortErr.name = 'AbortError';
-          throw abortErr;
+        if (metaRes.status === 404) {
+          repoNotFound = true;
+        } else if (metaRes.ok) {
+          const metaJson = await metaRes.json();
+          if (metaJson && metaJson.default_branch) {
+            resolvedBranch = metaJson.default_branch;
+          }
         }
-      };
-      throwIfAborted();
-
-      if (onProgress) {
-        onProgress({
-          phase: 'metadata',
-          message: `Fetching repository metadata for ${owner}/${repo}...`
-        });
       }
 
-      let resolvedBranch = requestedBranch;
-      let rawTreeEntries = null;
-      let repoNotFound = false;
+      if (!repoNotFound) {
+        const branchCandidates = requestedBranch
+          ? [requestedBranch]
+          : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
 
-      // Strategy A: GitHub REST API (with automatic fallback if rate-limited)
+        for (const cand of branchCandidates) {
+          throwIfAborted();
+          const treeRes = await fetchFn(
+            `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(cand)}?recursive=1`,
+            { headers: { Accept: 'application/vnd.github.v3+json' }, signal }
+          );
+          if (treeRes.ok) {
+            const treeJson = await treeRes.json();
+            if (treeJson && Array.isArray(treeJson.tree)) {
+              resolvedBranch = cand;
+              rawTreeEntries = treeJson.tree
+                .filter((item) => item && item.type === 'blob' && item.path)
+                .map((item) => ({ path: item.path.replace(/^\/+/, ''), size: item.size || 0 }));
+              break;
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Network or rate limit error on api.github.com; proceed to Strategy B
+    }
+
+    // Strategy B: jsDelivr Data API (Zero rate limits, fast global edge cache)
+    if (!rawTreeEntries && !repoNotFound) {
       try {
-        if (!resolvedBranch) {
-          const metaRes = await fetchFn(`https://api.github.com/repos/${owner}/${repo}`, {
-            headers: { Accept: 'application/vnd.github.v3+json' },
-            signal
-          });
-          if (metaRes.status === 404) {
-            repoNotFound = true;
-          } else if (metaRes.ok) {
-            const metaJson = await metaRes.json();
-            if (metaJson && metaJson.default_branch) {
-              resolvedBranch = metaJson.default_branch;
+        const branchCandidates = requestedBranch
+          ? [requestedBranch]
+          : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
+
+        for (const cand of branchCandidates) {
+          throwIfAborted();
+          const flatRes = await fetchFn(
+            `https://data.jsdelivr.com/v1/package/gh/${owner}/${repo}@${encodeURIComponent(cand)}/flat`,
+            { signal }
+          );
+          if (flatRes && flatRes.ok) {
+            const flatJson = await flatRes.json();
+            if (flatJson && Array.isArray(flatJson.files) && flatJson.files.length > 0) {
+              resolvedBranch = cand;
+              rawTreeEntries = flatJson.files
+                .filter((f) => f && f.name)
+                .map((f) => ({ path: f.name.replace(/^\/+/, ''), size: f.size || 0 }));
+              break;
             }
           }
         }
+      } catch (_) {}
+    }
 
-        if (!repoNotFound) {
-          const branchCandidates = requestedBranch
-            ? [requestedBranch]
-            : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
+    if (repoNotFound || !rawTreeEntries) {
+      throw new Error(`fatal: repository '${parsed.url}' not found or could not be fetched`);
+    }
 
-          for (const cand of branchCandidates) {
-            throwIfAborted();
-            const treeRes = await fetchFn(
-              `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(cand)}?recursive=1`,
-              { headers: { Accept: 'application/vnd.github.v3+json' }, signal }
-            );
-            if (treeRes.ok) {
-              const treeJson = await treeRes.json();
-              if (treeJson && Array.isArray(treeJson.tree)) {
-                resolvedBranch = cand;
-                rawTreeEntries = treeJson.tree
-                  .filter((item) => item && item.type === 'blob' && item.path)
-                  .map((item) => ({ path: item.path.replace(/^\/+/, ''), size: item.size || 0 }));
-                break;
-              }
+    // Filter subpath if specified (e.g. /tree/main/examples)
+    const subPrefix = parsed.subpath ? parsed.subpath.replace(/^\/+|\/+$/g, '') + '/' : null;
+    const filtered = [];
+    for (const item of rawTreeEntries) {
+      let destPath = item.path;
+      if (subPrefix) {
+        if (item.path === parsed.subpath) {
+          destPath = PosixPath.basename(item.path);
+        } else if (item.path.startsWith(subPrefix)) {
+          destPath = item.path.slice(subPrefix.length);
+        } else {
+          continue;
+        }
+      }
+      if (!destPath || destPath.startsWith('.git/') || destPath.includes('/node_modules/') || destPath.startsWith('node_modules/')) {
+        continue;
+      }
+      if (BINARY_OR_HEAVY_EXT_RE.test(destPath)) {
+        continue;
+      }
+      if (item.size && item.size > maxFileSize) {
+        continue;
+      }
+      filtered.push({
+        repoPath: item.path,
+        destPath,
+        size: item.size || 0,
+        priority: scoreRepoFilePriority(destPath)
+      });
+    }
+
+    filtered.sort((a, b) => a.priority - b.priority || a.destPath.localeCompare(b.destPath));
+    const selectedFiles = filtered.slice(0, maxFiles);
+    const totalToDownload = selectedFiles.length;
+
+    if (onProgress) {
+      onProgress({ phase: 'downloading', message: `Downloading files (0/${totalToDownload})...`, loaded: 0, total: totalToDownload });
+    }
+
+    if (!vfs.existsSync(targetDir)) {
+      vfs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const headSnapshot = {};
+    let filesWritten = 0;
+    let totalBytes = 0;
+    const BATCH_SIZE = 12;
+
+    for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
+      throwIfAborted();
+      const batch = selectedFiles.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (entry) => {
+          throwIfAborted();
+          const encodedPath = entry.repoPath.split('/').map(encodeURIComponent).join('/');
+          const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
+          const cdnUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
+
+          let text = null;
+          try {
+            const r1 = await fetchFn(rawUrl, { signal });
+            if (r1 && r1.ok) {
+              text = await r1.text();
             }
+          } catch (_) {
+            if (signal && signal.aborted) throw _;
           }
-        }
-      } catch (_) {
-        // Network or rate limit error on api.github.com; proceed to Strategy B
-      }
 
-      // Strategy B: jsDelivr Data API (Zero rate limits, fast global edge cache)
-      if (!rawTreeEntries && !repoNotFound) {
-        try {
-          const branchCandidates = requestedBranch
-            ? [requestedBranch]
-            : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
-
-          for (const cand of branchCandidates) {
-            throwIfAborted();
-            const flatRes = await fetchFn(
-              `https://data.jsdelivr.com/v1/package/gh/${owner}/${repo}@${encodeURIComponent(cand)}/flat`,
-              { signal }
-            );
-            if (flatRes && flatRes.ok) {
-              const flatJson = await flatRes.json();
-              if (flatJson && Array.isArray(flatJson.files) && flatJson.files.length > 0) {
-                resolvedBranch = cand;
-                rawTreeEntries = flatJson.files
-                  .filter((f) => f && f.name)
-                  .map((f) => ({ path: f.name.replace(/^\/+/, ''), size: f.size || 0 }));
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (repoNotFound || !rawTreeEntries) {
-        throw new Error(`fatal: repository '${parsed.url}' not found or could not be fetched`);
-      }
-
-      // Filter subpath if specified (e.g. /tree/main/examples)
-      const subPrefix = parsed.subpath ? parsed.subpath.replace(/^\/+|\/+$/g, '') + '/' : null;
-      const filtered = [];
-      for (const item of rawTreeEntries) {
-        let destPath = item.path;
-        if (subPrefix) {
-          if (item.path === parsed.subpath) {
-            destPath = PosixPath.basename(item.path);
-          } else if (item.path.startsWith(subPrefix)) {
-            destPath = item.path.slice(subPrefix.length);
-          } else {
-            continue;
-          }
-        }
-        if (!destPath || destPath.startsWith('.git/') || destPath.includes('/node_modules/') || destPath.startsWith('node_modules/')) {
-          continue;
-        }
-        if (BINARY_OR_HEAVY_EXT_RE.test(destPath)) {
-          continue;
-        }
-        if (item.size && item.size > maxFileSize) {
-          continue;
-        }
-        filtered.push({
-          repoPath: item.path,
-          destPath,
-          size: item.size || 0,
-          priority: scoreRepoFilePriority(destPath)
-        });
-      }
-
-      filtered.sort((a, b) => a.priority - b.priority || a.destPath.localeCompare(b.destPath));
-      const selectedFiles = filtered.slice(0, maxFiles);
-      const totalToDownload = selectedFiles.length;
-
-      if (onProgress) {
-        onProgress({
-          phase: 'downloading',
-          message: `Downloading files (0/${totalToDownload})...`,
-          loaded: 0,
-          total: totalToDownload
-        });
-      }
-
-      if (!vfs.existsSync(targetDir)) {
-        vfs.mkdirSync(targetDir, { recursive: true });
-      }
-
-      const headSnapshot = {};
-      let filesWritten = 0;
-      let totalBytes = 0;
-      const BATCH_SIZE = 12;
-
-      for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
-        throwIfAborted();
-        const batch = selectedFiles.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(async (entry) => {
-            throwIfAborted();
-            const encodedPath = entry.repoPath.split('/').map(encodeURIComponent).join('/');
-            const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
-            const cdnUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${encodeURIComponent(resolvedBranch)}/${encodedPath}`;
-
-            let text = null;
+          if (text === null) {
             try {
-              const r1 = await fetchFn(rawUrl, { signal });
-              if (r1 && r1.ok) {
-                text = await r1.text();
+              const r2 = await fetchFn(cdnUrl, { signal });
+              if (r2 && r2.ok) {
+                text = await r2.text();
               }
             } catch (_) {
               if (signal && signal.aborted) throw _;
             }
+          }
 
-            if (text === null) {
-              try {
-                const r2 = await fetchFn(cdnUrl, { signal });
-                if (r2 && r2.ok) {
-                  text = await r2.text();
-                }
-              } catch (_) {
-                if (signal && signal.aborted) throw _;
-              }
+          if (text !== null && text.length <= maxFileSize) {
+            const absPath = PosixPath.join(targetDir, entry.destPath);
+            const parentDir = PosixPath.dirname(absPath);
+            if (!vfs.existsSync(parentDir)) {
+              vfs.mkdirSync(parentDir, { recursive: true });
             }
-
-            if (text !== null && text.length <= maxFileSize) {
-              const absPath = PosixPath.join(targetDir, entry.destPath);
-              const parentDir = PosixPath.dirname(absPath);
-              if (!vfs.existsSync(parentDir)) {
-                vfs.mkdirSync(parentDir, { recursive: true });
-              }
-              vfs.writeFileSync(absPath, text);
-              headSnapshot[entry.destPath] = text;
-              filesWritten++;
-              totalBytes += text.length;
-
-              if (onProgress) {
-                onProgress({
-                  phase: 'downloading',
-                  message: `Downloading files (${filesWritten}/${totalToDownload}): ${entry.destPath}`,
-                  loaded: filesWritten,
-                  total: totalToDownload
-                });
-              }
-
-              if (typeof options.onFile === 'function') {
-                options.onFile(absPath, text, entry.destPath);
-              }
+            vfs.writeFileSync(absPath, text);
+            headSnapshot[entry.destPath] = text;
+            filesWritten++;
+            totalBytes += text.length;
+            if (onProgress) {
+              onProgress({ phase: 'downloading', message: `Downloading files (${filesWritten}/${totalToDownload}): ${entry.destPath}`, loaded: filesWritten, total: totalToDownload });
             }
-          })
-        );
-      }
-
-      throwIfAborted();
-
-      if (onProgress) {
-        onProgress({
-          phase: 'mounting',
-          message: `Mounting files and writing Git metadata into ${targetDir}...`,
-          loaded: filesWritten,
-          total: totalToDownload
-        });
-      }
-
-      // Write .git metadata inside targetDir
-      const gitDir = PosixPath.join(targetDir, '.git');
-      if (!vfs.existsSync(gitDir)) {
-        vfs.mkdirSync(gitDir, { recursive: true });
-      }
-      vfs.writeFileSync(PosixPath.join(gitDir, 'HEAD'), `ref: refs/heads/${resolvedBranch}\n`);
-      vfs.writeFileSync(
-        PosixPath.join(gitDir, 'config'),
-        `[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n[remote "origin"]\n\turl = ${parsed.url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[branch "${resolvedBranch}"]\n\tremote = origin\n\tmerge = refs/heads/${resolvedBranch}\n`
+            if (typeof options.onFile === 'function') {
+              options.onFile(absPath, text, entry.destPath);
+            }
+          }
+        })
       );
+    }
 
-      // Fetch recent commits (best-effort)
-      let commits = [];
-      try {
-        const commitsRes = await fetchFn(
-          `https://api.github.com/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(resolvedBranch)}&per_page=10`,
-          { headers: { Accept: 'application/vnd.github.v3+json' }, signal }
-        );
-        if (commitsRes && commitsRes.ok) {
-          const commitsJson = await commitsRes.json();
-          if (Array.isArray(commitsJson) && commitsJson.length > 0) {
-            commits = commitsJson.map((c) => ({
-              hash: String(c.sha || 'a1b2c3d').slice(0, 7),
-              author:
-                c.commit && c.commit.author
-                  ? `${c.commit.author.name || owner} <${c.commit.author.email || `${owner}@users.noreply.github.com`}>`
-                  : `${owner} <${owner}@users.noreply.github.com>`,
-              date:
-                c.commit && c.commit.author && c.commit.author.date
-                  ? new Date(c.commit.author.date).toUTCString()
-                  : new Date().toUTCString(),
-              message: c.commit && c.commit.message ? String(c.commit.message).split('\n')[0] : 'Commit'
-            }));
-          }
+    throwIfAborted();
+
+    if (onProgress) {
+      onProgress({ phase: 'mounting', message: `Mounting files and writing Git metadata into ${targetDir}...`, loaded: filesWritten, total: totalToDownload });
+    }
+
+    // Write .git metadata inside targetDir
+    const gitDir = PosixPath.join(targetDir, '.git');
+    if (!vfs.existsSync(gitDir)) {
+      vfs.mkdirSync(gitDir, { recursive: true });
+    }
+    vfs.writeFileSync(PosixPath.join(gitDir, 'HEAD'), `ref: refs/heads/${resolvedBranch}\n`);
+    vfs.writeFileSync(
+      PosixPath.join(gitDir, 'config'),
+      `[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n[remote "origin"]\n\turl = ${parsed.url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[branch "${resolvedBranch}"]\n\tremote = origin\n\tmerge = refs/heads/${resolvedBranch}\n`
+    );
+
+    // Fetch recent commits (best-effort)
+    let commits = [];
+    try {
+      const commitsRes = await fetchFn(
+        `https://api.github.com/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(resolvedBranch)}&per_page=10`,
+        { headers: { Accept: 'application/vnd.github.v3+json' }, signal }
+      );
+      if (commitsRes && commitsRes.ok) {
+        const commitsJson = await commitsRes.json();
+        if (Array.isArray(commitsJson) && commitsJson.length > 0) {
+          commits = commitsJson.map((c) => ({
+            hash: String(c.sha || 'a1b2c3d').slice(0, 7),
+            author:
+              c.commit && c.commit.author
+                ? `${c.commit.author.name || owner} <${c.commit.author.email || `${owner}@users.noreply.github.com`}>`
+                : `${owner} <${owner}@users.noreply.github.com>`,
+            date:
+              c.commit && c.commit.author && c.commit.author.date
+                ? new Date(c.commit.author.date).toUTCString()
+                : new Date().toUTCString(),
+            message: c.commit && c.commit.message ? String(c.commit.message).split('\n')[0] : 'Commit'
+          }));
         }
-      } catch (_) {}
-
-      if (commits.length === 0) {
-        commits = [
-          {
-            hash: 'a1b2c3d',
-            author: `${owner} <${owner}@users.noreply.github.com>`,
-            date: new Date().toUTCString(),
-            message: `Clone ${owner}/${repo} (${resolvedBranch})`
-          }
-        ];
       }
+    } catch (_) {}
 
-      if (onProgress) {
-        onProgress({
-          phase: 'ready',
-          message: `Repository cloned successfully (${filesWritten} files).`,
-          loaded: filesWritten,
-          total: totalToDownload
-        });
-      }
+    if (commits.length === 0) {
+      commits = [
+        {
+          hash: 'a1b2c3d',
+          author: `${owner} <${owner}@users.noreply.github.com>`,
+          date: new Date().toUTCString(),
+          message: `Clone ${owner}/${repo} (${resolvedBranch})`
+        }
+      ];
+    }
 
-      return {
-        owner,
-        repo,
-        branch: resolvedBranch,
-        url: parsed.url,
-        targetDir,
-        count: filesWritten,
-        fileCount: filesWritten,
-        filesWritten,
-        totalBytes,
-        commits,
-        headSnapshot
-      };
+    if (onProgress) {
+      onProgress({ phase: 'ready', message: `Repository cloned successfully (${filesWritten} files).`, loaded: filesWritten, total: totalToDownload });
+    }
+
+    return {
+      owner,
+      repo,
+      branch: resolvedBranch,
+      url: parsed.url,
+      targetDir,
+      count: filesWritten,
+      fileCount: filesWritten,
+      filesWritten,
+      totalBytes,
+      commits,
+      headSnapshot
+    };
+  }
+
+  // Public wrapper: guarantee an `error` progress event when the clone fails
+  // for any reason (invalid URL, missing vfs, fetch rejection, abort, ...).
+  async function cloneGitHubRepository(repoInput, vfs, options = {}) {
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+    try {
+      return await _cloneGitHubRepository(repoInput, vfs, options);
     } catch (err) {
       if (onProgress) {
         onProgress({
@@ -2643,16 +2611,16 @@ function __initShellModule(root: any) {
     // parent actually asked for — e.g. chalk@4 needs ansi-styles@^4, which itself
     // needs color-convert. Resolving transitive names as "latest" silently breaks
     // the tree (ansi-styles@6 has no deps at all).
-    const depSpecs: Array<{ name: string; range: string | null }> = [];
-    const depSeen = new Set<string>();
-    const declared = (meta.dependencies || {}) as Record<string, string>;
+    const depSpecs = [];
+    const depSeen = new Set();
+    const declared = meta.dependencies || {};
     for (const depName of Object.keys(declared)) {
       if (depSeen.has(depName)) continue;
       depSeen.add(depName);
       depSpecs.push({ name: depName, range: declared[depName] || null });
     }
     const peerMeta = meta.peerDependenciesMeta || {};
-    const peers = (meta.peerDependencies || {}) as Record<string, string>;
+    const peers = meta.peerDependencies || {};
     for (const peer of Object.keys(peers)) {
       if (peerMeta[peer] && peerMeta[peer].optional) continue;
       if (depSeen.has(peer)) continue;
@@ -7304,17 +7272,11 @@ function __initShellModule(root: any) {
     parseGitHubRepoUrl,
     cloneGitHubRepository
   };
+});
 
-}
-
-const _hostShell: any = __initShellModule(typeof globalThis !== 'undefined' ? globalThis : this);
-
-if (typeof globalThis !== 'undefined') {
-  (globalThis as any).CodeLabShell = _hostShell;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = _hostShell;
-}
+// ── TypeScript module surface (stripped from browser bundles) ──────────────
+const _hostShell: any = (typeof globalThis !== 'undefined' ? (globalThis as any).CodeLabShell : undefined)
+  || (typeof module !== 'undefined' && module.exports ? module.exports : {});
 
 export const createPosixShell: (options?: any) => any = _hostShell.createPosixShell;
 export const parseShellCommand: (cmd: string) => any = _hostShell.parseShellCommand;
@@ -7325,7 +7287,7 @@ export const PosixPath: any = _hostShell.PosixPath;
 export const expandGlob: (pattern: string, vfs: any, cwd?: string) => string[] = _hostShell.expandGlob;
 export const createVirtualPortTable: () => any = _hostShell.createVirtualPortTable;
 export const parseGitHubRepoUrl: (input: string) => any = _hostShell.parseGitHubRepoUrl;
-export const cloneGitHubRepository: (repoInput: string, vfs: any, options?: GitHubCloneOptions) => Promise<CloneResult> = _hostShell.cloneGitHubRepository;
+export const cloneGitHubRepository: (repoInput: string, vfs: any, options?: any) => Promise<any> = _hostShell.cloneGitHubRepository;
 export const CodeLabShell: any = _hostShell;
 
 export default _hostShell;
