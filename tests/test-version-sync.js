@@ -171,12 +171,22 @@ test('repository governance files exist and are non-empty', () => {
     'SECURITY.md',
     'CHANGELOG.md',
     'CONTRIBUTING.md',
-    '.github/dependabot.yml'
+    '.github/dependabot.yml',
+    '.github/workflows/release.yml'
   ]) {
     const full = path.join(ROOT, rel);
     assert.ok(fs.existsSync(full), `missing ${rel}`);
     assert.ok(fs.statSync(full).size > 50, `${rel} is unexpectedly empty`);
   }
+  const releaseYml = read('.github/workflows/release.yml');
+  assert.ok(
+    releaseYml.includes('npm publish --provenance --access public'),
+    'release.yml must publish with npm provenance'
+  );
+  assert.ok(
+    releaseYml.includes('bun run pack:check'),
+    'release.yml must verify the publishable tarball via pack:check'
+  );
 });
 
 console.log('\n════════════════════════════════════════════════════════════════════════════');
