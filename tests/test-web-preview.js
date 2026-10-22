@@ -292,6 +292,63 @@ async function runSuite() {
     assert.ok(wb.terminalLogs.some((l) => /No index\.html found/.test(l.text)), 'shows guidance');
   });
 
+  await test('C11 hardcoded CDN URLs are aliased to the project-resolved version', async () => {
+    const wb = new CodeLabWorkbench(makeContainer(), {
+      labId: 'm3-preview-pinned-cdn',
+      files: {
+        'package.json': JSON.stringify({ dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' } }),
+        'index.html': '<!doctype html><html><head></head><body>' +
+          '<script type="module">' +
+          'import React from "https://cdn.jsdelivr.net/npm/react@19.3.1/+esm";' +
+          'import { createRoot } from "https://esm.sh/react-dom@19.3.1/client";' +
+          'console.log(React, createRoot);' +
+          '</script></body></html>'
+      }
+    });
+    const port = await wb.previewApp();
+    const res = await wb.portTable.dispatchRequest(`http://127.0.0.1:${port}/`);
+    const html = await res.text();
+
+    const importMapMatch = /<script type="importmap">\n([\s\S]*?)\n<\/script>/.exec(html);
+    assert.ok(importMapMatch, 'served HTML carries an import map');
+    const imports = JSON.parse(importMapMatch[1]).imports;
+
+    // A pinned URL must resolve through the import map, otherwise it bypasses the
+    // project's declared version and the multi-CDN fallback.
+    assert.equal(
+      imports['https://cdn.jsdelivr.net/npm/react@19.3.1/+esm'],
+      'https://cdn.jsdelivr.net/npm/react@^19.0.0/+esm',
+      'pinned React URL resolves to the declared version'
+    );
+    assert.equal(
+      imports['https://esm.sh/react-dom@19.3.1/client'],
+      'https://cdn.jsdelivr.net/npm/react-dom@^19.0.0/client/+esm',
+      'pinned esm.sh subpath resolves to the declared version'
+    );
+  });
+
+  await test('C12 without a package.json a pinned CDN URL keeps its pinned version', async () => {
+    const wb = new CodeLabWorkbench(makeContainer(), {
+      labId: 'm3-preview-pinned-cdn-bare',
+      files: {
+        'index.html': '<!doctype html><html><head></head><body>' +
+          '<script type="module">import React from "https://cdn.jsdelivr.net/npm/react@19.3.1/+esm";</script>' +
+          '</body></html>'
+      }
+    });
+    const port = await wb.previewApp();
+    const res = await wb.portTable.dispatchRequest(`http://127.0.0.1:${port}/`);
+    const html = await res.text();
+    const importMapMatch = /<script type="importmap">\n([\s\S]*?)\n<\/script>/.exec(html);
+    const imports = JSON.parse(importMapMatch[1]).imports;
+    const mapped = imports['https://cdn.jsdelivr.net/npm/react@19.3.1/+esm'];
+    assert.ok(
+      mapped === undefined || mapped === 'https://cdn.jsdelivr.net/npm/react@19.3.1/+esm',
+      `a pinned version must not be rewritten to @latest (got ${mapped})`
+    );
+  });
+
+
   console.log('\n--- Suite D: Service Worker Bridge ---');
 
   await test('D1 _handleServiceWorkerMessage dispatches via the port table and replies', async () => {

@@ -195,7 +195,12 @@ export function buildPreviewPolicy(options: PreviewCspOptions = {}): string {
 
   const directive = (name: string, parts: string[]): string => `${name} ${unique(parts).join(' ')}`;
 
-  const script = (): string[] => [self, 'blob:', "'unsafe-inline'", "'unsafe-eval'"].concat(sourcesFor(mode, allow, 'scriptSrc'));
+  // `data:` is required for scripts: the preview import map serves every local
+  // module as `data:text/javascript;...` so it works in a sandboxed frame (see
+  // buildHtmlPreviewResponse in src/shell.ts). Without it, any project with
+  // local ES modules fails to boot. `'unsafe-inline'` already allows inline
+  // script, so this does not widen the practical attack surface.
+  const script = (): string[] => [self, 'data:', 'blob:', "'unsafe-inline'", "'unsafe-eval'"].concat(sourcesFor(mode, allow, 'scriptSrc'));
   const style = (): string[] => [self, "'unsafe-inline'"].concat(sourcesFor(mode, allow, 'styleSrc'));
   const withData = (key: keyof PreviewCspSources): string[] => [self, 'data:', 'blob:'].concat(sourcesFor(mode, allow, key));
 

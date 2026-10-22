@@ -57,7 +57,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.1.9';
+  const CODELAB_VERSION = '0.1.10';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -1364,6 +1364,11 @@ declare module 'bun:sqlite' {
       this.explorerWidth = (typeof this.savedState?.explorerWidth === 'number' && this.savedState.explorerWidth >= 120)
         ? this.savedState.explorerWidth
         : 196;
+      // 0 = use the default 44% track; otherwise a pixel width chosen by dragging
+      // the preview splitter.
+      this.previewSplitWidth = (typeof this.savedState?.previewSplitWidth === 'number' && this.savedState.previewSplitWidth >= 200)
+        ? this.savedState.previewSplitWidth
+        : 0;
       this.folderSwitcherOpen = false;
       this.creatingItem = null; // { type: 'file' | 'folder', parentFolder: string } | null
       this.renamingItem = null;
@@ -1756,7 +1761,8 @@ declare module 'bun:sqlite' {
           folders: Array.from(this.folders || []),
           collapsedFolders: Array.from(this.collapsedFolders || []),
           explorerFolder: this.explorerFolder || '',
-          explorerWidth: typeof this.explorerWidth === 'number' ? this.explorerWidth : undefined
+          explorerWidth: typeof this.explorerWidth === 'number' ? this.explorerWidth : undefined,
+          previewSplitWidth: this.previewSplitWidth || undefined
         };
         this.savedState = state;
         if (this.options && this.options.persistState === false) {
@@ -2018,7 +2024,9 @@ declare module 'bun:sqlite' {
       const themeAttr = this.themeOption !== 'auto' ? `data-theme="${escapeHtml(this.themeOption)}"` : '';
       const brandLabel = (this.title && this.title !== 'custom-lab' && this.title !== this.labId) ? this.title : 'code-lab';
       const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
-      const explorerStyle = `style="--cl-explorer-width:${Math.round(this.explorerWidth || 196)}px"`;
+      const shellVars = [`--cl-explorer-width:${Math.round(this.explorerWidth || 196)}px`];
+      if (this.previewSplitWidth) shellVars.push(`--cl-preview-split-width:${Math.round(this.previewSplitWidth)}px`);
+      const explorerStyle = `style="${shellVars.join(';')}"`;
       this.container.innerHTML = `
         <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr} ${explorerStyle}>
           <!-- Top Bar -->
@@ -3413,6 +3421,7 @@ declare module 'bun:sqlite' {
       }
 
       if (this.drawerTab === 'preview') {
+        bodyEl.scrollTop = 0;
         this._renderWebPreview(bodyEl);
         return;
       }
@@ -4861,9 +4870,11 @@ declare module 'bun:sqlite' {
     _togglePreviewDock() {
       this.previewState.dockMode = this.previewState.dockMode === 'split' ? 'bottom' : 'split';
       this._previewRenderKey = null;
+      const ws = this.container ? this.container.querySelector('.codelab-workspace') : null;
       const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
       const splitBar = this.container ? this.container.querySelector('#cl-splitter-preview') : null;
       if (this.previewState.dockMode === 'split') {
+        if (ws) ws.classList.add('has-preview-split');
         if (splitBar) splitBar.style.display = 'block';
         if (splitHost) {
           splitHost.style.display = 'flex';
@@ -4875,6 +4886,7 @@ declare module 'bun:sqlite' {
           this._renderDrawerBody();
         }
       } else {
+        if (ws) ws.classList.remove('has-preview-split');
         if (splitBar) splitBar.style.display = 'none';
         if (splitHost) {
           splitHost.style.display = 'none';
@@ -4974,9 +4986,11 @@ declare module 'bun:sqlite' {
       this._warnPreviewIsolation();
       const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
       const splitBar = this.container ? this.container.querySelector('#cl-splitter-preview') : null;
+      const ws = this.container ? this.container.querySelector('.codelab-workspace') : null;
 
       let targetHost = bodyEl;
       if (this.previewState.dockMode === 'split' && splitHost) {
+        if (ws) ws.classList.add('has-preview-split');
         if (splitBar) splitBar.style.display = 'block';
         splitHost.style.display = 'flex';
         if (bodyEl !== splitHost) {
@@ -4989,6 +5003,7 @@ declare module 'bun:sqlite' {
         }
         targetHost = splitHost;
       } else {
+        if (ws) ws.classList.remove('has-preview-split');
         if (splitBar) splitBar.style.display = 'none';
         if (splitHost && bodyEl !== splitHost) {
           splitHost.style.display = 'none';
@@ -6698,8 +6713,10 @@ declare module 'bun:sqlite' {
       const pSplitter = this.container.querySelector('#cl-splitter-preview');
       if (pSplitter) {
         pSplitter.addEventListener('dblclick', () => {
-          shell.style.setProperty('--cl-preview-split-width', '44%');
+          this.previewSplitWidth = 0;
+          shell.style.removeProperty('--cl-preview-split-width');
           if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          this._saveState();
         });
 
         pSplitter.addEventListener('pointerdown', e => {
@@ -6714,6 +6731,7 @@ declare module 'bun:sqlite' {
             const minW = 240;
             const maxW = Math.max(minW, Math.floor(rect.width * 0.65));
             const nextW = Math.min(maxW, Math.max(minW, Math.round(rect.right - ev.clientX)));
+            this.previewSplitWidth = nextW;
             shell.style.setProperty('--cl-preview-split-width', `${nextW}px`);
             if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
           };
@@ -6724,6 +6742,7 @@ declare module 'bun:sqlite' {
             try { pSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
             pSplitter.removeEventListener('pointermove', onMove);
             pSplitter.removeEventListener('pointerup', onUp);
+            this._saveState();
           };
 
           pSplitter.addEventListener('pointermove', onMove);

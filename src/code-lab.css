@@ -4259,19 +4259,20 @@ code-lab,
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 260px;
+  min-height: 0;
   gap: 8px;
 }
 
 .codelab-preview-chrome {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: nowrap;
   padding: 6px 8px;
   background: var(--cl-bg-panel);
   border: 1px solid var(--cl-border);
   border-radius: var(--cl-radius-md);
+  flex-shrink: 0;
 }
 
 .codelab-preview-nav { display: flex; gap: 2px; flex: 0 0 auto; }
@@ -4294,7 +4295,7 @@ code-lab,
 .codelab-preview-btn:disabled { opacity: 0.35; cursor: default; }
 
 .codelab-preview-port-select {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   height: 28px;
   background: var(--cl-bg-elevated);
   color: var(--cl-fg);
@@ -4302,12 +4303,16 @@ code-lab,
   border-radius: var(--cl-radius-sm);
   font-size: 12px;
   padding: 0 6px;
-  max-width: 200px;
+  max-width: 170px;
+}
+
+.codelab-preview-split .codelab-preview-port-select {
+  max-width: 118px;
 }
 
 .codelab-preview-url-input {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 160px;
+  min-width: 120px;
   height: 28px;
   background: var(--cl-bg);
   color: var(--cl-fg);
@@ -4324,8 +4329,8 @@ code-lab,
 
 /* CSP badge: which remote hosts the current preview may reach. */
 .codelab-preview-csp {
-  flex: 0 0 auto;
-  max-width: 220px;
+  flex: 0 1 auto;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4338,6 +4343,10 @@ code-lab,
   background: var(--cl-bg-elevated);
 }
 
+.codelab-preview-split .codelab-preview-csp {
+  max-width: 110px;
+}
+
 .codelab-preview-csp--blocked {
   color: var(--cl-red);
   border-color: var(--cl-red);
@@ -4345,7 +4354,7 @@ code-lab,
 
 .codelab-preview-viewport {
   flex: 1 1 auto;
-  min-height: 180px;
+  min-height: 120px;
   display: flex;
   justify-content: center;
   background: var(--cl-bg);
@@ -4430,12 +4439,20 @@ code-lab,
 }
 
 /* ── Split-Pane Web Preview, Maximize Mode & Inline Console ─────────────── */
+.codelab-workspace.has-preview-split {
+  grid-template-columns: var(--cl-explorer-width, 196px) 4px minmax(260px, 1fr) 5px minmax(240px, var(--cl-preview-split-width, 44%));
+}
+
+.codelab.files-collapsed .codelab-workspace.has-preview-split {
+  grid-template-columns: 0px 0px minmax(260px, 1fr) 5px minmax(240px, var(--cl-preview-split-width, 44%));
+}
+
 .codelab-preview-split {
   display: none;
   flex-direction: column;
-  width: var(--cl-preview-split-width, 44%);
-  min-width: 240px;
-  max-width: 65%;
+  width: 100%;
+  /* Width comes from the grid track so the pane can shrink with the viewport. */
+  min-width: 0;
   height: 100%;
   background: var(--cl-bg-panel);
   border-left: 1px solid var(--cl-border);
@@ -4560,7 +4577,7 @@ code-lab,
 /* ── Ports, Mini HTTP Client & Network Inspector Drawer UI ──────────────── */
 .codelab-ports-panel {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(340px, 1.25fr);
+  grid-template-columns: minmax(360px, 1.25fr) minmax(320px, 1fr);
   gap: 12px;
   padding: 10px 12px;
   height: 100%;
@@ -4678,7 +4695,7 @@ code-lab,
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--cl-fg-muted);
-  padding: 6px 8px;
+  padding: 6px 6px;
   border-bottom: 1px solid var(--cl-border);
   background: var(--cl-bg-elevated);
   white-space: nowrap;
@@ -4686,7 +4703,7 @@ code-lab,
 
 .codelab-ports-table td,
 .codelab-net-table td {
-  padding: 6px 8px;
+  padding: 6px 6px;
   border-bottom: 1px solid var(--cl-border);
   color: var(--cl-fg);
   vertical-align: middle;
@@ -5084,4 +5101,31 @@ code-lab,
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ── Split-Pane Web Preview: responsive behaviour ────────────────────────────
+   These must come after the base `.codelab-workspace.has-preview-split` rule
+   above: equal specificity, later wins. */
+@media (max-width: 900px) {
+  /* Keep the split, but give the editor a floor and cap the preview share. */
+  .codelab-workspace.has-preview-split {
+    grid-template-columns: 155px 4px minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
+  }
+  .codelab.files-collapsed .codelab-workspace.has-preview-split {
+    grid-template-columns: 0px 0px minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
+  }
+}
+
+@media (max-width: 680px) {
+  /* A five-column split cannot fit a phone: stack the preview under the editor
+     instead of letting both shrink to nothing. The explorer and its splitter are
+     hidden at this width, so only editor, splitter and preview are placed. */
+  .codelab-workspace.has-preview-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(140px, 1fr) 5px 45%;
+  }
+  .codelab-preview-split {
+    border-left: 0;
+    border-top: 1px solid var(--cl-border);
+  }
 }

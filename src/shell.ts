@@ -3024,6 +3024,36 @@
     return imports;
   }
 
+  // Some templates pin a CDN URL in the source instead of importing a bare
+  // specifier, e.g. `import React from "https://cdn.jsdelivr.net/npm/react@19.3.1/+esm"`.
+  // Those URL specifiers are resolved by the browser directly, so they bypass the
+  // generated import map (and with it the project's declared version and the
+  // multi-CDN fallback). Import maps can remap URL specifiers, so alias each
+  // literal URL found in the project to the resolved bare-specifier URL.
+  // The pinned version is kept when the project has no dependency to resolve.
+  const PINNED_CDN_URL_RE = /https?:\/\/(?:cdn\.jsdelivr\.net\/npm|esm\.sh)\/((?:@[^\/'"`@\s]+\/)?[^\/'"`@\s]+)@([^\s'"`),;]+)/g;
+
+  function aliasPinnedCdnUrls(vfs, rootDir, text, importMap) {
+    if (!text || typeof text !== 'string') return;
+    const re = new RegExp(PINNED_CDN_URL_RE.source, 'g');
+    let match;
+    while ((match = re.exec(text)) !== null) {
+      const url = match[0];
+      const pkgName = decodeURIComponent(match[1]);
+      const rest = match[2];
+      const pinnedVersion = rest.split(/[\/?]/)[0];
+      const tail = rest.slice(pinnedVersion.length);
+      const rawSubpath = tail.startsWith('/') && tail !== '/+esm' ? tail.slice(1).split(/[?#]/)[0] : '';
+      const subpath = rawSubpath.replace(/^\/+|\/+$/g, '');
+      const bare = subpath ? `${pkgName}/${subpath}` : pkgName;
+
+      const declared = resolveBareVersion(vfs, rootDir, pkgName);
+      const version = declared && declared !== 'latest' ? declared : decodeURIComponent(pinnedVersion);
+      const target = importMap[bare] || cdnEsmUrl(pkgName, version, subpath || undefined);
+      if (target && target !== url) importMap[url] = target;
+    }
+  }
+
   function collectPreviewScriptFiles(vfs, rootDir, maxFiles = 200) {
     const files = [];
     const walk = (dir, depth) => {
@@ -3151,6 +3181,8 @@
       }
 
       const importMap = buildPreviewImportMap(ctx.vfs, rootDir, specifiers);
+      for (const f of scriptFiles) aliasPinnedCdnUrls(ctx.vfs, rootDir, f.content, importMap);
+      aliasPinnedCdnUrls(ctx.vfs, rootDir, htmlBody, importMap);
       for (const f of scriptFiles) {
         const compiled = transpileAndRewriteLocalImports(f.content, f.full);
         const key = toLocalImportKey(f.full);

@@ -49,6 +49,101 @@ test('drawer tab navigation switches active panels', async ({ page }) => {
   await expect(page.locator('[data-cl-drawertab="tests"]')).toHaveClass(/active/);
 });
 
+test('preview docks into a right split pane and back to the bottom drawer', async ({ page }) => {
+  await page.evaluate(async () => {
+    const ide = (window as any).__codelabTest.ide;
+    ide.portTable.registerServer(3000, {
+      name: 'dev-server',
+      fetch: () => new Response('<h1>Split App</h1>', { headers: { 'Content-Type': 'text/html' } })
+    });
+    await ide._openWebPreview(3000);
+  });
+
+  const workspace = page.locator('.codelab-workspace');
+  const split = page.locator('#cl-preview-split');
+  const splitter = page.locator('#cl-splitter-preview');
+  const dockToggle = page.locator('[data-cl-action="preview-dock-toggle"]').filter({ visible: true }).first();
+
+  await expect(page.locator('.codelab-preview')).toBeVisible();
+  await expect(workspace).not.toHaveClass(/has-preview-split/);
+  await expect(split).toBeHidden();
+
+  // Dock to the right split pane.
+  await dockToggle.click();
+  await expect(workspace).toHaveClass(/has-preview-split/);
+  await expect(split).toBeVisible();
+  await expect(splitter).toBeVisible();
+  await expect(split.locator('.codelab-preview')).toBeVisible();
+  await expect(page.locator('.codelab-editor-col')).toBeVisible();
+
+  // It must be a real grid column next to the editor, not an overlay on top.
+  const geometry = await page.evaluate(() => {
+    const editor = document.querySelector('.codelab-editor-col')!.getBoundingClientRect();
+    const preview = document.querySelector('#cl-preview-split')!.getBoundingClientRect();
+    return { editorRight: editor.right, previewLeft: preview.left, previewWidth: preview.width };
+  });
+  expect(geometry.previewLeft).toBeGreaterThanOrEqual(geometry.editorRight - 1);
+  expect(geometry.previewWidth).toBeGreaterThan(200);
+
+  // Dragging the splitter stores a pixel width for the pane.
+  const handle = await splitter.boundingBox();
+  expect(handle).not.toBeNull();
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x - 140, handle!.y + handle!.height / 2, { steps: 6 });
+  await page.mouse.up();
+
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__codelabTest.ide.previewSplitWidth))
+    .toBeGreaterThan(200);
+  const widthVar = await page.evaluate(() =>
+    document.querySelector('.codelab')!.style.getPropertyValue('--cl-preview-split-width')
+  );
+  expect(widthVar).toMatch(/^\d+px$/);
+
+  // Double-clicking resets to the default track width.
+  await splitter.dblclick();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__codelabTest.ide.previewSplitWidth))
+    .toBe(0);
+
+  // Dock back to the bottom drawer.
+  await dockToggle.click();
+  await expect(workspace).not.toHaveClass(/has-preview-split/);
+  await expect(split).toBeHidden();
+  await expect(page.locator('.codelab-preview')).toBeVisible();
+});
+
+test('a narrow viewport stacks the split preview instead of overflowing', async ({ page }) => {
+  await page.setViewportSize({ width: 520, height: 800 });
+  await page.evaluate(async () => {
+    const ide = (window as any).__codelabTest.ide;
+    ide.portTable.registerServer(3100, {
+      name: 'dev-server',
+      fetch: () => new Response('<h1>Narrow</h1>', { headers: { 'Content-Type': 'text/html' } })
+    });
+    await ide._openWebPreview(3100);
+  });
+
+  await page.locator('[data-cl-action="preview-dock-toggle"]').filter({ visible: true }).first().click();
+  await expect(page.locator('.codelab-workspace')).toHaveClass(/has-preview-split/);
+
+  const layout = await page.evaluate(() => {
+    const workspace = document.querySelector('.codelab-workspace') as HTMLElement;
+    const editor = document.querySelector('.codelab-editor-col')!.getBoundingClientRect();
+    const preview = document.querySelector('#cl-preview-split')!.getBoundingClientRect();
+    return {
+      columns: getComputedStyle(workspace).gridTemplateColumns,
+      scrollWidth: workspace.scrollWidth,
+      clientWidth: workspace.clientWidth,
+      previewOnTop: preview.top >= editor.bottom - 1
+    };
+  });
+  expect(layout.columns.trim().split(/\s+/)).toHaveLength(1);
+  expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+  expect(layout.previewOnTop).toBe(true);
+});
+
 test('web preview toolbar supports responsive device frame modes', async ({ page }) => {
   // Mount server and open preview
   await page.evaluate(() => {

@@ -106,6 +106,11 @@ async function runSuite() {
     // Images must not get a blanket https: allowance (exfiltration channel).
     const img = directiveOf(balanced, 'img-src');
     assert.ok(!/\shttps:(\s|$)/.test(img), 'img-src must not allow every https host');
+
+    // Local preview modules are served as data: URLs by the import map, so
+    // dropping data: from script-src breaks every multi-file project.
+    assert.ok(script.split(' ').includes('data:'), 'script-src must allow data: module URLs');
+    assert.ok(!script.split(' ').includes('*'), 'script-src must not allow every host');
   });
 
   await test('C6 author allowlists are merged, de-duplicated, and validated', () => {

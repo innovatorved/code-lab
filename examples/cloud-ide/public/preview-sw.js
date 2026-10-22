@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * @innovatorved/code-lab v0.1.9 — Standalone Browser Code IDE & Virtual Runtime
+ * @innovatorved/code-lab v0.1.10 — Standalone Browser Code IDE & Virtual Runtime
  * ============================================================
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
@@ -144,7 +144,7 @@ var CodeLabCsp = (() => {
     const host = normalizeOrigin(options.hostOrigin);
     const self = host || "'self'";
     const directive = (name, parts) => `${name} ${unique(parts).join(" ")}`;
-    const script = () => [self, "blob:", "'unsafe-inline'", "'unsafe-eval'"].concat(sourcesFor(mode, allow, "scriptSrc"));
+    const script = () => [self, "data:", "blob:", "'unsafe-inline'", "'unsafe-eval'"].concat(sourcesFor(mode, allow, "scriptSrc"));
     const style = () => [self, "'unsafe-inline'"].concat(sourcesFor(mode, allow, "styleSrc"));
     const withData = (key) => [self, "data:", "blob:"].concat(sourcesFor(mode, allow, key));
     return [

@@ -1,6 +1,6 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, and Web Worker Node.js/Bun Virtual Runtime.",
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",

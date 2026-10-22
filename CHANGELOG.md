@@ -4,6 +4,12 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-10-22
+
+### Fixed
+- **Live Browser Preview CSP & React ESM Deduplication (`src/csp.ts`, `src/shell.ts`)**: Added `data:` to `script-src` in `buildPreviewPolicy` so local `.ts`/`.tsx` modules mapped via import maps execute under the preview CSP, and deduplicated the React ESM URL in `buildHtmlPreviewResponse` so `react-dom/client` and local TSX modules share a single React instance.
+- **Right Split-Pane Preview Grid & Drawer Layout Polish (`src/code-lab.css`, `src/workbench.ts`)**: Added `.codelab-workspace.has-preview-split` 5-column grid layout, preserved preview toolbar visibility in the bottom drawer (`min-height: 0` + scroll reset), widened the split-pane URL input, and refined the `.codelab-ports-panel` column ratios.
+
 ## [0.1.9] - 2026-10-22
 
 ### Added

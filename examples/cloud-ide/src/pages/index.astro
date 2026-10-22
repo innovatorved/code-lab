@@ -694,7 +694,9 @@
 
       function hasSavedFilesForLab(labId) {
         try {
-          const raw = localStorage.getItem('codelab_' + labId);
+          const raw = localStorage.getItem('sd-codelab-v1:' + labId)
+            || localStorage.getItem('sd_codelab_' + labId)
+            || localStorage.getItem('codelab_' + labId);
           if (!raw) return false;
           const parsed = JSON.parse(raw);
           return Boolean(parsed && parsed.customFiles && Object.keys(parsed.customFiles).length > 0);
@@ -722,6 +724,9 @@
             ...options
           });
         }
+        // Exposed for the demo console and for end-to-end tests that need the
+        // live instance.
+        window.__codelabIde = ideInstance;
         return ideInstance;
       }
 
