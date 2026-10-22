@@ -4,6 +4,13 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-10-22
+
+### Added
+- **StackBlitz-Grade Web Preview Engine & Split-Pane Dock (`src/csp.ts`, `src/shell.ts`, `src/workbench.ts`, `src/code-lab.css`)**: Right-hand split-pane preview dock (`#cl-preview-split`, `#cl-splitter-preview`), maximize toggle, inline collapsible preview console, dynamic HTML/React/TSX bundler and local asset inliner, and sandboxed iframe loopback bridge (`fetch()`, relative `<a href>` navigation, SPA `history.pushState`/`replaceState` URL sync).
+- **Ports Manager, Mini HTTP Client & Network Inspector UI (`src/code-lab.css`, `src/workbench.ts`)**: Complete 2-column grid layout and styling for `.codelab-ports-panel`, `.codelab-http-client`, and `.codelab-network-panel`, plus fixed event handlers for HTTP header editing and network request filtering/selection.
+- **Durable Browser Auto-Save & Page-Refresh State Persistence (`src/workbench.ts`, `examples/cloud-ide/src/pages/index.astro`)**: Added `hasSnapshot` tracking and IndexedDB mirroring so user edits, newly created files, and deleted default files persist across page reloads, with immediate state flushing on `visibilitychange`.
+
 ## [0.1.8] - 2026-10-22
 
 ### Added

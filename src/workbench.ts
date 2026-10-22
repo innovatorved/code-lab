@@ -57,7 +57,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.1.8';
+  const CODELAB_VERSION = '0.1.9';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -1376,6 +1376,10 @@ declare module 'bun:sqlite' {
         path: '/',
         url: '',
         frameMode: 'desktop', // 'desktop' | 'tablet' | 'mobile'
+        dockMode: (options && options.previewDock === 'split') ? 'split' : 'bottom', // 'bottom' | 'split'
+        maximized: false,
+        consoleOpen: false,
+        consoleLogs: [],
         loading: false,
         error: null,
         srcdoc: '',
@@ -1387,6 +1391,7 @@ declare module 'bun:sqlite' {
       this._previewSwRegistration = null;
       this._previewViolationHandler = null;
       this._swMessageHandler = null;
+      this._beforeUnloadHandler = null;
       this._portToasts = new Map();
       this.isFullscreen = false;
       this.isRunning = false;
@@ -1733,6 +1738,11 @@ declare module 'bun:sqlite' {
         const key = `${this.mode}:${this.lang}`;
         const customFiles = (this.savedState && this.savedState.customFiles) || {};
         customFiles[key] = { ...this.files };
+        const hasSnapshot = Object.assign(
+          {},
+          (this.savedState && this.savedState.hasSnapshot) || {},
+          { [key]: true }
+        );
         const completedArr = Array.from(this.completedSteps);
         const state = {
           mode: this.mode,
@@ -1740,6 +1750,7 @@ declare module 'bun:sqlite' {
           activeStepIndex: this.activeStepIndex,
           completedSteps: completedArr,
           customFiles,
+          hasSnapshot,
           openTabs: Array.isArray(this.openTabs) ? [...this.openTabs] : undefined,
           activeFile: this.activeFile,
           folders: Array.from(this.folders || []),
@@ -1764,6 +1775,20 @@ declare module 'bun:sqlite' {
           safeStorageSet('codelab_progress_' + this.labId, JSON.stringify(completedArr), this.logger, recordErr),
           safeStorageSet('sd_codelab_' + this.labId, serialized, this.logger, recordErr)
         ];
+        if (root.CodeLabStorage && typeof root.CodeLabStorage.createWorkspaceStorage === 'function') {
+          try {
+            if (!this._idbStorage) {
+              this._idbStorage = root.CodeLabStorage.createWorkspaceStorage({ keyPrefix: STORAGE_PREFIX });
+            }
+            if (this._idbStorage && typeof this._idbStorage.save === 'function') {
+              Promise.resolve(this._idbStorage.save(this.labId, state)).catch((err) => {
+                this.logger.debug('Async WorkspaceStorage save skipped.', err);
+              });
+            }
+          } catch (err) {
+            this.logger.debug('WorkspaceStorage initialization skipped.', err);
+          }
+        }
         if (persisted.includes(false)) {
           this._reportPersistenceFailure(safeStorageSet._lastError);
         } else {
@@ -1916,6 +1941,9 @@ declare module 'bun:sqlite' {
       const key = `${this.mode}:${this.lang}`;
       const saved = this.savedState.customFiles?.[key];
       const base = this._getBaseFilesForModeAndLang(this.mode, this.lang);
+      if (this.savedState && this.savedState.hasSnapshot && this.savedState.hasSnapshot[key] && saved && typeof saved === 'object') {
+        return { ...saved };
+      }
       if (saved && Object.keys(saved).length > 0) {
         return { ...base, ...saved };
       }
@@ -2128,6 +2156,10 @@ declare module 'bun:sqlite' {
                     <div class="codelab-empty-editor" id="cl-empty-editor" style="display:none"></div>
                   </div>
                 </div>
+
+                <!-- Right-Hand Split Web Preview Pane -->
+                <div class="codelab-splitter-preview" id="cl-splitter-preview" role="separator" aria-orientation="vertical" title="Drag to resize web preview (double-click to reset)" style="display:none"></div>
+                <div class="codelab-preview-split" id="cl-preview-split" aria-label="In-Browser Web Preview" style="display:none"></div>
               </div>
 
               <!-- Interactive Horizontal Splitter -->
@@ -4509,6 +4541,10 @@ declare module 'bun:sqlite' {
             type: level === 'error' ? 'stderr' : 'stdout',
             text: `[Preview ${level.toUpperCase()}] ${text}`
           });
+          if (!Array.isArray(this.previewState.consoleLogs)) this.previewState.consoleLogs = [];
+          this.previewState.consoleLogs.push({ level, text, timestamp: new Date().toLocaleTimeString() });
+          if (this.previewState.consoleLogs.length > 200) this.previewState.consoleLogs.shift();
+          this._updatePreviewConsoleUI();
           this._emitEvent('preview-console', { level, text, args });
         } else if (data.type === 'codelab:preview-error') {
           const msg = String(data.message || 'Uncaught runtime error');
@@ -4523,9 +4559,66 @@ declare module 'bun:sqlite' {
             type: 'stderr',
             text: `[Preview ERROR] ${msg}${data.stack ? '\n' + String(data.stack) : ''}`
           });
+          if (!Array.isArray(this.previewState.consoleLogs)) this.previewState.consoleLogs = [];
+          this.previewState.consoleLogs.push({
+            level: 'error',
+            text: `${msg}${data.stack ? '\n' + String(data.stack) : ''}`,
+            timestamp: new Date().toLocaleTimeString()
+          });
+          this._updatePreviewConsoleUI();
           this._emitEvent('preview-error', this.previewState.runtimeError);
         } else if (data.type === 'codelab:preview-error-clear') {
           this.previewState.runtimeError = null;
+        } else if (data.type === 'codelab:preview-fetch') {
+          const reqId = data.reqId || data.id;
+          const targetPort = Number(data.port) || this.previewState.port || this._firstListeningPort() || 3000;
+          const reqPath = data.path ? (String(data.path).startsWith('/') ? String(data.path) : '/' + String(data.path)) : '/';
+          const targetUrl = String(data.url || `http://127.0.0.1:${targetPort}${reqPath}`);
+          this._dispatchPreviewRequest({
+            port: targetPort,
+            url: targetUrl,
+            method: data.method || 'GET',
+            headers: data.headers || {},
+            body: data.body !== undefined ? data.body : null
+          })
+            .then((res) => {
+              const netPill = this.container ? this.container.querySelector('#cl-network-pill') : null;
+              if (netPill) netPill.textContent = `${(this.lastHttpTrace || []).length} reqs`;
+              if (this.drawerTab === 'network') this._renderDrawerBody();
+              if (iframe && iframe.contentWindow && typeof iframe.contentWindow.postMessage === 'function') {
+                iframe.contentWindow.postMessage({
+                  type: 'codelab:preview-fetch-res',
+                  reqId,
+                  id: reqId,
+                  status: res.status || 200,
+                  statusText: res.statusText || 'OK',
+                  headers: res.headers || {},
+                  body: res.body || ''
+                }, '*');
+              }
+            })
+            .catch((err) => {
+              if (iframe && iframe.contentWindow && typeof iframe.contentWindow.postMessage === 'function') {
+                iframe.contentWindow.postMessage({
+                  type: 'codelab:preview-fetch-res',
+                  reqId,
+                  id: reqId,
+                  error: String((err && err.message) || err)
+                }, '*');
+              }
+            });
+        } else if (data.type === 'codelab:preview-navigate') {
+          const navHref = data.href || (data.path ? (data.port ? `http://127.0.0.1:${data.port}${data.path}` : String(data.path)) : '');
+          if (navHref) {
+            this._previewGo(String(navHref));
+          }
+        } else if (data.type === 'codelab:preview-url-change') {
+          if (data.path && typeof data.path === 'string') {
+            this.previewState.path = data.path.startsWith('/') ? data.path : '/' + data.path;
+            this.previewState.url = this._previewUrl();
+            const input = this.container ? this.container.querySelector('#cl-preview-url-input') : null;
+            if (input) input.value = this.previewState.url;
+          }
         }
       };
       window.addEventListener('message', this._previewViolationHandler);
@@ -4589,7 +4682,12 @@ declare module 'bun:sqlite' {
       this.previewHistory = this.previewHistory.slice(0, this.previewHistoryIdx + 1);
       this.previewHistory.push(this.previewState.url);
       this.previewHistoryIdx = this.previewHistory.length - 1;
-      this.switchDrawerTab('preview');
+      if (this.previewState.dockMode === 'split') {
+        const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
+        if (splitHost) this._renderWebPreview(splitHost);
+      } else {
+        this.switchDrawerTab('preview');
+      }
       return this._previewLoadPromise || Promise.resolve();
     }
 
@@ -4708,7 +4806,12 @@ declare module 'bun:sqlite' {
       this.previewHistory = this.previewHistory.slice(0, this.previewHistoryIdx + 1);
       this.previewHistory.push(url);
       this.previewHistoryIdx = this.previewHistory.length - 1;
-      this.switchDrawerTab('preview');
+      if (this.previewState.dockMode === 'split') {
+        const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
+        if (splitHost) this._renderWebPreview(splitHost);
+      } else {
+        this.switchDrawerTab('preview');
+      }
       return this._previewLoadPromise || Promise.resolve();
     }
 
@@ -4749,6 +4852,94 @@ declare module 'bun:sqlite' {
       if (!['desktop', 'tablet', 'mobile'].includes(mode)) return;
       this.previewState.frameMode = mode;
       this._renderDrawerBody();
+      if (this.previewState.dockMode === 'split') {
+        const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
+        if (splitHost) this._renderWebPreview(splitHost);
+      }
+    }
+
+    _togglePreviewDock() {
+      this.previewState.dockMode = this.previewState.dockMode === 'split' ? 'bottom' : 'split';
+      this._previewRenderKey = null;
+      const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
+      const splitBar = this.container ? this.container.querySelector('#cl-splitter-preview') : null;
+      if (this.previewState.dockMode === 'split') {
+        if (splitBar) splitBar.style.display = 'block';
+        if (splitHost) {
+          splitHost.style.display = 'flex';
+          this._renderWebPreview(splitHost);
+        }
+        if (this.drawerTab === 'preview') {
+          this.switchDrawerTab('terminal');
+        } else {
+          this._renderDrawerBody();
+        }
+      } else {
+        if (splitBar) splitBar.style.display = 'none';
+        if (splitHost) {
+          splitHost.style.display = 'none';
+          splitHost.innerHTML = '';
+        }
+        this.switchDrawerTab('preview');
+      }
+      if (this.editor && typeof this.editor.layout === 'function') {
+        setTimeout(() => {
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        }, 30);
+      }
+    }
+
+    _togglePreviewMaximize() {
+      this.previewState.maximized = !this.previewState.maximized;
+      const previewEl = this.container ? this.container.querySelector('.codelab-preview') : null;
+      if (previewEl) {
+        previewEl.classList.toggle('is-maximized', Boolean(this.previewState.maximized));
+      }
+      const maxBtn = this.container ? this.container.querySelector('[data-cl-action="preview-maximize"]') : null;
+      if (maxBtn) {
+        maxBtn.classList.toggle('active', Boolean(this.previewState.maximized));
+      }
+    }
+
+    _togglePreviewConsole() {
+      this.previewState.consoleOpen = !this.previewState.consoleOpen;
+      this._updatePreviewConsoleUI();
+    }
+
+    _clearPreviewConsole() {
+      this.previewState.consoleLogs = [];
+      this._updatePreviewConsoleUI();
+    }
+
+    _updatePreviewConsoleUI() {
+      if (!this.container) return;
+      const consoleDrawer = this.container.querySelector('#cl-preview-console');
+      const consoleBody = this.container.querySelector('#cl-preview-console-body');
+      const consolePill = this.container.querySelector('#cl-preview-console-pill');
+      const consoleBtn = this.container.querySelector('[data-cl-action="preview-console-toggle"]');
+      const logs = Array.isArray(this.previewState.consoleLogs) ? this.previewState.consoleLogs : [];
+      if (consolePill) {
+        consolePill.textContent = String(logs.length);
+      }
+      if (consoleBtn) {
+        consoleBtn.classList.toggle('active', Boolean(this.previewState.consoleOpen));
+      }
+      if (consoleDrawer) {
+        consoleDrawer.style.display = this.previewState.consoleOpen ? 'flex' : 'none';
+      }
+      if (consoleBody) {
+        if (logs.length === 0) {
+          consoleBody.innerHTML = `<div class="codelab-preview-console__empty">No console output from preview frame yet.</div>`;
+        } else {
+          consoleBody.innerHTML = logs.map((entry) => `
+            <div class="codelab-preview-console__row codelab-preview-console__row--${escapeHtml(entry.level || 'log')}">
+              <span class="codelab-preview-console__time">${escapeHtml(entry.timestamp || '')}</span>
+              <span class="codelab-preview-console__text">${escapeHtml(entry.text || '')}</span>
+            </div>
+          `).join('');
+          consoleBody.scrollTop = consoleBody.scrollHeight;
+        }
+      }
     }
 
     _renderWebPreviewControls() {
@@ -4760,6 +4951,7 @@ declare module 'bun:sqlite' {
       if (backBtn) backBtn.disabled = this.previewHistoryIdx <= 0;
       const fwdBtn = this.container.querySelector('[data-cl-action="preview-forward"]');
       if (fwdBtn) fwdBtn.disabled = this.previewHistoryIdx >= this.previewHistory.length - 1;
+      this._updatePreviewConsoleUI();
     }
 
     _popoutPreview() {
@@ -4780,8 +4972,32 @@ declare module 'bun:sqlite' {
     _renderWebPreview(bodyEl) {
       if (!bodyEl) return;
       this._warnPreviewIsolation();
-      const renderKey = `${this.previewState.port}|${this.previewState.path}|${this.previewState.frameMode}|${this._previewSwReady}`;
-      if (bodyEl.querySelector && bodyEl.querySelector('.codelab-preview') && this._previewRenderKey === renderKey) {
+      const splitHost = this.container ? this.container.querySelector('#cl-preview-split') : null;
+      const splitBar = this.container ? this.container.querySelector('#cl-splitter-preview') : null;
+
+      let targetHost = bodyEl;
+      if (this.previewState.dockMode === 'split' && splitHost) {
+        if (splitBar) splitBar.style.display = 'block';
+        splitHost.style.display = 'flex';
+        if (bodyEl !== splitHost) {
+          bodyEl.innerHTML = `
+            <div class="codelab-preview-split-notice">
+              <span>Web Preview is docked to the right split pane.</span>
+              <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="preview-dock-toggle">Dock to Bottom Drawer</button>
+            </div>
+          `;
+        }
+        targetHost = splitHost;
+      } else {
+        if (splitBar) splitBar.style.display = 'none';
+        if (splitHost && bodyEl !== splitHost) {
+          splitHost.style.display = 'none';
+          splitHost.innerHTML = '';
+        }
+      }
+
+      const renderKey = `${this.previewState.port}|${this.previewState.path}|${this.previewState.frameMode}|${this.previewState.dockMode}|${this._previewSwReady}`;
+      if (targetHost.querySelector && targetHost.querySelector('.codelab-preview') && this._previewRenderKey === renderKey) {
         this._renderWebPreviewControls();
         return;
       }
@@ -4812,8 +5028,11 @@ declare module 'bun:sqlite' {
         ? 'Strict Content-Security-Policy: previews cannot reach any remote host.'
         : `Previews may load scripts, fonts and data from: ${cspHosts.join(', ') || 'no remote hosts'}. Use previewCsp: 'strict' to block remote hosts.`;
 
-      bodyEl.innerHTML = `
-        <div class="codelab-preview">
+      const logsCount = Array.isArray(this.previewState.consoleLogs) ? this.previewState.consoleLogs.length : 0;
+      const isSplit = this.previewState.dockMode === 'split';
+
+      targetHost.innerHTML = `
+        <div class="codelab-preview ${this.previewState.maximized ? 'is-maximized' : ''}">
           <div class="codelab-preview-chrome">
             <div class="codelab-preview-nav">
               <button type="button" class="codelab-preview-btn" data-cl-action="preview-back" title="Back" ${this.previewHistoryIdx <= 0 ? 'disabled' : ''}>${CL_ICONS.arrowLeft || '←'}</button>
@@ -4829,10 +5048,29 @@ declare module 'bun:sqlite' {
             </div>
             <span class="codelab-preview-csp" id="cl-preview-csp-badge" title="${escapeHtml(cspBadgeTitle)}">${escapeHtml(cspBadge)}</span>
             <span class="codelab-preview-csp codelab-preview-csp--blocked" id="cl-preview-csp-status" role="status" hidden></span>
+            <button type="button" class="codelab-preview-btn ${this.previewState.consoleOpen ? 'active' : ''}" data-cl-action="preview-console-toggle" title="Toggle Preview Console">
+              ${CL_ICONS.terminal || '>_'} <span class="codelab-preview-console-pill" id="cl-preview-console-pill">${logsCount}</span>
+            </button>
+            <button type="button" class="codelab-preview-btn ${isSplit ? 'active' : ''}" data-cl-action="preview-dock-toggle" title="${isSplit ? 'Dock Preview to Bottom Drawer' : 'Dock Preview to Right Split Pane'}">
+              ${CL_ICONS.layout || '◫'}
+            </button>
+            <button type="button" class="codelab-preview-btn ${this.previewState.maximized ? 'active' : ''}" data-cl-action="preview-maximize" title="Maximize / Restore Preview">
+              ${CL_ICONS.maximize || '⛶'}
+            </button>
             <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="preview-popout" title="Open in a new browser tab">${CL_ICONS.externalLink || '↗'} <span>Pop Out</span></button>
           </div>
           <div class="codelab-preview-viewport codelab-preview-viewport--${this.previewState.frameMode}" id="cl-preview-viewport">
             <iframe class="codelab-preview-iframe" id="cl-preview-iframe" sandbox="allow-scripts allow-forms allow-modals" allow="camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'; usb 'none'" referrerpolicy="no-referrer-when-downgrade" title="Web Preview"></iframe>
+          </div>
+          <div class="codelab-preview-console" id="cl-preview-console" style="display:${this.previewState.consoleOpen ? 'flex' : 'none'}">
+            <div class="codelab-preview-console__bar">
+              <span>Preview Console</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="preview-console-clear">Clear</button>
+                <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="preview-console-toggle">Close</button>
+              </div>
+            </div>
+            <div class="codelab-preview-console__body" id="cl-preview-console-body"></div>
           </div>
           ${servers.length
             ? `<div class="codelab-preview-hint">Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.</div>`
@@ -4846,6 +5084,7 @@ declare module 'bun:sqlite' {
         </div>
       `;
       this._updatePreviewCspStatus();
+      this._updatePreviewConsoleUI();
       this._loadPreviewFrame();
     }
 
@@ -4862,11 +5101,12 @@ declare module 'bun:sqlite' {
         this.previewState.error = 'No port selected';
         return Promise.resolve();
       }
+      this._syncFilesToShellVfs();
       const fullUrl = this._previewUrl();
       this.previewState.loading = true;
       this.previewState.error = null;
 
-      if (this._previewSwReady) {
+      if (this.options && this.options.useServiceWorkerForIframe === true && this._previewSwReady) {
         try {
           const u = new URL(fullUrl);
           if (typeof iframe.removeAttribute === 'function') iframe.removeAttribute('srcdoc');
@@ -4878,8 +5118,8 @@ declare module 'bun:sqlite' {
         }
       }
 
-      // Fallback (no Service Worker): dispatch via the virtual port table and
-      // inline the response with an injected <base> for relative asset URLs.
+      // Direct virtual dispatch + srcdoc injection guarantees zero Service Worker
+      // race conditions and 100% deterministic loading inside sandboxed iframes.
       return this._dispatchPreviewRequest({ port, url: fullUrl, method: 'GET' })
         .then((res) => {
           let body = res.body || '';
@@ -5265,7 +5505,7 @@ declare module 'bun:sqlite' {
           this.logger.debug(`Could not sync "${filename}" to shell VFS on edit.`, err);
         }
       }
-      if (this.drawerTab === 'preview' && this.previewState && this.previewState.port) {
+      if ((this.drawerTab === 'preview' || (this.previewState && this.previewState.dockMode === 'split')) && this.previewState && this.previewState.port) {
         if (this._previewReloadTimer) {
           clearTimeout(this._previewReloadTimer);
         }
@@ -5441,6 +5681,16 @@ declare module 'bun:sqlite' {
       };
       if (typeof document !== 'undefined') {
         document.addEventListener('keydown', this._escHandler);
+        this._beforeUnloadHandler = () => {
+          if (document.visibilityState === 'hidden') {
+            try {
+              this._saveState();
+            } catch (err) {
+              void err;
+            }
+          }
+        };
+        document.addEventListener('visibilitychange', this._beforeUnloadHandler);
       }
 
       this.container.addEventListener('keydown', e => {
@@ -5887,15 +6137,29 @@ declare module 'bun:sqlite' {
             this._previewSetFrameMode(actionBtn.dataset.mode);
           } else if (action === 'preview-popout') {
             this._popoutPreview();
+          } else if (action === 'preview-dock-toggle') {
+            this._togglePreviewDock();
+          } else if (action === 'preview-maximize') {
+            this._togglePreviewMaximize();
+          } else if (action === 'preview-console-toggle') {
+            this._togglePreviewConsole();
+          } else if (action === 'preview-console-clear') {
+            this._clearPreviewConsole();
           } else if (action === 'open-port-client') {
-            const port = actionBtn.dataset.port;
+            const port = actionBtn.dataset.port || actionBtn.dataset.clPort;
             if (port) {
               this.httpClientUrl = `http://localhost:${port}/`;
+              if (this.httpClientState) {
+                this.httpClientState.url = `http://localhost:${port}/`;
+              }
               this._renderDrawerBody();
             }
           } else if (action === 'stop-port') {
-            const port = Number(actionBtn.dataset.port);
+            const port = Number(actionBtn.dataset.port || actionBtn.dataset.clPort);
             if (port) {
+              if (this.portTable && typeof this.portTable.closeServer === 'function') {
+                this.portTable.closeServer(port);
+              }
               if (this.shell && this.shell.portTable && typeof this.shell.portTable.unregister === 'function') {
                 this.shell.portTable.unregister(port);
               }
@@ -5905,18 +6169,32 @@ declare module 'bun:sqlite' {
           } else if (action === 'http-send') {
             this._sendHttpClientRequest();
           } else if (action === 'http-tab') {
-            this.httpActiveTab = actionBtn.dataset.httpTab || 'headers';
+            const nextTab = actionBtn.dataset.tab || actionBtn.dataset.clHttpTab || actionBtn.dataset.httpTab || 'preview';
+            this.httpActiveTab = nextTab;
+            if (this.httpClientState) {
+              this.httpClientState.activeResponseTab = nextTab;
+            }
             this._renderDrawerBody();
           } else if (action === 'clear-net-traces') {
             this.lastHttpTrace = [];
             this.selectedNetTraceIdx = null;
+            if (this.networkFilter) {
+              this.networkFilter.selectedTraceId = null;
+            }
             this._renderDrawerBody();
           } else if (action === 'select-net-trace') {
+            const traceId = actionBtn.dataset.traceId || actionBtn.dataset.clTraceId || null;
             const idx = Number(actionBtn.dataset.traceIdx);
             this.selectedNetTraceIdx = Number.isNaN(idx) ? null : idx;
+            if (this.networkFilter) {
+              this.networkFilter.selectedTraceId = traceId;
+            }
             this._renderDrawerBody();
           } else if (action === 'close-net-detail') {
             this.selectedNetTraceIdx = null;
+            if (this.networkFilter) {
+              this.networkFilter.selectedTraceId = null;
+            }
             this._renderDrawerBody();
           }
           return;
@@ -6416,6 +6694,42 @@ declare module 'bun:sqlite' {
           fSplitter.addEventListener('pointerup', onUp);
         });
       }
+
+      const pSplitter = this.container.querySelector('#cl-splitter-preview');
+      if (pSplitter) {
+        pSplitter.addEventListener('dblclick', () => {
+          shell.style.setProperty('--cl-preview-split-width', '44%');
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        });
+
+        pSplitter.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          pSplitter.classList.add('is-dragging');
+          shell.classList.add('is-resizing');
+          try { pSplitter.setPointerCapture(e.pointerId); } catch (err) { this.logger.debug('setPointerCapture failed.', err); }
+
+          const onMove = ev => {
+            const ws = this.container.querySelector('.codelab-workspace');
+            const rect = (ws || shell).getBoundingClientRect();
+            const minW = 240;
+            const maxW = Math.max(minW, Math.floor(rect.width * 0.65));
+            const nextW = Math.min(maxW, Math.max(minW, Math.round(rect.right - ev.clientX)));
+            shell.style.setProperty('--cl-preview-split-width', `${nextW}px`);
+            if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          };
+
+          const onUp = ev => {
+            pSplitter.classList.remove('is-dragging');
+            shell.classList.remove('is-resizing');
+            try { pSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
+            pSplitter.removeEventListener('pointermove', onMove);
+            pSplitter.removeEventListener('pointerup', onUp);
+          };
+
+          pSplitter.addEventListener('pointermove', onMove);
+          pSplitter.addEventListener('pointerup', onUp);
+        });
+      }
     }
 
     selectStep(idx, shouldJump = true) {
@@ -6643,6 +6957,9 @@ declare module 'bun:sqlite' {
       const key = `${this.mode}:${this.lang}`;
       if (this.savedState.customFiles) {
         delete this.savedState.customFiles[key];
+      }
+      if (this.savedState.hasSnapshot) {
+        delete this.savedState.hasSnapshot[key];
       }
       this._saveState();
       this._syncAllModels();
@@ -7951,6 +8268,10 @@ declare module 'bun:sqlite' {
       if (this._escHandler && typeof document !== 'undefined') {
         document.removeEventListener('keydown', this._escHandler);
       }
+      if (this._beforeUnloadHandler && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', this._beforeUnloadHandler);
+      }
+      this._beforeUnloadHandler = null;
       if (this._previewViolationHandler && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
         window.removeEventListener('message', this._previewViolationHandler);
       }

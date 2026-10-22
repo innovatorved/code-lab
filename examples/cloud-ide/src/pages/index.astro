@@ -675,9 +675,44 @@
         progressBox.scrollTop = progressBox.scrollHeight;
       }
 
+      const SESSION_STORAGE_KEY = 'codelab:cloud-ide:session';
+
+      function saveSessionMeta(meta) {
+        try {
+          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ ...meta, updatedAt: Date.now() }));
+        } catch (_) {}
+      }
+
+      function loadSessionMeta() {
+        try {
+          const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function hasSavedFilesForLab(labId) {
+        try {
+          const raw = localStorage.getItem('codelab_' + labId);
+          if (!raw) return false;
+          const parsed = JSON.parse(raw);
+          return Boolean(parsed && parsed.customFiles && Object.keys(parsed.customFiles).length > 0);
+        } catch (_) {
+          return false;
+        }
+      }
+
       function ensureIde(options = {}) {
+        const targetLabId = options.labId || 'cloud-ide';
+        if (ideInstance && ideInstance.labId !== targetLabId) {
+          if (typeof ideInstance.destroy === 'function') ideInstance.destroy();
+          mountEl.innerHTML = '';
+          ideInstance = null;
+        }
         if (!ideInstance && window.CodeLab) {
           ideInstance = window.CodeLab.mount(mountEl, {
+            labId: targetLabId,
             title: 'code-lab',
             theme: document.documentElement.getAttribute('data-theme') || 'dark',
             files: options.files || {
@@ -690,14 +725,28 @@
         return ideInstance;
       }
 
-      async function executeClone(targetRepo) {
+      async function executeClone(targetRepo, options = {}) {
         if (!targetRepo) return;
+        const labId = 'repo-' + targetRepo.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+        if (!options.forceClone && hasSavedFilesForLab(labId)) {
+          const ide = ensureIde({ labId });
+          saveSessionMeta({ mode: 'repo', repo: targetRepo, labId });
+          landingOverlay.classList.add('hidden');
+          if (ide) {
+            setTimeout(() => {
+              const ed = ide._editor || ide.editor;
+              if (ed && typeof ed.layout === 'function') ed.layout();
+            }, 60);
+          }
+          return;
+        }
+
         cloneBtn.disabled = true;
         progressBox.innerHTML = '';
         logProgress('connecting', `Connecting to GitHub API for ${targetRepo}...`);
 
         try {
-          const ide = ensureIde();
+          const ide = ensureIde({ labId });
           if (!ide) {
             throw new Error('CodeLab SDK failed to initialize');
           }
@@ -731,8 +780,10 @@
 
           // Update URL without full reload
           const url = new URL(window.location.href);
+          url.searchParams.delete('demo');
           url.searchParams.set('repo', targetRepo);
           window.history.replaceState({}, '', url.toString());
+          saveSessionMeta({ mode: 'repo', repo: targetRepo, labId });
 
           // Transition to full IDE
           setTimeout(() => {
@@ -753,19 +804,19 @@
       landingForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const val = repoInput.value.trim();
-        if (val) executeClone(val);
+        if (val) executeClone(val, { forceClone: true });
       });
 
       chipItems.forEach(chip => {
         chip.addEventListener('click', () => {
           if (chip.getAttribute('data-demo') === 'react') {
-            openFrameworkDemo();
+            openFrameworkDemo({ forceReset: false });
             return;
           }
           const repo = chip.getAttribute('data-repo');
           if (repo) {
             repoInput.value = repo;
-            executeClone(repo);
+            executeClone(repo, { forceClone: false });
           }
         });
       });
@@ -781,16 +832,21 @@
         'package.json': JSON.stringify({ name: 'react-tsx-demo', version: '1.0.0', private: true, dependencies: { react: '^19', 'react-dom': '^19' }, scripts: { dev: 'vite' } }, null, 2) + '\n'
       };
 
-      function openFrameworkDemo() {
-        const ide = ensureIde({ files: REACT_DEMO_FILES, entry: 'main.tsx' });
+      function openFrameworkDemo(opts = {}) {
+        const labId = 'react-demo';
+        const hadSaved = hasSavedFilesForLab(labId);
+        const ide = ensureIde({ labId, files: REACT_DEMO_FILES, entry: 'main.tsx' });
         landingOverlay.classList.add('hidden');
-        if (ide && typeof ide.setFiles === 'function') {
+        if (opts.forceReset && ide && typeof ide.setFiles === 'function') {
+          ide.setFiles(REACT_DEMO_FILES);
+        } else if (!hadSaved && ide && typeof ide.setFiles === 'function' && (!ide.files || !ide.files['main.tsx'])) {
           ide.setFiles(REACT_DEMO_FILES);
         }
         const url = new URL(window.location.href);
         url.searchParams.delete('repo');
         url.searchParams.set('demo', 'react');
         window.history.replaceState({}, '', url.toString());
+        saveSessionMeta({ mode: 'demo', demo: 'react', labId });
         setTimeout(() => {
           const ed = ide && (ide._editor || ide.editor);
           if (ed && typeof ed.layout === 'function') ed.layout();
@@ -799,8 +855,14 @@
       }
 
       function openBlankWorkspace() {
-        const ide = ensureIde();
+        const labId = 'blank-workspace';
+        const ide = ensureIde({ labId });
         landingOverlay.classList.add('hidden');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('repo');
+        url.searchParams.delete('demo');
+        window.history.replaceState({}, '', url.toString());
+        saveSessionMeta({ mode: 'blank', labId });
         if (ide) {
           setTimeout(() => {
             const ed = ide._editor || ide.editor;
@@ -881,15 +943,23 @@
         }
       });
 
-      // Auto-clone if URL has ?repo=, or open the demo if ?demo=
+      // Auto-clone if URL has ?repo=, open the demo if ?demo=, or restore last saved session
       const initialParams = new URLSearchParams(window.location.search);
       const urlRepo = initialParams.get('repo');
       const urlDemo = initialParams.get('demo');
+      const savedSession = loadSessionMeta();
       if (urlDemo === 'react') {
-        openFrameworkDemo();
+        openFrameworkDemo({ forceReset: false });
       } else if (urlRepo) {
         repoInput.value = urlRepo;
-        executeClone(urlRepo);
+        executeClone(urlRepo, { forceClone: false });
+      } else if (savedSession && savedSession.mode === 'demo' && savedSession.demo === 'react') {
+        openFrameworkDemo({ forceReset: false });
+      } else if (savedSession && savedSession.mode === 'repo' && savedSession.repo && hasSavedFilesForLab(savedSession.labId || '')) {
+        repoInput.value = savedSession.repo;
+        executeClone(savedSession.repo, { forceClone: false });
+      } else if (savedSession && savedSession.mode === 'blank' && hasSavedFilesForLab(savedSession.labId || 'blank-workspace')) {
+        openBlankWorkspace();
       }
     })();
   </script>

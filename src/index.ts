@@ -1,5 +1,5 @@
 /**
- * @innovatorved/code-lab v0.1.8
+ * @innovatorved/code-lab v0.1.9
  * Browser-native IDE, POSIX Shell, Web Worker Node.js/Bun Runtime, and Git Engine.
  */
 

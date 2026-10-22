@@ -3024,10 +3024,10 @@
     return imports;
   }
 
-  function collectPreviewScripts(vfs, rootDir, maxFiles = 200) {
-    const scripts = [];
+  function collectPreviewScriptFiles(vfs, rootDir, maxFiles = 200) {
+    const files = [];
     const walk = (dir, depth) => {
-      if (depth > 8 || scripts.length >= maxFiles) return;
+      if (depth > 8 || files.length >= maxFiles) return;
       let entries = [];
       try { entries = vfs.readdirSync(dir); } catch (_) { return; }
       for (const name of entries) {
@@ -3038,13 +3038,23 @@
         const dirFlag = st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory);
         if (dirFlag) {
           walk(full, depth + 1);
-        } else if (isPreviewScriptPath(name) && scripts.length < maxFiles) {
-          try { scripts.push(vfs.readFileSync(full, 'utf8')); } catch (err) { _shellLogger.debug('Preview script read skipped.', full, err); }
+        } else if (isPreviewScriptPath(name) && files.length < maxFiles) {
+          try {
+            const content = vfs.readFileSync(full, 'utf8');
+            const rel = full.startsWith(rootDir + '/') ? full.slice(rootDir.length + 1) : name;
+            files.push({ full, rel, content });
+          } catch (err) {
+            _shellLogger.debug('Preview script read skipped.', full, err);
+          }
         }
       }
     };
     walk(rootDir, 0);
-    return scripts;
+    return files;
+  }
+
+  function collectPreviewScripts(vfs, rootDir, maxFiles = 200) {
+    return collectPreviewScriptFiles(vfs, rootDir, maxFiles).map((f) => f.content);
   }
 
   function injectPreviewExtras(html, importMap) {
@@ -3069,12 +3079,6 @@
     const taken = new Set((typeof portTable.listServers === 'function' ? portTable.listServers() : []).map((s) => Number(s.port)));
     while (taken.has(port)) port++;
 
-    const specifiers = new Set();
-    for (const content of collectPreviewScripts(ctx.vfs, rootDir)) {
-      for (const s of extractBareSpecifiers(content)) specifiers.add(s);
-    }
-    const importMap = buildPreviewImportMap(ctx.vfs, rootDir, specifiers);
-
     const exists = (p) => { try { return ctx.vfs.existsSync(p); } catch (_) { return false; } };
     const isDir = (p) => {
       try {
@@ -3082,7 +3086,108 @@
         return Boolean(st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory));
       } catch (_) { return false; }
     };
+    const isFile = (p) => exists(p) && !isDir(p);
     const readText = (p) => { try { return ctx.vfs.readFileSync(p, 'utf8'); } catch (_) { return null; } };
+
+    const resolveLocalTarget = (baseDir, rawSpec) => {
+      if (!rawSpec || typeof rawSpec !== 'string') return null;
+      const clean = rawSpec.split(/[?#]/)[0].trim();
+      if (!clean || /^(?:https?:|data:|blob:|\/\/)/i.test(clean)) return null;
+      const candidateBase = clean.startsWith('/')
+        ? PosixPath.join(rootDir, clean.replace(/^\/+/, ''))
+        : PosixPath.join(baseDir, clean);
+      if (isFile(candidateBase)) return candidateBase;
+      const cands = [
+        candidateBase + '.tsx', candidateBase + '.ts', candidateBase + '.jsx', candidateBase + '.js',
+        candidateBase + '.mjs', candidateBase + '.cjs',
+        PosixPath.join(candidateBase, 'index.tsx'), PosixPath.join(candidateBase, 'index.ts'),
+        PosixPath.join(candidateBase, 'index.jsx'), PosixPath.join(candidateBase, 'index.js')
+      ];
+      for (const c of cands) {
+        if (isFile(c)) return c;
+      }
+      return null;
+    };
+
+    const toLocalImportKey = (fullPath) => {
+      const rel = fullPath.startsWith(rootDir + '/') ? fullPath.slice(rootDir.length + 1) : fullPath.replace(/^\/+/, '');
+      return `@codelab-local/${rel}`;
+    };
+
+    const transpileAndRewriteLocalImports = (code, sourcePath) => {
+      let out = code;
+      try {
+        const rm = getRuntimeModule();
+        if (rm && typeof rm.transpileForBrowser === 'function') {
+          out = rm.transpileForBrowser(out, sourcePath);
+        }
+      } catch (err) {
+        _shellLogger.warn(`Preview script transpilation failed for ${sourcePath}.`, err);
+      }
+      const fromDir = PosixPath.dirname(sourcePath);
+      const rewriteSpec = (spec) => {
+        if (!spec || (!spec.startsWith('.') && !spec.startsWith('/'))) return spec;
+        const resolved = resolveLocalTarget(fromDir, spec);
+        return resolved ? toLocalImportKey(resolved) : spec;
+      };
+      out = out.replace(/(\b(?:from|import)\s*['"])(\.{1,2}\/[^'"]+|\/[^'"]+)(['"])/g, (_, pre, spec, post) => `${pre}${rewriteSpec(spec)}${post}`);
+      out = out.replace(/(\bimport\s*\(\s*['"])(\.{1,2}\/[^'"]+|\/[^'"]+)(['"]\s*\))/g, (_, pre, spec, post) => `${pre}${rewriteSpec(spec)}${post}`);
+      return out;
+    };
+
+    const buildHtmlPreviewResponse = (htmlBody, htmlTargetPath) => {
+      const scriptFiles = collectPreviewScriptFiles(ctx.vfs, rootDir);
+      const specifiers = new Set();
+      for (const f of scriptFiles) {
+        for (const s of extractBareSpecifiers(f.content)) specifiers.add(s);
+      }
+      // Also scan inline module scripts in HTML for bare specifiers
+      const inlineScriptRe = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+      let inlineMatch;
+      while ((inlineMatch = inlineScriptRe.exec(htmlBody)) !== null) {
+        if (inlineMatch[1]) {
+          for (const s of extractBareSpecifiers(inlineMatch[1])) specifiers.add(s);
+        }
+      }
+
+      const importMap = buildPreviewImportMap(ctx.vfs, rootDir, specifiers);
+      for (const f of scriptFiles) {
+        const compiled = transpileAndRewriteLocalImports(f.content, f.full);
+        const key = toLocalImportKey(f.full);
+        importMap[key] = `data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`;
+      }
+
+      const htmlDir = PosixPath.dirname(htmlTargetPath);
+      let transformedHtml = htmlBody;
+
+      // Inline local <link rel="stylesheet" href="..."> so styles work in opaque-origin / srcdoc frames
+      transformedHtml = transformedHtml.replace(/<link\b([^>]*?)>/gi, (fullTag, attrs) => {
+        if (!/\brel\s*=\s*["']stylesheet["']/i.test(attrs)) return fullTag;
+        const hrefMatch = /\bhref\s*=\s*["']([^"']+)["']/i.exec(attrs);
+        if (!hrefMatch) return fullTag;
+        const cssTarget = resolveLocalTarget(htmlDir, hrefMatch[1]);
+        if (!cssTarget || !/\.css$/i.test(cssTarget)) return fullTag;
+        const cssContent = readText(cssTarget);
+        if (cssContent === null) return fullTag;
+        return `<style data-codelab-href="${hrefMatch[1].replace(/"/g, '&quot;')}">\n${cssContent}\n</style>`;
+      });
+
+      // Inline local <script ... src="..."></script> so entry modules & scripts execute reliably in opaque-origin / srcdoc frames
+      transformedHtml = transformedHtml.replace(/<script\b([^>]*?)>\s*<\/script>/gi, (fullTag, attrs) => {
+        const srcMatch = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(attrs);
+        if (!srcMatch) return fullTag;
+        const scriptTarget = resolveLocalTarget(htmlDir, srcMatch[1]);
+        if (!scriptTarget || !isPreviewScriptPath(scriptTarget)) return fullTag;
+        const rawScript = readText(scriptTarget);
+        if (rawScript === null) return fullTag;
+        const compiled = transpileAndRewriteLocalImports(rawScript, scriptTarget);
+        const isMod = /\btype\s*=\s*["']module["']/i.test(attrs) || /\.(?:tsx|ts|jsx|mjs)$/i.test(scriptTarget);
+        const typeAttr = isMod ? ' type="module"' : '';
+        return `<script${typeAttr} data-codelab-src="${srcMatch[1].replace(/"/g, '&quot;')}">\n${compiled}\n</script>`;
+      });
+
+      return injectPreviewExtras(transformedHtml, importMap);
+    };
 
     const handler = async (request) => {
       let pathname = '/';
@@ -3118,7 +3223,7 @@
       let body = readText(target);
       if (body === null) body = '';
       if (/\.html?$/i.test(target)) {
-        body = injectPreviewExtras(body, importMap);
+        body = buildHtmlPreviewResponse(body, target);
       } else if (isPreviewScriptPath(target)) {
         try {
           const rm = getRuntimeModule();
