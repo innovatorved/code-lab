@@ -1,4 +1,4 @@
-# `@innovatorved/code-lab` Architecture (v0.1.11)
+# `@innovatorved/code-lab` Architecture (v0.1.12)
 
 `@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`).
 
