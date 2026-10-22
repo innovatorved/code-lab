@@ -4347,6 +4347,27 @@ code-lab,
   max-width: 110px;
 }
 
+/* The split pane is narrower than the drawer, so the single-row chrome would
+   clip its right-hand controls. Wrap instead, and give the URL its own row. */
+.codelab-preview-split .codelab-preview-chrome {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.codelab-preview-split .codelab-preview-url-input {
+  order: 10;
+  flex: 1 1 100%;
+}
+
+/* Icon-only pop-out keeps the split chrome to two rows. */
+.codelab-preview-split [data-cl-action="preview-popout"] {
+  padding: 0 6px;
+}
+
+.codelab-preview-split [data-cl-action="preview-popout"] > span {
+  display: none;
+}
+
 .codelab-preview-csp--blocked {
   color: var(--cl-red);
   border-color: var(--cl-red);
@@ -5107,6 +5128,13 @@ code-lab,
    These must come after the base `.codelab-workspace.has-preview-split` rule
    above: equal specificity, later wins. */
 @media (max-width: 900px) {
+  /* Device emulation and the allowlist badge are not useful in a narrow pane.
+     The violation chip stays visible so blocked requests are still surfaced. */
+  .codelab-preview-split .codelab-preview-modes,
+  .codelab-preview-split #cl-preview-csp-badge {
+    display: none;
+  }
+
   /* Keep the split, but give the editor a floor and cap the preview share. */
   .codelab-workspace.has-preview-split {
     grid-template-columns: 155px 4px minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
