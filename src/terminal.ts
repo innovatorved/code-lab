@@ -33,6 +33,16 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function () {
   'use strict';
 
+  const _termRoot = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : {});
+  const _terminalLogger = (_termRoot && _termRoot.CodeLabLogger && typeof _termRoot.CodeLabLogger.createLogger === 'function')
+    ? _termRoot.CodeLabLogger.createLogger()
+    : {
+        debug() {},
+        info(...args) { if (typeof console !== 'undefined' && console.info) console.info('[code-lab]', ...args); },
+        warn(...args) { if (typeof console !== 'undefined' && console.warn) console.warn('[code-lab]', ...args); },
+        error(...args) { if (typeof console !== 'undefined' && console.error) console.error('[code-lab]', ...args); }
+      };
+
   const ANSI_CODE_MAP = {
     1: 'cl-ansi-bold',
     2: 'cl-ansi-dim',
@@ -573,7 +583,7 @@
       if (!this.container || typeof this.container.querySelector !== 'function') return;
       const input = this.container.querySelector('#cl-repl-input');
       if (input && typeof input.focus === 'function') {
-        try { input.focus(); } catch (_) {}
+        try { input.focus(); } catch (err) { _terminalLogger.debug('Terminal input focus skipped.', err); }
       }
     }
 
@@ -597,9 +607,9 @@
       }
       for (const entry of this._listeners) {
         if (typeof entry === 'function') {
-          try { entry(); } catch (_) {}
+          try { entry(); } catch (err) { _terminalLogger.debug('Terminal listener cleanup callback failed.', err); }
         } else if (entry && entry.target && typeof entry.target.removeEventListener === 'function') {
-          try { entry.target.removeEventListener(entry.type, entry.handler); } catch (_) {}
+          try { entry.target.removeEventListener(entry.type, entry.handler); } catch (err) { _terminalLogger.debug('Terminal removeEventListener failed.', err); }
         }
       }
       this._listeners = [];
@@ -668,7 +678,9 @@
         try {
           const res = this.onKey(e);
           if (res === false) return;
-        } catch (_) {}
+        } catch (err) {
+          _terminalLogger.warn('Terminal onKey callback threw.', err);
+        }
       }
 
       const key = e.key;
@@ -821,7 +833,7 @@
           this.replMode = false;
         }
         if (this.onInterrupt) {
-          try { this.onInterrupt(); } catch (_) {}
+          try { this.onInterrupt(); } catch (err) { _terminalLogger.warn('Terminal onInterrupt callback threw.', err); }
         }
         this.render();
         return;
@@ -1022,7 +1034,9 @@
             if (typeof nextInput.setSelectionRange === 'function') {
               nextInput.setSelectionRange(this.cursor, this.cursor);
             }
-          } catch (_) {}
+          } catch (err) {
+            _terminalLogger.debug('Terminal focus/selection restore skipped.', err);
+          }
         }
       }
     }

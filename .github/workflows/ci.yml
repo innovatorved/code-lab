@@ -43,6 +43,9 @@ jobs:
       - name: Strict typecheck (new modules)
         run: bun run typecheck:strict
 
+      - name: Lint (no empty catch, strict modules, @ts-nocheck allowlist)
+        run: bun run lint
+
       - name: Build
         run: bun run build
 

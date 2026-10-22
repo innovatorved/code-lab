@@ -45,12 +45,23 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
 
+  const _shellLogger = (root && root.CodeLabLogger && typeof root.CodeLabLogger.createLogger === 'function')
+    ? root.CodeLabLogger.createLogger()
+    : {
+        debug() {},
+        info(...args) { if (typeof console !== 'undefined' && console.info) console.info('[code-lab]', ...args); },
+        warn(...args) { if (typeof console !== 'undefined' && console.warn) console.warn('[code-lab]', ...args); },
+        error(...args) { if (typeof console !== 'undefined' && console.error) console.error('[code-lab]', ...args); }
+      };
+
   function getRuntimeModule() {
     if (typeof root !== 'undefined' && root && root.CodeLabRuntime) return root.CodeLabRuntime;
     if (typeof globalThis !== 'undefined' && globalThis.CodeLabRuntime) return globalThis.CodeLabRuntime;
     try {
       if (typeof require !== 'undefined') return require('./runtime.js');
-    } catch (_) {}
+    } catch (err) {
+      _shellLogger.debug('Optional ./runtime.js require skipped in shell.', err);
+    }
     return null;
   }
 
@@ -642,7 +653,9 @@
           if (typeof vfs.statSync === 'function') {
             isDir = vfs.statSync(full).isDirectory();
           }
-        } catch (_) {}
+        } catch (err) {
+          _shellLogger.debug('Glob statSync failed.', full, err);
+        }
 
         if (isDir) {
           traverse(full, rel);
@@ -1964,7 +1977,9 @@
             : name;
           try {
             snap[rel] = String(vfs.readFileSync(full, 'utf8'));
-          } catch (_) {}
+          } catch (err) {
+            _shellLogger.debug('Skipped unreadable VFS file in snapshot.', full, err);
+          }
         }
       }
     }
@@ -2068,8 +2083,9 @@
           }
         }
       }
-    } catch (_) {
+    } catch (err) {
       // Network or rate limit error on api.github.com; proceed to Strategy B
+      _shellLogger.debug('GitHub REST API tree fetch failed; falling back to jsDelivr.', err);
     }
 
     // Strategy B: jsDelivr Data API (Zero rate limits, fast global edge cache)
@@ -2096,7 +2112,9 @@
             }
           }
         }
-      } catch (_) {}
+      } catch (err) {
+        _shellLogger.debug('jsDelivr flat tree fetch failed.', err);
+      }
     }
 
     if (repoNotFound || !rawTreeEntries) {
@@ -2244,7 +2262,9 @@
           }));
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      _shellLogger.debug('Optional commit history fetch skipped.', err);
+    }
 
     if (commits.length === 0) {
       commits = [
@@ -2310,7 +2330,9 @@
       try {
         const parsed = JSON.parse(vfs.readFileSync(p, 'utf8'));
         return { path: p, data: parsed };
-      } catch (_) {}
+      } catch (err) {
+        _shellLogger.warn(`Invalid JSON in ${p}; falling back to default package metadata.`, err);
+      }
     }
     return { path: p, data: { name: 'app', dependencies: {}, devDependencies: {}, scripts: {} } };
   }
@@ -2351,7 +2373,9 @@
         vfs.rmdirSync(dirPath);
       }
       if (typeof emitMutation === 'function') emitMutation('delete', dirPath);
-    } catch (_) {}
+    } catch (err) {
+      _shellLogger.debug('removeDirRecursive failed.', dirPath, err);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2512,7 +2536,9 @@
       try {
         const parsed = JSON.parse(text);
         if (parsed && parsed.version) return parsed;
-      } catch (_) {}
+      } catch (err) {
+        _shellLogger.debug('Invalid package.json metadata from CDN.', url, err);
+      }
     }
     return null;
   }
@@ -2648,7 +2674,9 @@
         // directory target would otherwise raise EISDIR).
         try {
           if (ctx.vfs.existsSync(full) && ctx.vfs.statSync(full).isDirectory()) continue;
-        } catch (_) {}
+        } catch (err) {
+          _shellLogger.debug('Package install statSync check skipped.', full, err);
+        }
         ensureDirSync(ctx.vfs, PosixPath.dirname(full), ctx.emitMutation);
         ctx.vfs.writeFileSync(full, f.content);
         if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', full);
@@ -2923,7 +2951,9 @@
         const parsed = JSON.parse(vfs.readFileSync(modPkg, 'utf8'));
         if (parsed && parsed.version) return parsed.version;
       }
-    } catch (_) {}
+    } catch (err) {
+      _shellLogger.debug('Could not read installed module package.json.', pkgName, err);
+    }
     try {
       for (const dir of [rootDir, '/workspace']) {
         const pkgPath = PosixPath.join(dir, 'package.json');
@@ -2932,7 +2962,9 @@
         const deps = Object.assign({}, parsed.dependencies || {}, parsed.devDependencies || {}, parsed.peerDependencies || {});
         if (deps[pkgName]) return normalizeVersionRange(deps[pkgName]);
       }
-    } catch (_) {}
+    } catch (err) {
+      _shellLogger.debug('Could not read workspace package.json for version resolution.', pkgName, err);
+    }
     return 'latest';
   }
 
@@ -2970,7 +3002,7 @@
         if (dirFlag) {
           walk(full, depth + 1);
         } else if (isPreviewScriptPath(name) && scripts.length < maxFiles) {
-          try { scripts.push(vfs.readFileSync(full, 'utf8')); } catch (_) {}
+          try { scripts.push(vfs.readFileSync(full, 'utf8')); } catch (err) { _shellLogger.debug('Preview script read skipped.', full, err); }
         }
       }
     };
@@ -3017,7 +3049,7 @@
 
     const handler = async (request) => {
       let pathname = '/';
-      try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (_) {}
+      try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (err) { _shellLogger.debug('Preview URL decode failed.', err); }
       const rel = pathname.replace(/^\/+/, '');
       let target = PosixPath.join(rootDir, rel);
       const hasExt = /\.[A-Za-z0-9]+$/.test(rel);
@@ -3056,7 +3088,9 @@
           if (rm && typeof rm.transpileForBrowser === 'function') {
             body = rm.transpileForBrowser(body, target);
           }
-        } catch (_) {}
+        } catch (err) {
+          _shellLogger.warn(`Preview script transpilation failed for ${target}.`, err);
+        }
       }
 
       return new Response(body, { status: 200, headers: { 'content-type': previewMimeFor(target) } });
@@ -3064,7 +3098,7 @@
 
     const pid = (ctx.shell && typeof ctx.shell.nextPid === 'number') ? ctx.shell.nextPid++ : (ctx.pid || 1000);
     return portTable.registerServer(port, {
-      server: { close() { try { portTable.unregisterServer(port); } catch (_) {} } },
+      server: { close() { try { portTable.unregisterServer(port); } catch (err) { _shellLogger.debug('Preview server unregister failed.', port, err); } } },
       fetch: handler,
       name: 'code-lab-serve',
       pid,
@@ -3177,7 +3211,9 @@
       let isDir = false;
       try {
         isDir = ctx.vfs.statSync(resolved).isDirectory();
-      } catch (_) {}
+      } catch (err) {
+        _shellLogger.debug('cd statSync failed.', resolved, err);
+      }
 
       if (!isDir) {
         return { code: 1, stdout: '', stderr: `cd: ${target}: Not a directory\n` };
@@ -3277,7 +3313,9 @@
             isDirectory = st.isDirectory();
             size = st.size;
             mtimeMs = st.mtimeMs || Date.now();
-          } catch (_) {}
+          } catch (err) {
+            _shellLogger.debug('ls statSync skipped.', itemPath, err);
+          }
           return { name, isDirectory, size, mtimeMs, absPath: itemPath };
         });
 
@@ -3697,7 +3735,9 @@
                 if (st.isDirectory()) walk(full);
                 else targets.push(full);
               }
-            } catch (_) {}
+            } catch (err) {
+              _shellLogger.debug('grep directory walk skipped.', dir, err);
+            }
           }
           if (ctx.vfs.existsSync(absRoot)) {
             const st = ctx.vfs.statSync(absRoot);
@@ -3821,7 +3861,9 @@
           let isDir = false;
           try {
             isDir = ctx.vfs.statSync(full).isDirectory();
-          } catch (_) {}
+          } catch (err) {
+            _shellLogger.debug('find statSync skipped.', full, err);
+          }
 
           const relPath = root === '.'
             ? './' + full.replace(absRoot.endsWith('/') ? absRoot : absRoot + '/', '')
@@ -3840,7 +3882,7 @@
       // Root itself check
       if (ctx.vfs.existsSync(absRoot)) {
         let isDir = false;
-        try { isDir = ctx.vfs.statSync(absRoot).isDirectory(); } catch (_) {}
+        try { isDir = ctx.vfs.statSync(absRoot).isDirectory(); } catch (err) { _shellLogger.debug('find root statSync skipped.', absRoot, err); }
         if (!typeFilter || (typeFilter === 'd' && isDir) || (typeFilter === 'f' && !isDir)) {
           if (!nameRegex || nameRegex.test(PosixPath.basename(root))) {
             results.push(root);
@@ -4752,7 +4794,7 @@
           const isLast = i === entries.length - 1;
           const full = dirPath === '/' ? '/' + entry : dirPath + '/' + entry;
           let isDir = false;
-          try { isDir = ctx.vfs.statSync(full).isDirectory(); } catch (_) {}
+          try { isDir = ctx.vfs.statSync(full).isDirectory(); } catch (err) { _shellLogger.debug('tree statSync skipped.', full, err); }
 
           stdout += `${prefix}${isLast ? '└── ' : '├── '}${entry}\n`;
 
@@ -4980,10 +5022,10 @@
           for (const s of ctx.shell.portTable.listServers()) {
             if (s.pid !== undefined && String(s.pid) === String(pid)) {
               if (s.server && typeof s.server.close === 'function') {
-                try { s.server.close(); } catch (_) {}
+                try { s.server.close(); } catch (err) { _shellLogger.debug('kill server.close failed.', err); }
               }
               if (typeof s.stop === 'function') {
-                try { s.stop(); } catch (_) {}
+                try { s.stop(); } catch (err) { _shellLogger.debug('kill server.stop failed.', err); }
               }
               ctx.shell.portTable.unregisterServer(s.port);
               killedPort = true;

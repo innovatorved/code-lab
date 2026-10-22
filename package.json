@@ -71,6 +71,7 @@
   "packageManager": "bun@1.4.3",
   "scripts": {
     "build": "bun run tools/bundle.js",
+    "lint": "node tools/lint.js",
     "typecheck": "bun x tsc --noEmit",
     "typecheck:strict": "bun x tsc -p tsconfig.strict.json",
     "test": "bun run tools/bundle.js && bun run tests/run-all.js",

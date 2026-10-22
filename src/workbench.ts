@@ -7,13 +7,26 @@
 (function (root) {
   'use strict';
 
-  let terminalModule = null;
-  let shellModule = null;
-  let runtimeModule = null;
+  const _sharedLoggerMod = (typeof CodeLabLogger !== 'undefined' && CodeLabLogger) ||
+    (root && root.CodeLabLogger) ||
+    null;
+  const _bootDebug = (_sharedLoggerMod && _sharedLoggerMod.DEFAULT_LOGGER && typeof _sharedLoggerMod.DEFAULT_LOGGER.debug === 'function')
+    ? (...args) => _sharedLoggerMod.DEFAULT_LOGGER.debug(...args)
+    : () => {};
+
+  let terminalModule = (root && root.CodeLabTerminal) || null;
+  let shellModule = (root && root.CodeLabShell) || null;
+  let runtimeModule = (root && root.CodeLabRuntime) || null;
   if (typeof require === 'function') {
-    try { terminalModule = require('./terminal.js'); } catch (_) {}
-    try { shellModule = require('./shell.js'); } catch (_) {}
-    try { runtimeModule = require('./runtime.js'); } catch (_) {}
+    if (!terminalModule) {
+      try { terminalModule = require('./terminal.js'); } catch (err) { _bootDebug('optional terminal.js require failed', err); }
+    }
+    if (!shellModule) {
+      try { shellModule = require('./shell.js'); } catch (err) { _bootDebug('optional shell.js require failed', err); }
+    }
+    if (!runtimeModule) {
+      try { runtimeModule = require('./runtime.js'); } catch (err) { _bootDebug('optional runtime.js require failed', err); }
+    }
   }
   const CodeLabTerminal = (root && root.CodeLabTerminal) || terminalModule || {};
   const CodeLabShell = (root && root.CodeLabShell) || shellModule || {};
@@ -1161,12 +1174,26 @@ declare module 'bun:sqlite' {
     }
   }
 
-  const LOG_PREFIX = '[code-lab]';
+  const LOG_PREFIX = (_sharedLoggerMod && _sharedLoggerMod.LOG_PREFIX) || '[code-lab]';
+  const CodeLabError = (_sharedLoggerMod && _sharedLoggerMod.CodeLabError) || class CodeLabError extends Error {
+    constructor(code, message, options = {}) {
+      super(message);
+      this.name = 'CodeLabError';
+      this.code = code || 'E_CODELAB';
+      this.module = options.module || 'workbench';
+      this.context = options.context || {};
+      if (options.cause !== undefined) this.cause = options.cause;
+    }
+  };
+  const isCodeLabError = (_sharedLoggerMod && _sharedLoggerMod.isCodeLabError) || ((value) => Boolean(value && typeof value === 'object' && value.name === 'CodeLabError' && typeof value.code === 'string'));
 
   // Small leveled logger. Hosts can pass `options.logger` to route diagnostics
   // into their own telemetry; `options.debug` enables verbose output. Errors
   // are never silently discarded.
   function createLogger(options = {}) {
+    if (_sharedLoggerMod && typeof _sharedLoggerMod.createLogger === 'function') {
+      return _sharedLoggerMod.createLogger({ module: 'workbench', ...options });
+    }
     const sink = options.logger;
     const debugEnabled = options.debug === true;
 
@@ -1176,8 +1203,9 @@ declare module 'bun:sqlite' {
         try {
           sink[level](...args);
           return;
-        } catch (_) {
-          // A broken host logger must not break the IDE; fall through.
+        } catch (sinkErr) {
+          const fallbackWarn = typeof console !== 'undefined' && typeof console.warn === 'function' ? console.warn : null;
+          if (fallbackWarn) fallbackWarn(LOG_PREFIX, 'Host logger sink threw; falling back to console.', sinkErr);
         }
       }
       const fn = typeof console !== 'undefined' ? console[level] : null;
@@ -1209,7 +1237,7 @@ declare module 'bun:sqlite' {
     return _fallbackStorage.has(key) ? _fallbackStorage.get(key) : null;
   }
 
-  function safeStorageSet(key, value, logger = DEFAULT_LOGGER) {
+  function safeStorageSet(key, value, logger = DEFAULT_LOGGER, onError = null) {
     const str = String(value);
     try {
       if (typeof localStorage !== 'undefined' && localStorage !== null) {
@@ -1217,6 +1245,9 @@ declare module 'bun:sqlite' {
         return true;
       }
     } catch (err) {
+      if (typeof onError === 'function') {
+        onError(err);
+      }
       if (!safeStorageSet._warnedKeys) safeStorageSet._warnedKeys = new Set();
       if (!safeStorageSet._warnedKeys.has(key)) {
         safeStorageSet._warnedKeys.add(key);
@@ -1240,6 +1271,8 @@ declare module 'bun:sqlite' {
       this.options = options || {};
       this.logger = createLogger({ logger: options.logger, debug: options.debug });
       this._persistenceFailureReported = false;
+      this.saveStatusState = 'saved';
+      this.saveStatusError = null;
       this.instanceId = options.instanceId || (`cl-${++_workbenchInstanceCounter}`);
       this.labId = options.id || options.labId || options.buildId || 'custom-lab';
       this.title = options.title || this.labId;
@@ -1434,7 +1467,9 @@ declare module 'bun:sqlite' {
             onCommand: (cmd) => this._handleReplCommand(cmd),
             onInterrupt: () => this._handleInterrupt()
           });
-        } catch (_) {}
+        } catch (err) {
+          this.logger.debug('PTY engine initialization skipped.', err);
+        }
       }
 
       this.shell = null;
@@ -1460,7 +1495,7 @@ declare module 'bun:sqlite' {
           intoRoot: options.cloneIntoRoot !== false,
           branch: options.branch || undefined,
           fetchImpl: options.fetchImpl || undefined
-        }).catch(() => {});
+        }).catch((err) => this.logger.warn('Initial cloneRepo failed.', err));
       }
     }
 
@@ -1485,7 +1520,9 @@ declare module 'bun:sqlite' {
             }
           });
           this._syncFilesToShellVfs();
-        } catch (_) {}
+        } catch (err) {
+          this.logger.debug('POSIX shell initialization skipped.', err);
+        }
       }
     }
 
@@ -1511,7 +1548,9 @@ declare module 'bun:sqlite' {
             const u = new URL(fullUrl);
             parsedPort = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
             reqPath = u.pathname + (u.search || '');
-          } catch (_) {}
+          } catch (err) {
+            this.logger.debug('Could not parse portTable dispatch URL.', err);
+          }
           const method = String((init && init.method) || 'GET').toUpperCase();
           try {
             const res = await origDispatch(url, init);
@@ -1523,7 +1562,9 @@ declare module 'bun:sqlite' {
               } else if (res && res.body !== undefined) {
                 bodyText = String(res.body);
               }
-            } catch (_) {}
+            } catch (err) {
+              this.logger.debug('Could not read response body for HTTP trace.', err);
+            }
             const responseHeaders = {};
             if (res && res.headers) {
               if (typeof res.headers.forEach === 'function') {
@@ -1535,7 +1576,9 @@ declare module 'bun:sqlite' {
             let formattedBody = bodyText;
             try {
               formattedBody = JSON.stringify(JSON.parse(bodyText), null, 2);
-            } catch (_) {}
+            } catch (err) {
+              void err;
+            }
             if (!Array.isArray(this.lastHttpTrace)) this.lastHttpTrace = [];
             this.lastHttpTrace.push({
               id: 'trace_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -1584,7 +1627,9 @@ declare module 'bun:sqlite' {
             vfs.writeFileSync(absPath, String(content ?? ''));
           }
         }
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug('Could not sync files to shell VFS.', err);
+      }
     }
 
     _emitEvent(name, detail) {
@@ -1606,7 +1651,9 @@ declare module 'bun:sqlite' {
         if (shortName !== fullName) {
           this.container.dispatchEvent(new CustomEvent(shortName, { detail, bubbles: true, composed: true }));
         }
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug(`CustomEvent dispatch for "${name}" failed.`, err);
+      }
     }
 
     _resolvedTheme() {
@@ -1640,13 +1687,26 @@ declare module 'bun:sqlite' {
       }
     }
 
-    _reportPersistenceFailure() {
-      if (this._persistenceFailureReported) return;
+    _reportPersistenceFailure(cause) {
+      const error = isCodeLabError(cause)
+        ? cause
+        : new CodeLabError(
+            'E_SAVE',
+            'Workbench state could not be persisted; changes are kept in memory. Export your workspace to keep them.',
+            { cause, recoverable: true, details: { labId: this.labId } }
+          );
+      this.saveStatusState = 'failed';
+      this.saveStatusError = error;
+      this._updateStatusBar();
+      this._emitEvent('save-state', { status: 'failed', state: 'failed', labId: this.labId, error });
+      if (this._persistenceFailureReported) return error;
       this._persistenceFailureReported = true;
       this.logger.warn(
         'Workbench state could not be persisted; changes are kept in memory. Export your workspace to keep them.'
       );
-      this._emitEvent('persistence-error', { labId: this.labId });
+      this._emitEvent('persistence-error', { labId: this.labId, error });
+      this._emitEvent('error', error);
+      return error;
     }
 
     _saveState() {
@@ -1670,22 +1730,35 @@ declare module 'bun:sqlite' {
         };
         this.savedState = state;
         if (this.options && this.options.persistState === false) {
+          this.saveStatusState = 'saved';
+          this.saveStatusError = null;
+          this._updateStatusBar();
           return;
         }
+        this._emitEvent('save-state', { status: 'saving', state: 'saving', labId: this.labId });
         const serialized = JSON.stringify(state);
+        safeStorageSet._lastError = null;
+        const recordErr = (err) => { safeStorageSet._lastError = err; };
         const persisted = [
-          safeStorageSet(this._storageKey(), serialized, this.logger),
+          safeStorageSet(this._storageKey(), serialized, this.logger, recordErr),
           // Sync with host app sidebar & build overview progress trackers
-          safeStorageSet('codelab_progress_' + this.labId, JSON.stringify(completedArr), this.logger),
-          safeStorageSet('sd_codelab_' + this.labId, serialized, this.logger)
+          safeStorageSet('codelab_progress_' + this.labId, JSON.stringify(completedArr), this.logger, recordErr),
+          safeStorageSet('sd_codelab_' + this.labId, serialized, this.logger, recordErr)
         ];
-        if (persisted.includes(false)) this._reportPersistenceFailure();
+        if (persisted.includes(false)) {
+          this._reportPersistenceFailure(safeStorageSet._lastError);
+        } else {
+          this.saveStatusState = 'saved';
+          this.saveStatusError = null;
+          this._updateStatusBar();
+          this._emitEvent('save-state', { status: 'saved', state: 'saved', labId: this.labId });
+        }
       } catch (err) {
         this.logger.error(
           'Failed to save workbench state.',
           err && err.message ? err.message : err
         );
-        this._reportPersistenceFailure();
+        this._reportPersistenceFailure(err);
       }
     }
 
@@ -1708,7 +1781,9 @@ declare module 'bun:sqlite' {
           for (const [dep, ver] of Object.entries(pkgJsonDeps)) {
             npmSet.add(ver && ver !== '*' && ver !== 'latest' ? `${dep}@${String(ver).replace(/^[\^~]/, '')}` : dep);
           }
-        } catch (_) {}
+        } catch (err) {
+          this.logger.debug('Malformed package.json while detecting dependencies.', err);
+        }
       }
 
       const reqRe = /\brequire\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
@@ -1755,6 +1830,7 @@ declare module 'bun:sqlite' {
       const dotEl = this.container.querySelector('#cl-status-dot');
       const textEl = this.container.querySelector('#cl-status-text');
       const fileEl = this.container.querySelector('#cl-status-file');
+      const saveEl = this.container.querySelector('#cl-status-save');
       const durEl = this.container.querySelector('#cl-status-duration');
       const curEl = this.container.querySelector('#cl-status-cursor');
       const langEl = this.container.querySelector('#cl-status-lang');
@@ -1766,6 +1842,24 @@ declare module 'bun:sqlite' {
       }
       if (textEl) textEl.textContent = this.runtimeStatusText;
       if (fileEl) fileEl.textContent = this.activeFile || 'workspace';
+      if (saveEl) {
+        if (this.saveStatusState === 'failed') {
+          saveEl.style.display = 'inline-flex';
+          saveEl.className = 'codelab-statusbar__item codelab-statusbar__save is-failed';
+          saveEl.textContent = '⚠ Save failed (session-only)';
+          const reason = this.saveStatusError && this.saveStatusError.message
+            ? this.saveStatusError.message
+            : 'localStorage is unavailable or quota exceeded';
+          saveEl.setAttribute('title', `State is stored in memory only: ${reason}`);
+          saveEl.setAttribute('data-save-state', 'failed');
+        } else {
+          saveEl.style.display = 'none';
+          saveEl.className = 'codelab-statusbar__item codelab-statusbar__save';
+          saveEl.textContent = '';
+          saveEl.removeAttribute('title');
+          saveEl.setAttribute('data-save-state', 'saved');
+        }
+      }
       if (durEl) {
         if (typeof this.lastRunDurationMs === 'number' && !Number.isNaN(this.lastRunDurationMs)) {
           durEl.style.display = 'inline-flex';
@@ -2073,6 +2167,7 @@ declare module 'bun:sqlite' {
               </span>
               <span class="codelab-statusbar__sep">·</span>
               <span class="codelab-statusbar__item" id="cl-status-file">${escapeHtml(this.activeFile || 'workspace')}</span>
+              <span class="codelab-statusbar__item codelab-statusbar__save" id="cl-status-save" data-save-state="saved" style="display:none"></span>
             </div>
             <div class="codelab-statusbar__right">
               <span class="codelab-statusbar__item" id="cl-status-duration" style="display:none"></span>
@@ -3327,7 +3422,9 @@ declare module 'bun:sqlite' {
       if (this.ptyEngine && typeof this.ptyEngine.writeStreamChunk === 'function') {
         try {
           this.ptyEngine.writeStreamChunk(rawText, type);
-        } catch (_) {}
+        } catch (err) {
+          this.logger.debug('ptyEngine.writeStreamChunk failed.', err);
+        }
       }
 
       this._activeStreamType = type;
@@ -3459,14 +3556,18 @@ declare module 'bun:sqlite' {
         if (this._activeCommandAbortController) {
           try {
             this._activeCommandAbortController.abort('SIGINT');
-          } catch (_) {}
+          } catch (err) {
+            this.logger.debug('AbortController.abort failed.', err);
+          }
           this._activeCommandAbortController = null;
         }
 
         if (typeof root.CodeLabRuntime?.cancelWorkerExecution === 'function') {
           try {
             root.CodeLabRuntime.cancelWorkerExecution('SIGINT: Interrupted by user (Ctrl+C)', this.instanceId);
-          } catch (_) {}
+          } catch (err) {
+            this.logger.debug('cancelWorkerExecution failed.', err);
+          }
         }
 
         this.isRunning = false;
@@ -4035,7 +4136,9 @@ declare module 'bun:sqlite' {
       try {
         const parsed = JSON.parse(responseBody);
         formattedBody = JSON.stringify(parsed, null, 2);
-      } catch (_) {}
+      } catch (_) {
+        formattedBody = responseBody;
+      }
 
       const traceId = 'trace_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
       const traceItem = {
@@ -4108,7 +4211,9 @@ declare module 'bun:sqlite' {
           if (this.drawerTab === 'ports') this._renderDrawerBody();
           this._dismissPortToast(port);
         }));
-      } catch (_) {}
+      } catch (err) {
+        this.logger.warn('Failed to attach portTable event listeners.', err);
+      }
     }
 
     _updatePortsPill() {
@@ -4263,11 +4368,15 @@ declare module 'bun:sqlite' {
         } else if (res && res.headers) {
           Object.assign(outHeaders, res.headers);
         }
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug('Could not copy response headers in _dispatchPreviewRequest.', err);
+      }
       let bodyText = '';
       try {
         bodyText = res && typeof res.text === 'function' ? await res.text() : String((res && res.body) || '');
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug('Could not read response body in _dispatchPreviewRequest.', err);
+      }
       return {
         status: (res && res.status) || 200,
         statusText: (res && res.statusText) || 'OK',
@@ -4520,7 +4629,7 @@ declare module 'bun:sqlite' {
           try {
             const win = window.open(url, '_blank');
             if (win) {
-              try { win.opener = null; } catch (_) {}
+              try { win.opener = null; } catch (err) { this.logger.debug('Could not clear win.opener.', err); }
               opened = true;
             }
           } catch (_) { opened = false; }
@@ -4542,7 +4651,9 @@ declare module 'bun:sqlite' {
         const u = new URL(url);
         port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
         path = u.pathname + (u.search || '') + (u.hash || '');
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug('Failed to parse preview URL; using fallback port/path.', err);
+      }
       this.previewState.port = port;
       this.previewState.path = path;
       this.previewState.url = url;
@@ -4574,7 +4685,9 @@ declare module 'bun:sqlite' {
         const u = new URL(url);
         this.previewState.port = Number(u.port || 80);
         this.previewState.path = u.pathname + (u.search || '');
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug('Failed to parse preview history URL.', err);
+      }
       const input = this.container.querySelector('#cl-preview-url-input');
       if (input) input.value = url;
       this._renderWebPreviewControls();
@@ -4608,9 +4721,11 @@ declare module 'bun:sqlite' {
       try {
         const u = new URL(url);
         popout = this._previewFrameUrl(u.port, `${u.pathname}${u.search || ''}`);
-      } catch (_) {}
+      } catch (err) {
+        this.logger.debug('Failed to parse popout preview URL.', err);
+      }
       if (typeof window !== 'undefined' && typeof window.open === 'function') {
-        try { window.open(popout, '_blank', 'noopener'); } catch (_) {}
+        try { window.open(popout, '_blank', 'noopener'); } catch (err) { this.logger.warn('window.open failed for preview popout.', err); }
       }
       return popout;
     }
@@ -4711,7 +4826,9 @@ declare module 'bun:sqlite' {
           iframe.setAttribute('src', this._previewFrameUrl(u.port, u.pathname + (u.search || '')));
           this.previewState.loading = false;
           return Promise.resolve();
-        } catch (_) {}
+        } catch (err) {
+          this.logger.warn('Failed to set Service Worker preview URL; falling back to srcdoc.', err);
+        }
       }
 
       // Fallback (no Service Worker): dispatch via the virtual port table and
@@ -4777,7 +4894,7 @@ declare module 'bun:sqlite' {
               const full = dir === '/' ? '/' + entry : dir + '/' + entry;
               const rel = relPrefix ? relPrefix + '/' + entry : entry;
               let isDir = false;
-              try { isDir = vfs.statSync(full).isDirectory(); } catch (_) {}
+              try { isDir = vfs.statSync(full).isDirectory(); } catch (_) { isDir = false; }
               if (isDir) {
                 shellWorkspaceFolders.add(rel);
                 walk(full, rel);
@@ -4785,7 +4902,9 @@ declare module 'bun:sqlite' {
                 try {
                   const content = String(vfs.readFileSync(full, 'utf8') ?? '');
                   shellWorkspaceFiles.set(rel, content);
-                } catch (_) {}
+                } catch (err) {
+                  this.logger.debug(`Could not read VFS file "${full}" during snapshot sync.`, err);
+                }
               }
             }
           };
@@ -5144,7 +5263,7 @@ declare module 'bun:sqlite' {
         if (fallbackWrap) fallbackWrap.style.display = 'none';
         if (mdPreview) mdPreview.style.display = 'none';
         if (this.editor) {
-          try { this.editor.setModel(null); } catch (_) {}
+          try { this.editor.setModel(null); } catch (err) { this.logger.debug('editor.setModel(null) failed.', err); }
         }
         if (emptyEl) {
           emptyEl.style.display = 'flex';
@@ -5456,7 +5575,9 @@ declare module 'bun:sqlite' {
               textarea.select();
               document.execCommand('copy');
               document.body.removeChild(textarea);
-            } catch (_) {}
+            } catch (err) {
+              this.logger.warn('Clipboard fallback (execCommand) failed.', err);
+            }
           };
 
           if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -5856,7 +5977,9 @@ declare module 'bun:sqlite' {
         input.focus();
         try {
           input.setSelectionRange(initialVal.length, initialVal.length);
-        } catch (_) {}
+        } catch (err) {
+          this.logger.debug('input.setSelectionRange failed in command palette.', err);
+        }
 
         input.addEventListener('input', () => {
           this.paletteSelectedIndex = 0;
@@ -6129,7 +6252,7 @@ declare module 'bun:sqlite' {
           const onUp = ev => {
             vSplitter.classList.remove('is-dragging');
             shell.classList.remove('is-resizing');
-            try { vSplitter.releasePointerCapture(ev.pointerId); } catch (_) {}
+            try { vSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
             vSplitter.removeEventListener('pointermove', onMove);
             vSplitter.removeEventListener('pointerup', onUp);
           };
@@ -6170,7 +6293,7 @@ declare module 'bun:sqlite' {
           const onUp = ev => {
             hSplitter.classList.remove('is-dragging');
             shell.classList.remove('is-resizing-row');
-            try { hSplitter.releasePointerCapture(ev.pointerId); } catch (_) {}
+            try { hSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
             hSplitter.removeEventListener('pointermove', onMove);
             hSplitter.removeEventListener('pointerup', onUp);
           };
@@ -6197,7 +6320,7 @@ declare module 'bun:sqlite' {
           e.preventDefault();
           fSplitter.classList.add('is-dragging');
           shell.classList.add('is-resizing');
-          try { fSplitter.setPointerCapture(e.pointerId); } catch (_) {}
+          try { fSplitter.setPointerCapture(e.pointerId); } catch (err) { this.logger.debug('setPointerCapture failed.', err); }
 
           const onMove = ev => {
             const ws = this.container.querySelector('.codelab-workspace');
@@ -6211,7 +6334,7 @@ declare module 'bun:sqlite' {
           const onUp = ev => {
             fSplitter.classList.remove('is-dragging');
             shell.classList.remove('is-resizing');
-            try { fSplitter.releasePointerCapture(ev.pointerId); } catch (_) {}
+            try { fSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
             fSplitter.removeEventListener('pointermove', onMove);
             fSplitter.removeEventListener('pointerup', onUp);
             this._saveState();
@@ -6554,7 +6677,9 @@ declare module 'bun:sqlite' {
       if (this.files['package.json']) {
         try {
           pkgJson = JSON.parse(this.files['package.json']);
-        } catch (_) {}
+        } catch (err) {
+          this.logger.warn('Malformed package.json when adding dependency; reinitializing.', err);
+        }
       }
       if (!pkgJson.dependencies || typeof pkgJson.dependencies !== 'object') {
         pkgJson.dependencies = {};
@@ -7222,7 +7347,7 @@ declare module 'bun:sqlite' {
     setFiles(filesMap) {
       if (!filesMap || typeof filesMap !== 'object') return;
       for (const model of this.models.values()) {
-        try { model.dispose(); } catch (_) {}
+        try { model.dispose(); } catch (err) { this.logger.debug('model.dispose failed during setFiles.', err); }
       }
       this.models.clear();
       this.files = {};
@@ -7312,7 +7437,9 @@ declare module 'bun:sqlite' {
         if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFile === 'function') {
           try {
             this.shell.vfs.writeFile('/workspace/' + clean, updated);
-          } catch (_) {}
+          } catch (err) {
+            this.logger.warn(`Failed to sync markdown task toggle for "${clean}" to VFS.`, err);
+          }
         }
         this._notifyCodeChange(clean, updated);
       }
@@ -7604,7 +7731,9 @@ declare module 'bun:sqlite' {
         if (jsonScript && jsonScript.textContent) {
           try {
             inlineConfig = JSON.parse(jsonScript.textContent);
-          } catch (_) {}
+          } catch (err) {
+            DEFAULT_LOGGER.warn('Failed to parse <script type="application/json"> inside <code-lab>.', err);
+          }
         }
 
         // Parse optional files JSON attribute
@@ -7613,7 +7742,9 @@ declare module 'bun:sqlite' {
         if (filesAttr) {
           try {
             attrFiles = JSON.parse(filesAttr);
-          } catch (_) {}
+          } catch (err) {
+            DEFAULT_LOGGER.warn('Failed to parse files="" attribute on <code-lab>.', err);
+          }
         }
 
         const labId = this.getAttribute('lab-id') || this.getAttribute('build-id') || this.dataset.labId || this.dataset.buildId || inlineConfig.id || inlineConfig.labId || 'custom-lab';
@@ -7690,6 +7821,10 @@ declare module 'bun:sqlite' {
     Workbench: CodeLabWorkbench,
     CodeLabWorkbench,
     CodeLabElement: CodeLabElementClass,
+    CodeLabError,
+    isCodeLabError,
+    createLogger,
+    Logger: _sharedLoggerMod || { LOG_PREFIX, CodeLabError, isCodeLabError, createLogger, DEFAULT_LOGGER },
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,

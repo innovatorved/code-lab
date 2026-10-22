@@ -267,12 +267,15 @@ export function buildPreviewShims(): string {
     };
   }
   function shim(name) {
+    var blocked = false;
     try {
       var existing = window[name];
       if (existing) { existing.getItem('__codelab_probe__'); return; }
     } catch (err) {
       // Expected on an opaque origin: the accessor itself throws.
+      blocked = Boolean(err);
     }
+    void blocked;
     try {
       Object.defineProperty(window, name, { configurable: true, value: memoryStorage() });
     } catch (err) {

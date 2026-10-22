@@ -74,6 +74,17 @@ try {
   throw new Error(`Failed to bundle src/csp.ts: ${err.message}`);
 }
 
+let loggerCode;
+try {
+  loggerCode = execFileSync(
+    localBin('esbuild'),
+    ['src/logger.ts', '--bundle', '--format=iife', '--global-name=CodeLabLogger'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/logger.ts: ${err.message}`);
+}
+
 const BANNER = `/**
  * ============================================================
  * @innovatorved/code-lab v${PKG_VERSION} — Standalone Browser Code IDE & Virtual Runtime
@@ -95,8 +106,9 @@ const BANNER = `/**
 const IIFE_BUNDLE = `${BANNER}(function (root) {
   'use strict';
 
-  // --- Module 0: Preview CSP (shared with the preview service worker) ---
+  // --- Module 0: Preview CSP & Structured Logger ---
 ${cspCode}
+${loggerCode}
 
   // --- Module 1: Runtime Engine ---
   (function () {
@@ -155,6 +167,12 @@ ${workbenchCode}
       createVirtualPortTable: CodeLabRuntime.createVirtualPortTable,
       createWorkerRuntimeSource: CodeLabRuntime.createWorkerRuntimeSource,
       CodeLabCsp: CodeLabCsp,
+      CodeLabLogger: CodeLabLogger,
+      CodeLabError: CodeLabLogger.CodeLabError,
+      isCodeLabError: CodeLabLogger.isCodeLabError,
+      createLogger: CodeLabLogger.createLogger,
+      DEFAULT_LOGGER: CodeLabLogger.DEFAULT_LOGGER,
+      LOG_PREFIX: CodeLabLogger.LOG_PREFIX,
       default: CodeLab
     });
   }
@@ -163,8 +181,9 @@ ${workbenchCode}
 
 const ESM_BUNDLE = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
 
-// --- Module 0: Preview CSP (shared with the preview service worker) ---
+// --- Module 0: Preview CSP & Structured Logger ---
 ${cspCode}
+${loggerCode}
 
 // --- Module 1: Runtime Engine ---
 (function () {
@@ -219,6 +238,12 @@ const renderMarkdown = CodeLab ? CodeLab.renderMarkdown : null;
 const renderSimpleMarkdown = CodeLab ? CodeLab.renderSimpleMarkdown : null;
 const cloneRepo = CodeLab ? CodeLab.cloneRepo : null;
 const extensions = CodeLab ? CodeLab.extensions : null;
+const CodeLabError = CodeLabLogger.CodeLabError;
+const isCodeLabError = CodeLabLogger.isCodeLabError;
+const createLogger = CodeLabLogger.createLogger;
+const DEFAULT_LOGGER = CodeLabLogger.DEFAULT_LOGGER;
+const LOG_PREFIX = CodeLabLogger.LOG_PREFIX;
+const Logger = CodeLab ? CodeLab.Logger : CodeLabLogger;
 
 export {
   CodeLab,
@@ -240,6 +265,13 @@ export {
   cloneRepo,
   extensions,
   CodeLabCsp,
+  CodeLabLogger,
+  Logger,
+  CodeLabError,
+  isCodeLabError,
+  createLogger,
+  DEFAULT_LOGGER,
+  LOG_PREFIX,
   createPosixShell,
   cloneGitHubRepository,
   parseGitHubRepoUrl,
@@ -263,6 +295,7 @@ export default CodeLab;
 
 const RUNTIME_IIFE = `${BANNER}(function (root) {
   'use strict';
+${loggerCode}
   (function () {
 ${runtimeCode}
   })();
@@ -274,6 +307,7 @@ ${runtimeCode}
 `;
 
 const RUNTIME_ESM = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
+${loggerCode}
 (function () {
 ${runtimeCode}
 })();
@@ -338,6 +372,7 @@ export default CodeLabRuntime;
 
 const SHELL_IIFE = `${BANNER}(function (root) {
   'use strict';
+${loggerCode}
   (function () {
 ${shellCode}
   })();
@@ -349,6 +384,7 @@ ${shellCode}
 `;
 
 const SHELL_ESM = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
+${loggerCode}
 (function () {
 ${shellCode}
 })();
@@ -383,6 +419,7 @@ export default CodeLabShell;
 
 const TERMINAL_IIFE = `${BANNER}(function (root) {
   'use strict';
+${loggerCode}
   (function () {
 ${terminalCode}
   })();
@@ -394,6 +431,7 @@ ${terminalCode}
 `;
 
 const TERMINAL_ESM = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
+${loggerCode}
 (function () {
 ${terminalCode}
 })();
@@ -581,6 +619,62 @@ export interface CodeLabCspAPI {
 
 export declare const CodeLabCsp: CodeLabCspAPI;
 
+export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
+
+export type CodeLabErrorCode =
+  | 'E_PERSISTENCE'
+  | 'E_WORKER_TIMEOUT'
+  | 'E_WORKER_CRASH'
+  | 'E_WORKER_INIT'
+  | 'E_CSP_VIOLATION'
+  | 'E_PREVIEW_SW'
+  | 'E_PREVIEW_RENDER'
+  | 'E_NETWORK_BLOCKED'
+  | 'E_VFS'
+  | 'E_SHELL'
+  | 'E_TERMINAL'
+  | 'E_MONACO_LOAD'
+  | 'E_PACKAGE_FETCH'
+  | 'E_CLONE_FAILED'
+  | 'E_EXTENSION';
+
+export interface CodeLabErrorOptions {
+  cause?: unknown;
+  context?: Record<string, unknown>;
+}
+
+export declare class CodeLabError extends Error {
+  readonly code: CodeLabErrorCode;
+  readonly context?: Record<string, unknown>;
+  readonly cause?: unknown;
+  constructor(code: CodeLabErrorCode, message: string, options?: CodeLabErrorOptions);
+}
+
+export interface Logger {
+  readonly level: LogLevel;
+  error(message: string, meta?: unknown): void;
+  warn(message: string, meta?: unknown): void;
+  info(message: string, meta?: unknown): void;
+  debug(message: string, meta?: unknown): void;
+}
+
+export interface CreateLoggerOptions {
+  level?: LogLevel;
+  scope?: string;
+  sink?: Partial<Record<Exclude<LogLevel, 'silent'>, (line: string, meta?: unknown) => void>>;
+}
+
+export declare function isCodeLabError(value: unknown): value is CodeLabError;
+export declare function createLogger(input?: LogLevel | CreateLoggerOptions | Logger): Logger;
+export declare const DEFAULT_LOGGER: Logger;
+export declare const LOG_PREFIX = '[code-lab]';
+
+export interface CodeLabSaveStateEvent {
+  state: 'saved' | 'failed';
+  key: string;
+  error?: CodeLabError;
+}
+
 export interface CodeLabOptions {
   /** Unique identifier used for localStorage persistence */
   id?: string;
@@ -608,6 +702,10 @@ export interface CodeLabOptions {
   theme?: 'dark' | 'light' | 'auto';
   /** Set to false to disable localStorage persistence and use in-memory state only */
   persistState?: boolean;
+  /** Structured logger or log level ('silent' | 'error' | 'warn' | 'info' | 'debug', default: 'warn') */
+  logger?: LogLevel | CreateLoggerOptions | Logger;
+  /** Shortcut for setting logger level */
+  logLevel?: LogLevel;
   /** Public GitHub repository URL or owner/repo shorthand to automatically clone on mount */
   repo?: string;
   githubRepo?: string;
@@ -725,7 +823,12 @@ export declare class CodeLabWorkbench {
   reset(): this;
   previewOrigin: string | null;
   previewCsp: { mode: 'strict' | 'balanced' | 'custom'; allow: CodeLabPreviewCspSources };
+  logger: Logger;
+  saveStatusState: 'saved' | 'failed';
+  lastSaveError: CodeLabError | null;
   on(event: 'preview-violation', handler: (detail: CodeLabPreviewViolation) => void): () => void;
+  on(event: 'save-state', handler: (detail: CodeLabSaveStateEvent) => void): () => void;
+  on(event: 'error', handler: (detail: CodeLabError) => void): () => void;
   on(event: string, handler: (detail: any) => void): () => void;
   off(event: string, handler: (detail: any) => void): this;
   use(plugin: (workbench: CodeLabWorkbench, options?: any) => any, options?: any): this;
@@ -832,6 +935,16 @@ export interface CodeLabStatic {
   unmount(container: HTMLElement | string): void;
   cloneRepo(vfsOrWorkbench: any, repoInput: string, options?: CodeLabCloneOptions): Promise<any>;
   parseGitHubRepoUrl: CodeLabShellAPI['parseGitHubRepoUrl'];
+  CodeLabError: typeof CodeLabError;
+  isCodeLabError: typeof isCodeLabError;
+  createLogger: typeof createLogger;
+  Logger: {
+    CodeLabError: typeof CodeLabError;
+    isCodeLabError: typeof isCodeLabError;
+    createLogger: typeof createLogger;
+    DEFAULT_LOGGER: Logger;
+    LOG_PREFIX: typeof LOG_PREFIX;
+  };
 }
 
 export declare const CodeLab: CodeLabStatic;

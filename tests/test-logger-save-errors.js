@@ -15,8 +15,10 @@
  */
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { doc, localStorageMock, localStorageStore } = require('./helpers/mock-dom.js');
-const { CodeLabWorkbench } = require('./helpers/load').workbench;
+const { CodeLabWorkbench, CodeLab, CodeLabError, isCodeLabError, createLogger } = require('./helpers/load').workbench;
 
 let passed = 0;
 const failures = [];
@@ -225,6 +227,99 @@ test('L10 host callback exceptions are logged and do not break events', () => {
 
   assert.equal(events, 1);
   assert.ok(entries.some(([level, msg]) => level === 'error' && String(msg).includes('onCodeChange')));
+});
+
+test('L11 CodeLabError, isCodeLabError, and createLogger are exported and structured', () => {
+  assert.equal(typeof CodeLabError, 'function');
+  assert.equal(typeof isCodeLabError, 'function');
+  assert.equal(typeof createLogger, 'function');
+  assert.equal(CodeLab.CodeLabError, CodeLabError);
+
+  const cause = new Error('disk full');
+  const err = new CodeLabError('E_PERSISTENCE', 'Quota exceeded', {
+    cause,
+    context: { key: 'sd-codelab-v1:test' }
+  });
+  assert.equal(err.name, 'CodeLabError');
+  assert.equal(err.code, 'E_PERSISTENCE');
+  assert.equal(err.cause, cause);
+  assert.deepEqual(err.context, { key: 'sd-codelab-v1:test' });
+  assert.equal(isCodeLabError(err), true);
+  assert.equal(isCodeLabError(cause), false);
+
+  const lines = [];
+  const logger = createLogger({
+    debug: false,
+    prefix: '[code-lab] [storage]',
+    logger: {
+      warn: (...args) => lines.push(['warn', ...args]),
+      info: (...args) => lines.push(['info', ...args]),
+      debug: (...args) => lines.push(['debug', ...args])
+    }
+  });
+  logger.debug('ignored debug');
+  logger.warn('quota reached', { key: 'x' });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0][0], 'warn');
+  assert.equal(lines[0][1], 'quota reached');
+});
+
+test('L12 QuotaExceededError emits save-state:failed, error(E_SAVE), and updates statusbar', () => {
+  localStorageStore.clear();
+  const wb = makeWorkbench({ labId: uniqueLabId('save-state-ui'), logger: silentSink });
+  const saveEvents = [];
+  const errorEvents = [];
+  wb.on('save-state', (detail) => saveEvents.push(detail));
+  wb.on('error', (err) => errorEvents.push(err));
+
+  const originalSetItem = localStorageMock.setItem;
+  localStorageMock.setItem = () => {
+    const quotaErr = new Error('QuotaExceededError: The quota has been exceeded.');
+    quotaErr.name = 'QuotaExceededError';
+    throw quotaErr;
+  };
+  try {
+    wb._saveState();
+  } finally {
+    localStorageMock.setItem = originalSetItem;
+  }
+
+  assert.equal(wb.saveStatusState, 'failed');
+  const failedEvent = saveEvents.find(e => e.status === 'failed' || e.state === 'failed');
+  assert.ok(failedEvent, 'expected save-state event with failed status');
+  assert.equal(isCodeLabError(failedEvent.error), true);
+  assert.equal(failedEvent.error.code, 'E_SAVE');
+
+  assert.equal(errorEvents.length, 1);
+  assert.equal(isCodeLabError(errorEvents[0]), true);
+  assert.equal(errorEvents[0].code, 'E_SAVE');
+
+  const statusSaveEl = wb.container.querySelector('#cl-status-save');
+  assert.ok(statusSaveEl, 'expected #cl-status-save in statusbar');
+  assert.ok(String(statusSaveEl.textContent).includes('Save failed (session-only)'));
+
+  // Subsequent successful save recovers status
+  wb._saveState();
+  assert.equal(wb.saveStatusState, 'saved');
+  assert.equal(saveEvents[saveEvents.length - 1].state, 'saved');
+});
+
+test('L13 zero empty or comment-only catch blocks across src/', () => {
+  const srcDir = path.resolve(__dirname, '..', 'src');
+  const emptyCatchRe = /\bcatch\s*(?:\([^)]*\))?\s*\{\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*\n\s*)*\}/g;
+  function walk(dir, out = []) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full, out);
+      else if (/\.(?:ts|js)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) out.push(full);
+    }
+    return out;
+  }
+  for (const file of walk(srcDir)) {
+    const content = fs.readFileSync(file, 'utf8');
+    const matches = content.match(emptyCatchRe);
+    assert.equal(matches, null, `Found empty catch block in ${path.relative(srcDir, file)}`);
+  }
 });
 
 console.log('\n════════════════════════════════════════════════════════════════════════════');

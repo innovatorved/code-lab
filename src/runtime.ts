@@ -20,6 +20,14 @@ if (typeof globalThis !== 'undefined' && typeof globalThis.Bun === 'undefined') 
  */
 
 function __initVirtualRuntime(rootScope) {
+  const _runtimeLogger = (rootScope && rootScope.CodeLabLogger && typeof rootScope.CodeLabLogger.createLogger === 'function')
+    ? rootScope.CodeLabLogger.createLogger()
+    : {
+        debug() {},
+        info() {},
+        warn(msg, meta) { if (typeof console !== 'undefined' && console.warn) console.warn('[CodeLab]', msg, meta || ''); },
+        error(msg, meta) { if (typeof console !== 'undefined' && console.error) console.error('[CodeLab]', msg, meta || ''); }
+      };
   // =========================================================================
   // 1. UTF-8 / HEX / BASE64 / BASE64URL CODECS & VIRTUAL BUFFER
   // =========================================================================
@@ -1579,7 +1587,7 @@ function __initVirtualRuntime(rootScope) {
           },
           final(cb) {
             if (fd !== null) {
-              try { fsShim.closeSync(fd); } catch (_) {}
+              try { fsShim.closeSync(fd); } catch (err) { _runtimeLogger.debug('vfs writeStream closeSync failed', err); }
               fd = null;
             }
             cb(null);
@@ -2099,7 +2107,9 @@ function __initVirtualRuntime(rootScope) {
             return pathname + search + hash;
           }
           return resolvedUrl.href;
-        } catch (_) {}
+        } catch (err) {
+          _runtimeLogger.debug('url.resolve fallback used', err);
+        }
       }
       if (toStr.startsWith('/')) {
         const m = /^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]+)/.exec(fromStr);
@@ -2538,10 +2548,10 @@ function __initVirtualRuntime(rootScope) {
         for (const [port, entry] of Array.from(table.entries())) {
           if (entry.pid !== undefined && String(entry.pid) === pStr) {
             if (entry.server && typeof entry.server.close === 'function') {
-              try { entry.server.close(); } catch (_) {}
+              try { entry.server.close(); } catch (err) { _runtimeLogger.debug('portTable server.close failed', err); }
             }
             if (typeof entry.stop === 'function') {
-              try { entry.stop(); } catch (_) {}
+              try { entry.stop(); } catch (err) { _runtimeLogger.debug('portTable entry.stop failed', err); }
             }
             // Avoid a double 'close' emission when entry.server.close() already
             // unregistered the port through unregisterServer().
@@ -3178,7 +3188,7 @@ function __initVirtualRuntime(rootScope) {
       },
       closeAllServers() {
         for (const s of Array.from(activeServers.values())) {
-          try { s.close(); } catch (_) {}
+          try { s.close(); } catch (err) { _runtimeLogger.debug('vhttp closeAllServers close failed', err); }
         }
         activeServers.clear();
       }
@@ -4004,7 +4014,7 @@ function __initVirtualRuntime(rootScope) {
 
     function closeAllServers() {
       for (const srv of servers.values()) {
-        try { srv.close(); } catch (_) {}
+        try { srv.close(); } catch (err) { _runtimeLogger.debug('vnet closeAllServers close failed', err); }
       }
       servers.clear();
     }
@@ -5084,7 +5094,9 @@ function __initVirtualRuntime(rootScope) {
         try {
           const pkgJson = JSON.parse(content);
           for (const dep of Object.keys(pkgJson.dependencies || {})) addSpec(dep);
-        } catch (_) {}
+        } catch (err) {
+          _runtimeLogger.debug('preloadNpmPackages invalid package.json', err);
+        }
         continue;
       }
       const reqRe = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -5113,7 +5125,9 @@ function __initVirtualRuntime(rootScope) {
               const meta = await res.json();
               deps = Object.keys((meta && meta.dependencies) || {});
             }
-          } catch (_) {}
+          } catch (err) {
+            _runtimeLogger.debug('preloadNpmPackages metadata fetch failed', { pkg, err });
+          }
           _npmMetadataCache.set(pkg, deps);
         }));
         for (const pkg of pending) {
@@ -5131,7 +5145,7 @@ function __initVirtualRuntime(rootScope) {
         continue;
       }
       if (typeof onProgress === 'function') {
-        try { onProgress(pkg); } catch (_) {}
+        try { onProgress(pkg); } catch (err) { _runtimeLogger.debug('preloadNpmPackages onProgress callback failed', err); }
       }
       if (typeof fetch === 'function') {
         try {
@@ -5141,7 +5155,9 @@ function __initVirtualRuntime(rootScope) {
             if (typeof existingCache.set === 'function') existingCache.set(pkg, text);
             loaded[pkg] = text;
           }
-        } catch (_) {}
+        } catch (err) {
+          _runtimeLogger.debug('preloadNpmPackages package fetch failed', { pkg, err });
+        }
       }
     }
     return loaded;
@@ -5333,7 +5349,9 @@ function __initVirtualRuntime(rootScope) {
           const dir = VirtualPath.dirname(abs);
           if (!vfs.existsSync(dir)) vfs.mkdirSync(dir, { recursive: true });
           vfs.writeFileSync(abs, content);
-        } catch (_) {}
+        } catch (err) {
+          _runtimeLogger.warn('vfs initial file seed failed', { abs, err });
+        }
       }
     }
     const vhttp = createVirtualHttp(resourceTracker, activePortTable);
@@ -5778,7 +5796,7 @@ function __initVirtualRuntime(rootScope) {
         exitCode = Number(code) || 0;
         if (!hasExited) {
           hasExited = true;
-          try { sandboxProcess.emit('exit', exitCode); } catch (_) {}
+          try { sandboxProcess.emit('exit', exitCode); } catch (err) { _runtimeLogger.debug('process exit listener threw', err); }
         }
         if (syncExecDepth > 0) {
           throw new ProcessExitSignal(exitCode);
@@ -5811,8 +5829,8 @@ function __initVirtualRuntime(rootScope) {
       resourceTracker.inFlightHttp.clear();
 
       if (!isBackground) {
-        try { vhttp.closeAllServers(); } catch (_) {}
-        try { vnet.closeAllServers(); } catch (_) {}
+        try { vhttp.closeAllServers(); } catch (err) { _runtimeLogger.debug('SIGINT vhttp closeAllServers failed', err); }
+        try { vnet.closeAllServers(); } catch (err) { _runtimeLogger.debug('SIGINT vnet closeAllServers failed', err); }
       }
     };
 
@@ -5922,10 +5940,10 @@ function __initVirtualRuntime(rootScope) {
           sandboxConsole.log(`✗ ${fullName}\n  ${e && e.stack ? e.stack : e}`);
         } finally {
           for (const ae of hooksSnapshot.afterEachList) {
-            try { await ae(); } catch (_) {}
+            try { await ae(); } catch (err) { _runtimeLogger.debug('node:test afterEach hook failed', err); }
           }
           for (const af of hooksSnapshot.afterToRun) {
-            try { await af(); } catch (_) {}
+            try { await af(); } catch (err) { _runtimeLogger.debug('node:test after hook failed', err); }
           }
           hooksSnapshot.afterToRun.length = 0;
         }
@@ -5973,7 +5991,7 @@ function __initVirtualRuntime(rootScope) {
           const afters = [...suiteCtx.afterCallbacks];
           const cleanupTask = nodeTestChain.then(async () => {
             for (const af of afters) {
-              try { await af(); } catch (_) {}
+              try { await af(); } catch (err) { _runtimeLogger.debug('node:test suite after hook failed', err); }
             }
           });
           nodeTestChain = cleanupTask.catch(() => {});
@@ -6019,7 +6037,7 @@ function __initVirtualRuntime(rootScope) {
             getEntriesByName: (n, t) => (entry.name === n && (!t || entry.entryType === t) ? [entry] : []),
             getEntriesByType: (t) => (entry.entryType === t ? [entry] : [])
           };
-          try { obs._cb(list, obs); } catch (_) {}
+          try { obs._cb(list, obs); } catch (err) { _runtimeLogger.debug('PerformanceObserver callback failed', err); }
         }
       }
     }
@@ -6124,7 +6142,7 @@ function __initVirtualRuntime(rootScope) {
               getEntriesByName: (n, t) => buffered.filter((e) => e.name === n && (!t || e.entryType === t)),
               getEntriesByType: (t) => buffered.filter((e) => e.entryType === t)
             };
-            queueMicrotask(() => { try { this._cb(list, this); } catch (_) {} });
+            queueMicrotask(() => { try { this._cb(list, this); } catch (err) { _runtimeLogger.debug('PerformanceObserver buffered callback failed', err); } });
           }
         }
       }
@@ -7395,7 +7413,9 @@ function __initVirtualRuntime(rootScope) {
               const resolvedEntry = resolveFileOrDirCandidates(VirtualPath.resolve(base, entryRel));
               if (resolvedEntry) return resolvedEntry;
             }
-          } catch (_) {}
+          } catch (err) {
+            _runtimeLogger.debug('resolveFileOrDirCandidates package.json parse failed', err);
+          }
         }
         const indexCandidates = ['index.js', 'index.ts', 'index.mjs', 'index.cjs', 'index.json'];
         for (const idx of indexCandidates) {
@@ -7465,7 +7485,9 @@ function __initVirtualRuntime(rootScope) {
                     if (found) return found;
                   }
                 }
-              } catch (_) {}
+              } catch (err) {
+                _runtimeLogger.debug('resolveModulePath subpath package.json parse failed', err);
+              }
             }
             const foundSub = resolveFileOrDirCandidates(VirtualPath.join(pkgRoot, subpath));
             if (foundSub) return foundSub;
@@ -7507,7 +7529,9 @@ function __initVirtualRuntime(rootScope) {
         if (isLocal && activePortTable) {
           return await activePortTable.dispatchRequest(urlStr, finalInit);
         }
-      } catch (_) {}
+      } catch (err) {
+        _runtimeLogger.debug('virtualFetch local URL dispatch skipped', err);
+      }
 
       if (typeof globalThis.fetch === 'function') {
         return await globalThis.fetch(urlOrReq, init);
@@ -7674,7 +7698,9 @@ function __initVirtualRuntime(rootScope) {
         if (err instanceof SyntaxError && (/\bawait\b/.test(body) || /await/i.test(err.message))) {
           try {
             return new AsyncFunction(...argNames, body);
-          } catch (_) {}
+          } catch (asyncErr) {
+            _runtimeLogger.debug('AsyncFunction compilation fallback failed', asyncErr);
+          }
         }
         if (
           err &&
@@ -7728,7 +7754,9 @@ function __initVirtualRuntime(rootScope) {
           if (signal && onAbort) {
             try {
               signal.removeEventListener('abort', onAbort);
-            } catch (_) {}
+            } catch (err) {
+              _runtimeLogger.debug('raceWithAbort removeEventListener failed', err);
+            }
           }
         };
 
@@ -7887,11 +7915,11 @@ function __initVirtualRuntime(rootScope) {
       }
     } finally {
       if (signal && signalListener) {
-        try { signal.removeEventListener('abort', signalListener); } catch (_) {}
+        try { signal.removeEventListener('abort', signalListener); } catch (err) { _runtimeLogger.debug('executeInVirtualRuntime removeEventListener failed', err); }
       }
       if (!hasExited) {
         hasExited = true;
-        try { sandboxProcess.emit('exit', exitCode); } catch (_) {}
+        try { sandboxProcess.emit('exit', exitCode); } catch (err) { _runtimeLogger.debug('executeInVirtualRuntime exit listener failed', err); }
       }
       for (const rawId of resourceTracker.allTimers) {
         clearTimeout(rawId);
@@ -7999,7 +8027,16 @@ function createWorkerRuntimeSource() {
   return `'use strict';\nself.__virtualRuntime = (${__initVirtualRuntime.toString()})(self);\n(${__workerMessageLoop.toString()})(self);\n`;
 }
 
-const _hostRuntime = __initVirtualRuntime(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : global));
+const _hostScope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : global);
+const _hostLogger = (_hostScope && _hostScope.CodeLabLogger && typeof _hostScope.CodeLabLogger.createLogger === 'function')
+  ? _hostScope.CodeLabLogger.createLogger()
+  : {
+      debug() {},
+      info() {},
+      warn(msg, meta) { if (typeof console !== 'undefined' && console.warn) console.warn('[CodeLab]', msg, meta || ''); },
+      error(msg, meta) { if (typeof console !== 'undefined' && console.error) console.error('[CodeLab]', msg, meta || ''); }
+    };
+const _hostRuntime = __initVirtualRuntime(_hostScope);
 _hostRuntime.createWorkerRuntimeSource = createWorkerRuntimeSource;
 
 let _cachedWorkerUrl = null;
@@ -8023,7 +8060,7 @@ function _ensureWarmWorker() {
 
 function _destroyWarmWorker() {
   if (_warmWorker) {
-    try { _warmWorker.terminate(); } catch (_) {}
+    try { _warmWorker.terminate(); } catch (err) { _hostLogger.debug('warmWorker.terminate failed', err); }
     _warmWorker = null;
   }
   _warmWorkerBusy = false;
@@ -8078,7 +8115,7 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
 
     function releaseWorker(terminateWorker) {
       if (options.signal && abortListener) {
-        try { options.signal.removeEventListener('abort', abortListener); } catch (_) {}
+        try { options.signal.removeEventListener('abort', abortListener); } catch (err) { _hostLogger.debug('executeInWorker removeEventListener failed', err); }
         abortListener = null;
       }
       _activeWorkerJobs.delete(requestId);
@@ -8093,7 +8130,7 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
           }
         }
       } else {
-        try { worker.terminate(); } catch (_) {}
+        try { worker.terminate(); } catch (err) { _hostLogger.debug('worker.terminate failed', err); }
       }
     }
 

@@ -2300,6 +2300,11 @@ code-lab,
   background: var(--cl-red);
 }
 
+.codelab-statusbar__save.is-failed {
+  color: var(--cl-amber);
+  font-weight: 500;
+}
+
 @keyframes clStatusPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.45; transform: scale(0.85); }
