@@ -1,4 +1,4 @@
-# `@innovatorved/code-lab` Architecture (v0.1.7)
+# `@innovatorved/code-lab` Architecture (v0.1.8)
 
 `@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`).
 
@@ -111,5 +111,23 @@ Running `bun run build` (`bun run tools/bundle.js`) produces:
 - `dist/terminal.js` & `dist/terminal.esm.js` (standalone PTY terminal engine)
 - `dist/code-lab.css` (standalone dark/light CSS variables & workbench styles)
 - `dist/preview-sw.js` (Web Preview virtual-loopback Service Worker for pop-out tabs; also copied to `examples/cloud-ide/public/preview-sw.js` for root scope)
-- `dist/code-lab.d.ts` (TypeScript definitions for `CodeLab`, `CodeLabWorkbench`, `CodeLabElement`, `CodeLabRuntime`, `CodeLabShell`, and `CodeLabTerminal`)
+- `dist/code-lab.d.ts` (TypeScript definitions for `CodeLab`, `CodeLabWorkbench`, `CodeLabElement`, `CodeLabRuntime`, `CodeLabShell`, `CodeLabTerminal`, and the strict leaf modules `zip`, `storage`, `search`, `diagnostics`, and `scm`)
+
+---
+
+## 6. Strict Browser-IDE Modules & Competitor Gap Analysis
+
+`@innovatorved/code-lab` includes five strict, zero-`@ts-nocheck` leaf modules (`tsconfig.strict.json`) that close key usability gaps compared to **StackBlitz WebContainers**, **CodeSandbox Sandpack**, and **VS Code for the Web (`vscode.dev`)** while preserving zero server dependencies and zero COOP/COEP header requirements:
+
+| Capability | StackBlitz / CodeSandbox / VS Code Web | `@innovatorved/code-lab` Implementation |
+| :--- | :--- | :--- |
+| **Project Archive Export / Import** | Download/upload project as `.zip` archive | `src/zip.ts` (`createZip`, `extractZip`, `computeCrc32`, `sanitizeZipPath`) — RFC-compliant PKZIP STORE (`0x04034b50`) encoder/decoder with zip-slip path traversal protection and workbench `exportProjectZip()` / `importProjectZip()` helpers |
+| **Durable Workspace Persistence** | IndexedDB workspace storage with fallback | `src/storage.ts` (`WorkspaceStorage`, `createWorkspaceStorage`) — Cascading 3-tier persistence (`IndexedDB` → `localStorage` → in-memory `Map`) with quota-exceeded self-healing fallback |
+| **Workspace Search & Replace** | Multi-file regex/glob search & replace (`Cmd+Shift+F`) | `src/search.ts` (`searchInFiles`, `replaceInFiles`, `matchesGlob`) — Cross-file search & replace supporting case sensitivity, whole-word matching, regular expressions, and include/exclude globs |
+| **Unified Diagnostics & Problems** | Problems panel aggregating compiler & test markers | `src/diagnostics.ts` (`DiagnosticsStore`, `createDiagnosticsStore`) — Structured diagnostic store (`error`, `warning`, `info`) with stack-trace parser (`parseRuntimeError`) and node:test failure ingestion |
+| **Visual Source Control (SCM)** | Staging, unstaging, diffing, and commit history | `src/scm.ts` (`createGitState`, `computeGitStatus`, `stageFile`, `unstageFile`, `commitChanges`, `computeShortCommitHash`) — Pure TypeScript SCM state machine synced with the POSIX shell `git` command |
+| **Live Preview & Error Overlay** | Hot/debounced reload, console bridge, runtime error overlay | `src/csp.ts` (`buildPreviewShims`) + `src/workbench.ts` — 300ms debounced VFS-synced auto-reload, `codelab:preview-console` forwarding to terminal logs, and `codelab:preview-error` in-frame overlay |
+
+All 39 test suites (`bun run test:all` and `node tests/run-all.js`) and the Playwright Chromium E2E suite (`bun run test:browser`) verify these modules and end-to-end workbench flows against the built `dist/*` artifacts.
+
 

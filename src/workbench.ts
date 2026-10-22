@@ -57,7 +57,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.1.7';
+  const CODELAB_VERSION = '0.1.8';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -4493,12 +4493,40 @@ declare module 'bun:sqlite' {
 
       this._previewViolationHandler = (event) => {
         const data = event && event.data;
-        if (!data || data.type !== 'codelab:preview-violation') return;
+        if (!data || typeof data.type !== 'string') return;
         const iframe = this.container ? this.container.querySelector('#cl-preview-iframe') : null;
         if (!iframe) return;
         // `contentWindow` is unavailable on the mock DOM used by unit tests.
         if (iframe.contentWindow && event.source !== iframe.contentWindow) return;
-        this._reportPreviewViolation(data);
+
+        if (data.type === 'codelab:preview-violation') {
+          this._reportPreviewViolation(data);
+        } else if (data.type === 'codelab:preview-console') {
+          const level = ['log', 'warn', 'error', 'info'].includes(data.level) ? data.level : 'log';
+          const args = Array.isArray(data.args) ? data.args : [data.args];
+          const text = args.map((a) => String(a ?? '')).join(' ');
+          this.terminalLogs.push({
+            type: level === 'error' ? 'stderr' : 'stdout',
+            text: `[Preview ${level.toUpperCase()}] ${text}`
+          });
+          this._emitEvent('preview-console', { level, text, args });
+        } else if (data.type === 'codelab:preview-error') {
+          const msg = String(data.message || 'Uncaught runtime error');
+          this.previewState.runtimeError = {
+            message: msg,
+            file: data.file ? String(data.file) : null,
+            line: typeof data.line === 'number' ? data.line : null,
+            col: typeof data.col === 'number' ? data.col : null,
+            stack: data.stack ? String(data.stack) : null
+          };
+          this.terminalLogs.push({
+            type: 'stderr',
+            text: `[Preview ERROR] ${msg}${data.stack ? '\n' + String(data.stack) : ''}`
+          });
+          this._emitEvent('preview-error', this.previewState.runtimeError);
+        } else if (data.type === 'codelab:preview-error-clear') {
+          this.previewState.runtimeError = null;
+        }
       };
       window.addEventListener('message', this._previewViolationHandler);
     }
@@ -5225,6 +5253,27 @@ declare module 'bun:sqlite' {
     }
 
     _notifyCodeChange(filename, code) {
+      if (this.shell && this.shell.vfs && filename && typeof this.shell.vfs.writeFileSync === 'function') {
+        try {
+          const clean = String(filename).replace(/^\/+/, '');
+          const parts = clean.split('/');
+          if (parts.length > 1 && typeof this.shell.vfs.mkdirSync === 'function') {
+            this.shell.vfs.mkdirSync('/workspace/' + parts.slice(0, -1).join('/'), { recursive: true });
+          }
+          this.shell.vfs.writeFileSync('/workspace/' + clean, String(code ?? ''));
+        } catch (err) {
+          this.logger.debug(`Could not sync "${filename}" to shell VFS on edit.`, err);
+        }
+      }
+      if (this.drawerTab === 'preview' && this.previewState && this.previewState.port) {
+        if (this._previewReloadTimer) {
+          clearTimeout(this._previewReloadTimer);
+        }
+        this._previewReloadTimer = setTimeout(() => {
+          this._previewReloadTimer = null;
+          this._previewReload();
+        }, 300);
+      }
       if (this.onCodeChange) {
         try { this.onCodeChange(filename, code); } catch (err) { this.logger.error('onCodeChange callback threw.', err); }
       }
@@ -5954,6 +6003,7 @@ declare module 'bun:sqlite' {
         { id: 'rename-active', label: 'File: Rename Active File...', shortcut: 'F2', action: () => { if (this.activeFile) this.startInlineRename('file', this.activeFile); } },
         { id: 'delete-active', label: 'File: Delete Active File', action: () => { if (this.activeFile) this.deleteFile(this.activeFile); } },
         { id: 'export-workspace', label: 'Workspace: Export Workspace as JSON', action: () => this.exportWorkspace({ download: true }) },
+        { id: 'export-workspace-zip', label: 'Workspace: Export Project as ZIP Archive', action: () => this.exportProjectZip({ download: true }) },
         { id: 'reset-workspace', label: 'Workspace: Reset Workspace to Clean State', action: () => this.resetLab() },
         { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript', action: () => this.setLanguage(this.lang === 'js' ? 'ts' : 'js') },
         { id: 'switch-mode', label: 'Mode: Switch Guided / Sandbox Mode', action: () => this.setMode(this.mode === 'guided' ? 'sandbox' : 'guided') },
@@ -5964,6 +6014,9 @@ declare module 'bun:sqlite' {
           if (this.editor) setTimeout(() => this.editor.layout(), 50);
         } },
         { id: 'toggle-fullscreen', label: 'View: Toggle Fullscreen Workbench', action: () => this.toggleFullscreen() },
+        { id: 'search-workspace', label: 'Search: Find & Replace Across Files...', shortcut: '⇧⌘F', action: () => this.showSearchModal() },
+        { id: 'open-scm', label: 'Git: Source Control (Status, Stage & Commit)...', action: () => this.showScmModal() },
+        { id: 'open-problems', label: 'View: Show Problems & Diagnostics...', action: () => this.showProblemsModal() },
         { id: 'open-packages', label: 'Packages: Manage NPM Dependencies & Runtime', action: () => this.showPackagesModal() },
         { id: 'git-clone', label: 'Git: Clone Public GitHub Repository...', action: () => this.showCloneRepoModal() }
       ];
@@ -7359,6 +7412,219 @@ declare module 'bun:sqlite' {
       return true;
     }
 
+    exportProjectZip(options = {}) {
+      const zipMod = root.CodeLabZip;
+      if (!zipMod || typeof zipMod.createZip !== 'function') {
+        throw new Error('CodeLabZip engine is not loaded');
+      }
+      const bytes = zipMod.createZip(this.files || {});
+      if (options && options.download) {
+        try {
+          if (typeof Blob !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function' && typeof document !== 'undefined') {
+            const blob = new Blob([bytes], { type: 'application/zip' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${this.labId || 'workspace'}.zip`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 500);
+          }
+        } catch (err) {
+          this.logger.error('Failed to download project ZIP export.', err);
+        }
+      }
+      return bytes;
+    }
+
+    importProjectZip(zipBytes) {
+      const zipMod = root.CodeLabZip;
+      if (!zipMod || typeof zipMod.extractZip !== 'function') {
+        throw new Error('CodeLabZip engine is not loaded');
+      }
+      const extracted = zipMod.extractZip(zipBytes);
+      if (!extracted || typeof extracted !== 'object') return false;
+      this.setFiles(extracted);
+      this._syncFilesToShellVfs();
+      return true;
+    }
+
+    searchWorkspace(options) {
+      const searchMod = root.CodeLabSearch;
+      if (!searchMod || typeof searchMod.searchInFiles !== 'function') {
+        throw new Error('CodeLabSearch engine is not loaded');
+      }
+      return searchMod.searchInFiles(this.files || {}, options);
+    }
+
+    replaceInWorkspace(options) {
+      const searchMod = root.CodeLabSearch;
+      if (!searchMod || typeof searchMod.replaceInFiles !== 'function') {
+        throw new Error('CodeLabSearch engine is not loaded');
+      }
+      const res = searchMod.replaceInFiles(this.files || {}, options);
+      if (res && res.files && res.filesModified > 0) {
+        this.setFiles(res.files);
+        this._syncFilesToShellVfs();
+      }
+      return res;
+    }
+
+    getGitStatus() {
+      const scmMod = root.CodeLabScm;
+      if (!scmMod || typeof scmMod.computeGitStatus !== 'function') {
+        return [];
+      }
+      const gs = (this.shell && this.shell.gitState) ? this.shell.gitState : scmMod.createGitState(this.files || {});
+      return scmMod.computeGitStatus(gs, this.files || {});
+    }
+
+    getDiagnostics() {
+      const diagMod = root.CodeLabDiagnostics;
+      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
+        this._diagnosticsStore = diagMod.createDiagnosticsStore();
+      }
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function') {
+        return this._diagnosticsStore.getAll();
+      }
+      return [];
+    }
+
+    showSearchModal(initialQuery = '') {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      const q = String(initialQuery || '');
+      const results = q ? this.searchWorkspace({ query: q }) : { matches: [], totalMatches: 0, filesMatched: 0 };
+      const rowsHtml = (results.matches || []).map((m) => `
+        <div class="codelab-search-match" data-cl-file="${escapeHtml(m.file)}" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);cursor:pointer;font-family:var(--cl-font-mono);font-size:12px;">
+          <strong>${escapeHtml(m.file)}:${m.line}:${m.column}</strong> — <span>${escapeHtml(m.lineText)}</span>
+        </div>
+      `).join('');
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Search Across Workspace">
+            <div class="codelab-modal__header">
+              <span>Search &amp; Replace Across Workspace</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+            </div>
+            <div class="codelab-modal__body">
+              <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <input id="cl-search-query-input" type="text" value="${escapeHtml(q)}" placeholder="Search text or regex..." style="flex:1;padding:6px 8px;" />
+                <input id="cl-search-replace-input" type="text" placeholder="Replace with..." style="flex:1;padding:6px 8px;" />
+              </div>
+              <div id="cl-search-results-list">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">Enter a query to search across workspace files.</div>'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    showScmModal() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      const statusList = this.getGitStatus();
+      const rowsHtml = statusList.map((entry) => `
+        <div class="codelab-scm-entry" data-scm-path="${escapeHtml(entry.path)}" style="display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--cl-border);font-family:var(--cl-font-mono);font-size:12px;">
+          <span>${escapeHtml(entry.path)}</span>
+          <span>${escapeHtml(entry.worktree !== ' ' ? entry.worktree : entry.index)}</span>
+        </div>
+      `).join('');
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Source Control">
+            <div class="codelab-modal__header">
+              <span>Source Control (Git Status)</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+            </div>
+            <div class="codelab-modal__body">
+              <div id="cl-scm-status-list">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">Working tree clean</div>'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    showProblemsModal() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      const items = this.getDiagnostics();
+      const rowsHtml = items.map((d) => `
+        <div class="codelab-problem-entry" data-problem-file="${escapeHtml(d.file)}" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);font-family:var(--cl-font-mono);font-size:12px;">
+          <strong>[${escapeHtml(d.severity)}] ${escapeHtml(d.file)}:${d.line}:${d.column}</strong> — ${escapeHtml(d.message)}
+        </div>
+      `).join('');
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Problems and Diagnostics">
+            <div class="codelab-modal__header">
+              <span>Problems (${items.length})</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+            </div>
+            <div class="codelab-modal__body">
+              <div id="cl-problems-list">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">No problems have been detected in the workspace.</div>'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    _ensureTerminalSessions() {
+      if (!Array.isArray(this._terminalSessions) || this._terminalSessions.length === 0) {
+        this._terminalSessions = [
+          { id: 'session-1', name: 'bash-1', logs: this.terminalLogs || [] }
+        ];
+        this._activeTerminalSessionId = 'session-1';
+      }
+      return this._terminalSessions;
+    }
+
+    listTerminalSessions() {
+      const sessions = this._ensureTerminalSessions();
+      return sessions.map((s) => ({
+        id: s.id,
+        name: s.name,
+        active: s.id === this._activeTerminalSessionId,
+        logCount: Array.isArray(s.logs) ? s.logs.length : 0
+      }));
+    }
+
+    createTerminalSession(name) {
+      const sessions = this._ensureTerminalSessions();
+      const nextNum = sessions.length + 1;
+      const id = `session-${Date.now()}-${nextNum}`;
+      const label = name ? String(name).trim() : `bash-${nextNum}`;
+      const newLogs = [];
+      sessions.push({ id, name: label, logs: newLogs });
+      this._activeTerminalSessionId = id;
+      this.terminalLogs = newLogs;
+      this._renderDrawerBody();
+      return id;
+    }
+
+    switchTerminalSession(id) {
+      const sessions = this._ensureTerminalSessions();
+      const target = sessions.find((s) => s.id === id || s.name === id);
+      if (!target) return false;
+      this._activeTerminalSessionId = target.id;
+      this.terminalLogs = target.logs;
+      this._renderDrawerBody();
+      return true;
+    }
+
+    closeTerminalSession(id) {
+      const sessions = this._ensureTerminalSessions();
+      if (sessions.length <= 1) return false;
+      const idx = sessions.findIndex((s) => s.id === id || s.name === id);
+      if (idx === -1) return false;
+      const removed = sessions.splice(idx, 1)[0];
+      if (this._activeTerminalSessionId === removed.id) {
+        const next = sessions[Math.max(0, idx - 1)] || sessions[0];
+        this._activeTerminalSessionId = next.id;
+        this.terminalLogs = next.logs;
+      }
+      this._renderDrawerBody();
+      return true;
+    }
+
     getFiles() {
       return { ...this.files };
     }
@@ -7678,6 +7944,10 @@ declare module 'bun:sqlite' {
 
     destroy() {
       this.stopExecution();
+      if (this._previewReloadTimer) {
+        clearTimeout(this._previewReloadTimer);
+        this._previewReloadTimer = null;
+      }
       if (this._escHandler && typeof document !== 'undefined') {
         document.removeEventListener('keydown', this._escHandler);
       }
@@ -7806,6 +8076,19 @@ declare module 'bun:sqlite' {
       reset() { if (this._instance) this._instance.reset(); }
       exportWorkspace(opts) { return this._instance ? this._instance.exportWorkspace(opts) : null; }
       importWorkspace(snap) { return this._instance ? this._instance.importWorkspace(snap) : false; }
+      exportProjectZip(opts) { return this._instance ? this._instance.exportProjectZip(opts) : null; }
+      importProjectZip(bytes) { return this._instance ? this._instance.importProjectZip(bytes) : false; }
+      searchWorkspace(opts) { return this._instance ? this._instance.searchWorkspace(opts) : null; }
+      replaceInWorkspace(opts) { return this._instance ? this._instance.replaceInWorkspace(opts) : null; }
+      getGitStatus() { return this._instance ? this._instance.getGitStatus() : []; }
+      getDiagnostics() { return this._instance ? this._instance.getDiagnostics() : []; }
+      showSearchModal(q) { if (this._instance) this._instance.showSearchModal(q); }
+      showScmModal() { if (this._instance) this._instance.showScmModal(); }
+      showProblemsModal() { if (this._instance) this._instance.showProblemsModal(); }
+      listTerminalSessions() { return this._instance ? this._instance.listTerminalSessions() : []; }
+      createTerminalSession(name) { return this._instance ? this._instance.createTerminalSession(name) : null; }
+      switchTerminalSession(id) { return this._instance ? this._instance.switchTerminalSession(id) : false; }
+      closeTerminalSession(id) { return this._instance ? this._instance.closeTerminalSession(id) : false; }
       on(ev, fn) { return this._instance ? this._instance.on(ev, fn) : () => {}; }
       off(ev, fn) { if (this._instance) this._instance.off(ev, fn); }
       use(plugin, opts) { if (this._instance) this._instance.use(plugin, opts); return this; }
@@ -7852,6 +8135,30 @@ declare module 'bun:sqlite' {
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,
+    zip: root.CodeLabZip || null,
+    createZip: root.CodeLabZip ? root.CodeLabZip.createZip : null,
+    extractZip: root.CodeLabZip ? root.CodeLabZip.extractZip : null,
+    computeCrc32: root.CodeLabZip ? root.CodeLabZip.computeCrc32 : null,
+    sanitizeZipPath: root.CodeLabZip ? root.CodeLabZip.sanitizeZipPath : null,
+    storage: root.CodeLabStorage || null,
+    WorkspaceStorage: root.CodeLabStorage ? root.CodeLabStorage.WorkspaceStorage : null,
+    createWorkspaceStorage: root.CodeLabStorage ? root.CodeLabStorage.createWorkspaceStorage : null,
+    search: root.CodeLabSearch || null,
+    searchInFiles: root.CodeLabSearch ? root.CodeLabSearch.searchInFiles : null,
+    replaceInFiles: root.CodeLabSearch ? root.CodeLabSearch.replaceInFiles : null,
+    matchesGlob: root.CodeLabSearch ? root.CodeLabSearch.matchesGlob : null,
+    escapeRegex: root.CodeLabSearch ? root.CodeLabSearch.escapeRegex : null,
+    normalizeSearchPath: root.CodeLabSearch ? root.CodeLabSearch.normalizeSearchPath : null,
+    diagnostics: root.CodeLabDiagnostics || null,
+    DiagnosticsStore: root.CodeLabDiagnostics ? root.CodeLabDiagnostics.DiagnosticsStore : null,
+    createDiagnosticsStore: root.CodeLabDiagnostics ? root.CodeLabDiagnostics.createDiagnosticsStore : null,
+    scm: root.CodeLabScm || null,
+    createGitState: root.CodeLabScm ? root.CodeLabScm.createGitState : null,
+    computeGitStatus: root.CodeLabScm ? root.CodeLabScm.computeGitStatus : null,
+    stageFile: root.CodeLabScm ? root.CodeLabScm.stageFile : null,
+    unstageFile: root.CodeLabScm ? root.CodeLabScm.unstageFile : null,
+    commitChanges: root.CodeLabScm ? root.CodeLabScm.commitChanges : null,
+    computeShortCommitHash: root.CodeLabScm ? root.CodeLabScm.computeShortCommitHash : null,
     renderMarkdown: renderSimpleMarkdown,
     renderSimpleMarkdown: renderSimpleMarkdown,
     extensions: {

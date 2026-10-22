@@ -96,6 +96,61 @@ try {
   throw new Error(`Failed to bundle src/html.ts: ${err.message}`);
 }
 
+let zipCode;
+try {
+  zipCode = execFileSync(
+    localBin('esbuild'),
+    ['src/zip.ts', '--bundle', '--format=iife', '--global-name=CodeLabZip'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/zip.ts: ${err.message}`);
+}
+
+let storageCode;
+try {
+  storageCode = execFileSync(
+    localBin('esbuild'),
+    ['src/storage.ts', '--bundle', '--format=iife', '--global-name=CodeLabStorage'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/storage.ts: ${err.message}`);
+}
+
+let searchCode;
+try {
+  searchCode = execFileSync(
+    localBin('esbuild'),
+    ['src/search.ts', '--bundle', '--format=iife', '--global-name=CodeLabSearch'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/search.ts: ${err.message}`);
+}
+
+let diagnosticsCode;
+try {
+  diagnosticsCode = execFileSync(
+    localBin('esbuild'),
+    ['src/diagnostics.ts', '--bundle', '--format=iife', '--global-name=CodeLabDiagnostics'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/diagnostics.ts: ${err.message}`);
+}
+
+let scmCode;
+try {
+  scmCode = execFileSync(
+    localBin('esbuild'),
+    ['src/scm.ts', '--bundle', '--format=iife', '--global-name=CodeLabScm'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/scm.ts: ${err.message}`);
+}
+
 const BANNER = `/**
  * ============================================================
  * @innovatorved/code-lab v${PKG_VERSION} — Standalone Browser Code IDE & Virtual Runtime
@@ -117,10 +172,20 @@ const BANNER = `/**
 const IIFE_BUNDLE = `${BANNER}(function (root) {
   'use strict';
 
-  // --- Module 0: Preview CSP, Structured Logger & Safe HTML ---
+  // --- Module 0: Preview CSP, Structured Logger, Safe HTML & Leaf Engines ---
 ${cspCode}
 ${loggerCode}
 ${htmlCode}
+${zipCode}
+${storageCode}
+${searchCode}
+${diagnosticsCode}
+${scmCode}
+  root.CodeLabZip = CodeLabZip;
+  root.CodeLabStorage = CodeLabStorage;
+  root.CodeLabSearch = CodeLabSearch;
+  root.CodeLabDiagnostics = CodeLabDiagnostics;
+  root.CodeLabScm = CodeLabScm;
 
   // --- Module 1: Runtime Engine ---
   (function () {
@@ -190,6 +255,35 @@ ${workbenchCode}
       createLogger: CodeLabLogger.createLogger,
       DEFAULT_LOGGER: CodeLabLogger.DEFAULT_LOGGER,
       LOG_PREFIX: CodeLabLogger.LOG_PREFIX,
+      CodeLabZip: CodeLabZip,
+      zip: CodeLabZip,
+      createZip: CodeLabZip.createZip,
+      extractZip: CodeLabZip.extractZip,
+      computeCrc32: CodeLabZip.computeCrc32,
+      sanitizeZipPath: CodeLabZip.sanitizeZipPath,
+      CodeLabStorage: CodeLabStorage,
+      storage: CodeLabStorage,
+      WorkspaceStorage: CodeLabStorage.WorkspaceStorage,
+      createWorkspaceStorage: CodeLabStorage.createWorkspaceStorage,
+      CodeLabSearch: CodeLabSearch,
+      search: CodeLabSearch,
+      searchInFiles: CodeLabSearch.searchInFiles,
+      replaceInFiles: CodeLabSearch.replaceInFiles,
+      matchesGlob: CodeLabSearch.matchesGlob,
+      escapeRegex: CodeLabSearch.escapeRegex,
+      normalizeSearchPath: CodeLabSearch.normalizeSearchPath,
+      CodeLabDiagnostics: CodeLabDiagnostics,
+      diagnostics: CodeLabDiagnostics,
+      DiagnosticsStore: CodeLabDiagnostics.DiagnosticsStore,
+      createDiagnosticsStore: CodeLabDiagnostics.createDiagnosticsStore,
+      CodeLabScm: CodeLabScm,
+      scm: CodeLabScm,
+      createGitState: CodeLabScm.createGitState,
+      computeGitStatus: CodeLabScm.computeGitStatus,
+      stageFile: CodeLabScm.stageFile,
+      unstageFile: CodeLabScm.unstageFile,
+      commitChanges: CodeLabScm.commitChanges,
+      computeShortCommitHash: CodeLabScm.computeShortCommitHash,
       default: CodeLab
     });
   }
@@ -198,10 +292,20 @@ ${workbenchCode}
 
 const ESM_BUNDLE = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
 
-// --- Module 0: Preview CSP, Structured Logger & Safe HTML ---
+// --- Module 0: Preview CSP, Structured Logger, Safe HTML & Leaf Engines ---
 ${cspCode}
 ${loggerCode}
 ${htmlCode}
+${zipCode}
+${storageCode}
+${searchCode}
+${diagnosticsCode}
+${scmCode}
+_root.CodeLabZip = CodeLabZip;
+_root.CodeLabStorage = CodeLabStorage;
+_root.CodeLabSearch = CodeLabSearch;
+_root.CodeLabDiagnostics = CodeLabDiagnostics;
+_root.CodeLabScm = CodeLabScm;
 
 // --- Module 1: Runtime Engine ---
 (function () {
@@ -267,6 +371,30 @@ const raw = CodeLabHtml.raw;
 const isSafeHtml = CodeLabHtml.isSafeHtml;
 const escapeHtml = CodeLabHtml.escapeHtml;
 const Html = CodeLab ? CodeLab.Html : CodeLabHtml;
+const zip = CodeLabZip;
+const createZip = CodeLabZip.createZip;
+const extractZip = CodeLabZip.extractZip;
+const computeCrc32 = CodeLabZip.computeCrc32;
+const sanitizeZipPath = CodeLabZip.sanitizeZipPath;
+const storage = CodeLabStorage;
+const WorkspaceStorage = CodeLabStorage.WorkspaceStorage;
+const createWorkspaceStorage = CodeLabStorage.createWorkspaceStorage;
+const search = CodeLabSearch;
+const searchInFiles = CodeLabSearch.searchInFiles;
+const replaceInFiles = CodeLabSearch.replaceInFiles;
+const matchesGlob = CodeLabSearch.matchesGlob;
+const escapeRegex = CodeLabSearch.escapeRegex;
+const normalizeSearchPath = CodeLabSearch.normalizeSearchPath;
+const diagnostics = CodeLabDiagnostics;
+const DiagnosticsStore = CodeLabDiagnostics.DiagnosticsStore;
+const createDiagnosticsStore = CodeLabDiagnostics.createDiagnosticsStore;
+const scm = CodeLabScm;
+const createGitState = CodeLabScm.createGitState;
+const computeGitStatus = CodeLabScm.computeGitStatus;
+const stageFile = CodeLabScm.stageFile;
+const unstageFile = CodeLabScm.unstageFile;
+const commitChanges = CodeLabScm.commitChanges;
+const computeShortCommitHash = CodeLabScm.computeShortCommitHash;
 
 export {
   CodeLab,
@@ -301,6 +429,35 @@ export {
   createLogger,
   DEFAULT_LOGGER,
   LOG_PREFIX,
+  CodeLabZip,
+  zip,
+  createZip,
+  extractZip,
+  computeCrc32,
+  sanitizeZipPath,
+  CodeLabStorage,
+  storage,
+  WorkspaceStorage,
+  createWorkspaceStorage,
+  CodeLabSearch,
+  search,
+  searchInFiles,
+  replaceInFiles,
+  matchesGlob,
+  escapeRegex,
+  normalizeSearchPath,
+  CodeLabDiagnostics,
+  diagnostics,
+  DiagnosticsStore,
+  createDiagnosticsStore,
+  CodeLabScm,
+  scm,
+  createGitState,
+  computeGitStatus,
+  stageFile,
+  unstageFile,
+  commitChanges,
+  computeShortCommitHash,
   createPosixShell,
   cloneGitHubRepository,
   parseGitHubRepoUrl,
@@ -708,6 +865,97 @@ export declare function raw(trustedHtml: string): SafeHtml;
 export declare function isSafeHtml(value: unknown): value is SafeHtml;
 export declare function html(strings: TemplateStringsArray, ...values: unknown[]): SafeHtml;
 
+export declare function computeCrc32(data: string | Uint8Array): number;
+export declare function sanitizeZipPath(rawPath: string): string;
+export declare function createZip(files: Record<string, string | Uint8Array>): Uint8Array;
+export declare function extractZip(archive: Uint8Array): Record<string, Uint8Array>;
+export declare const CodeLabZip: {
+  computeCrc32: typeof computeCrc32;
+  sanitizeZipPath: typeof sanitizeZipPath;
+  createZip: typeof createZip;
+  extractZip: typeof extractZip;
+};
+
+export interface WorkspaceProjectData {
+  id: string;
+  name?: string;
+  files?: Record<string, string>;
+  updatedAt?: number;
+  [key: string]: unknown;
+}
+
+export interface WorkspaceProjectSummary {
+  id: string;
+  name: string;
+  updatedAt: number;
+  fileCount: number;
+}
+
+export declare class WorkspaceStorage {
+  constructor(options?: Record<string, unknown>);
+  getBackendType(): 'indexeddb' | 'localstorage' | 'memory';
+  saveProject(project: WorkspaceProjectData): Promise<boolean>;
+  loadProject(id: string): Promise<WorkspaceProjectData | null>;
+  listProjects(): Promise<WorkspaceProjectSummary[]>;
+  deleteProject(id: string): Promise<boolean>;
+}
+export declare function createWorkspaceStorage(options?: Record<string, unknown>): WorkspaceStorage;
+export declare const CodeLabStorage: {
+  WorkspaceStorage: typeof WorkspaceStorage;
+  createWorkspaceStorage: typeof createWorkspaceStorage;
+};
+
+export interface SearchOptions {
+  query: string;
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
+  regex?: boolean;
+  include?: string;
+  exclude?: string;
+}
+
+export declare function searchInFiles(files: Record<string, string>, options: SearchOptions): any;
+export declare function replaceInFiles(files: Record<string, string>, options: SearchOptions, replacement: string): any;
+export declare function matchesGlob(filePath: string, globPattern?: string): boolean;
+export declare function escapeRegex(literal: string): string;
+export declare function normalizeSearchPath(rawPath: string): string;
+export declare const CodeLabSearch: {
+  searchInFiles: typeof searchInFiles;
+  replaceInFiles: typeof replaceInFiles;
+  matchesGlob: typeof matchesGlob;
+  escapeRegex: typeof escapeRegex;
+  normalizeSearchPath: typeof normalizeSearchPath;
+};
+
+export declare class DiagnosticsStore {
+  add(item: any): void;
+  remove(id: string): void;
+  clear(source?: string): void;
+  getAll(filter?: any): any[];
+  getByFile(file: string): any[];
+  subscribe(listener: (items: any[]) => void): () => void;
+}
+export declare function createDiagnosticsStore(): DiagnosticsStore;
+export declare const CodeLabDiagnostics: {
+  DiagnosticsStore: typeof DiagnosticsStore;
+  createDiagnosticsStore: typeof createDiagnosticsStore;
+};
+
+export declare function createGitState(initialFiles?: Record<string, string>, branch?: string): any;
+export declare function computeGitStatus(vfsFiles: Record<string, string>, repoRoot: string, gitState: any): any;
+export declare function stageFile(path: string, vfsFiles: Record<string, string>, gitState: any): boolean;
+export declare function unstageFile(path: string, gitState: any): boolean;
+export declare function commitChanges(message: string, author: string | undefined, gitState: any): any;
+export declare function computeShortCommitHash(input: string): string;
+export declare const CodeLabScm: {
+  createGitState: typeof createGitState;
+  computeGitStatus: typeof computeGitStatus;
+  stageFile: typeof stageFile;
+  unstageFile: typeof unstageFile;
+  commitChanges: typeof commitChanges;
+  computeShortCommitHash: typeof computeShortCommitHash;
+};
+
 export interface CodeLabSaveStateEvent {
   state: 'saved' | 'failed';
   key: string;
@@ -854,6 +1102,18 @@ export declare class CodeLabWorkbench {
   downloadFile(path?: string): { filename: string; content: string } | null;
   exportWorkspace(options?: { download?: boolean }): Record<string, any>;
   importWorkspace(snapshotOrJson: string | Record<string, any>): boolean;
+  exportZip(options?: { download?: boolean; filename?: string }): Uint8Array | null;
+  importZip(archiveBytes: Uint8Array, options?: { merge?: boolean }): number;
+  showSearchModal(initialQuery?: string): void;
+  showScmModal(): void;
+  getDiagnostics(filter?: { file?: string; severity?: 'error' | 'warning' | 'info'; source?: string }): any[];
+  showProblemsModal(): void;
+  listTerminalSessions(): Array<{ id: string; name: string; active: boolean }>;
+  createTerminalSession(name?: string): string;
+  switchTerminalSession(id: string): boolean;
+  closeTerminalSession(id: string): boolean;
+  saveProjectToStorage(projectId?: string): Promise<boolean>;
+  loadProjectFromStorage(projectId?: string): Promise<boolean>;
   getFiles(): Record<string, string>;
   setFiles(filesMap: Record<string, string>, options?: { merge?: boolean }): this;
   getFile(path: string): string | null;
@@ -894,6 +1154,16 @@ export declare class CodeLabElement extends HTMLElement {
   showDiffModal(targetFile?: string, compareTarget?: 'solution' | 'starter'): void;
   exportWorkspace(options?: { download?: boolean }): Record<string, any> | null;
   importWorkspace(snapshotOrJson: string | Record<string, any>): boolean;
+  exportZip(options?: { download?: boolean; filename?: string }): Uint8Array | null;
+  importZip(archiveBytes: Uint8Array, options?: { merge?: boolean }): number;
+  showSearchModal(initialQuery?: string): void;
+  showScmModal(): void;
+  getDiagnostics(filter?: { file?: string; severity?: 'error' | 'warning' | 'info'; source?: string }): any[];
+  showProblemsModal(): void;
+  listTerminalSessions(): Array<{ id: string; name: string; active: boolean }>;
+  createTerminalSession(name?: string): string | null;
+  switchTerminalSession(id: string): boolean;
+  closeTerminalSession(id: string): boolean;
   cloneRepo(repoUrlOrSlug: string, options?: CodeLabCloneOptions): Promise<any>;
 }
 

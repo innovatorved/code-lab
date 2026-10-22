@@ -550,6 +550,21 @@
         <span>Blank IDE</span>
       </button>
 
+      <button type="button" class="action-btn" id="header-search-btn" title="Search & Replace Across Files">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>Search</span>
+      </button>
+
+      <button type="button" class="action-btn" id="header-scm-btn" title="Source Control (Git Status, Stage, Commit)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+        <span>Source Control</span>
+      </button>
+
+      <button type="button" class="action-btn" id="header-zip-btn" title="Export Project as ZIP">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Export ZIP</span>
+      </button>
+
       <!-- Theme Button: Icon-Only (Sun / Moon) -->
       <button type="button" class="icon-btn" id="theme-btn" title="Toggle Theme" aria-label="Toggle Theme">
         <svg id="theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -798,6 +813,39 @@
 
       if (headerBlankBtn) {
         headerBlankBtn.addEventListener('click', openBlankWorkspace);
+      }
+
+      const headerSearchBtn = document.getElementById('header-search-btn');
+      if (headerSearchBtn) {
+        headerSearchBtn.addEventListener('click', () => {
+          const ide = ensureIde();
+          landingOverlay.classList.add('hidden');
+          if (ide && typeof ide.showSearchModal === 'function') {
+            ide.showSearchModal();
+          }
+        });
+      }
+
+      const headerScmBtn = document.getElementById('header-scm-btn');
+      if (headerScmBtn) {
+        headerScmBtn.addEventListener('click', () => {
+          const ide = ensureIde();
+          landingOverlay.classList.add('hidden');
+          if (ide && typeof ide.showScmModal === 'function') {
+            ide.showScmModal();
+          }
+        });
+      }
+
+      const headerZipBtn = document.getElementById('header-zip-btn');
+      if (headerZipBtn) {
+        headerZipBtn.addEventListener('click', () => {
+          const ide = ensureIde();
+          landingOverlay.classList.add('hidden');
+          if (ide && typeof ide.exportZip === 'function') {
+            ide.exportZip({ download: true });
+          }
+        });
       }
 
       openCloneModalBtn.addEventListener('click', () => {

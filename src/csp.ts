@@ -297,6 +297,90 @@ export function buildPreviewShims(): string {
       console.warn('[code-lab] preview: could not report CSP violation', err);
     }
   });
+  function serializeArg(arg) {
+    if (typeof arg !== 'object' || arg === null) return String(arg);
+    try {
+      return JSON.stringify(arg);
+    } catch (err) {
+      void err;
+      return '[Circular/Unserializable]';
+    }
+  }
+  ['log', 'warn', 'error', 'info'].forEach(function (level) {
+    var orig = console[level];
+    if (typeof orig !== 'function') return;
+    console[level] = function () {
+      var args = Array.prototype.slice.call(arguments);
+      try {
+        parent.postMessage({
+          type: 'codelab:preview-console',
+          level: level,
+          args: args.map(serializeArg)
+        }, '*');
+      } catch (err) {
+        void err;
+      }
+      return orig.apply(console, args);
+    };
+  });
+  function showPreviewErrorOverlay(msg, stack) {
+    try {
+      if (!document || !document.body) return;
+      var existing = document.getElementById('codelab-preview-error-overlay');
+      if (!existing) {
+        existing = document.createElement('div');
+        existing.id = 'codelab-preview-error-overlay';
+        existing.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,23,42,0.94);color:#f8fafc;font-family:ui-monospace,monospace;padding:24px;overflow:auto;';
+        document.body.appendChild(existing);
+      }
+      existing.textContent = '';
+      var header = document.createElement('div');
+      header.style.cssText = 'color:#f87171;font-weight:700;font-size:15px;margin-bottom:12px;';
+      header.textContent = 'Runtime Error: ' + String(msg || 'Uncaught Error');
+      var pre = document.createElement('pre');
+      pre.style.cssText = 'white-space:pre-wrap;font-size:12px;color:#cbd5e1;margin:0;';
+      pre.textContent = String(stack || msg || '');
+      existing.appendChild(header);
+      existing.appendChild(pre);
+    } catch (err) {
+      void err;
+    }
+  }
+  window.addEventListener('error', function (event) {
+    var msg = (event && event.message) ? event.message : 'Uncaught runtime error';
+    var stack = (event && event.error && event.error.stack) ? String(event.error.stack) : '';
+    showPreviewErrorOverlay(msg, stack);
+    try {
+      parent.postMessage({
+        type: 'codelab:preview-error',
+        message: msg,
+        file: (event && event.filename) || null,
+        line: (event && event.lineno) || null,
+        col: (event && event.colno) || null,
+        stack: stack || null
+      }, '*');
+    } catch (err) {
+      void err;
+    }
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    var reason = event ? event.reason : null;
+    var msg = reason && reason.message ? String(reason.message) : String(reason || 'Unhandled Promise Rejection');
+    var stack = reason && reason.stack ? String(reason.stack) : '';
+    showPreviewErrorOverlay(msg, stack);
+    try {
+      parent.postMessage({
+        type: 'codelab:preview-error',
+        message: msg,
+        file: null,
+        line: null,
+        col: null,
+        stack: stack || null
+      }, '*');
+    } catch (err) {
+      void err;
+    }
+  });
 })();
 </script>`;
 }

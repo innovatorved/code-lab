@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Zod Schemas and Inferred TypeScript Types for code-lab v0.1.7
+ * Zod Schemas and Inferred TypeScript Types for code-lab v0.1.8
  */
 
 // ── 1. Guided Step ──────────────────────────────────────────────────────────
@@ -178,3 +178,93 @@ export const WorkbenchOptionsSchema = z.object({
 });
 
 export type WorkbenchOptions = z.infer<typeof WorkbenchOptionsSchema>;
+
+// ── 8. Search Options & Match Results ────────────────────────────────────────
+
+export const SearchOptionsSchema = z.object({
+  query: z.string().default(''),
+  caseSensitive: z.boolean().optional().default(false),
+  wholeWord: z.boolean().optional().default(false),
+  regex: z.boolean().optional().default(false),
+  isRegex: z.boolean().optional().default(false),
+  include: z.string().optional(),
+  includeGlob: z.string().optional(),
+  includePattern: z.union([z.string(), z.array(z.string())]).optional(),
+  exclude: z.string().optional(),
+  excludeGlob: z.string().optional(),
+  excludePattern: z.union([z.string(), z.array(z.string())]).optional(),
+  maxMatches: z.number().int().positive().optional(),
+  maxMatchesPerFile: z.number().int().positive().optional()
+});
+
+export type SearchOptions = z.infer<typeof SearchOptionsSchema>;
+
+// ── 9. Diagnostic Item & Problems ───────────────────────────────────────────
+
+export const DiagnosticSeveritySchema = z.enum(['error', 'warning', 'info', 'hint']);
+export type DiagnosticSeverity = z.infer<typeof DiagnosticSeveritySchema>;
+
+export const DiagnosticItemSchema = z.object({
+  id: z.string(),
+  file: z.string(),
+  line: z.number().int(),
+  col: z.number().int().optional(),
+  column: z.number().int().optional(),
+  endLine: z.number().int().optional(),
+  endCol: z.number().int().optional(),
+  endColumn: z.number().int().optional(),
+  message: z.string(),
+  severity: DiagnosticSeveritySchema,
+  source: z.string().optional(),
+  code: z.union([z.string(), z.number()]).optional(),
+  tags: z.array(z.string()).optional()
+});
+
+export type DiagnosticItem = z.infer<typeof DiagnosticItemSchema>;
+
+// ── 10. Stored Project ──────────────────────────────────────────────────────
+
+export const StoredProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  files: z.record(z.string()),
+  updatedAt: z.number(),
+  createdAt: z.number().optional(),
+  entry: z.string().optional(),
+  testEntry: z.string().optional(),
+  version: z.number().optional()
+});
+
+export type StoredProject = z.infer<typeof StoredProjectSchema>;
+
+// ── 11. Git File Status & SCM Summary ───────────────────────────────────────
+
+export const GitFileChangeTypeSchema = z.enum(['modified', 'added', 'deleted', 'untracked']);
+export type GitFileChangeType = z.infer<typeof GitFileChangeTypeSchema>;
+
+export const GitFileStatusSchema = z.object({
+  path: z.string(),
+  status: GitFileChangeTypeSchema,
+  staged: z.boolean(),
+  oldContent: z.string().optional(),
+  newContent: z.string().optional()
+});
+
+export type GitFileStatus = z.infer<typeof GitFileStatusSchema>;
+
+export const GitStateSummarySchema = z.object({
+  branch: z.string().default('main'),
+  headCommit: z.string().optional(),
+  branches: z.array(z.string()).default(['main']),
+  staged: z.array(GitFileStatusSchema).default([]),
+  unstaged: z.array(GitFileStatusSchema).default([]),
+  untracked: z.array(GitFileStatusSchema).default([]),
+  modified: z.array(GitFileStatusSchema).optional(),
+  deleted: z.array(GitFileStatusSchema).optional(),
+  hasChanges: z.boolean().default(false),
+  isClean: z.boolean().default(true),
+  ahead: z.number().int().default(0),
+  behind: z.number().int().default(0)
+});
+
+export type GitStateSummary = z.infer<typeof GitStateSummarySchema>;

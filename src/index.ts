@@ -1,5 +1,5 @@
 /**
- * @innovatorved/code-lab v0.1.7
+ * @innovatorved/code-lab v0.1.8
  * Browser-native IDE, POSIX Shell, Web Worker Node.js/Bun Runtime, and Git Engine.
  */
 
@@ -7,6 +7,41 @@ export * from './schemas';
 export * from './logger';
 export { SafeHtml, isSafeHtml, raw, html } from './html';
 export * from './csp';
+export * from './zip';
+export {
+  type StorageBackendType,
+  type ProjectSummary,
+  type WorkspaceStorageOptions,
+  WorkspaceStorage,
+  createWorkspaceStorage
+} from './storage';
+export {
+  type SearchMatchItem,
+  type SearchMatchGroup,
+  type SearchResult,
+  type ReplaceResult,
+  escapeRegex,
+  normalizeSearchPath,
+  matchesGlob,
+  searchInFiles,
+  replaceInFiles
+} from './search';
+export {
+  type DiagnosticListener,
+  DiagnosticsStore,
+  createDiagnosticsStore
+} from './diagnostics';
+export {
+  type GitCommitRecord,
+  type GitState,
+  type GitStatusResult,
+  computeShortCommitHash,
+  createGitState,
+  computeGitStatus,
+  stageFile,
+  unstageFile,
+  commitChanges
+} from './scm';
 export * from './runtime';
 export {
   createPosixShell,

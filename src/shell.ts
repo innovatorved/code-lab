@@ -2382,6 +2382,11 @@
   // Real npm package installation via the jsDelivr CDN
   // ---------------------------------------------------------------------------
   const CDN_NPM_BASE = 'https://cdn.jsdelivr.net/npm';
+  const CDN_NPM_BASES = [
+    'https://cdn.jsdelivr.net/npm',
+    'https://unpkg.com',
+    'https://esm.sh'
+  ];
 
   // Minimal offline registry, used only when the CDN is unreachable so common
   // demos still resolve without network access.
@@ -2527,17 +2532,22 @@
   }
 
   async function resolvePackageMetadata(fetchImpl, name, range) {
-    const urls = range
-      ? [`${CDN_NPM_BASE}/${name}@${range}/package.json`, `${CDN_NPM_BASE}/${name}/package.json`]
-      : [`${CDN_NPM_BASE}/${name}/package.json`];
-    for (const url of urls) {
-      const text = await fetchTextFromCdn(fetchImpl, url);
-      if (!text) continue;
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed && parsed.version) return parsed;
-      } catch (err) {
-        _shellLogger.debug('Invalid package.json metadata from CDN.', url, err);
+    for (const base of CDN_NPM_BASES) {
+      const urls = range
+        ? [`${base}/${name}@${range}/package.json`, `${base}/${name}/package.json`]
+        : [`${base}/${name}/package.json`];
+      for (const url of urls) {
+        const text = await fetchTextFromCdn(fetchImpl, url);
+        if (!text) continue;
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.version) {
+            parsed._resolvedCdnBase = base;
+            return parsed;
+          }
+        } catch (err) {
+          _shellLogger.debug('Invalid package.json metadata from CDN.', url, err);
+        }
       }
     }
     return null;
@@ -2556,6 +2566,7 @@
       return { ok: false, reason: `${name}: package metadata not found on the registry (offline?)` };
     }
 
+    const activeCdnBase = meta._resolvedCdnBase || CDN_NPM_BASE;
     const version = meta.version;
     const key = `${name}@${version}`;
     if (seen.has(key)) {
@@ -2603,7 +2614,7 @@
       frontier = [];
       if (batch.length === 0) break;
       const texts = await Promise.all(
-        batch.map((rel) => fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/${rel}`))
+        batch.map((rel) => fetchTextFromCdn(fetchImpl, `${activeCdnBase}/${name}@${version}/${rel}`))
       );
       for (let idx = 0; idx < batch.length; idx++) {
         const rel = batch[idx];
@@ -2627,7 +2638,7 @@
     }
     // The declared entry may be missing on the CDN; fall back to index.js.
     if (!files.some(f => f.rel === entry)) {
-      const idxText = await fetchTextFromCdn(fetchImpl, `${CDN_NPM_BASE}/${name}@${version}/index.js`);
+      const idxText = await fetchTextFromCdn(fetchImpl, `${activeCdnBase}/${name}@${version}/index.js`);
       if (idxText !== null) files.push({ rel: 'index.js', content: idxText });
     }
 
@@ -2753,6 +2764,32 @@
 
     pkgData[depField][pkgName] = range || (directVersion ? `^${directVersion}` : (pkgData[depField][pkgName] || 'latest'));
     writePackageJson(ctx.vfs, pkgPath, pkgData, ctx.emitMutation);
+
+    // Also maintain package-lock.json in the same directory for deterministic lockfile verification
+    try {
+      const lockPath = PosixPath.join(PosixPath.dirname(pkgPath), 'package-lock.json');
+      let lockData = { name: pkgData.name || 'workspace', version: pkgData.version || '1.0.0', lockfileVersion: 3, packages: {} };
+      if (ctx.vfs.existsSync(lockPath)) {
+        const rawLock = String(ctx.vfs.readFileSync(lockPath, 'utf8') || '');
+        const parsedLock = JSON.parse(rawLock);
+        if (parsedLock && typeof parsedLock === 'object') {
+          lockData = parsedLock;
+          if (!lockData.packages || typeof lockData.packages !== 'object') lockData.packages = {};
+        }
+      }
+      for (const inst of installed) {
+        if (inst && inst.name) {
+          lockData.packages[`node_modules/${inst.name}`] = {
+            version: inst.version || '1.0.0',
+            resolved: `${CDN_NPM_BASE}/${inst.name}@${inst.version || '1.0.0'}`
+          };
+        }
+      }
+      ctx.vfs.writeFileSync(lockPath, JSON.stringify(lockData, null, 2) + '\n');
+      if (typeof ctx.emitMutation === 'function') ctx.emitMutation('modify', lockPath);
+    } catch (err) {
+      _shellLogger.debug('Could not write package-lock.json during installPackage.', err);
+    }
 
     return { name: pkgName, ok: true, version: directVersion, installed, warning };
   }

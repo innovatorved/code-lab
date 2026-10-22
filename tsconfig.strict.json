@@ -13,5 +13,14 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true
   },
-  "include": ["src/csp.ts", "src/logger.ts", "src/html.ts"]
+  "include": [
+    "src/csp.ts",
+    "src/logger.ts",
+    "src/html.ts",
+    "src/zip.ts",
+    "src/storage.ts",
+    "src/search.ts",
+    "src/diagnostics.ts",
+    "src/scm.ts"
+  ]
 }
