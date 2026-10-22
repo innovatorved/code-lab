@@ -1,6 +1,6 @@
 # `@innovatorved/code-lab` Architecture (v0.1.7)
 
-`@innovatorved/code-lab` is an embeddable, zero-dependency, browser-native Node.js v22 + Bun v1.1 IDE, POSIX shell, PTY terminal, and virtual execution sandbox.
+`@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`).
 
 It is designed around two strictly decoupled layers that can be used together (`dist/code-lab.js`) or independently (`dist/runtime.js`, `dist/shell.js`, `dist/terminal.js` for headless or modular execution):
 
@@ -11,23 +11,23 @@ It is designed around two strictly decoupled layers that can be used together (`
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
 ┌──────────────────────────────────────▼──────────────────────────────────────┐
-│                     UI Layer: CodeLabWorkbench (src/workbench.js)           │
+│                     UI Layer: CodeLabWorkbench (src/workbench.ts)           │
 │  ┌────────────────────┐  ┌─────────────────────────┐  ┌──────────────────┐  │
 │  │ Guided Walkthrough │  │ Multi-File Explorer &   │  │ Monaco / Native  │  │
 │  │ & Step Verification│  │ Solution Diff Viewer    │  │ Code Editor      │  │
 │  └────────────────────┘  └─────────────────────────┘  └──────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │ 5-Tab Bottom Drawer:                                                   │ │
-│  │ [Test Suite] [Terminal & REPL] [Ports + HTTP Client] [Network] [VFS]   │ │
+│  │ 6-Tab Bottom Drawer:                                                   │ │
+│  │ [Test Suite] [Terminal] [Ports] [Web Preview] [Network] [VFS]          │ │
 │  └───────────────────┬────────────────────────────────────┬───────────────┘ │
 └──────────────────────┼────────────────────────────────────┼─────────────────┘
                        │                                    │
 ┌──────────────────────▼────────────────┐  ┌────────────────▼─────────────────┐
-│  POSIX Shell & PTY (src/shell.js,     │  │  Virtual Runtime Engine          │
-│                     src/terminal.js)  │  │  (src/runtime.js)                │
+│  POSIX Shell & PTY (src/shell.ts,     │  │  Virtual Runtime Engine          │
+│                     src/terminal.ts)  │  │  (src/runtime.ts)                │
 │  • Recursive-descent AST parser       │  │  • Web Worker pool + preemption  │
 │  • Pipes (|), redirects (>, >>, 2>&1) │  │  • In-memory POSIX VFS (/tmp, …) │
-│  • 40+ POSIX coreutils + git + jq     │  │  • Node.js v22 (24 built-in mods)│
+│  • 58 POSIX coreutils + git + jq      │  │  • Node.js v22 (50 built-in mods)│
 │  • Interactive PTY ANSI/256-color     │  │  • Bun v1.1 (serve, sqlite, test)│
 │  • Job table (ps, jobs, fg, bg, kill) │  │  • VirtualPortTable (127.0.0.1)  │
 └───────────────────────────────────────┘  └──────────────────────────────────┘
@@ -35,7 +35,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 ---
 
-## 1. Virtual Runtime Engine (`src/runtime.js`)
+## 1. Virtual Runtime Engine (`src/runtime.ts`)
 
 `CodeLabRuntime` is a self-contained browser execution engine that requires **zero server infrastructure** and **zero COOP/COEP headers**.
 
@@ -50,7 +50,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 - Real-time byte size, UTF-8 preview, and 16-byte hex dump snapshots (`vfs.getSnapshot()`) for inspecting binary WAL logs, SSTables, and SQLite tables.
 
 ### 1.3 Node.js v22 & Bun v1.1 Shims
-- **24 Built-in Node.js Modules**: `fs`, `fs/promises`, `path`, `crypto`, `events`, `stream`, `stream/promises`, `http`, `https`, `net`, `zlib`, `util`, `assert`, `assert/strict`, `buffer`, `url`, `querystring`, `timers`, `timers/promises`, `perf_hooks`, `string_decoder`, `dns`, `os`, `child_process`, `worker_threads`, `vm`, `readline`, `sqlite`, `process`, and `node:test`.
+- **50 Built-in Node.js Modules**: `fs`, `fs/promises`, `path`, `crypto`, `events`, `stream`, `stream/promises`, `stream/web`, `stream/consumers`, `http`, `https`, `http2`, `net`, `tls`, `dgram`, `zlib`, `util`, `util/types`, `assert`, `assert/strict`, `buffer`, `url`, `querystring`, `timers`, `timers/promises`, `perf_hooks`, `string_decoder`, `dns`, `dns/promises`, `os`, `child_process`, `worker_threads`, `vm`, `readline`, `readline/promises`, `async_hooks`, `diagnostics_channel`, `v8`, `domain`, `cluster`, `repl`, `inspector`, `trace_events`, `wasi`, `tty`, `constants`, `console`, `module`, `process`, and `node:test`.
 - **Bun v1.1 API (`Bun`, `'bun'`, `'bun:test'`, `'bun:sqlite'`)**:
   - `Bun.serve({ port, fetch, error })` binds directly to the shared `VirtualPortTable`.
   - `Bun.file(path)` and `Bun.write(dest, data)` read and write directly to the POSIX VFS.
@@ -65,20 +65,20 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 ---
 
-## 2. POSIX Shell & Coreutils (`src/shell.js`)
+## 2. POSIX Shell & Coreutils (`src/shell.ts`)
 
 `createPosixShell` implements a complete POSIX shell interpreter inside the browser:
 - **Lexer & Recursive-Descent AST Parser**: Supports single/double quotes, escape sequences, pipelines (`cmd1 | cmd2 | cmd3`), logical operators (`&&`, `||`, `;`), background execution (`&`), I/O redirection (`>`, `>>`, `<`, `<<<`, `2>`, `2>&1`, `&>`), environment variable expansion (`$VAR`, `${VAR:-default}`, `${VAR:=default}`, `${#VAR}`, `$?`, `$$`), command substitution (`$(...)`), arithmetic expansion (`$((...))`), brace expansion (`{a,b,c}`, `{1..5}`), and globbing (`*`, `?`, `**`).
-- **40+ Built-in Coreutils**:
+- **58 Built-in Coreutils**:
   - File & Directory: `ls`, `cat`, `head`, `tail`, `wc`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `ln`, `pwd`, `cd`, `find`, `tree`, `stat`, `file`, `du`, `df`, `chmod`, `chown`, `mktemp`, `basename`, `dirname`, `realpath`.
   - Text & Data Processing: `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `tr`, `tee`, `xargs`, `diff`, `jq`, `xxd`, `hexdump`, `base64`, `md5sum`, `sha256sum`.
   - Networking, Process & Archive: `curl`, `nc`, `ping`, `dig`, `nslookup`, `lsof`, `netstat`, `ss`, `ps`, `top`, `kill`, `jobs`, `fg`, `bg`, `tar`, `gzip`, `gunzip`.
-  - Developer Toolchains: `node`, `bun`, `npm`, `pnpm`, `npx`, `bunx`, `tsc`, `git` (`init`, `status`, `add`, `commit`, `log`, `diff`, `branch`, `checkout`).
+  - Developer Toolchains: `node`, `bun`, `npm`, `pnpm`, `npx`, `bunx`, `tsc`, `git` (`init`, `status`, `add`, `commit`, `log`, `diff`, `branch`, `checkout`, `clone`).
   - Web Preview: `serve` (built-in static dev server that transpiles TS/TSX/JSX to browser-native ESM and injects a jsDelivr `+esm` import map for bare specifiers).
 
 ---
 
-## 3. PTY Terminal Engine (`src/terminal.js`)
+## 3. PTY Terminal Engine (`src/terminal.ts`)
 
 `PTYTerminalEngine` provides an interactive terminal UI and ANSI/VT100 escape sequence parser:
 - Supports SGR 16-color, 256-color (`38;5;n`), and 24-bit TrueColor (`38;2;r;g;b`) foreground/background attributes, bold, dim, italic, underline, and partial SGR resets (`22`, `23`, `24`, `39`, `49`).
@@ -86,7 +86,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 ---
 
-## 4. IDE Workbench (`src/workbench.js`)
+## 4. IDE Workbench (`src/workbench.ts`)
 
 `CodeLabWorkbench` and `<code-lab>` provide the full visual IDE experience:
 - **Guided Challenge & Reference Sandbox Modes**: Step-by-step verification (`Verify Step`), AST/symbol jump-to-TODO, hints, and unified/split diff comparison against starter or solution files.

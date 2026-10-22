@@ -113,6 +113,72 @@ test('build fails loudly if the injection sentinel disappears', () => {
   assert.ok(bundle.includes('PKG_VERSION'), 'build must read package.json.version');
 });
 
+test('README and ARCHITECTURE capability counts match code', () => {
+  const { COREUTILS } = require(path.join(ROOT, 'dist', 'shell.js'));
+  const coreutilsCount = Object.keys(COREUTILS).length;
+
+  const runtimeSrc = read('src/runtime.ts');
+  const builtinBlock = runtimeSrc.match(/const builtinModules\s*=\s*\{([\s\S]*?)\n\s{4}\};/);
+  assert.ok(builtinBlock, 'src/runtime.ts must declare const builtinModules = { ... }');
+  const rawKeys = [
+    ...builtinBlock[1].matchAll(/^\s{6}(?:['"]([^'"]+)['"]|([a-zA-Z0-9_]+))\s*:/gm)
+  ].map(m => m[1] || m[2]);
+  const canonicalAll = new Set([
+    ...rawKeys.map(k => (k.startsWith('node:') ? k.slice(5) : k)),
+    'module'
+  ]);
+  const nodeBuiltinCount = [...canonicalAll].filter(k => !k.startsWith('bun')).length;
+
+  const runAllSrc = read('tests/run-all.js');
+  const suiteCount = [...runAllSrc.matchAll(/'(tests\/[^']+\.js)'/g)].length;
+
+  const readme = read('README.md');
+  const arch = read('ARCHITECTURE.md');
+
+  assert.ok(
+    readme.includes(`${coreutilsCount} UNIX coreutils`) &&
+      readme.includes(`${coreutilsCount} Coreutils`) &&
+      readme.includes(`${coreutilsCount} UNIX commands`),
+    `README must document ${coreutilsCount} coreutils`
+  );
+  assert.ok(
+    arch.includes(`${coreutilsCount} POSIX coreutils`) &&
+      arch.includes(`${coreutilsCount} Built-in Coreutils`),
+    `ARCHITECTURE must document ${coreutilsCount} coreutils`
+  );
+  assert.ok(
+    readme.includes(`${nodeBuiltinCount} built-in modules`) &&
+      readme.includes(`${nodeBuiltinCount} Node.js built-ins`),
+    `README must document ${nodeBuiltinCount} Node.js built-in modules`
+  );
+  assert.ok(
+    arch.includes(`${nodeBuiltinCount} built-in mods`) &&
+      arch.includes(`${nodeBuiltinCount} Built-in Node.js Modules`),
+    `ARCHITECTURE must document ${nodeBuiltinCount} Node.js built-in modules`
+  );
+  assert.ok(
+    readme.includes(`${suiteCount} suites`),
+    `README must document ${suiteCount} test suites`
+  );
+  assert.ok(
+    arch.includes('6-Tab Bottom Drawer') && !arch.includes('5-Tab Bottom Drawer'),
+    'ARCHITECTURE must document the 6-Tab Bottom Drawer consistently'
+  );
+});
+
+test('repository governance files exist and are non-empty', () => {
+  for (const rel of [
+    'SECURITY.md',
+    'CHANGELOG.md',
+    'CONTRIBUTING.md',
+    '.github/dependabot.yml'
+  ]) {
+    const full = path.join(ROOT, rel);
+    assert.ok(fs.existsSync(full), `missing ${rel}`);
+    assert.ok(fs.statSync(full).size > 50, `${rel} is unexpectedly empty`);
+  }
+});
+
 console.log('\n════════════════════════════════════════════════════════════════════════════');
 console.log(`P0-4 Version Sync Suite Complete: ${passed} passed, ${failures.length} failed`);
 console.log('════════════════════════════════════════════════════════════════════════════\n');

@@ -2,7 +2,7 @@
 
 > **Note:** This project is in active development. APIs and sandbox internals are stable for production use.
 
-Browser-native code IDE workbench, modular guided challenge engine (`@innovatorved/code-lab/extensions/guided-lab`), POSIX shell with 55+ UNIX coreutils, public GitHub repository cloner (`git clone`), and Web Worker execution runtime for **Node.js** and **Bun** (JavaScript & TypeScript) with Zod type safety and zero backend server dependencies.
+Browser-native code IDE workbench, modular guided challenge engine (`@innovatorved/code-lab/extensions/guided-lab`), POSIX shell with 58 UNIX coreutils, public GitHub repository cloner (`git clone`), and Web Worker execution runtime for **Node.js** and **Bun** (JavaScript & TypeScript) with Zod type safety and zero backend server dependencies.
 
 - **Live Cloud IDE & GitHub Repo Explorer**: **[https://code-lab-3dr.pages.dev](https://code-lab-3dr.pages.dev)** — Enter any public GitHub repository (`owner/repo` or URL) to clone and run it directly in your browser.
 - **Built for**: [System Design In Depth](https://system-design-in-depth.vedgupta.in)
@@ -16,9 +16,9 @@ Browser-native code IDE workbench, modular guided challenge engine (`@innovatorv
 - **Public GitHub Repository Cloning (`git clone`)**: Clone any public GitHub repository (`git clone https://github.com/owner/repo` or `git clone owner/repo --branch main` in the terminal, or `await lab.cloneRepo('owner/repo')` via the SDK) directly into `/workspace` with zero authentication required (automatic GitHub Trees API + jsDelivr unlimited fallback). Clone progress (`remote: Enumerating objects…`, `Receiving objects: n%…`) streams into the terminal in real time as it downloads.
 - **Interactive IDE Workbench**: Multi-file Monaco editor, collapsible hierarchical file tree with drag-and-drop, a workspace **folder switcher** (breadcrumb dropdown that scopes the explorer to any subfolder), decoupled editor tabs, Command Palette (`Cmd+Shift+P`), Quick Open (`Cmd+P`), breadcrumbs, and line-by-line solution diff viewer.
 - **Interactive PTY Terminal**: Inline prompt (`codelab:/workspace$ `), cursor navigation, history (`Up`/`Down`), `Ctrl+R` reverse-i-search, `Tab` auto-completion, `Ctrl+C` interrupt, `Ctrl+L` clear, and 256-color / TrueColor ANSI support.
-- **POSIX Shell & 55+ Coreutils**: Full pure-JS AST interpreter supporting pipelines (`|`), redirects (`>`, `>>`, `2>&1`, `<<<`, `<<EOF`), control flow (`if`/`for`/`while`/`case`), functions, arithmetic `$((...))`, brace expansion `{1..5}`, and 55+ UNIX commands (`git`, `ls`, `cat`, `grep`, `find`, `sed`, `awk`, `jq`, `tar`, `curl`, `nc`, `lsof`, `tsc`, etc.).
+- **POSIX Shell & 58 Coreutils**: Full pure-JS AST interpreter supporting pipelines (`|`), redirects (`>`, `>>`, `2>&1`, `<<<`, `<<EOF`), control flow (`if`/`for`/`while`/`case`), functions, arithmetic `$((...))`, brace expansion `{1..5}`, and 58 UNIX commands (`git`, `ls`, `cat`, `grep`, `find`, `sed`, `awk`, `jq`, `tar`, `curl`, `nc`, `lsof`, `tsc`, etc.).
 - **Dual Runtime Engines (Node.js v22 & Bun v1.1)**:
-  - **Node.js**: 28 built-in modules (`fs`, `fs/promises`, `http`, `https`, `net`, `stream`, `events`, `crypto`, `zlib`, `vm`, `worker_threads`, `readline`, `node:sqlite`, `node:test`, `assert`).
+  - **Node.js**: 50 built-in modules (`fs`, `fs/promises`, `http`, `https`, `net`, `stream`, `events`, `crypto`, `zlib`, `vm`, `worker_threads`, `readline`, `module`, `node:test`, `assert`, etc.).
   - **Bun**: Native `.ts` transpilation, `Bun.serve()`, `Bun.file()`, `Bun.write()`, `Bun.spawn()`, `Bun.password`, `Bun.hash()`, `bun:test`, and VFS-backed `bun:sqlite`.
 - **Persistent HTTP/TCP Servers & Dual Web Preview**: Start background servers (`node server.js &` or `bun run server.ts &`), query them with `curl http://localhost:3000` or global `fetch()`, and view live responses in the Ports table, an embedded **Web Preview** tab (URL bar, back/forward, device frames), or a popped-out browser tab backed by a virtual-loopback Service Worker (`/__preview/:port/*`). Public URLs (e.g. `https://example.com`) entered in the preview URL bar open in a real browser tab instead of the virtual frame.
 - **Built-in Preview Server (`serve`) & Toolbar *Run & Preview***: Render a real app in the browser with no bundler — `serve [dir] [--port]`, the toolbar globe button, or `npm run dev` all start a static server that transpiles `.ts` / `.tsx` / `.jsx` to browser-native ESM, resolves extensionless relative imports, and injects a jsDelivr `+esm` **import map** for bare specifiers (`react`, `react-dom/client`, `@angular/core`, …). Vite/`ng`/Astro/Next scripts that need native binaries transparently fall back to it.
@@ -122,8 +122,8 @@ Complete documentation is published on the [GitHub Wiki](https://github.com/inno
 - **[Quick Start](https://github.com/innovatorved/code-lab/wiki/Quick-Start)**: Setup, CDN, and quick examples.
 - **[Integration Guide](https://github.com/innovatorved/code-lab/wiki/Integration-Guide)**: Embedding in React, Next.js, Vite, and HTML.
 - **[Workbench Configuration](https://github.com/innovatorved/code-lab/wiki/Workbench-Configuration)**: Complete reference of options, methods, events, and shortcuts.
-- **[POSIX Shell & Coreutils](https://github.com/innovatorved/code-lab/wiki/POSIX-Shell-and-Coreutils)**: Pipelines, redirects, background jobs, and 40+ UNIX commands.
-- **[Runtime APIs (Node & Bun)](https://github.com/innovatorved/code-lab/wiki/Runtime-APIs)**: 24 Node.js built-ins, Bun APIs, `bun:test`, `bun:sqlite`, and npm install.
+- **[POSIX Shell & Coreutils](https://github.com/innovatorved/code-lab/wiki/POSIX-Shell-and-Coreutils)**: Pipelines, redirects, background jobs, and 58 UNIX commands.
+- **[Runtime APIs (Node & Bun)](https://github.com/innovatorved/code-lab/wiki/Runtime-APIs)**: 50 Node.js built-ins, Bun APIs, `bun:test`, `bun:sqlite`, and npm install.
 - **[HTTP Servers & Networking](https://github.com/innovatorved/code-lab/wiki/HTTP-Servers-and-Networking)**: Virtual port table, background servers, `curl`, and Port Preview.
 - **[Headless Runtime](https://github.com/innovatorved/code-lab/wiki/Headless-Runtime)**: Run code and tests programmatically with zero UI.
 - **[Authoring Guided Labs](https://github.com/innovatorved/code-lab/wiki/Authoring-Guided-Labs)**: Schema and invariants for creating interactive coding challenges.
@@ -146,7 +146,7 @@ bun run tests/test-all-builds.js             # 15/15 builds & 226 unit tests
 bun run tests/test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
 bun run tests/test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports, npm/pnpm
 bun run tests/test-frameworks.js             # React/Preact/Vue/Angular support + browser preview server
-bun run tests/test-coreutils-adversarial.js  # Adversarial stress tests on 40+ coreutils
+bun run tests/test-coreutils-adversarial.js  # Adversarial stress tests on 58 coreutils
 bun run tests/test-stress-shell.js           # Deep pipelines, redirections, large stdout
 bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
 ```
@@ -154,7 +154,7 @@ bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcu
 Individual suites also run under Node 20, 22 and 24 — CI exercises all three:
 
 ```bash
-bun run build && node tests/run-all.js       # same 31 suites, Node runtime
+bun run build && node tests/run-all.js       # same 32 suites, Node runtime
 ```
 
 Suites load the built bundles from `dist/` (never raw TypeScript from `src/`), so
