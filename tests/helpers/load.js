@@ -100,6 +100,8 @@ module.exports = {
   get terminal() { return requireModule('CodeLabTerminal'); },
   /** Workbench SDK (has `CodeLabWorkbench`, `renderSimpleMarkdown`, `mount`, ...). */
   get workbench() { return loadCodeLab(); },
+  /** Shared Web Preview CSP builder (`src/csp.ts`). */
+  get csp() { return requireModule('CodeLabCsp'); },
   /** Zod-backed schema bundle (`dist/schemas.js`). */
   get schemas() {
     assertFresh();

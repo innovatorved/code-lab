@@ -82,13 +82,50 @@ test('the shipping workbench contains the current hardening work', () => {
   for (const marker of [
     'CODELAB_VERSION',
     'sanitizeUrl',
-    'PREVIEW_CSP',
+    'PreviewCsp',
     'createLogger',
     '_reportPersistenceFailure',
     'previewOrigin'
   ]) {
     assert.ok(source.includes(marker), `src/workbench.ts is missing ${marker}`);
   }
+});
+
+test('preview policy lives in exactly one module, shared with the service worker', () => {
+  assert.ok(exists('src/csp.ts'), 'src/csp.ts must exist');
+
+  const workbench = read('src/workbench.ts');
+  assert.ok(workbench.includes('PreviewCsp.buildPreviewPolicy'), 'workbench must build the policy from src/csp.ts');
+  assert.ok(
+    !/default-src 'self' data: blob:/.test(workbench),
+    'workbench must not inline its own preview policy'
+  );
+
+  const worker = read('src/preview-sw.js');
+  assert.ok(worker.includes('CodeLabCsp'), 'preview-sw.js must use the shared CSP module');
+  assert.ok(
+    !/const PREVIEW_CSP = \[/.test(worker),
+    'preview-sw.js must not inline its own preview policy'
+  );
+
+  const built = read('dist/preview-sw.js');
+  assert.ok(built.includes('var CodeLabCsp'), 'dist/preview-sw.js must embed the shared CSP module');
+  assert.ok(
+    built.indexOf('var CodeLabCsp') < built.indexOf('codelab:config'),
+    'the CSP module must be bundled before the worker body'
+  );
+});
+
+test('the shared CSP module is compiled under strict TypeScript', () => {
+  const strictConfig = JSON.parse(read('tsconfig.strict.json'));
+  assert.equal(strictConfig.compilerOptions.strict, true, 'tsconfig.strict.json must enable strict');
+  assert.ok(
+    strictConfig.include.includes('src/csp.ts'),
+    'src/csp.ts must be typechecked under strict mode'
+  );
+
+  const pkg = JSON.parse(read('package.json'));
+  assert.ok(pkg.scripts['typecheck:strict'], 'package.json must expose typecheck:strict');
 });
 
 test('the engines keep their public implementation markers', () => {

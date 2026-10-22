@@ -8,6 +8,10 @@
  * This enables "pop out to tab" Web Preview for virtual HTTP / Bun servers that
  * exist only inside the workbench's in-memory runtime (no real OS socket).
  *
+ * The Content-Security-Policy, the storage shims and the violation reporter all
+ * come from `src/csp.ts`, which the build prepends to this file. The workbench
+ * embeds the same module, so the two can never drift.
+ *
  * Zero dependencies. Plain Service Worker script (no module imports) so it can
  * be registered directly from any host origin.
  */
@@ -16,37 +20,95 @@
 
 const PREVIEW_PREFIX = '/__preview/';
 const DISPATCH_TIMEOUT_MS = 15000;
+const MAX_CONFIG_LENGTH = 8192;
 
-// Content-Security-Policy applied to every HTML preview response.
-//
-// The preview is untrusted user code. Inline/eval are allowed because previews
-// are built from arbitrary user source, but network access is restricted to
-// the preview origin plus data:/blob: so a preview cannot exfiltrate host data
-// to a third party. Keep this string in sync with PREVIEW_CSP in workbench.js.
-const PREVIEW_CSP = [
-  "default-src 'self' data: blob:",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
-  "worker-src 'self' blob:",
-  "frame-src 'self' data: blob:",
-  "form-action 'self'",
-  "frame-ancestors 'self'"
-].join('; ');
+// Policy configured by the workbench via postMessage. The worker cannot read the
+// host's options, so the host pushes the resolved policy after registering.
+let configuredCsp = null;
 
+function cspModule() {
+  // `CodeLabCsp` is declared by the prepended csp bundle (src/csp.ts).
+  return typeof CodeLabCsp !== 'undefined' ? CodeLabCsp : null;
+}
+
+function previewPolicy() {
+  if (configuredCsp) return configuredCsp;
+  const csp = cspModule();
+  if (!csp) return "default-src 'self'; object-src 'none'";
+  // The workbench pushes its resolved policy on registration, so this branch
+  // only runs in the brief window before that message arrives. Use the
+  // documented default (`balanced`) rather than a stricter one, otherwise the
+  // very first preview of a CDN-based app can be blocked by a race.
+  return csp.buildPreviewPolicy({ hostOrigin: self.location.origin, mode: 'balanced' });
+}
+
+function previewShims() {
+  const csp = cspModule();
+  return csp ? csp.buildPreviewShims() : '';
+}
+
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('message', (event) => {
+  const data = event && event.data;
+  if (!data || data.type !== 'codelab:config') return;
+  const csp = typeof data.csp === 'string' ? data.csp.trim() : '';
+  if (!csp || csp.length > MAX_CONFIG_LENGTH) return;
+  configuredCsp = csp;
+  // Acknowledge so the host can wait for confirmation before loading a frame.
+  try {
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ type: 'codelab:config-ready' });
+    } else if (event.source && typeof event.source.postMessage === 'function') {
+      event.source.postMessage({ type: 'codelab:config-ready' });
+    }
+  } catch (err) {
+    // The client may have navigated away between postMessage and reply.
+    console.warn('[code-lab] preview-sw: config acknowledgement failed', err);
+  }
+});
+
+function parsePreviewPath(pathname) {
+  const match = pathname.match(/^\/__preview\/(\d+)(\/.*)?$/);
+  if (!match) return null;
+  return { port: Number(match[1]), path: match[2] || '/' };
+}
+
+function previewErrorResponse(status, title, message) {
+  const csp = previewPolicy();
+  const body = `<!doctype html><meta charset="utf-8">` +
+    `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
+    `<title>${title}</title>` +
+    `<body style="font-family:system-ui,-apple-system,sans-serif;padding:32px;color:#666;background:#0a0a0a">` +
+    `<h1 style="color:#e5e5e5;font-size:18px">${title}</h1><p>${message}</p></body>`;
+  return new Response(body, {
+    status,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': csp,
+      'X-Content-Type-Options': 'nosniff'
+    }
+  });
+}
+
+/** Inject the policy, a base URL and the sandbox shims into an HTML response. */
 function injectPreviewHead(html, port) {
+  const csp = previewPolicy();
+  const shims = previewShims();
   const tags = [];
-  if (!/<meta[^>]+http-equiv=["']?content-security-policy/i.test(html)) {
-    tags.push(`<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`);
-  }
-  if (!/<base\b/i.test(html)) {
-    tags.push(`<base href="${PREVIEW_PREFIX}${port}/">`);
-  }
+  const hasCsp = /<meta[^>]+http-equiv=["']?content-security-policy/i.test(html);
+  const hasBase = /<base\b/i.test(html);
+  const hasShims = html.indexOf('data-codelab-preview-shims') !== -1;
+
+  if (!hasCsp) tags.push(`<meta http-equiv="Content-Security-Policy" content="${csp}">`);
+  if (!hasBase) tags.push(`<base href="${PREVIEW_PREFIX}${port}/">`);
+  if (!hasShims && shims) tags.push(shims);
   if (tags.length === 0) return html;
 
   const injection = tags.join('');
@@ -57,37 +119,6 @@ function injectPreviewHead(html, port) {
     return html.replace(/<html\b[^>]*>/i, (match) => `${match}<head>${injection}</head>`);
   }
   return `<head>${injection}</head>${html}`;
-}
-
-
-self.addEventListener('install', () => {
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
-});
-
-function parsePreviewPath(pathname) {
-  const match = pathname.match(/^\/__preview\/(\d+)(\/.*)?$/);
-  if (!match) return null;
-  return { port: Number(match[1]), path: match[2] || '/' };
-}
-
-function previewErrorResponse(status, title, message) {
-  const body = `<!doctype html><meta charset="utf-8">` +
-    `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">` +
-    `<title>${title}</title>` +
-    `<body style="font-family:system-ui,-apple-system,sans-serif;padding:32px;color:#666;background:#0a0a0a">` +
-    `<h1 style="color:#e5e5e5;font-size:18px">${title}</h1><p>${message}</p></body>`;
-  return new Response(body, {
-    status,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': PREVIEW_CSP,
-      'X-Content-Type-Options': 'nosniff'
-    }
-  });
 }
 
 async function proxyVirtualRequest(event, port, targetPath) {
@@ -110,13 +141,18 @@ async function proxyVirtualRequest(event, port, targetPath) {
     for (const [key, value] of request.headers.entries()) {
       headers[key.toLowerCase()] = value;
     }
-  } catch (_) {}
+  } catch (err) {
+    // Opaque or unsupported header collection; forward without request headers.
+    console.warn('[code-lab] preview-sw: could not read request headers', err);
+  }
 
   let body = null;
   if (!['GET', 'HEAD'].includes(method)) {
     try {
       body = await request.arrayBuffer();
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[code-lab] preview-sw: could not read request body', err);
+    }
   }
 
   const response = await new Promise((resolve) => {
@@ -151,11 +187,11 @@ async function proxyVirtualRequest(event, port, targetPath) {
   const responseHeaders = new Headers((response && response.headers) || {});
   const contentType = responseHeaders.get('content-type') || '';
 
-  // Inject a CSP and a <base> so relative asset URLs in HTML responses resolve
-  // under the `/__preview/:port/` namespace rather than the host document root.
+  // Inject the policy and a <base> so relative asset URLs in HTML responses
+  // resolve under the `/__preview/:port/` namespace rather than the host root.
   if (/text\/html/i.test(contentType) && typeof responseBody === 'string') {
     responseBody = injectPreviewHead(responseBody, port);
-    responseHeaders.set('Content-Security-Policy', PREVIEW_CSP);
+    responseHeaders.set('Content-Security-Policy', previewPolicy());
     responseHeaders.set('X-Content-Type-Options', 'nosniff');
   }
 
@@ -170,7 +206,9 @@ self.addEventListener('fetch', (event) => {
   let url;
   try {
     url = new URL(event.request.url);
-  } catch (_) {
+  } catch (err) {
+    // Non-standard request URL; let the network handle it.
+    console.warn('[code-lab] preview-sw: unparsable request URL', err);
     return;
   }
 

@@ -72,6 +72,7 @@
   "scripts": {
     "build": "bun run tools/bundle.js",
     "typecheck": "bun x tsc --noEmit",
+    "typecheck:strict": "bun x tsc -p tsconfig.strict.json",
     "test": "bun run tools/bundle.js && bun run tests/run-all.js",
     "test:all": "bun run test",
     "test:unit": "bun run tests/run-all.js --filter=test-",

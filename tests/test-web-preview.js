@@ -336,7 +336,10 @@ async function runSuite() {
     }
   }
 
-  if (failed > 0) process.exit(1);
+  // The suite leaves a virtual server registration behind. Node exits anyway,
+  // but Bun keeps the event loop alive, so the runner would hang after a green
+  // run. Exit explicitly once the summary is written.
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 runSuite().catch((err) => {

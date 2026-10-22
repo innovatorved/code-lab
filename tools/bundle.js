@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const PKG_DIR = path.resolve(__dirname, '..');
 const SRC_DIR = path.join(PKG_DIR, 'src');
@@ -29,6 +29,13 @@ if (!PKG_VERSION || !/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(PKG_VERSION)) {
 }
 
 const TS_MODULE_SURFACE = '// ── TypeScript module surface';
+
+// Resolve project binaries from node_modules so the build is hermetic: no
+// network, no dependency on whatever `npx` happens to download today.
+function localBin(name) {
+  const file = path.join(PKG_DIR, 'node_modules', '.bin', process.platform === 'win32' ? `${name}.cmd` : name);
+  return fs.existsSync(file) ? file : name;
+}
 
 // The .ts sources end with a TypeScript-only export footer so `tsc` can emit
 // declarations. Browser bundles are classic scripts, so strip that footer
@@ -52,6 +59,21 @@ if (!VERSION_SENTINEL.test(workbenchCode)) {
 }
 workbenchCode = workbenchCode.replace(VERSION_SENTINEL, `const CODELAB_VERSION = '${PKG_VERSION}';`);
 
+// Shared preview-CSP module. Written as real, strict TypeScript and bundled to a
+// classic script (`var CodeLabCsp`) that is embedded in BOTH the workbench
+// bundle and the preview service worker — one policy implementation, no
+// "keep this string in sync" comment.
+let cspCode;
+try {
+  cspCode = execFileSync(
+    localBin('esbuild'),
+    ['src/csp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCsp'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/csp.ts: ${err.message}`);
+}
+
 const BANNER = `/**
  * ============================================================
  * @innovatorved/code-lab v${PKG_VERSION} — Standalone Browser Code IDE & Virtual Runtime
@@ -72,6 +94,9 @@ const BANNER = `/**
 
 const IIFE_BUNDLE = `${BANNER}(function (root) {
   'use strict';
+
+  // --- Module 0: Preview CSP (shared with the preview service worker) ---
+${cspCode}
 
   // --- Module 1: Runtime Engine ---
   (function () {
@@ -128,6 +153,8 @@ ${workbenchCode}
       createVirtualHttp: CodeLabRuntime.createVirtualHttp,
       createVirtualNet: CodeLabRuntime.createVirtualNet,
       createVirtualPortTable: CodeLabRuntime.createVirtualPortTable,
+      createWorkerRuntimeSource: CodeLabRuntime.createWorkerRuntimeSource,
+      CodeLabCsp: CodeLabCsp,
       default: CodeLab
     });
   }
@@ -135,6 +162,9 @@ ${workbenchCode}
 `;
 
 const ESM_BUNDLE = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
+
+// --- Module 0: Preview CSP (shared with the preview service worker) ---
+${cspCode}
 
 // --- Module 1: Runtime Engine ---
 (function () {
@@ -173,6 +203,7 @@ const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
+const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
 const createPosixShell = CodeLabShell ? CodeLabShell.createPosixShell : null;
 const cloneGitHubRepository = CodeLabShell ? CodeLabShell.cloneGitHubRepository : null;
 const parseGitHubRepoUrl = CodeLabShell ? CodeLabShell.parseGitHubRepoUrl : null;
@@ -208,6 +239,7 @@ export {
   renderSimpleMarkdown,
   cloneRepo,
   extensions,
+  CodeLabCsp,
   createPosixShell,
   cloneGitHubRepository,
   parseGitHubRepoUrl,
@@ -223,7 +255,8 @@ export {
   createVirtualFs,
   createVirtualHttp,
   createVirtualNet,
-  createVirtualPortTable
+  createVirtualPortTable,
+  createWorkerRuntimeSource
 };
 export default CodeLab;
 `;
@@ -498,6 +531,56 @@ export interface CodeLabCloneOptions {
   signal?: AbortSignal;
 }
 
+/** Per-directive allowlists for the Web Preview Content-Security-Policy. */
+export interface CodeLabPreviewCspSources {
+  scriptSrc?: string[];
+  styleSrc?: string[];
+  imgSrc?: string[];
+  fontSrc?: string[];
+  connectSrc?: string[];
+  mediaSrc?: string[];
+  workerSrc?: string[];
+  frameSrc?: string[];
+}
+
+export interface CodeLabPreviewCsp extends CodeLabPreviewCspSources {
+  /**
+   * - balanced (default) allows the CDNs the built-in preview server resolves
+   *   bare imports to (jsDelivr, esm.sh), plus fonts.googleapis.com.
+   * - strict blocks every remote host; only same-origin, data: and blob:.
+   * - custom uses only the allowlists you provide.
+   */
+  mode?: 'strict' | 'balanced' | 'custom';
+}
+
+/** Payload emitted when a preview document violates its Content-Security-Policy. */
+export interface CodeLabPreviewViolation {
+  directive: string;
+  blockedURI: string;
+}
+
+/**
+ * Build, validate and describe Web Preview Content-Security-Policies.
+ * Bundled into both the workbench and dist/preview-sw.js.
+ */
+export interface CodeLabCspAPI {
+  buildPreviewPolicy(options?: {
+    mode?: 'strict' | 'balanced' | 'custom';
+    hostOrigin?: string;
+    frameAncestors?: string;
+  } & CodeLabPreviewCspSources): string;
+  normalizePreviewCspConfig(raw: unknown): {
+    mode: 'strict' | 'balanced' | 'custom';
+    allow: CodeLabPreviewCspSources;
+  };
+  describePreviewNetwork(config: unknown): string[];
+  buildPreviewShims(): string;
+  normalizeOrigin(raw: unknown): string | null;
+  PREVIEW_SHIM_MARKER: string;
+}
+
+export declare const CodeLabCsp: CodeLabCspAPI;
+
 export interface CodeLabOptions {
   /** Unique identifier used for localStorage persistence */
   id?: string;
@@ -507,6 +590,15 @@ export interface CodeLabOptions {
   title?: string;
   /** Subtitle / summary displayed in the guide panel when README.md is absent */
   summary?: string;
+  /** Content-Security-Policy applied to Web Preview documents */
+  previewCsp?: CodeLabPreviewCsp | 'strict' | 'balanced' | 'custom';
+  /**
+   * Origin used to serve previews from a different origin than the IDE.
+   * Requires the preview relay (apps/preview-origin), which has not shipped
+   * yet: the option is currently ignored with a console warning rather than
+   * silently returning 503s.
+   */
+  previewOrigin?: string;
   /** Initial workbench mode ('guided' | 'sandbox') */
   mode?: 'guided' | 'sandbox';
   /** Initial workspace language ('js' | 'ts') */
@@ -631,6 +723,9 @@ export declare class CodeLabWorkbench {
   setFile(path: string, content: string, options?: { open?: boolean }): this;
   getOpenTabs(): string[];
   reset(): this;
+  previewOrigin: string | null;
+  previewCsp: { mode: 'strict' | 'balanced' | 'custom'; allow: CodeLabPreviewCspSources };
+  on(event: 'preview-violation', handler: (detail: CodeLabPreviewViolation) => void): () => void;
   on(event: string, handler: (detail: any) => void): () => void;
   off(event: string, handler: (detail: any) => void): this;
   use(plugin: (workbench: CodeLabWorkbench, options?: any) => any, options?: any): this;
@@ -771,14 +866,16 @@ if (fs.existsSync(sampleHtmlPath)) {
   }
 }
 
-// 2c. Copy preview-sw.js to dist/preview-sw.js and to the host public root
-//     (root scope so `/__preview/:port/*` pop-out routing works).
+// 2c. Build preview-sw.js: the shared CSP module + the worker script, so the
+//     worker and the workbench can never disagree about the policy.
 const previewSwPath = path.join(SRC_DIR, 'preview-sw.js');
 if (fs.existsSync(previewSwPath)) {
-  fs.copyFileSync(previewSwPath, path.join(DIST_DIR, 'preview-sw.js'));
+  const swSource = fs.readFileSync(previewSwPath, 'utf8');
+  const swBundle = `${BANNER}\n${cspCode}\n${swSource}`;
+  fs.writeFileSync(path.join(DIST_DIR, 'preview-sw.js'), swBundle, 'utf8');
   const CLOUD_IDE_PUBLIC_ROOT = path.join(PKG_DIR, 'examples/cloud-ide/public');
   if (fs.existsSync(CLOUD_IDE_PUBLIC_ROOT)) {
-    fs.copyFileSync(previewSwPath, path.join(CLOUD_IDE_PUBLIC_ROOT, 'preview-sw.js'));
+    fs.writeFileSync(path.join(CLOUD_IDE_PUBLIC_ROOT, 'preview-sw.js'), swBundle, 'utf8');
   }
 }
 
@@ -787,8 +884,8 @@ const EXT_DIR = path.join(DIST_DIR, 'extensions');
 fs.mkdirSync(EXT_DIR, { recursive: true });
 
 try {
-  execSync('npx esbuild src/extensions/guided-lab.ts --bundle --format=iife --global-name=CodeLabGuidedLab --outfile=dist/extensions/guided-lab.js', { stdio: 'inherit', cwd: PKG_DIR });
-  execSync('npx esbuild src/extensions/guided-lab.ts --bundle --format=esm --outfile=dist/extensions/guided-lab.esm.js', { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=iife', '--global-name=CodeLabGuidedLab', '--outfile=dist/extensions/guided-lab.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/guided-lab.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
   console.log('✓ Built dist/extensions/guided-lab.js & guided-lab.esm.js');
 } catch (e) {
   console.error('Failed to bundle guided-lab extension:', e.message);
@@ -796,8 +893,8 @@ try {
 
 // 3b. Bundle Zod schemas (the `./schemas` subpath export)
 try {
-  execSync('npx esbuild src/schemas.ts --bundle --format=cjs --outfile=dist/schemas.js', { stdio: 'inherit', cwd: PKG_DIR });
-  execSync('npx esbuild src/schemas.ts --bundle --format=esm --outfile=dist/schemas.esm.js', { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/schemas.ts', '--bundle', '--format=cjs', '--outfile=dist/schemas.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/schemas.ts', '--bundle', '--format=esm', '--outfile=dist/schemas.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
   console.log('✓ Built dist/schemas.js & schemas.esm.js');
 } catch (e) {
   console.error('Failed to bundle schemas:', e.message);
@@ -805,7 +902,7 @@ try {
 
 // 4. Emit TypeScript Declarations (.d.ts)
 try {
-  execSync('npx tsc --emitDeclarationOnly', { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('tsc'), ['--emitDeclarationOnly'], { stdio: 'inherit', cwd: PKG_DIR });
   console.log('✓ Generated TypeScript declaration files in dist/');
 } catch (e) {
   console.warn('tsc warning:', e.message);

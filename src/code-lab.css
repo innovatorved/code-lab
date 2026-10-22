@@ -4317,6 +4317,27 @@ code-lab,
 
 .codelab-preview-modes { display: flex; gap: 2px; flex: 0 0 auto; }
 
+/* CSP badge: which remote hosts the current preview may reach. */
+.codelab-preview-csp {
+  flex: 0 0 auto;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--cl-border);
+  color: var(--cl-fg-muted);
+  background: var(--cl-bg-elevated);
+}
+
+.codelab-preview-csp--blocked {
+  color: var(--cl-red);
+  border-color: var(--cl-red);
+}
+
 .codelab-preview-viewport {
   flex: 1 1 auto;
   min-height: 180px;

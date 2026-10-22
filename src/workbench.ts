@@ -1131,23 +1131,24 @@ declare module 'bun:sqlite' {
   let _workbenchInstanceCounter = 0;
   const _fallbackStorage = new Map();
 
-  // CSP for preview HTML assembled in the srcdoc fallback. Mirrors PREVIEW_CSP
-  // in src/preview-sw.js — keep both copies in sync.
-  const PREVIEW_CSP = [
-    "default-src 'self' data: blob:",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
-    "font-src 'self' data:",
-    "connect-src 'self' data: blob:",
-    "media-src 'self' data: blob:",
-    "worker-src 'self' blob:",
-    "frame-src 'self' data: blob:",
-    "form-action 'self'",
-    "frame-ancestors 'self'"
-  ].join('; ');
+  // Preview CSP, storage shims and violation reporting live in src/csp.ts.
+  // The build embeds that module in this bundle (and in dist/preview-sw.js), so
+  // there is exactly one policy implementation shared by both sides.
+  const PreviewCsp = (typeof CodeLabCsp !== 'undefined' && CodeLabCsp) ||
+    (root && root.CodeLabCsp) ||
+    null;
+
+  function normalizePreviewCspOption(raw) {
+    if (PreviewCsp && typeof PreviewCsp.normalizePreviewCspConfig === 'function') {
+      return PreviewCsp.normalizePreviewCspConfig(raw);
+    }
+    return { mode: 'balanced', allow: {} };
+  }
+
+  // `previewOrigin` needs a relay page + service worker on that origin. Until
+  // that ships, using it would silently *pretend* to isolate previews while the
+  // iframe gets a 503 from a worker that has no clients on the preview origin.
+  const PREVIEW_RELAY_AVAILABLE = false;
 
   function normalizePreviewOrigin(raw) {
     if (raw === null || raw === undefined || raw === '') return null;
@@ -1246,6 +1247,7 @@ declare module 'bun:sqlite' {
       this.monacoUrl = options.monacoUrl || MONACO_BASE;
       this.themeOption = options.theme || 'auto'; // 'dark' | 'light' | 'auto'
       this.previewOrigin = normalizePreviewOrigin(options.previewOrigin);
+      this.previewCsp = normalizePreviewCspOption(options.previewCsp);
       this._previewIsolationWarned = false;
       if (options.previewOrigin && !this.previewOrigin) {
         this.logger.warn(
@@ -1324,12 +1326,15 @@ declare module 'bun:sqlite' {
         frameMode: 'desktop', // 'desktop' | 'tablet' | 'mobile'
         loading: false,
         error: null,
-        srcdoc: ''
+        srcdoc: '',
+        violations: []
       };
       this.previewHistory = [];
       this.previewHistoryIdx = -1;
       this._previewSwReady = false;
       this._previewSwRegistration = null;
+      this._previewViolationHandler = null;
+      this._swMessageHandler = null;
       this._portToasts = new Map();
       this.isFullscreen = false;
       this.isRunning = false;
@@ -4177,16 +4182,55 @@ declare module 'bun:sqlite' {
       const url = (this.options && this.options.previewSwUrl) || 'preview-sw.js';
       try {
         const onMessage = (event) => this._handleServiceWorkerMessage(event);
+        this._swMessageHandler = onMessage;
         if (typeof navigator.serviceWorker.addEventListener === 'function') {
           navigator.serviceWorker.addEventListener('message', onMessage);
         } else {
           navigator.serviceWorker.onmessage = onMessage;
         }
         navigator.serviceWorker.register(url, { scope: (this.options && this.options.previewSwScope) || './' })
-          .then((reg) => { this._previewSwRegistration = reg; this._previewSwReady = true; })
-          .catch(() => { this._previewSwReady = false; });
-      } catch (_) {
+          .then((reg) => {
+            this._previewSwRegistration = reg;
+            this._previewSwReady = true;
+            this._pushPreviewCsp(reg);
+          })
+          .catch((err) => {
+            this._previewSwReady = false;
+            this.logger.warn('Preview service worker registration failed; using the srcdoc fallback.', err);
+          });
+      } catch (err) {
         this._previewSwReady = false;
+        this.logger.warn('Preview service worker is unavailable in this context.', err);
+      }
+    }
+
+    /**
+     * The service worker cannot read workbench options, so the resolved policy
+     * is pushed to it. Without this, `previewCsp: 'strict'` would only change
+     * the srcdoc fallback and silently not the served previews.
+     */
+    _pushPreviewCsp(registration) {
+      const policy = this._previewPolicy();
+      const send = (worker) => {
+        if (!worker || typeof worker.postMessage !== 'function') return;
+        try {
+          worker.postMessage({ type: 'codelab:config', csp: policy });
+        } catch (err) {
+          this.logger.warn('Could not deliver the preview CSP to the service worker.', err);
+        }
+      };
+
+      if (registration) {
+        send(registration.active);
+        send(registration.installing);
+        send(registration.waiting);
+      }
+
+      const sw = (typeof navigator !== 'undefined' && navigator.serviceWorker) ? navigator.serviceWorker : null;
+      if (sw && sw.ready && typeof sw.ready.then === 'function') {
+        sw.ready
+          .then((readyReg) => { if (readyReg) send(readyReg.active); })
+          .catch((err) => this.logger.warn('Preview service worker never became ready.', err));
       }
     }
 
@@ -4250,44 +4294,142 @@ declare module 'bun:sqlite' {
       const p = Number(port) || 3000;
       const rawPath = pathAndQuery || '/';
       const path = rawPath.startsWith('/') ? rawPath : '/' + rawPath;
-      const base = this.previewOrigin || '';
+      // Same-origin loopback by default. `previewOrigin` is only honoured once a
+      // relay exists on that origin; pretending otherwise yields a 503.
+      const base = (PREVIEW_RELAY_AVAILABLE && this.previewOrigin) ? this.previewOrigin : '';
       return `${base}/__preview/${p}${path}`;
     }
 
-    _warnPreviewIsolation() {
-      if (this.previewOrigin || this._previewIsolationWarned) return;
-      this._previewIsolationWarned = true;
-      if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-        console.warn(
-          '[code-lab] Web Preview runs on the host origin and can read host storage. ' +
-          'Pass `previewOrigin: "https://preview.example.com"` to isolate untrusted previews.'
-        );
+    /** Resolved CSP for preview documents served by this workbench. */
+    _previewPolicy() {
+      const origin = (typeof location !== 'undefined' && location && location.origin) ? location.origin : '';
+      if (!PreviewCsp || typeof PreviewCsp.buildPreviewPolicy !== 'function') {
+        return "default-src 'self'; object-src 'none'";
       }
+      return PreviewCsp.buildPreviewPolicy(
+        Object.assign({ hostOrigin: origin }, this.previewCsp.allow, { mode: this.previewCsp.mode })
+      );
+    }
+
+    /** Remote origins the current policy allows, for the preview toolbar. */
+    _previewNetworkHosts() {
+      if (!PreviewCsp || typeof PreviewCsp.describePreviewNetwork !== 'function') return [];
+      return PreviewCsp.describePreviewNetwork(this.previewCsp);
+    }
+
+    _warnPreviewIsolation() {
+      if (!this.previewOrigin || this._previewIsolationWarned) return;
+      this._previewIsolationWarned = true;
+      if (PREVIEW_RELAY_AVAILABLE) return;
+      this.logger.warn(
+        '`previewOrigin` was ignored: cross-origin previews need the preview relay ' +
+        '(apps/preview-origin), which has not shipped yet. Previews run sandboxed on ' +
+        'the host origin: no host DOM, no host storage.'
+      );
     }
 
     _injectPreviewCsp(html, port) {
       if (typeof html !== 'string' || !html) return html;
-      if (/<meta[^>]+http-equiv=["']?content-security-policy/i.test(html)) return html;
 
-      const tags = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">` +
-        (/<base\b/i.test(html) ? '' : `<base href="/__preview/${Number(port) || 3000}/">`);
+      const tags = [];
+      if (!/<meta[^>]+http-equiv=["']?content-security-policy/i.test(html)) {
+        tags.push(`<meta http-equiv="Content-Security-Policy" content="${this._previewPolicy()}">`);
+      }
+      if (!/<base\b/i.test(html)) {
+        tags.push(`<base href="/__preview/${Number(port) || 3000}/">`);
+      }
+      if (html.indexOf('data-codelab-preview-shims') === -1 &&
+          PreviewCsp && typeof PreviewCsp.buildPreviewShims === 'function') {
+        tags.push(PreviewCsp.buildPreviewShims());
+      }
+      if (tags.length === 0) return html;
 
+      const injection = tags.join('');
       if (/<head\b[^>]*>/i.test(html)) {
-        return html.replace(/<head\b[^>]*>/i, (match) => match + tags);
+        return html.replace(/<head\b[^>]*>/i, (match) => match + injection);
       }
       if (/<html\b[^>]*>/i.test(html)) {
-        return html.replace(/<html\b[^>]*>/i, (match) => `${match}<head>${tags}</head>`);
+        return html.replace(/<html\b[^>]*>/i, (match) => `${match}<head>${injection}</head>`);
       }
-      return `<head>${tags}</head>${html}`;
+      return `<head>${injection}</head>${html}`;
+    }
+
+    /**
+     * Preview documents are sandboxed (opaque origin), so `event.origin` is the
+     * string `"null"` and cannot be used to authenticate the sender. Match the
+     * message source against the preview frame instead.
+     */
+    _installPreviewViolationListener() {
+      if (this._previewViolationHandler) return;
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+
+      this._previewViolationHandler = (event) => {
+        const data = event && event.data;
+        if (!data || data.type !== 'codelab:preview-violation') return;
+        const iframe = this.container ? this.container.querySelector('#cl-preview-iframe') : null;
+        if (!iframe) return;
+        // `contentWindow` is unavailable on the mock DOM used by unit tests.
+        if (iframe.contentWindow && event.source !== iframe.contentWindow) return;
+        this._reportPreviewViolation(data);
+      };
+      window.addEventListener('message', this._previewViolationHandler);
+    }
+
+    _reportPreviewViolation(violation) {
+      const blockedURI = String((violation && violation.blockedURI) || 'unknown');
+      const directive = String((violation && violation.directive) || '');
+      const key = `${directive}|${blockedURI}`;
+      const state = this.previewState;
+      state.violations = state.violations || [];
+      if (state.violations.length < 20 && !state.violations.some((v) => v.key === key)) {
+        state.violations.push({ key, directive, blockedURI });
+        this._showToast(`Blocked by Content-Security-Policy: ${this._shortPreviewUrl(blockedURI)}`, 'error');
+        this._emitEvent('preview-violation', { directive, blockedURI, violations: state.violations.slice() });
+      }
+      this._updatePreviewCspStatus();
+    }
+
+    _shortPreviewUrl(raw) {
+      const value = String(raw || '');
+      try {
+        const parsed = new URL(value);
+        const path = parsed.pathname.length > 32 ? `${parsed.pathname.slice(0, 32)}…` : parsed.pathname;
+        return `${parsed.host}${path === '/' ? '' : path}`;
+      } catch (_) {
+        // Not a URL (e.g. "inline" or "eval"); show it verbatim, truncated.
+        return value.length > 48 ? `${value.slice(0, 48)}…` : value;
+      }
+    }
+
+    /** Update (or create) the CSP status chip in the preview toolbar. */
+    _updatePreviewCspStatus() {
+      if (!this.container) return;
+      const chip = this.container.querySelector('#cl-preview-csp-status');
+      if (!chip) return;
+      const violations = (this.previewState && this.previewState.violations) || [];
+      if (!violations.length) {
+        chip.hidden = true;
+        chip.textContent = '';
+        chip.removeAttribute('title');
+        return;
+      }
+      const last = violations[violations.length - 1];
+      chip.hidden = false;
+      chip.textContent = `Blocked: ${this._shortPreviewUrl(last.blockedURI)}`;
+      chip.title = violations
+        .map((v) => `${v.directive} → ${v.blockedURI}`)
+        .join('\n');
     }
 
     _openWebPreview(port, path = '/') {
       const p = Number(port) || this._firstListeningPort() || 3000;
       this._warnPreviewIsolation();
+      this._installPreviewViolationListener();
       this.previewState.port = p;
       this.previewState.path = path || '/';
       this.previewState.url = `http://127.0.0.1:${p}${this.previewState.path}`;
       this.previewState.error = null;
+      this.previewState.violations = [];
       this.previewHistory = this.previewHistory.slice(0, this.previewHistoryIdx + 1);
       this.previewHistory.push(this.previewState.url);
       this.previewHistoryIdx = this.previewHistory.length - 1;
@@ -4495,6 +4637,19 @@ declare module 'bun:sqlite' {
         ? servers.map(s => `<option value="${s.port}" ${Number(s.port) === Number(this.previewState.port) ? 'selected' : ''}>Port ${s.port} · ${escapeHtml(s.name || 'server')}</option>`).join('')
         : `<option value="${this.previewState.port || 3000}">Port ${this.previewState.port || 3000}</option>`;
 
+      const cspMode = (this.previewCsp && this.previewCsp.mode) || 'balanced';
+      const cspHosts = this._previewNetworkHosts();
+      const cspBadge = cspMode === 'strict'
+        ? 'CSP: strict'
+        : !cspHosts.length
+          ? 'CSP: custom'
+          : cspHosts.length === 1
+            ? `CSP: ${cspHosts[0]}`
+            : `CSP: ${cspHosts[0]} +${cspHosts.length - 1}`;
+      const cspBadgeTitle = cspMode === 'strict'
+        ? 'Strict Content-Security-Policy: previews cannot reach any remote host.'
+        : `Previews may load scripts, fonts and data from: ${cspHosts.join(', ') || 'no remote hosts'}. Use previewCsp: 'strict' to block remote hosts.`;
+
       bodyEl.innerHTML = `
         <div class="codelab-preview">
           <div class="codelab-preview-chrome">
@@ -4510,10 +4665,12 @@ declare module 'bun:sqlite' {
               <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'tablet' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="tablet" title="Tablet">${CL_ICONS.tablet || '▢'}</button>
               <button type="button" class="codelab-preview-btn ${this.previewState.frameMode === 'mobile' ? 'active' : ''}" data-cl-action="preview-mode" data-mode="mobile" title="Mobile">${CL_ICONS.smartphone || '▯'}</button>
             </div>
+            <span class="codelab-preview-csp" id="cl-preview-csp-badge" title="${escapeHtml(cspBadgeTitle)}">${escapeHtml(cspBadge)}</span>
+            <span class="codelab-preview-csp codelab-preview-csp--blocked" id="cl-preview-csp-status" role="status" hidden></span>
             <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="preview-popout" title="Open in a new browser tab">${CL_ICONS.externalLink || '↗'} <span>Pop Out</span></button>
           </div>
           <div class="codelab-preview-viewport codelab-preview-viewport--${this.previewState.frameMode}" id="cl-preview-viewport">
-            <iframe class="codelab-preview-iframe" id="cl-preview-iframe" sandbox="allow-scripts allow-forms allow-same-origin allow-modals" allow="camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'; usb 'none'" referrerpolicy="same-origin" title="Web Preview"></iframe>
+            <iframe class="codelab-preview-iframe" id="cl-preview-iframe" sandbox="allow-scripts allow-forms allow-modals" allow="camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'; usb 'none'" referrerpolicy="no-referrer-when-downgrade" title="Web Preview"></iframe>
           </div>
           ${servers.length
             ? `<div class="codelab-preview-hint">Serving from the in-browser virtual runtime. Use Pop Out for a standalone tab.</div>`
@@ -4526,6 +4683,7 @@ declare module 'bun:sqlite' {
                </div>`}
         </div>
       `;
+      this._updatePreviewCspStatus();
       this._loadPreviewFrame();
     }
 
@@ -7377,6 +7535,15 @@ declare module 'bun:sqlite' {
       if (this._escHandler && typeof document !== 'undefined') {
         document.removeEventListener('keydown', this._escHandler);
       }
+      if (this._previewViolationHandler && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('message', this._previewViolationHandler);
+      }
+      this._previewViolationHandler = null;
+      if (this._swMessageHandler && typeof navigator !== 'undefined' && navigator.serviceWorker &&
+          typeof navigator.serviceWorker.removeEventListener === 'function') {
+        navigator.serviceWorker.removeEventListener('message', this._swMessageHandler);
+      }
+      this._swMessageHandler = null;
       if (this._themeObserver) {
         this._themeObserver.disconnect();
       }

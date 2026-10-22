@@ -18,7 +18,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const SW_PATH = path.join(__dirname, '..', 'src', 'preview-sw.js');
+// Test the shipped artifact: dist/preview-sw.js is the shared CSP module
+// (src/csp.ts) prepended to src/preview-sw.js. Loading the source alone would
+// not exercise the policy wiring that actually runs in browsers.
+const SW_PATH = path.join(__dirname, '..', 'dist', 'preview-sw.js');
+if (!fs.existsSync(SW_PATH)) {
+  console.error('dist/preview-sw.js is missing. Run `bun run build` first.');
+  process.exit(2);
+}
 const CODE = fs.readFileSync(SW_PATH, 'utf8');
 
 function loadWorker({ clients, onDispatch } = {}) {
@@ -154,7 +161,9 @@ async function run() {
     const { listeners } = loadWorker({ onDispatch: defaultReply });
     const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
     const csp = res.headers.get('content-security-policy') || '';
-    assert.match(csp, /default-src 'self' data: blob:/);
+    // `'self'` is useless in a sandboxed (opaque-origin) preview document, so
+    // the worker names its own origin explicitly.
+    assert.match(csp, /default-src https:\/\/example\.com data: blob:/);
     assert.match(csp, /object-src 'none'/);
     assert.match(csp, /frame-ancestors 'self'/);
     assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
@@ -187,8 +196,70 @@ async function run() {
     const { listeners } = loadWorker({ clients: [], onDispatch: defaultReply });
     const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
     assert.equal(res.status, 503);
-    assert.match(res.headers.get('content-security-policy') || '', /default-src 'self'/);
+    assert.match(res.headers.get('content-security-policy') || '', /default-src https:\/\/example\.com/);
     assert.match(await res.text(), /http-equiv="Content-Security-Policy"/);
+  });
+
+  await test('SW12 an HTML response carries the sandbox shims exactly once', async () => {
+    const { listeners } = loadWorker({ onDispatch: defaultReply });
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    const body = await res.text();
+    assert.equal((body.match(/data-codelab-preview-shims/g) || []).length, 1);
+    assert.match(body, /codelab:preview-violation/);
+  });
+
+  await test('SW13 a page that already declares a CSP is not given a second one', async () => {
+    const { listeners } = loadWorker({
+      onDispatch: (msg, port) => port.postMessage({
+        status: 200,
+        statusText: 'OK',
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        body: '<html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'"></head><body>x</body></html>'
+      })
+    });
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    const body = await res.text();
+    assert.equal((body.match(/http-equiv="Content-Security-Policy"/g) || []).length, 1);
+    assert.match(body, /default-src 'none'/);
+  });
+
+  await test('SW14 the workbench-configured policy replaces the strict default', async () => {
+    const { listeners } = loadWorker({ onDispatch: defaultReply });
+    const configured = "default-src https://example.com https://cdn.jsdelivr.net data: blob:; object-src 'none'";
+
+    let acked = false;
+    listeners.message({
+      data: { type: 'codelab:config', csp: configured },
+      source: { postMessage: () => { acked = true; } }
+    });
+    assert.equal(acked, true, 'config must be acknowledged');
+
+    const res = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    assert.equal(res.headers.get('content-security-policy'), configured);
+    const body = await res.text();
+    assert.match(body, /cdn\.jsdelivr\.net/);
+  });
+
+  await test('SW15 malformed or oversized worker config is ignored', async () => {
+    const { listeners } = loadWorker({ onDispatch: defaultReply });
+    const before = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+
+    for (const data of [
+      null,
+      { type: 'codelab:other', csp: "default-src *" },
+      { type: 'codelab:config', csp: 42 },
+      { type: 'codelab:config', csp: '' },
+      { type: 'codelab:config', csp: 'a'.repeat(9000) }
+    ]) {
+      listeners.message({ data, source: null });
+    }
+
+    const after = await fireFetch(listeners, new Request('https://example.com/__preview/3000/'));
+    assert.equal(
+      after.headers.get('content-security-policy'),
+      before.headers.get('content-security-policy'),
+      'invalid config must not change the policy'
+    );
   });
 
   console.log('\n════════════════════════════════════════════════════════════════════════════');

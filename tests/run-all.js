@@ -48,6 +48,7 @@ const SUITES = [
   'tests/test-stress-runtime.js',
   'tests/test-web-preview.js',
   'tests/test-preview-sw.js',
+  'tests/test-preview-csp.js',
   'tests/test-preview-security.js',
   'tests/test-logger-save-errors.js',
   'tests/test-version-sync.js',
