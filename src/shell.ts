@@ -3109,7 +3109,9 @@
             const content = vfs.readFileSync(full, 'utf8');
             const rel = full.startsWith(rootDir + '/') ? full.slice(rootDir.length + 1) : name;
             files.push({ full, rel, content });
-          } catch (_) {}
+          } catch (err) {
+            _shellLogger.debug('Preview asset read skipped.', full, err);
+          }
         }
       }
     };
