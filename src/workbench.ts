@@ -385,7 +385,14 @@ declare module 'bun:sqlite' {
 }
 `;
 
+  const _sharedHtmlMod = (typeof CodeLabHtml !== 'undefined' && CodeLabHtml) ||
+    (root && root.CodeLabHtml) ||
+    null;
+
   function escapeHtml(str) {
+    if (_sharedHtmlMod && typeof _sharedHtmlMod.escapeHtml === 'function') {
+      return _sharedHtmlMod.escapeHtml(str);
+    }
     if (str == null) return '';
     return String(str)
       .replace(/&/g, '&amp;')
@@ -394,6 +401,18 @@ declare module 'bun:sqlite' {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
   }
+
+  const isSafeHtml = (_sharedHtmlMod && _sharedHtmlMod.isSafeHtml) || ((v) => Boolean(v && typeof v === 'object' && typeof v.__html === 'string'));
+  const raw = (_sharedHtmlMod && _sharedHtmlMod.raw) || ((trusted) => ({ __html: String(trusted), toString() { return this.__html; } }));
+  const html = (_sharedHtmlMod && _sharedHtmlMod.html) || ((strings, ...values) => {
+    let out = strings[0] || '';
+    for (let i = 0; i < values.length; i++) {
+      const val = values[i];
+      out += (val == null || val === false) ? '' : (isSafeHtml(val) ? val.__html : escapeHtml(val));
+      out += strings[i + 1] || '';
+    }
+    return raw(out);
+  });
 
   // Schemes that may appear in a rendered href. Everything else
   // (javascript:, data:, vbscript:, blob:, file:, ...) becomes a dead link.
@@ -613,11 +632,11 @@ declare module 'bun:sqlite' {
     if (!str) return '';
     let text = String(str);
 
-    // Markdown Links: [label](url "title") or [label](url)
-    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, label, url, title) => {
+    // Markdown Links: [label](url "title") or [label](url) — supports balanced parentheses in URLs
+    text = text.replace(/\[([^\]]+)\]\(([^()\s]+(?:\((?:[^()\s]+|\([^()\s]*\))*\)[^()\s]*)*)(?:\s+"([^"]*)")?\)/g, (_, label, url, title) => {
       const cleanUrl = sanitizeUrl(url);
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-      return `<a href="${escapeHtml(cleanUrl)}" class="codelab-link" target="_blank" rel="noopener noreferrer"${titleAttr}>${escapeHtml(label)}</a>`;
+      const titleAttr = title ? raw(` title="${escapeHtml(title)}"`) : '';
+      return String(html`<a href="${cleanUrl}" class="codelab-link" target="_blank" rel="noopener noreferrer"${titleAttr}>${label}</a>`);
     });
 
     // Strikethrough: ~~del~~
@@ -7825,6 +7844,11 @@ declare module 'bun:sqlite' {
     isCodeLabError,
     createLogger,
     Logger: _sharedLoggerMod || { LOG_PREFIX, CodeLabError, isCodeLabError, createLogger, DEFAULT_LOGGER },
+    html,
+    raw,
+    isSafeHtml,
+    escapeHtml,
+    Html: _sharedHtmlMod || { html, raw, isSafeHtml, escapeHtml },
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,

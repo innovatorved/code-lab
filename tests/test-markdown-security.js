@@ -322,6 +322,46 @@ test('code-lab custom elements cannot execute', () => {
   validateHtml(html, 'custom element');
 });
 
+test('markdown links support balanced parentheses in URLs without leaving trailing )', () => {
+  const wiki = render('[B-tree](https://en.wikipedia.org/wiki/B-tree_(data_structure))');
+  assert.ok(wiki.includes('href="https://en.wikipedia.org/wiki/B-tree_(data_structure)"'), wiki);
+  assert.ok(!wiki.includes('</a>)'), `unexpected trailing ) in: ${wiki}`);
+  validateHtml(wiki, 'wikipedia balanced parens');
+
+  const blocked = render('[click](javascript:alert(1))');
+  assert.ok(blocked.includes('href="#"'), blocked);
+  assert.ok(!blocked.includes('</a>)'), `unexpected trailing ) in: ${blocked}`);
+  validateHtml(blocked, 'blocked balanced parens');
+});
+
+test('SafeHtml tagged template (html, raw, isSafeHtml) escapes untrusted values and rejects forged objects', () => {
+  const { html, raw, isSafeHtml } = CodeLab;
+  assert.equal(typeof html, 'function');
+  assert.equal(typeof raw, 'function');
+  assert.equal(typeof isSafeHtml, 'function');
+
+  const untrusted = '<img src=x onerror="alert(1)">';
+  const rendered = html`<div class="item">${untrusted}</div>`;
+  assert.equal(isSafeHtml(rendered), true);
+  assert.equal(
+    String(rendered),
+    '<div class="item">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</div>'
+  );
+
+  // Nested SafeHtml and raw() are not double-escaped
+  const nested = html`<section>${rendered}${raw('<span>trusted</span>')}</section>`;
+  assert.equal(
+    String(nested),
+    '<section><div class="item">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</div><span>trusted</span></section>'
+  );
+
+  // Forged object without the Symbol brand is treated as untrusted
+  const forged = { __html: '<script>alert(1)</script>', toString() { return this.__html; } };
+  assert.equal(isSafeHtml(forged), false);
+  const forgedOut = String(html`<p>${forged}</p>`);
+  assert.ok(!forgedOut.includes('<script>'), forgedOut);
+});
+
 // ── Seeded fuzzer ───────────────────────────────────────────────────────────
 
 function mulberry32(seed) {

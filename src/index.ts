@@ -5,6 +5,7 @@
 
 export * from './schemas';
 export * from './logger';
+export { SafeHtml, isSafeHtml, raw, html } from './html';
 export * from './csp';
 export * from './runtime';
 export {

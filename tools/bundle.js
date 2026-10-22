@@ -85,6 +85,17 @@ try {
   throw new Error(`Failed to bundle src/logger.ts: ${err.message}`);
 }
 
+let htmlCode;
+try {
+  htmlCode = execFileSync(
+    localBin('esbuild'),
+    ['src/html.ts', '--bundle', '--format=iife', '--global-name=CodeLabHtml'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/html.ts: ${err.message}`);
+}
+
 const BANNER = `/**
  * ============================================================
  * @innovatorved/code-lab v${PKG_VERSION} — Standalone Browser Code IDE & Virtual Runtime
@@ -106,9 +117,10 @@ const BANNER = `/**
 const IIFE_BUNDLE = `${BANNER}(function (root) {
   'use strict';
 
-  // --- Module 0: Preview CSP & Structured Logger ---
+  // --- Module 0: Preview CSP, Structured Logger & Safe HTML ---
 ${cspCode}
 ${loggerCode}
+${htmlCode}
 
   // --- Module 1: Runtime Engine ---
   (function () {
@@ -168,6 +180,11 @@ ${workbenchCode}
       createWorkerRuntimeSource: CodeLabRuntime.createWorkerRuntimeSource,
       CodeLabCsp: CodeLabCsp,
       CodeLabLogger: CodeLabLogger,
+      CodeLabHtml: CodeLabHtml,
+      html: CodeLabHtml.html,
+      raw: CodeLabHtml.raw,
+      isSafeHtml: CodeLabHtml.isSafeHtml,
+      escapeHtml: CodeLabHtml.escapeHtml,
       CodeLabError: CodeLabLogger.CodeLabError,
       isCodeLabError: CodeLabLogger.isCodeLabError,
       createLogger: CodeLabLogger.createLogger,
@@ -181,9 +198,10 @@ ${workbenchCode}
 
 const ESM_BUNDLE = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
 
-// --- Module 0: Preview CSP & Structured Logger ---
+// --- Module 0: Preview CSP, Structured Logger & Safe HTML ---
 ${cspCode}
 ${loggerCode}
+${htmlCode}
 
 // --- Module 1: Runtime Engine ---
 (function () {
@@ -244,6 +262,11 @@ const createLogger = CodeLabLogger.createLogger;
 const DEFAULT_LOGGER = CodeLabLogger.DEFAULT_LOGGER;
 const LOG_PREFIX = CodeLabLogger.LOG_PREFIX;
 const Logger = CodeLab ? CodeLab.Logger : CodeLabLogger;
+const html = CodeLabHtml.html;
+const raw = CodeLabHtml.raw;
+const isSafeHtml = CodeLabHtml.isSafeHtml;
+const escapeHtml = CodeLabHtml.escapeHtml;
+const Html = CodeLab ? CodeLab.Html : CodeLabHtml;
 
 export {
   CodeLab,
@@ -267,6 +290,12 @@ export {
   CodeLabCsp,
   CodeLabLogger,
   Logger,
+  CodeLabHtml,
+  Html,
+  html,
+  raw,
+  isSafeHtml,
+  escapeHtml,
   CodeLabError,
   isCodeLabError,
   createLogger,
@@ -669,6 +698,16 @@ export declare function createLogger(input?: LogLevel | CreateLoggerOptions | Lo
 export declare const DEFAULT_LOGGER: Logger;
 export declare const LOG_PREFIX = '[code-lab]';
 
+export interface SafeHtml {
+  readonly __html: string;
+  toString(): string;
+}
+
+export declare function escapeHtml(value: unknown): string;
+export declare function raw(trustedHtml: string): SafeHtml;
+export declare function isSafeHtml(value: unknown): value is SafeHtml;
+export declare function html(strings: TemplateStringsArray, ...values: unknown[]): SafeHtml;
+
 export interface CodeLabSaveStateEvent {
   state: 'saved' | 'failed';
   key: string;
@@ -944,6 +983,16 @@ export interface CodeLabStatic {
     createLogger: typeof createLogger;
     DEFAULT_LOGGER: Logger;
     LOG_PREFIX: typeof LOG_PREFIX;
+  };
+  html: typeof html;
+  raw: typeof raw;
+  isSafeHtml: typeof isSafeHtml;
+  escapeHtml: typeof escapeHtml;
+  Html: {
+    html: typeof html;
+    raw: typeof raw;
+    isSafeHtml: typeof isSafeHtml;
+    escapeHtml: typeof escapeHtml;
   };
 }
 
