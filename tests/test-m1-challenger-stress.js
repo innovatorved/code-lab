@@ -8,9 +8,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { cloneGitHubRepository, createPosixShell } = require('../src/shell.ts');
-const { createVirtualFs } = require('../src/runtime.ts');
-const { CloneProgressEventSchema } = require('../src/schemas.ts');
+const { cloneGitHubRepository, createPosixShell } = require('./helpers/load').shell;
+const { createVirtualFs } = require('./helpers/load').runtime;
+const { CloneProgressEventSchema } = require('./helpers/load').schemas;
 
 const summary = {
   total: 0,

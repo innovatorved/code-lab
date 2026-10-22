@@ -9,8 +9,8 @@
  */
 
 const assert = require('node:assert/strict');
-const shellModule = require('../src/shell.ts');
-const runtimeModule = require('../src/runtime.ts');
+const shellModule = require('./helpers/load').shell;
+const runtimeModule = require('./helpers/load').runtime;
 
 const createVirtualFs = runtimeModule.createVirtualFs || runtimeModule.default.createVirtualFs;
 

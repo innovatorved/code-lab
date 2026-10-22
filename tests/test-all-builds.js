@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
-const runtime = require('../src/runtime.ts');
+const runtime = require('./helpers/load').runtime;
 const { executeInVirtualRuntime, createWorkerRuntimeSource, transpileTS } = runtime;
 
 const implCandidates = [

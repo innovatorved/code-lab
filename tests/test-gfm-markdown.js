@@ -510,7 +510,8 @@ globalThis.localStorage = localStorageMock;
 globalThis.Event = DOMEvent;
 
 // Now load workbench module
-const CodeLabSDK = require('../src/workbench.ts');
+const CodeLabSDK = require('./helpers/load').workbench;
+const { setNavigator } = require('./helpers/globals');
 const { renderSimpleMarkdown, renderMarkdown, CodeLabWorkbench } = CodeLabSDK;
 
 async function runTestSuite() {
@@ -992,12 +993,13 @@ async function runTestSuite() {
     assert.ok(copyBtn, 'Copy code button must exist in rendered code block');
 
     let clipboardWrittenText = null;
-    globalThis.navigator = globalThis.navigator || {};
-    globalThis.navigator.clipboard = {
-      writeText: async (text) => {
-        clipboardWrittenText = text;
+    setNavigator({
+      clipboard: {
+        writeText: async (text) => {
+          clipboardWrittenText = text;
+        }
       }
-    };
+    });
 
     copyBtn.click();
     // Allow microtask to resolve

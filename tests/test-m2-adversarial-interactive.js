@@ -516,7 +516,8 @@ globalThis.localStorage = localStorageMock;
 globalThis.Event = DOMEvent;
 
 // Load CodeLab SDK
-const CodeLabSDK = require('../src/workbench.ts');
+const CodeLabSDK = require('./helpers/load').workbench;
+const { setNavigator } = require('./helpers/globals');
 const { renderSimpleMarkdown, renderMarkdown, CodeLabWorkbench } = CodeLabSDK;
 
 // ── Test Runner ─────────────────────────────────────────────────────────────
@@ -871,13 +872,13 @@ async function runAdversarialSuite() {
     preview.innerHTML = renderSimpleMarkdown(bench.files['doc.md']);
 
     let clipboardPayload = null;
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async (text) => {
           clipboardPayload = text;
         }
       }
-    };
+    });
 
     const copyBtn = preview.querySelector('.codelab-copy-code-btn');
     assert.ok(copyBtn);
@@ -909,7 +910,7 @@ async function runAdversarialSuite() {
     preview.innerHTML = renderSimpleMarkdown(bench.files['query.md']);
 
     // Set navigator.clipboard to undefined
-    globalThis.navigator = {};
+    setNavigator({});
 
     let execCommandCalled = false;
     let execCommandArg = null;
@@ -967,13 +968,13 @@ async function runAdversarialSuite() {
 
     // writeText rejects (e.g. permission denied)
     let fallbackUsed = false;
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async () => {
           throw new Error('NotAllowedError: Read/write permission denied');
         }
       }
-    };
+    });
 
     doc.execCommand = (cmd) => {
       if (cmd === 'copy') fallbackUsed = true;
@@ -1000,11 +1001,11 @@ async function runAdversarialSuite() {
     preview.style.display = 'block';
     preview.innerHTML = renderSimpleMarkdown(bench.files['quick.md']);
 
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async () => {}
       }
-    };
+    });
 
     const copyBtn = preview.querySelector('.codelab-copy-code-btn');
     const textSpan = copyBtn.querySelector('.codelab-copy-code-btn__text');
@@ -1050,11 +1051,11 @@ async function runAdversarialSuite() {
     preview.innerHTML = renderSimpleMarkdown(bench.files['entities.md']);
 
     let clipboardText = null;
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async (t) => { clipboardText = t; }
       }
-    };
+    });
 
     const copyBtn = preview.querySelector('.codelab-copy-code-btn');
     copyBtn.click();
@@ -1080,11 +1081,11 @@ async function runAdversarialSuite() {
     block.removeAttribute('data-cl-code');
 
     let clipboardText = null;
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async (t) => { clipboardText = t; }
       }
-    };
+    });
 
     const copyBtn = preview.querySelector('.codelab-copy-code-btn');
     copyBtn.click();
@@ -1119,11 +1120,11 @@ async function runAdversarialSuite() {
     assert.equal(copyButtons.length, 3);
 
     let clipboardText = null;
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async (t) => { clipboardText = t; }
       }
-    };
+    });
 
     // Click block 2
     copyButtons[1].click();

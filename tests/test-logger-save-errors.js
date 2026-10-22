@@ -16,7 +16,7 @@
 
 const assert = require('node:assert/strict');
 const { doc, localStorageMock, localStorageStore } = require('./helpers/mock-dom.js');
-const { CodeLabWorkbench } = require('../src/workbench.ts');
+const { CodeLabWorkbench } = require('./helpers/load').workbench;
 
 let passed = 0;
 const failures = [];

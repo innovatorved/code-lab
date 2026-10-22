@@ -312,7 +312,8 @@ globalThis.localStorage = localStorageMock;
 globalThis.Event = DOMEvent;
 
 // Require workbench module
-const CodeLabSDK = require('../src/workbench.ts');
+const CodeLabSDK = require('./helpers/load').workbench;
+const { setNavigator } = require('./helpers/globals');
 const { renderSimpleMarkdown, renderMarkdown, CodeLabWorkbench } = CodeLabSDK;
 
 // ── Test Runner ──────────────────────────────────────────────────────────────
@@ -754,14 +755,14 @@ bun test --all "production"`;
     mockDoc.body.appendChild(container);
 
     let copiedText = '';
-    globalThis.navigator = {
+    setNavigator({
       clipboard: {
         writeText: async (txt) => {
           copiedText = txt;
           return Promise.resolve();
         }
       }
-    };
+    });
 
     const wb = new CodeLabWorkbench(container, {
       labId: 'adversarial-m2-copy',

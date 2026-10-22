@@ -58,6 +58,43 @@ jobs:
             | xargs -0 sha256sum > /tmp/build-second.sha
           diff -u /tmp/build-first.sha /tmp/build-second.sha
 
+  unit-node:
+    name: Unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Bun installs dependencies and builds the bundles; Node runs the suites.
+      # Suite files load `dist/`, which is why every runtime needs a build first.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Verify Node version under test
+        run: node --version
+
+      - name: Test (all suites)
+        run: node tests/run-all.js
+
   browser:
     name: Browser tests
     runs-on: ubuntu-latest

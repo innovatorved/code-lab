@@ -610,7 +610,7 @@ function loadSchemas() {
 
   const srcTsPath = path.resolve(CODE_LAB_ROOT, 'src/schemas.ts');
   if (fs.existsSync(srcTsPath)) {
-    const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
+    const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'tests/helpers/load.js')).runtime;
     const tsCode = fs.readFileSync(srcTsPath, 'utf8');
     const jsCode = transpileTS(tsCode);
     const mod = { exports: {} };

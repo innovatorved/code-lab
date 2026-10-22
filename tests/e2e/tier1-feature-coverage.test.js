@@ -523,7 +523,7 @@ suite.test('F5.5', 'Cloud IDE script recognizes ?repo= URL parameter to initiali
 // ─────────────────────────────────────────────────────────────────────────────
 
 suite.test('F6.1', 'cloneGitHubRepository accepts onProgress structured progress event callback', async () => {
-  const { cloneGitHubRepository } = require('../../dist/shell.js') || require('../../src/shell');
+  const { cloneGitHubRepository } = require('../helpers/load').shell;
   assert.equal(typeof cloneGitHubRepository, 'function', 'cloneGitHubRepository must be exported');
 });
 

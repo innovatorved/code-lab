@@ -48,14 +48,14 @@ const wikiTest = (id, name, fn) =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 suite.test('F1.B1', 'TypeScript transpilation handles empty file string without crashing', async () => {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'tests/helpers/load.js')).runtime;
   const res = transpileTS('');
   assert.equal(typeof res, 'string');
   assert.equal(res.trim(), '');
 });
 
 suite.test('F1.B2', 'TypeScript transpiler handles complex generics, satisfies operator, and union types', async () => {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'tests/helpers/load.js')).runtime;
   const complexTs = `
     type Result<T, E = Error> = { ok: true; value: T } | { ok: false; error: E };
     interface Config { timeout: number; retries?: number; }
@@ -93,7 +93,7 @@ suite.test('F1.B4', 'package.json exports map covers subpaths and handles root .
 });
 
 suite.test('F1.B5', 'tsc --noEmit rejects intentionally invalid TypeScript syntax in dry run', async () => {
-  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'src/runtime.ts'));
+  const { transpileTS } = require(path.resolve(CODE_LAB_ROOT, 'tests/helpers/load.js')).runtime;
   assert.ok(typeof transpileTS === 'function', 'transpileTS must be a function');
   // Confirm transpileTS preserves valid JS semantics
   const js = transpileTS('const a: number = 42;');

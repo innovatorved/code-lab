@@ -23,6 +23,7 @@ const SUITE_TIMEOUT_MS = 5 * 60 * 1000;
 
 // Ordered fastest-first so a broken build fails early.
 const SUITES = [
+  'tests/test-dist-only-imports.js',
   'tests/test-all-builds.js',
   'tests/test-runtime-advanced.js',
   'tests/test-option1-shell-bun-http.js',
@@ -88,6 +89,19 @@ function main() {
   if (suites.length === 0) {
     console.error(`No suites matched filter "${opts.filter}"`);
     return 2;
+  }
+
+  // Every suite loads the built bundles, so a missing or stale `dist/` would
+  // otherwise produce dozens of confusing failures. Fail once, clearly.
+  if (!opts.list) {
+    try {
+      require('./helpers/load').assertFresh();
+    } catch (err) {
+      console.error('');
+      console.error('✘ ' + String((err && err.message) || err));
+      console.error('');
+      return 2;
+    }
   }
 
   console.log('='.repeat(78));

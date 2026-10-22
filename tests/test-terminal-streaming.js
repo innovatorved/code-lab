@@ -14,10 +14,10 @@
  */
 
 const assert = require('node:assert/strict');
-const runtime = require('../src/runtime.ts');
-const shell = require('../src/shell.ts');
-const terminal = require('../src/terminal.ts');
-const workbench = require('../src/workbench.ts');
+const runtime = require('./helpers/load').runtime;
+const shell = require('./helpers/load').shell;
+const terminal = require('./helpers/load').terminal;
+const workbench = require('./helpers/load').workbench;
 
 async function runTestSuite() {
   let passed = 0;

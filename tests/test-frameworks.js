@@ -18,8 +18,8 @@
 
 const assert = require('node:assert/strict');
 
-const runtime = require('../src/runtime.ts');
-const shellModule = require('../src/shell.ts');
+const runtime = require('./helpers/load').runtime;
+const shellModule = require('./helpers/load').shell;
 
 const { createVirtualFs, createVirtualPortTable } = runtime;
 const createPosixShell = shellModule.createPosixShell;

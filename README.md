@@ -151,6 +151,16 @@ bun run tests/test-stress-shell.js           # Deep pipelines, redirections, lar
 bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
 ```
 
+Individual suites also run under Node 20, 22 and 24 — CI exercises all three:
+
+```bash
+bun run build && node tests/run-all.js       # same 31 suites, Node runtime
+```
+
+Suites load the built bundles from `dist/` (never raw TypeScript from `src/`), so
+`dist/` must exist and be newer than `src/`. `tests/run-all.js` exits with code 2
+and a "dist/ is stale" message otherwise; run `bun run build` first.
+
 ---
 
 ## License

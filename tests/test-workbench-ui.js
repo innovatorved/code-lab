@@ -575,9 +575,8 @@ const mockMonaco = {
 };
 globalThis.monaco = mockMonaco;
 
-// Require CodeLabWorkbench
-const wbPath = path.resolve(__dirname, '../src/workbench.ts');
-const CodeLabModule = require(wbPath);
+// Load the built bundle so the suite exercises the shipped artifact.
+const CodeLabModule = require('./helpers/load').workbench;
 const CodeLabWorkbench = CodeLabModule.CodeLabWorkbench || CodeLabModule.Workbench;
 
 // ── Test Runner Infrastructure ───────────────────────────────────────────────
@@ -2022,14 +2021,13 @@ async function main() {
   console.log('────────────────────────────────────────────────────────────────────────────');
   console.log(`  Total Automated Test Cases Executed    : ${grandTotal} tests`);
   console.log(`  Passed                                 : ${totalPassed}`);
-  console.log(`  Failed (Pending M1/M2/M3 Implementation): ${totalFailed}`);
+  console.log(`  Failed                                 : ${totalFailed}`);
   console.log(`  Pass Rate                              : ${((totalPassed / grandTotal) * 100).toFixed(1)}%`);
   console.log(`  Execution Time                         : ${totalDuration}ms`);
   console.log('════════════════════════════════════════════════════════════════════════════\n');
 
   if (totalFailed > 0) {
-    console.log(`ℹ Note: ${totalFailed} tests failed as expected against current un-redesigned workbench.`);
-    console.log(`  Once Milestone implementations (M1, M2, M3, M4) are completed, all ${grandTotal} tests will pass.`);
+    console.log(`✗ ${totalFailed} of ${grandTotal} tests failed.`);
     process.exit(1);
   } else {
     console.log(' All tests passed successfully!');

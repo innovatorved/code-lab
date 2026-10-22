@@ -47,8 +47,12 @@ test('package.json uses the locked 0.1.x line', () => {
 });
 
 test('source SDK version matches package.json', () => {
-  const { version: sourceVersion } = require(path.join(ROOT, 'src', 'workbench.ts'));
-  assert.equal(sourceVersion, version);
+  // Read the declaration rather than importing raw TypeScript: the suite must
+  // not depend on a Bun-only loader, and the source literal is what the build
+  // replaces with package.json.version.
+  const match = read('src/workbench.ts').match(/const CODELAB_VERSION = '([^']+)';/);
+  assert.ok(match, 'src/workbench.ts must declare `const CODELAB_VERSION = ...`');
+  assert.equal(match[1], version);
 });
 
 test('built CJS bundle version matches package.json', () => {

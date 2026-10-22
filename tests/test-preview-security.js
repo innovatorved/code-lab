@@ -15,7 +15,7 @@
 
 const assert = require('node:assert/strict');
 const { doc, localStorageStore } = require('./helpers/mock-dom.js');
-const { CodeLabWorkbench } = require('../src/workbench.ts');
+const { CodeLabWorkbench } = require('./helpers/load').workbench;
 
 function makeContainer() {
   localStorageStore.clear();

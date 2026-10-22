@@ -76,7 +76,7 @@ suite.test('S1', 'Pure Repository Workspace: Blank IDE, multi-file TS project ex
     };
 
     // 3. User executes project in Virtual Runtime
-    const { executeInVirtualRuntime } = require('../../src/runtime.ts');
+    const { executeInVirtualRuntime } = require('../helpers/load').runtime;
     const stdoutLogs = [];
 
     const runResult = await executeInVirtualRuntime({

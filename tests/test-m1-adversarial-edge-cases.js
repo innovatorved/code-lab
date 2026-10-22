@@ -6,8 +6,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { cloneGitHubRepository, createPosixShell } = require('../src/shell.ts');
-const { createVirtualFs } = require('../src/runtime.ts');
+const { cloneGitHubRepository, createPosixShell } = require('./helpers/load').shell;
+const { createVirtualFs } = require('./helpers/load').runtime;
 
 (async () => {
   console.log('Testing extreme edge cases and failure modes...');

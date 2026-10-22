@@ -1,8 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { cloneGitHubRepository } = require('../src/shell.ts');
-const { createVirtualFs } = require('../src/runtime.ts');
+const { cloneGitHubRepository } = require('./helpers/load').shell;
+const { createVirtualFs } = require('./helpers/load').runtime;
 
 (async () => {
   console.log('Testing cloneGitHubRepository streaming onProgress callback...');

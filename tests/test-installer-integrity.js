@@ -24,8 +24,8 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const runtime = require('../src/runtime.ts');
-const shellModule = require('../src/shell.ts');
+const runtime = require('./helpers/load').runtime;
+const shellModule = require('./helpers/load').shell;
 const { createVirtualFs, executeInVirtualRuntime } = runtime;
 
 // ── Canned CDN ───────────────────────────────────────────────────────────────

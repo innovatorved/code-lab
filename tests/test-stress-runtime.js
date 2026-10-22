@@ -11,7 +11,7 @@
 
 const assert = require('assert');
 const path = require('path');
-const { transpileTS, executeInVirtualRuntime, executeInWorker } = require('../src/runtime.ts');
+const { transpileTS, executeInVirtualRuntime, executeInWorker } = require('./helpers/load').runtime;
 
 let totalTests = 0;
 let passedTests = 0;
