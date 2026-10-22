@@ -4048,6 +4048,7 @@ function __initVirtualRuntime(rootScope) {
     if (/@jsx\b/.test(source)) return true;
     if (source.indexOf('<>') !== -1) return true;
     if (/<\/[A-Za-z]/.test(source)) return true;
+    if (/<[A-Za-z_$][A-Za-z0-9_$:.\-]*\b[^>\n]*\/>/.test(source)) return true;
     return false;
   }
 
@@ -4123,6 +4124,23 @@ function __initVirtualRuntime(rootScope) {
   function jsxSkipWs(source, i) {
     while (i < source.length && JSX_WS_RE.test(source[i])) i++;
     return i;
+  }
+
+  function isJsxCommentOnly(str) {
+    if (!str) return true;
+    let k = 0;
+    while (k < str.length) {
+      k = jsxSkipWs(str, k);
+      if (k >= str.length) break;
+      if (str[k] === '/' && (str[k + 1] === '/' || str[k + 1] === '*')) {
+        const next = jsxSkipJsLiteral(str, k);
+        if (next === -1) return false;
+        k = next;
+      } else {
+        return false;
+      }
+    }
+    return true;
   }
 
   function normalizeJsxText(raw) {
@@ -4268,8 +4286,12 @@ function __initVirtualRuntime(rootScope) {
         }
         if (c === '{') {
           const br = jsxReadBraced(source, j, o);
-          const inner = jsxTransform(br.inner, o);
-          if (inner && inner.trim()) children.push(inner);
+          if (!isJsxCommentOnly(br.inner)) {
+            const inner = jsxTransform(br.inner, o);
+            if (inner && inner.trim()) {
+              children.push(inner.indexOf('//') !== -1 && !inner.endsWith('\n') ? inner + '\n' : inner);
+            }
+          }
           j = br.next;
           continue;
         }
@@ -4334,7 +4356,8 @@ function __initVirtualRuntime(rootScope) {
     // JSX/TSX must be rewritten before masking so JSX text is kept verbatim.
     if (hasJsx) {
       const { pragma, frag } = readJsxPragma(source);
-      const needsReact = pragma === 'React.createElement' && !/\bReact\b/.test(source);
+      const hasReactBinding = /\bimport\s+(?!type\b)(?:\*\s+as\s+React\b|React\b)|(?:\bconst|\blet|\bvar|\bfunction|\bclass)\s+React\b|\bReact\s*=/.test(source);
+      const needsReact = pragma === 'React.createElement' && (keepEsm ? !hasReactBinding : !/\bReact\b/.test(source));
       const transformed = jsxTransform(source, { pragma, frag });
       if (transformed !== source) {
         source = transformed;
@@ -4342,6 +4365,8 @@ function __initVirtualRuntime(rootScope) {
         if (needsReact) {
           source = (keepEsm ? 'import React from "react";\n' : 'const React = require("react");\n') + source;
         }
+      } else if (!isTS && !hasESM) {
+        return source;
       }
     }
 

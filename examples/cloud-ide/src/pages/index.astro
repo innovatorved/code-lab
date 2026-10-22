@@ -606,8 +606,8 @@
                 type="text"
                 id="landing-repo-input"
                 class="repo-input"
-                placeholder="owner/repo or github.com/owner/repo"
-                value="innovatorved/code-lab"
+                placeholder="e.g. mdn/todo-react or github.com/owner/repo"
+                value="mdn/todo-react"
                 spellcheck="false"
                 autocomplete="off"
               />
@@ -620,13 +620,13 @@
 
           <!-- Suggested Repositories Chips -->
           <div class="chip-container">
-            <div class="chip-label">Featured Repositories</div>
+            <div class="chip-label">Featured Runnable Repositories</div>
             <div class="chip-list">
-              <span class="chip-item" data-repo="innovatorved/code-lab">innovatorved/code-lab</span>
-              <span class="chip-item" data-repo="expressjs/express">expressjs/express</span>
-              <span class="chip-item" data-repo="preactjs/preact">preactjs/preact</span>
-              <span class="chip-item" data-repo="chalk/chalk">chalk/chalk</span>
-              <span class="chip-item" data-repo="sindresorhus/ora">sindresorhus/ora</span>
+              <span class="chip-item" data-repo="mdn/todo-react">mdn/todo-react</span>
+              <span class="chip-item" data-repo="ahfarmer/calculator">ahfarmer/calculator</span>
+              <span class="chip-item" data-repo="gabrielecirulli/2048">gabrielecirulli/2048</span>
+              <span class="chip-item" data-repo="jakesgordon/javascript-tetris">jakesgordon/javascript-tetris</span>
+              <span class="chip-item" data-repo="innovatorved/piano-web">innovatorved/piano-web</span>
               <span class="chip-item chip-item--demo" data-demo="react">⚛ React App · live preview</span>
             </div>
           </div>
@@ -741,6 +741,9 @@
             setTimeout(() => {
               const ed = ide._editor || ide.editor;
               if (ed && typeof ed.layout === 'function') ed.layout();
+              if (typeof ide.previewApp === 'function' && ide.files && (ide.files['index.html'] || ide.files['public/index.html'])) {
+                ide.previewApp();
+              }
             }, 60);
           }
           return;
@@ -796,6 +799,9 @@
             if (ide) {
               const ed = ide._editor || ide.editor;
               if (ed && typeof ed.layout === 'function') ed.layout();
+              if (typeof ide.previewApp === 'function' && ide.files && (ide.files['index.html'] || ide.files['public/index.html'])) {
+                ide.previewApp();
+              }
             }
           }, 350);
 

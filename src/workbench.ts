@@ -1988,7 +1988,12 @@ declare module 'bun:sqlite' {
       const found = names.find(f => pattern.test(f));
       if (found) return found;
       if (kind === 'demo') {
-        return names.find(f => /\.(js|ts)$/i.test(f) && !/(^|\/)test\.(js|ts)$/i.test(f)) || null;
+        const isConfigOrTest = f => /(^|\/)(test|.*\.(?:test|spec|config|d))\.(js|ts|mjs|cjs)$/i.test(f) || /(^|\/)\.[^/]+$/i.test(f);
+        const hasHtmlEntry = Boolean(this.files['index.html'] || this.files['public/index.html']);
+        if (hasHtmlEntry) {
+          return names.find(f => /(^|\/)(server|app|demo)\.(js|ts)$/i.test(f) && !/^src\//i.test(f)) || null;
+        }
+        return names.find(f => /\.(js|ts)$/i.test(f) && !isConfigOrTest(f)) || null;
       }
       return null;
     }
@@ -4721,8 +4726,10 @@ declare module 'bun:sqlite' {
         return null;
       }
 
-      const rootDir = (this.files['public/index.html']) ? '/workspace/public'
-        : (this.files['site/index.html']) ? '/workspace/site'
+      const hasSrcScripts = Boolean(this.files && Object.keys(this.files).some((f) => /^src\/.+\.(?:[cm]?jsx?|tsx?)$/i.test(f)));
+      const rootDir = this.files['index.html'] ? '/workspace'
+        : (this.files['public/index.html'] && !hasSrcScripts) ? '/workspace/public'
+        : this.files['site/index.html'] ? '/workspace/site'
         : '/workspace';
 
       if (!this.shell || typeof this.shell.execute !== 'function') return null;
@@ -7210,6 +7217,9 @@ declare module 'bun:sqlite' {
       if (this.isRunning) return;
       const entry = this._findEntryFile('demo');
       if (!entry) {
+        if ((this.files['index.html'] || this.files['public/index.html']) && typeof this.previewApp === 'function') {
+          return this.previewApp();
+        }
         this.terminalLogs.push({ type: 'stderr', text: 'No demo.js / demo.ts file found in this workspace.' });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
@@ -8085,7 +8095,7 @@ declare module 'bun:sqlite' {
                 Enter any public GitHub repository URL or <code>owner/repo</code> slug. Files will be cloned directly into the in-memory Virtual Filesystem (VFS) with zero authentication required.
               </p>
               <div style="display:flex;gap:8px;">
-                <input id="cl-clone-repo-input" type="text" placeholder="e.g. innovatorved/code-lab or https://github.com/owner/repo" style="flex:1;height:34px;padding:0 10px;background:var(--cl-bg);border:1px solid var(--cl-border-strong);border-radius:var(--cl-radius-sm);color:var(--cl-fg);font-family:var(--cl-font-mono);font-size:12px;outline:none;" />
+                <input id="cl-clone-repo-input" type="text" placeholder="e.g. mdn/todo-react or https://github.com/owner/repo" style="flex:1;height:34px;padding:0 10px;background:var(--cl-bg);border:1px solid var(--cl-border-strong);border-radius:var(--cl-radius-sm);color:var(--cl-fg);font-family:var(--cl-font-mono);font-size:12px;outline:none;" />
                 <button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="confirm-clone-repo">Clone Repo</button>
               </div>
             </div>

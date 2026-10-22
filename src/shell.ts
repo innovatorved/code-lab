@@ -3019,6 +3019,12 @@
       if (!pkgName) continue;
       const subpath = spec.slice(pkgName.length).replace(/^\/+/, '');
       const version = resolveBareVersion(vfs, rootDir, pkgName);
+      if (subpath && /\.css$/i.test(subpath)) {
+        const cssHref = `${CDN_ESM_BASE}/${pkgName}@${version}/${subpath.replace(/^\/+/, '')}`;
+        const loader = `if(typeof document!=='undefined'){const l=document.createElement('link');l.rel='stylesheet';l.href=${JSON.stringify(cssHref)};document.head.appendChild(l);}export default ${JSON.stringify(cssHref)};`;
+        imports[spec] = `data:text/javascript;charset=utf-8,${encodeURIComponent(loader)}`;
+        continue;
+      }
       imports[spec] = cdnEsmUrl(pkgName, version, subpath || undefined);
     }
     return imports;
@@ -3039,6 +3045,7 @@
     let match;
     while ((match = re.exec(text)) !== null) {
       const url = match[0];
+      if (url.includes('${')) continue;
       const pkgName = decodeURIComponent(match[1]);
       const rest = match[2];
       const pinnedVersion = rest.split(/[\/?]/)[0];
@@ -3076,6 +3083,33 @@
           } catch (err) {
             _shellLogger.debug('Preview script read skipped.', full, err);
           }
+        }
+      }
+    };
+    walk(rootDir, 0);
+    return files;
+  }
+
+  function collectPreviewAssetFiles(vfs, rootDir, maxFiles = 200) {
+    const files = [];
+    const walk = (dir, depth) => {
+      if (depth > 8 || files.length >= maxFiles) return;
+      let entries = [];
+      try { entries = vfs.readdirSync(dir); } catch (_) { return; }
+      for (const name of entries) {
+        if (name === 'node_modules' || name.startsWith('.')) continue;
+        const full = PosixPath.join(dir, name);
+        let st;
+        try { st = vfs.statSync(full); } catch (_) { continue; }
+        const dirFlag = st && (typeof st.isDirectory === 'function' ? st.isDirectory() : st.isDirectory);
+        if (dirFlag) {
+          walk(full, depth + 1);
+        } else if (/\.(?:css|json|svg)$/i.test(name) && files.length < maxFiles) {
+          try {
+            const content = vfs.readFileSync(full, 'utf8');
+            const rel = full.startsWith(rootDir + '/') ? full.slice(rootDir.length + 1) : name;
+            files.push({ full, rel, content });
+          } catch (_) {}
         }
       }
     };
@@ -3165,11 +3199,31 @@
       return out;
     };
 
+    const inlineLocalCssImports = (cssText, cssDir) => {
+      if (!cssText) return '';
+      return cssText.replace(/@import\s+(?:url\(\s*['"]?([^'")]+)['"]?\s*\)|['"]([^'"]+)['"])\s*;?/gi, (full, u1, u2) => {
+        const spec = (u1 || u2 || '').trim();
+        if (!spec || /^(?:https?:|data:|\/\/)/i.test(spec)) return full;
+        if (spec === 'tailwindcss') return '';
+        const subTarget = resolveLocalTarget(cssDir, spec);
+        if (subTarget && /\.css$/i.test(subTarget)) {
+          const subCss = readText(subTarget);
+          if (subCss !== null) return subCss;
+        }
+        return '';
+      });
+    };
+
     const buildHtmlPreviewResponse = (htmlBody, htmlTargetPath) => {
       const scriptFiles = collectPreviewScriptFiles(ctx.vfs, rootDir);
+      const assetFiles = collectPreviewAssetFiles(ctx.vfs, rootDir);
       const specifiers = new Set();
+      const compiledScripts = [];
       for (const f of scriptFiles) {
         for (const s of extractBareSpecifiers(f.content)) specifiers.add(s);
+        const compiled = transpileAndRewriteLocalImports(f.content, f.full);
+        for (const s of extractBareSpecifiers(compiled)) specifiers.add(s);
+        compiledScripts.push({ file: f, compiled });
       }
       // Also scan inline module scripts in HTML for bare specifiers
       const inlineScriptRe = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
@@ -3183,14 +3237,53 @@
       const importMap = buildPreviewImportMap(ctx.vfs, rootDir, specifiers);
       for (const f of scriptFiles) aliasPinnedCdnUrls(ctx.vfs, rootDir, f.content, importMap);
       aliasPinnedCdnUrls(ctx.vfs, rootDir, htmlBody, importMap);
-      for (const f of scriptFiles) {
-        const compiled = transpileAndRewriteLocalImports(f.content, f.full);
-        const key = toLocalImportKey(f.full);
+      for (const { file, compiled } of compiledScripts) {
+        const key = toLocalImportKey(file.full);
         importMap[key] = `data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`;
       }
 
+      let needsTailwindBrowser = false;
+      for (const af of assetFiles) {
+        const key = toLocalImportKey(af.full);
+        if (/\.css$/i.test(af.full)) {
+          if (/@import\s+['"]tailwindcss['"]/i.test(af.content)) {
+            needsTailwindBrowser = true;
+          }
+          const resolvedCss = inlineLocalCssImports(af.content, PosixPath.dirname(af.full));
+          const cssModuleJs = `const __css=${JSON.stringify(resolvedCss)};if(typeof document!=='undefined'){const __s=document.createElement('style');__s.setAttribute('data-codelab-css',${JSON.stringify(af.rel)});__s.textContent=__css;document.head.appendChild(__s);}export default __css;`;
+          importMap[key] = `data:text/javascript;charset=utf-8,${encodeURIComponent(cssModuleJs)}`;
+        } else if (/\.json$/i.test(af.full)) {
+          const jsonModuleJs = `export default ${af.content.trim() || 'null'};`;
+          importMap[key] = `data:text/javascript;charset=utf-8,${encodeURIComponent(jsonModuleJs)}`;
+        } else if (/\.svg$/i.test(af.full)) {
+          const svgDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(af.content)}`;
+          const svgModuleJs = `export default ${JSON.stringify(svgDataUrl)};`;
+          importMap[key] = `data:text/javascript;charset=utf-8,${encodeURIComponent(svgModuleJs)}`;
+        }
+      }
+
       const htmlDir = PosixPath.dirname(htmlTargetPath);
-      let transformedHtml = htmlBody;
+      let transformedHtml = htmlBody.replace(/%PUBLIC_URL%\//g, '/').replace(/%PUBLIC_URL%/g, '');
+
+      // Auto-inject entry script for Create React App / bundler templates where index.html omits <script src="...">
+      const hasLocalScriptTag = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/i.test(transformedHtml);
+      if (!hasLocalScriptTag) {
+        const defaultEntries = [
+          '/src/main.tsx', '/src/main.jsx', '/src/main.ts', '/src/main.js',
+          '/src/index.tsx', '/src/index.jsx', '/src/index.ts', '/src/index.js'
+        ];
+        for (const cand of defaultEntries) {
+          if (isFile(PosixPath.join(rootDir, cand.slice(1)))) {
+            const entryTag = `<script type="module" src="${cand}"></script>`;
+            if (/<\/body>/i.test(transformedHtml)) {
+              transformedHtml = transformedHtml.replace(/<\/body>/i, `  ${entryTag}\n</body>`);
+            } else {
+              transformedHtml += `\n${entryTag}`;
+            }
+            break;
+          }
+        }
+      }
 
       // Inline local <link rel="stylesheet" href="..."> so styles work in opaque-origin / srcdoc frames
       transformedHtml = transformedHtml.replace(/<link\b([^>]*?)>/gi, (fullTag, attrs) => {
@@ -3201,7 +3294,11 @@
         if (!cssTarget || !/\.css$/i.test(cssTarget)) return fullTag;
         const cssContent = readText(cssTarget);
         if (cssContent === null) return fullTag;
-        return `<style data-codelab-href="${hrefMatch[1].replace(/"/g, '&quot;')}">\n${cssContent}\n</style>`;
+        if (/@import\s+['"]tailwindcss['"]/i.test(cssContent)) {
+          needsTailwindBrowser = true;
+        }
+        const resolvedCss = inlineLocalCssImports(cssContent, PosixPath.dirname(cssTarget));
+        return `<style data-codelab-href="${hrefMatch[1].replace(/"/g, '&quot;')}">\n${resolvedCss}\n</style>`;
       });
 
       // Inline local <script ... src="..."></script> so entry modules & scripts execute reliably in opaque-origin / srcdoc frames
@@ -3213,10 +3310,19 @@
         const rawScript = readText(scriptTarget);
         if (rawScript === null) return fullTag;
         const compiled = transpileAndRewriteLocalImports(rawScript, scriptTarget);
-        const isMod = /\btype\s*=\s*["']module["']/i.test(attrs) || /\.(?:tsx|ts|jsx|mjs)$/i.test(scriptTarget);
+        const isMod = /\btype\s*=\s*["']module["']/i.test(attrs) || /\.(?:tsx|ts|jsx|mjs)$/i.test(scriptTarget) || /^\s*(?:import|export)\b/m.test(rawScript);
         const typeAttr = isMod ? ' type="module"' : '';
         return `<script${typeAttr} data-codelab-src="${srcMatch[1].replace(/"/g, '&quot;')}">\n${compiled}\n</script>`;
       });
+
+      if (needsTailwindBrowser && !transformedHtml.includes('@tailwindcss/browser')) {
+        const twTag = '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>';
+        if (/<head[^>]*>/i.test(transformedHtml)) {
+          transformedHtml = transformedHtml.replace(/<head[^>]*>/i, (m) => `${m}\n    ${twTag}`);
+        } else {
+          transformedHtml = twTag + '\n' + transformedHtml;
+        }
+      }
 
       return injectPreviewExtras(transformedHtml, importMap);
     };
@@ -3229,7 +3335,9 @@
       const hasExt = /\.[A-Za-z0-9]+$/.test(rel);
 
       if (!rel || pathname.endsWith('/') || isDir(target)) {
-        target = PosixPath.join(target, 'index.html');
+        const rootIdx = PosixPath.join(target, 'index.html');
+        const pubIdx = PosixPath.join(target, 'public', 'index.html');
+        target = (!exists(rootIdx) && exists(pubIdx)) ? pubIdx : rootIdx;
       }
       if (!exists(target) && !hasExt) {
         // Resolve extensionless module specifiers (e.g. `./components/Counter`)
@@ -3243,7 +3351,9 @@
         for (const c of cands) { if (exists(c)) { target = c; break; } }
       }
       if (!exists(target) && !hasExt) {
-        target = PosixPath.join(rootDir, 'index.html'); // SPA fallback
+        const rootIdx = PosixPath.join(rootDir, 'index.html');
+        const pubIdx = PosixPath.join(rootDir, 'public', 'index.html');
+        target = (!exists(rootIdx) && exists(pubIdx)) ? pubIdx : rootIdx; // SPA fallback
       }
       if (!exists(target)) {
         return new Response(
