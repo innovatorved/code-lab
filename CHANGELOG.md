@@ -4,6 +4,15 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2026-10-23
+
+### Added
+- **System Design Chaos Engine & Port Telemetry (`src/runtime.ts`)**: Extended `VirtualPortTable` with per-port fault injection (`setChaos`, `getChaos`, `clearChaos`: latency/jitter injection, HTTP 503 error rate, and partitioned/down nodes) and rolling 60-second SLO telemetry (`recordMetric`, `getMetrics`, `getAllMetrics`: live RPS, `p50`/`p95`/`p99` latency, error rate, and upstream call graph edges).
+- **4 System Design POSIX Coreutils (`src/shell.ts`)**: Added `hey` / `ab` / `wrk` (concurrent HTTP load generator with ASCII latency histograms and `p50`/`p90`/`p95`/`p99` percentiles), `chaos` (CLI fault injector for port latency, error rate, and partitions), `sqlite3` (interactive CLI with `.tables`, `.schema`, and `EXPLAIN QUERY PLAN`), and `redis-cli` (in-memory + VFS-persisted Redis server/CLI supporting strings, TTLs, atomic counters, lists, hashes, sets, and sorted sets).
+- **VFS-Persisted SQLite with Secondary Indexes & Query Planner (`src/runtime.ts`)**: Added file-backed persistence (`/workspace/*.db`), `CREATE INDEX` / `DROP INDEX`, `PRAGMA index_list`, and `EXPLAIN QUERY PLAN` (`SCAN TABLE` vs `SEARCH TABLE ... USING INDEX`) to `bun:sqlite`.
+- **Workbench SLO Telemetry Bar, Live Topology Graph & 1-Click Chaos Pills (`src/workbench.ts`, `src/code-lab.css`)**: Added live RPS/`p50`/`p95`/`p99`/Error% telemetry bar, interactive ASCII/SVG topology trace (`Client -> LB :3000 -> Worker :3001`), and 1-click Chaos pills (`+200ms Latency`, `25% HTTP 503`, `Kill Node`, `Run hey Load Test`) to the Ports & Networking panel.
+- **Distributed System Cluster Presets (`examples/cloud-ide/src/pages/index.astro`)**: Added `Distributed Cluster & Chaos Lab` (`sd-cluster`) and `High-Scale URL Shortener` (`sd-shortener`) templates to the Cloud IDE.
+
 ## [0.1.10] - 2026-10-22
 
 ### Fixed
