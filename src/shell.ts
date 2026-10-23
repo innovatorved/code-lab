@@ -5931,6 +5931,9 @@
       stdout += '  node, bun, npm, pnpm, npx, bunx CLI runtime and package shims\n';
       stdout += '  serve [dir] [--port]   Built-in preview server (transpiles TS/JSX for the browser)\n';
       stdout += '  ports, curl            Port table inspection & HTTP requests\n';
+      stdout += '  hey, ab, wrk           Concurrent HTTP load generator & latency percentiles\n';
+      stdout += '  chaos                  Network fault injection (delay, drop, error, partition, crash, heal)\n';
+      stdout += '  sqlite3, redis-cli     Interactive SQLite SQL engine & in-memory Redis data store CLI\n';
       return { code: 0, stdout, stderr: '' };
     },
 
@@ -6549,6 +6552,7 @@
           }
         } catch (err) {
           lastErr = err;
+          if (err && err.chaosEffect) break;
           await new Promise(r => setTimeout(r, 15));
         }
       }
@@ -6582,7 +6586,808 @@
 
       output += bodyText;
       return { code: 0, stdout: output, stderr: '' };
+    },
+
+    async hey(args, ctx) {
+      let totalRequests = 50;
+      let concurrency = 10;
+      let method = 'GET';
+      const headers = {};
+      let body = null;
+      let jsonOut = false;
+      let url = '';
+
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if ((a === '-n' || a === '--requests') && i + 1 < args.length) {
+          totalRequests = Math.max(1, Math.min(2000, parseInt(args[++i], 10) || 50));
+        } else if ((a === '-c' || a === '--concurrency') && i + 1 < args.length) {
+          concurrency = Math.max(1, Math.min(200, parseInt(args[++i], 10) || 10));
+        } else if ((a === '-m' || a === '-X' || a === '--method') && i + 1 < args.length) {
+          method = String(args[++i]).toUpperCase();
+        } else if ((a === '-H' || a === '--header') && i + 1 < args.length) {
+          const h = args[++i];
+          const idx = h.indexOf(':');
+          if (idx !== -1) headers[h.slice(0, idx).trim()] = h.slice(idx + 1).trim();
+        } else if ((a === '-d' || a === '--body' || a === '--data') && i + 1 < args.length) {
+          body = args[++i];
+          if (method === 'GET') method = 'POST';
+        } else if (a === '--json') {
+          jsonOut = true;
+        } else if (!a.startsWith('-')) {
+          url = a;
+        }
+      }
+
+      if (!url) {
+        return {
+          code: 1,
+          stdout: '',
+          stderr: 'Usage: hey [-n requests] [-c concurrency] [-m METHOD] [-H "Header: val"] [-d body] [--json] <url>\n'
+        };
+      }
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'http://' + url;
+      }
+      concurrency = Math.min(concurrency, totalRequests);
+
+      const portTable = (ctx.shell && ctx.shell.portTable) || null;
+      const latencies = [];
+      const statusCounts = {};
+      const errorCounts = {};
+      let totalBytes = 0;
+      let issued = 0;
+
+      const tStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+      const worker = async () => {
+        while (true) {
+          const idx = issued++;
+          if (idx >= totalRequests) break;
+          const reqStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          try {
+            let resp;
+            if (portTable) {
+              resp = await portTable.dispatchRequest(url, { method, headers: { ...headers }, body });
+            } else {
+              resp = await fetch(url, { method, headers: { ...headers }, body });
+            }
+            const reqEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const dur = Math.max(0.05, reqEnd - reqStart);
+            latencies.push(dur);
+            const code = (resp && resp.status) || 200;
+            statusCounts[code] = (statusCounts[code] || 0) + 1;
+            const txt = resp && typeof resp.text === 'function' ? await resp.text() : String((resp && resp.body) || '');
+            totalBytes += txt.length;
+          } catch (err) {
+            const reqEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            latencies.push(Math.max(0.05, reqEnd - reqStart));
+            const key = (err && (err.chaosEffect || err.code)) || 'ERROR';
+            errorCounts[key] = (errorCounts[key] || 0) + 1;
+          }
+        }
+      };
+
+      const workers = [];
+      for (let w = 0; w < concurrency; w++) {
+        workers.push(worker());
+      }
+      await Promise.all(workers);
+
+      const tEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const totalSec = Math.max(0.001, (tEnd - tStart) / 1000);
+      latencies.sort((a, b) => a - b);
+
+      const pct = (p) => {
+        if (latencies.length === 0) return 0;
+        const idx = Math.min(latencies.length - 1, Math.floor((p / 100) * latencies.length));
+        return Number(latencies[idx].toFixed(2));
+      };
+
+      const minLat = latencies.length ? Number(latencies[0].toFixed(2)) : 0;
+      const maxLat = latencies.length ? Number(latencies[latencies.length - 1].toFixed(2)) : 0;
+      const avgLat = latencies.length
+        ? Number((latencies.reduce((acc, v) => acc + v, 0) / latencies.length).toFixed(2))
+        : 0;
+      const rps = Number((totalRequests / totalSec).toFixed(2));
+      const p50 = pct(50);
+      const p90 = pct(90);
+      const p95 = pct(95);
+      const p99 = pct(99);
+
+      if (jsonOut) {
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            url,
+            method,
+            requests: totalRequests,
+            concurrency,
+            durationSec: Number(totalSec.toFixed(4)),
+            rps,
+            totalBytes,
+            latencyMs: { min: minLat, avg: avgLat, p50, p90, p95, p99, max: maxLat },
+            statusCodes: statusCounts,
+            errors: errorCounts
+          }, null, 2) + '\n',
+          stderr: ''
+        };
+      }
+
+      // Build 5-bucket ASCII histogram
+      let histLines = '';
+      if (latencies.length > 0) {
+        const buckets = 5;
+        const span = Math.max(0.5, maxLat - minLat);
+        const step = span / buckets;
+        const counts = new Array(buckets).fill(0);
+        for (const l of latencies) {
+          const b = Math.min(buckets - 1, Math.floor((l - minLat) / step));
+          counts[b]++;
+        }
+        const maxCount = Math.max(1, ...counts);
+        for (let b = 0; b < buckets; b++) {
+          const edge = (minLat + step * (b + 1)).toFixed(2).padStart(7);
+          const countStr = `[${counts[b]}]`.padStart(6);
+          const barLen = Math.round((counts[b] / maxCount) * 28);
+          histLines += `  ${edge} ms ${countStr} |${'■'.repeat(barLen)}\n`;
+        }
+      }
+
+      let statusLines = '';
+      for (const [code, count] of Object.entries(statusCounts)) {
+        statusLines += `  [${code}]\t${count} responses\n`;
+      }
+      for (const [errKey, count] of Object.entries(errorCounts)) {
+        statusLines += `  [${errKey}]\t${count} failed\n`;
+      }
+
+      const out =
+        `\nSummary:\n` +
+        `  Total:\t${totalSec.toFixed(4)} secs\n` +
+        `  Slowest:\t${maxLat.toFixed(2)} ms\n` +
+        `  Fastest:\t${minLat.toFixed(2)} ms\n` +
+        `  Average:\t${avgLat.toFixed(2)} ms\n` +
+        `  Requests/sec:\t${rps.toFixed(2)}\n` +
+        `  Total data:\t${totalBytes} bytes\n` +
+        `\nResponse time histogram:\n` +
+        histLines +
+        `\nLatency distribution:\n` +
+        `  50% in ${p50.toFixed(2)} ms (p50)\n` +
+        `  90% in ${p90.toFixed(2)} ms (p90)\n` +
+        `  95% in ${p95.toFixed(2)} ms (p95)\n` +
+        `  99% in ${p99.toFixed(2)} ms (p99)\n` +
+        `\nStatus code distribution:\n` +
+        statusLines;
+
+      return { code: 0, stdout: out, stderr: '' };
+    },
+
+    async ab(args, ctx) {
+      return COREUTILS.hey(args, ctx);
+    },
+
+    async wrk(args, ctx) {
+      return COREUTILS.hey(args, ctx);
+    },
+
+    async chaos(args, ctx) {
+      const portTable = (ctx.shell && ctx.shell.portTable) || null;
+      if (!portTable || typeof portTable.setChaosRule !== 'function') {
+        return { code: 1, stdout: '', stderr: 'chaos: virtual port table does not support chaos injection\n' };
+      }
+
+      const sub = (args[0] || 'status').toLowerCase();
+
+      if (sub === 'status' || sub === 'list' || sub === 'ls') {
+        const rules = portTable.listChaosRules ? portTable.listChaosRules() : [];
+        if (rules.length === 0) {
+          return { code: 0, stdout: 'No active chaos rules. All virtual ports are healthy.\n', stderr: '' };
+        }
+        const lines = ['PORT\tSTATE\tLATENCY\tJITTER\tDROP%\tERR%\tSTATUS\tPARTITION_FROM'];
+        for (const r of rules) {
+          lines.push(
+            `:${r.port}\t${r.crashed ? 'CRASHED' : 'ACTIVE'}\t${r.latencyMs || 0}ms\t${r.jitterMs || 0}ms\t` +
+            `${Math.round((r.dropRate || 0) * 100)}%\t${Math.round((r.errorRate || 0) * 100)}%\t` +
+            `${r.errorStatus || 503}\t${(r.partitionFromPorts || []).join(',') || '-'}`
+          );
+        }
+        return { code: 0, stdout: lines.join('\n') + '\n', stderr: '' };
+      }
+
+      if (sub === 'reset' || sub === 'clear') {
+        portTable.clearChaosRules();
+        return { code: 0, stdout: 'Cleared all network chaos rules. All nodes healed.\n', stderr: '' };
+      }
+
+      if (sub === 'latency' || sub === 'delay') {
+        const port = parseInt(args[1], 10);
+        const latencyMs = parseInt(args[2], 10) || 0;
+        let jitterMs = 0;
+        for (let i = 3; i < args.length; i++) {
+          if ((args[i] === '--jitter' || args[i] === '-j') && args[i + 1]) {
+            jitterMs = parseInt(args[++i], 10) || 0;
+          }
+        }
+        if (!port) return { code: 1, stdout: '', stderr: 'Usage: chaos latency <port> <ms> [--jitter <ms>]\n' };
+        portTable.setChaosRule(port, { latencyMs, jitterMs });
+        return { code: 0, stdout: `Injected +${latencyMs}ms latency (jitter ±${jitterMs}ms) on port :${port}\n`, stderr: '' };
+      }
+
+      if (sub === 'drop' || sub === 'loss') {
+        const port = parseInt(args[1], 10);
+        const rawRate = parseFloat(args[2]);
+        if (!port || isNaN(rawRate)) return { code: 1, stdout: '', stderr: 'Usage: chaos drop <port> <rate 0..1 or 0..100>\n' };
+        const dropRate = rawRate > 1 ? rawRate / 100 : rawRate;
+        portTable.setChaosRule(port, { dropRate });
+        return { code: 0, stdout: `Injected ${Math.round(dropRate * 100)}% packet drop (ETIMEDOUT) on port :${port}\n`, stderr: '' };
+      }
+
+      if (sub === 'error' || sub === 'fail' || sub === '503') {
+        const port = parseInt(args[1], 10);
+        const rawRate = args[2] !== undefined ? parseFloat(args[2]) : 0.25;
+        let errorStatus = 503;
+        for (let i = 3; i < args.length; i++) {
+          if ((args[i] === '--status' || args[i] === '-s') && args[i + 1]) {
+            errorStatus = parseInt(args[++i], 10) || 503;
+          }
+        }
+        if (!port || isNaN(rawRate)) return { code: 1, stdout: '', stderr: 'Usage: chaos error <port> <rate> [--status 503]\n' };
+        const errorRate = rawRate > 1 ? rawRate / 100 : rawRate;
+        portTable.setChaosRule(port, { errorRate, errorStatus });
+        return { code: 0, stdout: `Injected ${Math.round(errorRate * 100)}% HTTP ${errorStatus} error rate on port :${port}\n`, stderr: '' };
+      }
+
+      if (sub === 'crash' || sub === 'kill' || sub === 'down') {
+        const port = parseInt(args[1], 10);
+        if (!port) return { code: 1, stdout: '', stderr: 'Usage: chaos crash <port>\n' };
+        portTable.setChaosRule(port, { crashed: true });
+        return { code: 0, stdout: `Port :${port} marked CRASHED (all connections will fail with ECONNREFUSED)\n`, stderr: '' };
+      }
+
+      if (sub === 'heal' || sub === 'up' || sub === 'recover') {
+        const port = parseInt(args[1], 10);
+        if (!port) {
+          portTable.clearChaosRules();
+          return { code: 0, stdout: 'Cleared all network chaos rules. All nodes healed.\n', stderr: '' };
+        }
+        portTable.clearChaosRules(port);
+        return { code: 0, stdout: `Port :${port} healed (all fault injections removed)\n`, stderr: '' };
+      }
+
+      if (sub === 'partition' || sub === 'isolate') {
+        const fromPort = parseInt(args[1], 10);
+        const toPort = parseInt(args[2], 10);
+        if (!fromPort || !toPort) return { code: 1, stdout: '', stderr: 'Usage: chaos partition <fromPort> <toPort>\n' };
+        const existing = portTable.getChaosRule(toPort) || { partitionFromPorts: [] };
+        const list = Array.from(new Set([...(existing.partitionFromPorts || []), fromPort]));
+        portTable.setChaosRule(toPort, { partitionFromPorts: list });
+        return { code: 0, stdout: `Network partition active: :${fromPort} -X-> :${toPort} (EHOSTUNREACH)\n`, stderr: '' };
+      }
+
+      return {
+        code: 1,
+        stdout: '',
+        stderr:
+          'Usage: chaos <command> [args]\n' +
+          'Commands:\n' +
+          '  chaos status                            List active fault rules\n' +
+          '  chaos latency <port> <ms> [--jitter ms] Add network latency & jitter\n' +
+          '  chaos error <port> <rate> [--status N]  Inject HTTP 503/429 error rate (e.g. 0.25)\n' +
+          '  chaos drop <port> <rate>                Inject packet drop / timeout rate\n' +
+          '  chaos crash <port>                      Simulate node crash (ECONNREFUSED)\n' +
+          '  chaos partition <fromPort> <toPort>     Block traffic between two ports\n' +
+          '  chaos heal [port]                       Heal a port (or all ports)\n' +
+          '  chaos reset                             Remove all chaos rules\n'
+      };
+    },
+
+    async sqlite3(args, ctx) {
+      let format = 'pipe';
+      let showHeader = false;
+      const positional = [];
+
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === '-header' || a === '--header') showHeader = true;
+        else if (a === '-column' || a === '--column' || a === '-table' || a === '--table') {
+          format = 'column';
+          showHeader = true;
+        } else if (a === '-json' || a === '--json') format = 'json';
+        else if (a === '-csv' || a === '--csv') format = 'csv';
+        else if (!a.startsWith('-')) positional.push(a);
+      }
+
+      let dbFile = ':memory:';
+      let sqlInput = '';
+
+      if (positional.length === 1) {
+        if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA|EXPLAIN|BEGIN|COMMIT|WITH|\.)/i.test(positional[0])) {
+          sqlInput = positional[0];
+        } else {
+          dbFile = positional[0];
+        }
+      } else if (positional.length >= 2) {
+        dbFile = positional[0];
+        sqlInput = positional.slice(1).join(' ');
+      }
+
+      if (!sqlInput && ctx.stdin) {
+        sqlInput = String(ctx.stdin).trim();
+      }
+
+      if (!sqlInput) {
+        return {
+          code: 0,
+          stdout: 'SQLite 3.45.0 (CodeLab VFS Engine)\nUsage: sqlite3 [-column] [-header] [-json] [dbfile] "SQL"\n',
+          stderr: ''
+        };
+      }
+
+      const rm = getRuntimeModule();
+      const createDb =
+        (rm && typeof rm.createSqliteDatabase === 'function' ? rm.createSqliteDatabase : null) ||
+        (typeof _hostRuntime !== 'undefined' && _hostRuntime && _hostRuntime.createSqliteDatabase) ||
+        (typeof globalThis !== 'undefined' && globalThis._codeLabCreateSqliteDatabase);
+
+      if (typeof createDb !== 'function') {
+        return { code: 1, stdout: '', stderr: 'sqlite3: SQLite engine not initialized in runtime\n' };
+      }
+
+      try {
+        const SqliteDatabase = createDb(ctx.vfs, () => ctx.shell.cwd);
+        const db = new SqliteDatabase(dbFile);
+        const trimmed = sqlInput.trim();
+
+        if (trimmed === '.tables') {
+          const names = Array.from(db.tables.keys());
+          return { code: 0, stdout: names.length ? names.join('  ') + '\n' : '', stderr: '' };
+        }
+        if (trimmed.startsWith('.schema')) {
+          const lines = [];
+          for (const [name, t] of db.tables.entries()) {
+            const cols = t.columns.map(c => `${c.name} ${c.type || 'TEXT'}`).join(', ');
+            lines.push(`CREATE TABLE ${name} (${cols});`);
+          }
+          for (const idx of db.indexes.values()) {
+            lines.push(`CREATE ${idx.unique ? 'UNIQUE ' : ''}INDEX ${idx.name} ON ${idx.table} (${idx.columns.join(', ')});`);
+          }
+          return { code: 0, stdout: lines.join('\n') + (lines.length ? '\n' : ''), stderr: '' };
+        }
+        if (trimmed === '.indexes' || trimmed === '.indices') {
+          const names = Array.from(db.indexes.keys());
+          return { code: 0, stdout: names.length ? names.join('  ') + '\n' : '', stderr: '' };
+        }
+
+        const stmts = trimmed.split(';').map(s => s.trim()).filter(Boolean);
+        const outputs = [];
+        for (const stmt of stmts) {
+          const isQuery = /^(SELECT|EXPLAIN|PRAGMA)\b/i.test(stmt);
+          const res = isQuery ? db.query(stmt).all() : (db.run(stmt), []);
+          if (Array.isArray(res) && res.length > 0) {
+            if (format === 'json') {
+              outputs.push(JSON.stringify(res, null, 2));
+            } else if (format === 'column') {
+              const cols = Object.keys(res[0]);
+              const widths = cols.map(c => Math.max(c.length, ...res.map(r => String(r[c] ?? '').length)));
+              if (showHeader) {
+                outputs.push(cols.map((c, i) => c.padEnd(widths[i])).join('  '));
+                outputs.push(widths.map(w => '-'.repeat(w)).join('  '));
+              }
+              for (const row of res) {
+                outputs.push(cols.map((c, i) => String(row[c] ?? '').padEnd(widths[i])).join('  '));
+              }
+            } else {
+              const cols = Object.keys(res[0]);
+              const sep = format === 'csv' ? ',' : '|';
+              if (showHeader) outputs.push(cols.join(sep));
+              for (const row of res) {
+                outputs.push(cols.map(c => String(row[c] ?? '')).join(sep));
+              }
+            }
+          }
+        }
+        return { code: 0, stdout: outputs.length ? outputs.join('\n') + '\n' : '', stderr: '' };
+      } catch (err) {
+        return { code: 1, stdout: '', stderr: `Error: ${err.message || String(err)}\n` };
+      }
     }
+  };
+
+  COREUTILS['redis-cli'] = async function redisCli(args, ctx) {
+    const storePath = '/workspace/.codelab-redis.json';
+    const loadState = () => {
+      try {
+        if (ctx.vfs.existsSync(storePath)) {
+          const raw = JSON.parse(ctx.vfs.readFileSync(storePath, 'utf8'));
+          if (raw && typeof raw === 'object') return raw;
+        }
+      } catch (err) {
+        _shellLogger.debug('redis-cli state read fallback:', err);
+      }
+      return { kv: {}, hashes: {}, lists: {}, sets: {}, zsets: {}, expires: {} };
+    };
+    const saveState = (state) => {
+      try {
+        ctx.vfs.writeFileSync(storePath, JSON.stringify(state));
+      } catch (err) {
+        _shellLogger.debug('redis-cli state write failed:', err);
+      }
+    };
+
+    const state = loadState();
+    const now = Date.now();
+    // Evict expired keys lazily
+    for (const [k, exp] of Object.entries(state.expires || {})) {
+      if (typeof exp === 'number' && exp <= now) {
+        delete state.kv[k];
+        delete state.hashes[k];
+        delete state.lists[k];
+        delete state.sets[k];
+        delete state.zsets[k];
+        delete state.expires[k];
+      }
+    }
+
+    // Filter out connection flags (-h, -p, -n)
+    const cmdArgs = [];
+    for (let i = 0; i < args.length; i++) {
+      if ((args[i] === '-h' || args[i] === '-p' || args[i] === '-n') && i + 1 < args.length) {
+        i++;
+        continue;
+      }
+      cmdArgs.push(args[i]);
+    }
+
+    if (cmdArgs.length === 0 && ctx.stdin) {
+      const firstLine = String(ctx.stdin).trim().split(/\r?\n/)[0];
+      if (firstLine) cmdArgs.push(...firstLine.split(/\s+/));
+    }
+
+    if (cmdArgs.length === 0) {
+      return { code: 0, stdout: 'redis-cli 7.2.4 (CodeLab VFS Store)\nUsage: redis-cli <COMMAND> [args...]\n', stderr: '' };
+    }
+
+    const cmd = String(cmdArgs[0]).toUpperCase();
+    const rest = cmdArgs.slice(1);
+
+    const outInt = (n) => `(integer) ${n}\n`;
+    const outBulk = (v) => (v === null || v === undefined ? '(nil)\n' : `"${v}"\n`);
+    const outArray = (arr) => {
+      if (!arr || arr.length === 0) return '(empty array)\n';
+      return arr.map((item, i) => `${i + 1}) "${item}"`).join('\n') + '\n';
+    };
+
+    if (cmd === 'PING') {
+      return { code: 0, stdout: rest[0] ? outBulk(rest[0]) : 'PONG\n', stderr: '' };
+    }
+    if (cmd === 'FLUSHALL' || cmd === 'FLUSHDB') {
+      saveState({ kv: {}, hashes: {}, lists: {}, sets: {}, zsets: {}, expires: {} });
+      return { code: 0, stdout: 'OK\n', stderr: '' };
+    }
+    if (cmd === 'DBSIZE') {
+      const allKeys = new Set([
+        ...Object.keys(state.kv),
+        ...Object.keys(state.hashes),
+        ...Object.keys(state.lists),
+        ...Object.keys(state.sets),
+        ...Object.keys(state.zsets)
+      ]);
+      return { code: 0, stdout: outInt(allKeys.size), stderr: '' };
+    }
+    if (cmd === 'INFO') {
+      const allKeys = new Set([
+        ...Object.keys(state.kv),
+        ...Object.keys(state.hashes),
+        ...Object.keys(state.lists),
+        ...Object.keys(state.sets),
+        ...Object.keys(state.zsets)
+      ]);
+      return {
+        code: 0,
+        stdout: `# Server\nredis_version:7.2.4-codelab\n# Keyspace\ndb0:keys=${allKeys.size},expires=${Object.keys(state.expires).length}\n`,
+        stderr: ''
+      };
+    }
+    if (cmd === 'SET') {
+      const [key, val, ...opts] = rest;
+      if (!key || val === undefined) return { code: 1, stdout: '', stderr: 'ERR wrong number of arguments for SET\n' };
+      let nx = false;
+      let xx = false;
+      let ttlMs = null;
+      for (let i = 0; i < opts.length; i++) {
+        const u = String(opts[i]).toUpperCase();
+        if (u === 'NX') nx = true;
+        else if (u === 'XX') xx = true;
+        else if (u === 'EX' && opts[i + 1]) ttlMs = parseInt(opts[++i], 10) * 1000;
+        else if (u === 'PX' && opts[i + 1]) ttlMs = parseInt(opts[++i], 10);
+      }
+      const exists = Object.prototype.hasOwnProperty.call(state.kv, key);
+      if (nx && exists) return { code: 0, stdout: '(nil)\n', stderr: '' };
+      if (xx && !exists) return { code: 0, stdout: '(nil)\n', stderr: '' };
+      state.kv[key] = String(val);
+      if (ttlMs && ttlMs > 0) state.expires[key] = now + ttlMs;
+      else delete state.expires[key];
+      saveState(state);
+      return { code: 0, stdout: 'OK\n', stderr: '' };
+    }
+    if (cmd === 'GET') {
+      const key = rest[0];
+      const val = Object.prototype.hasOwnProperty.call(state.kv, key) ? state.kv[key] : null;
+      saveState(state);
+      return { code: 0, stdout: outBulk(val), stderr: '' };
+    }
+    if (cmd === 'MSET') {
+      for (let i = 0; i + 1 < rest.length; i += 2) {
+        state.kv[rest[i]] = String(rest[i + 1]);
+      }
+      saveState(state);
+      return { code: 0, stdout: 'OK\n', stderr: '' };
+    }
+    if (cmd === 'MGET') {
+      const lines = rest.map((k, i) => `${i + 1}) ${Object.prototype.hasOwnProperty.call(state.kv, k) ? `"${state.kv[k]}"` : '(nil)'}`);
+      return { code: 0, stdout: lines.join('\n') + '\n', stderr: '' };
+    }
+    if (cmd === 'DEL') {
+      let count = 0;
+      for (const k of rest) {
+        if (
+          Object.prototype.hasOwnProperty.call(state.kv, k) ||
+          Object.prototype.hasOwnProperty.call(state.hashes, k) ||
+          Object.prototype.hasOwnProperty.call(state.lists, k) ||
+          Object.prototype.hasOwnProperty.call(state.sets, k) ||
+          Object.prototype.hasOwnProperty.call(state.zsets, k)
+        ) {
+          delete state.kv[k];
+          delete state.hashes[k];
+          delete state.lists[k];
+          delete state.sets[k];
+          delete state.zsets[k];
+          delete state.expires[k];
+          count++;
+        }
+      }
+      saveState(state);
+      return { code: 0, stdout: outInt(count), stderr: '' };
+    }
+    if (cmd === 'EXISTS') {
+      let count = 0;
+      for (const k of rest) {
+        if (
+          Object.prototype.hasOwnProperty.call(state.kv, k) ||
+          Object.prototype.hasOwnProperty.call(state.hashes, k) ||
+          Object.prototype.hasOwnProperty.call(state.lists, k) ||
+          Object.prototype.hasOwnProperty.call(state.sets, k) ||
+          Object.prototype.hasOwnProperty.call(state.zsets, k)
+        ) count++;
+      }
+      return { code: 0, stdout: outInt(count), stderr: '' };
+    }
+    if (cmd === 'INCR' || cmd === 'DECR' || cmd === 'INCRBY' || cmd === 'DECRBY') {
+      const key = rest[0];
+      const delta = cmd === 'INCR' ? 1 : cmd === 'DECR' ? -1 : (parseInt(rest[1], 10) || 0) * (cmd === 'DECRBY' ? -1 : 1);
+      const cur = parseInt(state.kv[key] || '0', 10) || 0;
+      const next = cur + delta;
+      state.kv[key] = String(next);
+      saveState(state);
+      return { code: 0, stdout: outInt(next), stderr: '' };
+    }
+    if (cmd === 'EXPIRE') {
+      const [key, secs] = rest;
+      const hasKey =
+        Object.prototype.hasOwnProperty.call(state.kv, key) ||
+        Object.prototype.hasOwnProperty.call(state.hashes, key) ||
+        Object.prototype.hasOwnProperty.call(state.lists, key) ||
+        Object.prototype.hasOwnProperty.call(state.sets, key) ||
+        Object.prototype.hasOwnProperty.call(state.zsets, key);
+      if (!hasKey) return { code: 0, stdout: outInt(0), stderr: '' };
+      state.expires[key] = now + (parseInt(secs, 10) || 0) * 1000;
+      saveState(state);
+      return { code: 0, stdout: outInt(1), stderr: '' };
+    }
+    if (cmd === 'TTL') {
+      const key = rest[0];
+      const hasKey =
+        Object.prototype.hasOwnProperty.call(state.kv, key) ||
+        Object.prototype.hasOwnProperty.call(state.hashes, key) ||
+        Object.prototype.hasOwnProperty.call(state.lists, key) ||
+        Object.prototype.hasOwnProperty.call(state.sets, key) ||
+        Object.prototype.hasOwnProperty.call(state.zsets, key);
+      if (!hasKey) return { code: 0, stdout: outInt(-2), stderr: '' };
+      if (!state.expires[key]) return { code: 0, stdout: outInt(-1), stderr: '' };
+      const rem = Math.max(0, Math.ceil((state.expires[key] - now) / 1000));
+      return { code: 0, stdout: outInt(rem), stderr: '' };
+    }
+    if (cmd === 'KEYS') {
+      const pat = rest[0] || '*';
+      const re = new RegExp('^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+      const allKeys = Array.from(new Set([
+        ...Object.keys(state.kv),
+        ...Object.keys(state.hashes),
+        ...Object.keys(state.lists),
+        ...Object.keys(state.sets),
+        ...Object.keys(state.zsets)
+      ])).filter(k => re.test(k));
+      return { code: 0, stdout: outArray(allKeys), stderr: '' };
+    }
+    if (cmd === 'HSET') {
+      const key = rest[0];
+      state.hashes[key] = state.hashes[key] || {};
+      let added = 0;
+      for (let i = 1; i + 1 < rest.length; i += 2) {
+        if (!Object.prototype.hasOwnProperty.call(state.hashes[key], rest[i])) added++;
+        state.hashes[key][rest[i]] = String(rest[i + 1]);
+      }
+      saveState(state);
+      return { code: 0, stdout: outInt(added), stderr: '' };
+    }
+    if (cmd === 'HGET') {
+      const [key, field] = rest;
+      const val = state.hashes[key] && Object.prototype.hasOwnProperty.call(state.hashes[key], field) ? state.hashes[key][field] : null;
+      return { code: 0, stdout: outBulk(val), stderr: '' };
+    }
+    if (cmd === 'HGETALL') {
+      const key = rest[0];
+      const h = state.hashes[key] || {};
+      const flat = [];
+      for (const [f, v] of Object.entries(h)) flat.push(f, v);
+      return { code: 0, stdout: outArray(flat), stderr: '' };
+    }
+    if (cmd === 'HDEL') {
+      const [key, ...fields] = rest;
+      const h = state.hashes[key] || {};
+      let count = 0;
+      for (const f of fields) {
+        if (Object.prototype.hasOwnProperty.call(h, f)) {
+          delete h[f];
+          count++;
+        }
+      }
+      saveState(state);
+      return { code: 0, stdout: outInt(count), stderr: '' };
+    }
+    if (cmd === 'LPUSH' || cmd === 'RPUSH') {
+      const [key, ...vals] = rest;
+      state.lists[key] = state.lists[key] || [];
+      for (const v of vals) {
+        if (cmd === 'LPUSH') state.lists[key].unshift(String(v));
+        else state.lists[key].push(String(v));
+      }
+      saveState(state);
+      return { code: 0, stdout: outInt(state.lists[key].length), stderr: '' };
+    }
+    if (cmd === 'LPOP' || cmd === 'RPOP') {
+      const key = rest[0];
+      const list = state.lists[key] || [];
+      const val = list.length === 0 ? null : (cmd === 'LPOP' ? list.shift() : list.pop());
+      saveState(state);
+      return { code: 0, stdout: outBulk(val), stderr: '' };
+    }
+    if (cmd === 'LRANGE') {
+      const [key, sRaw, eRaw] = rest;
+      const list = state.lists[key] || [];
+      let s = parseInt(sRaw, 10) || 0;
+      let e = parseInt(eRaw, 10);
+      if (isNaN(e)) e = -1;
+      if (s < 0) s = Math.max(0, list.length + s);
+      if (e < 0) e = list.length + e;
+      return { code: 0, stdout: outArray(list.slice(s, e + 1)), stderr: '' };
+    }
+    if (cmd === 'LLEN') {
+      const list = state.lists[rest[0]] || [];
+      return { code: 0, stdout: outInt(list.length), stderr: '' };
+    }
+    if (cmd === 'SADD') {
+      const [key, ...members] = rest;
+      const set = new Set(state.sets[key] || []);
+      let added = 0;
+      for (const m of members) {
+        if (!set.has(String(m))) {
+          set.add(String(m));
+          added++;
+        }
+      }
+      state.sets[key] = Array.from(set);
+      saveState(state);
+      return { code: 0, stdout: outInt(added), stderr: '' };
+    }
+    if (cmd === 'SMEMBERS') {
+      return { code: 0, stdout: outArray(state.sets[rest[0]] || []), stderr: '' };
+    }
+    if (cmd === 'SISMEMBER') {
+      const [key, member] = rest;
+      const set = new Set(state.sets[key] || []);
+      return { code: 0, stdout: outInt(set.has(String(member)) ? 1 : 0), stderr: '' };
+    }
+    if (cmd === 'SREM') {
+      const [key, ...members] = rest;
+      const set = new Set(state.sets[key] || []);
+      let removed = 0;
+      for (const m of members) {
+        if (set.delete(String(m))) removed++;
+      }
+      state.sets[key] = Array.from(set);
+      saveState(state);
+      return { code: 0, stdout: outInt(removed), stderr: '' };
+    }
+    if (cmd === 'ZADD') {
+      const [key, ...pairs] = rest;
+      state.zsets[key] = state.zsets[key] || {};
+      let added = 0;
+      for (let i = 0; i + 1 < pairs.length; i += 2) {
+        const score = parseFloat(pairs[i]);
+        const member = String(pairs[i + 1]);
+        if (!Object.prototype.hasOwnProperty.call(state.zsets[key], member)) added++;
+        state.zsets[key][member] = isNaN(score) ? 0 : score;
+      }
+      saveState(state);
+      return { code: 0, stdout: outInt(added), stderr: '' };
+    }
+    if (cmd === 'ZSCORE') {
+      const [key, member] = rest;
+      const z = state.zsets[key] || {};
+      return { code: 0, stdout: Object.prototype.hasOwnProperty.call(z, member) ? outBulk(String(z[member])) : '(nil)\n', stderr: '' };
+    }
+    if (cmd === 'ZRANGE' || cmd === 'ZREVRANGE') {
+      const [key, sRaw, eRaw, flag] = rest;
+      const z = state.zsets[key] || {};
+      const entries = Object.entries(z).sort((a, b) =>
+        cmd === 'ZREVRANGE'
+          ? (b[1] - a[1] || b[0].localeCompare(a[0]))
+          : (a[1] - b[1] || a[0].localeCompare(b[0]))
+      );
+      let s = parseInt(sRaw, 10) || 0;
+      let e = parseInt(eRaw, 10);
+      if (isNaN(e)) e = -1;
+      if (s < 0) s = Math.max(0, entries.length + s);
+      if (e < 0) e = entries.length + e;
+      const slice = entries.slice(s, e + 1);
+      const withScores = flag && String(flag).toUpperCase() === 'WITHSCORES';
+      const out = [];
+      for (const [m, sc] of slice) {
+        out.push(m);
+        if (withScores) out.push(String(sc));
+      }
+      return { code: 0, stdout: outArray(out), stderr: '' };
+    }
+    if (cmd === 'ZCARD') {
+      const z = state.zsets[rest[0]] || {};
+      return { code: 0, stdout: outInt(Object.keys(z).length), stderr: '' };
+    }
+    if (cmd === 'ZREM') {
+      const [key, ...members] = rest;
+      const z = state.zsets[key] || {};
+      let removed = 0;
+      for (const m of members) {
+        if (Object.prototype.hasOwnProperty.call(z, m)) {
+          delete z[m];
+          removed++;
+        }
+      }
+      saveState(state);
+      return { code: 0, stdout: outInt(removed), stderr: '' };
+    }
+    if (cmd === 'EVAL') {
+      const script = String(rest[0] || '');
+      const numKeys = Math.max(0, parseInt(rest[1], 10) || 0);
+      const keys = rest.slice(2, 2 + numKeys);
+      const argv = rest.slice(2 + numKeys);
+      const k0 = keys[0] || 'bucket:default';
+      if (/token_bucket|tokens/i.test(script)) {
+        const capacity = Math.max(1, parseInt(argv[0], 10) || 10);
+        const current = state.kv[k0] !== undefined ? parseInt(state.kv[k0], 10) : capacity;
+        if (current > 0) {
+          const rem = current - 1;
+          state.kv[k0] = String(rem);
+          saveState(state);
+          return { code: 0, stdout: `1) (integer) 1\n2) (integer) ${rem}\n`, stderr: '' };
+        }
+        return { code: 0, stdout: `1) (integer) 0\n2) (integer) 0\n`, stderr: '' };
+      }
+      return { code: 0, stdout: outBulk('OK'), stderr: '' };
+    }
+
+    return { code: 1, stdout: '', stderr: `ERR unknown command '${cmd}'\n` };
   };
 
   // =========================================================================

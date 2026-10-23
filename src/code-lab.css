@@ -5157,3 +5157,168 @@ code-lab,
     border-top: 1px solid var(--cl-border);
   }
 }
+
+/* ── System Design SLO Telemetry Bar, Topology Map & Chaos Controls ────────── */
+.codelab-slo-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--cl-bg-elevated);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--cl-radius-sm, 4px);
+}
+
+.codelab-slo-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11.5px;
+}
+
+.codelab-slo-label {
+  color: var(--cl-fg-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.codelab-slo-val {
+  font-family: var(--cl-font-mono);
+  font-weight: 600;
+  color: var(--cl-fg);
+}
+
+.codelab-slo-val.is-ok {
+  color: var(--cl-green, #22c55e);
+}
+
+.codelab-slo-val.is-warn {
+  color: var(--cl-amber, #f59e0b);
+}
+
+.codelab-slo-val.is-err {
+  color: var(--cl-red, #ef4444);
+}
+
+.codelab-topo-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--cl-bg-panel);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--cl-radius-sm, 4px);
+  font-size: 11.5px;
+}
+
+.codelab-topo-nodes,
+.codelab-topo-edges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.codelab-topo-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cl-bg-elevated);
+  border: 1px solid var(--cl-border);
+  font-size: 11px;
+}
+
+.codelab-topo-node.is-healthy .codelab-port-status-dot {
+  background: var(--cl-green, #22c55e);
+}
+
+.codelab-topo-node.is-degraded {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.codelab-topo-node.is-degraded .codelab-port-status-dot {
+  background: var(--cl-amber, #f59e0b);
+}
+
+.codelab-topo-node.is-crashed {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.codelab-topo-node.is-crashed .codelab-port-status-dot {
+  background: var(--cl-red, #ef4444);
+}
+
+.codelab-topo-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  color: var(--cl-fg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--cl-bg-elevated);
+}
+
+.codelab-topo-edge--err {
+  color: var(--cl-red, #ef4444);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.codelab-topo-arrow {
+  color: var(--cl-fg-muted);
+  font-size: 10.5px;
+}
+
+.codelab-chaos-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--cl-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.codelab-chaos-badge--warn {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--cl-amber, #f59e0b);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.codelab-chaos-badge--danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: var(--cl-red, #ef4444);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.codelab-port-status--crashed {
+  color: var(--cl-red, #ef4444);
+}
+
+.codelab-port-status--crashed .codelab-port-status-dot {
+  background: var(--cl-red, #ef4444);
+  box-shadow: 0 0 6px var(--cl-red, #ef4444);
+}
+
+.codelab-chaos-btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding-right: 6px;
+  border-right: 1px solid var(--cl-border);
+}
+
+.codelab-btn--chaos-active {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  color: var(--cl-amber, #f59e0b) !important;
+}

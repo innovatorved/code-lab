@@ -2492,6 +2492,7 @@ function __initVirtualRuntime(rootScope) {
   function createVirtualPortTable() {
     const table = new Map();
     const listeners = new Map(); // event name -> Set<Function>
+    const chaosRules = new Map(); // port -> ChaosRule
 
     function emit(event, ...args) {
       const set = listeners.get(event);
@@ -2505,6 +2506,43 @@ function __initVirtualRuntime(rootScope) {
           }
         }
       }
+    }
+
+    function normalizeChaosRule(port, partial = {}, existing = null) {
+      const p = Number(port);
+      const base = existing || {
+        port: p,
+        latencyMs: 0,
+        jitterMs: 0,
+        dropRate: 0,
+        errorRate: 0,
+        statusCode: 503,
+        partitionFromPorts: [],
+        crashed: false
+      };
+      const merged = Object.assign({}, base, partial, { port: p });
+      merged.latencyMs = Math.max(0, Number(merged.latencyMs) || 0);
+      merged.jitterMs = Math.max(0, Number(merged.jitterMs) || 0);
+      merged.dropRate = Math.max(0, Math.min(1, Number(merged.dropRate) || 0));
+      merged.errorRate = Math.max(0, Math.min(1, Number(merged.errorRate) || 0));
+      merged.statusCode = Number(merged.statusCode) || 503;
+      merged.partitionFromPorts = Array.isArray(merged.partitionFromPorts)
+        ? Array.from(new Set(merged.partitionFromPorts.map(Number).filter((n) => Number.isFinite(n) && n > 0)))
+        : [];
+      merged.crashed = Boolean(merged.crashed);
+      return merged;
+    }
+
+    function isRuleActive(rule) {
+      if (!rule) return false;
+      return Boolean(
+        rule.crashed ||
+        rule.latencyMs > 0 ||
+        rule.jitterMs > 0 ||
+        rule.dropRate > 0 ||
+        rule.errorRate > 0 ||
+        (Array.isArray(rule.partitionFromPorts) && rule.partitionFromPorts.length > 0)
+      );
     }
 
     return {
@@ -2572,22 +2610,125 @@ function __initVirtualRuntime(rootScope) {
       listServers() {
         return Array.from(table.values());
       },
+      setChaosRule(port, partial = {}) {
+        const p = Number(port);
+        const updated = normalizeChaosRule(p, partial, chaosRules.get(p) || null);
+        if (isRuleActive(updated)) {
+          chaosRules.set(p, updated);
+        } else {
+          chaosRules.delete(p);
+        }
+        emit('chaos', p, updated);
+        return updated;
+      },
+      getChaosRule(port) {
+        return chaosRules.get(Number(port)) || null;
+      },
+      listChaosRules() {
+        return Array.from(chaosRules.values());
+      },
+      clearChaosRules(port) {
+        if (port !== undefined && port !== null && port !== '') {
+          const p = Number(port);
+          const deleted = chaosRules.delete(p);
+          emit('chaos', p, null);
+          return deleted;
+        }
+        chaosRules.clear();
+        emit('chaos', null, null);
+        return true;
+      },
       async dispatchRequest(url, init = {}) {
         const parsed = new URL(url);
         const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+        const rawHdrs = (init && init.headers) || {};
+        const hdrFromPort = typeof rawHdrs.get === 'function'
+          ? rawHdrs.get('x-codelab-from-port')
+          : (rawHdrs['x-codelab-from-port'] || rawHdrs['X-CodeLab-From-Port']);
+        const fromPort = Number((init && init._fromPort) || hdrFromPort || 0) || null;
+        const rule = chaosRules.get(port);
+        let appliedDelayMs = 0;
+
+        if (rule) {
+          let delay = Number(rule.latencyMs) || 0;
+          if (rule.jitterMs > 0) {
+            delay += Math.round((Math.random() * 2 - 1) * Number(rule.jitterMs));
+          }
+          delay = Math.max(0, delay);
+          if (delay > 0) {
+            appliedDelayMs = delay;
+            await new Promise((r) => setTimeout(r, delay));
+          }
+
+          if (rule.crashed) {
+            const err = new Error(`connect ECONNREFUSED 127.0.0.1:${port} (chaos: node crashed)`);
+            err.code = 'ECONNREFUSED';
+            err.chaosEffect = 'CRASHED';
+            err.fromPort = fromPort;
+            throw err;
+          }
+
+          if (fromPort && Array.isArray(rule.partitionFromPorts) && rule.partitionFromPorts.includes(fromPort)) {
+            const err = new Error(`connect EHOSTUNREACH 127.0.0.1:${port} (chaos: network partition from :${fromPort})`);
+            err.code = 'EHOSTUNREACH';
+            err.chaosEffect = `PARTITION(:${fromPort}-x->:${port})`;
+            err.fromPort = fromPort;
+            throw err;
+          }
+
+          if (rule.dropRate > 0 && Math.random() < rule.dropRate) {
+            const err = new Error(`socket hang up 127.0.0.1:${port} (chaos: packet dropped)`);
+            err.code = 'ETIMEDOUT';
+            err.chaosEffect = 'DROPPED';
+            err.fromPort = fromPort;
+            throw err;
+          }
+
+          if (rule.errorRate > 0 && Math.random() < rule.errorRate) {
+            const status = Number(rule.statusCode) || 503;
+            const statusText = status === 429
+              ? 'Too Many Requests'
+              : (status === 504 ? 'Gateway Timeout' : 'Service Unavailable');
+            const chaosTag = appliedDelayMs > 0 ? `ERROR_${status}+${appliedDelayMs}ms` : `ERROR_${status}`;
+            const res = new Response(
+              JSON.stringify({ error: `${statusText} (Chaos Injected)`, chaos: true, port, status }),
+              {
+                status,
+                statusText,
+                headers: {
+                  'content-type': 'application/json',
+                  'x-codelab-chaos': chaosTag
+                }
+              }
+            );
+            res._chaosEffect = chaosTag;
+            res._fromPort = fromPort;
+            return res;
+          }
+        }
+
         const entry = table.get(port);
         if (!entry) {
           const err = new Error(`connect ECONNREFUSED 127.0.0.1:${port}`);
           err.code = 'ECONNREFUSED';
+          err.fromPort = fromPort;
           throw err;
         }
+        let res;
         if (entry.fetch) {
-          return entry.fetch(new Request(url, init));
+          res = await entry.fetch(new Request(url, init));
+        } else if (entry.server && typeof entry.server.dispatchRequest === 'function') {
+          res = await entry.server.dispatchRequest(url, init);
+        } else {
+          res = new Response('OK', { status: 200 });
         }
-        if (entry.server && typeof entry.server.dispatchRequest === 'function') {
-          return entry.server.dispatchRequest(url, init);
+        if (res && typeof res === 'object') {
+          res._fromPort = fromPort;
+          if (appliedDelayMs > 0 && !res._chaosEffect) {
+            res._chaosEffect = `DELAY_+${appliedDelayMs}ms`;
+          }
         }
-        return new Response('OK', { status: 200 });
+        return res;
       }
     };
   }
@@ -2919,6 +3060,78 @@ function __initVirtualRuntime(rootScope) {
             return;
           }
           const server = activeServers.get(this.port);
+          const hasChaosRule = Boolean(
+            activePortTable &&
+            typeof activePortTable.getChaosRule === 'function' &&
+            activePortTable.getChaosRule(this.port)
+          );
+          const hasPortTableServer = Boolean(
+            activePortTable &&
+            typeof activePortTable.getServer === 'function' &&
+            activePortTable.getServer(this.port)
+          );
+          if ((!server || !server._listening || hasChaosRule) && activePortTable && (hasPortTableServer || hasChaosRule) && typeof activePortTable.dispatchRequest === 'function') {
+            let inferredFromPort = null;
+            if (activeServers.size > 0) {
+              const firstLocalPort = Array.from(activeServers.keys()).find((p) => Number(p) !== Number(this.port));
+              if (firstLocalPort) inferredFromPort = firstLocalPort;
+            } else if (resourceTracker && resourceTracker.pid && typeof activePortTable.listServers === 'function') {
+              const owned = activePortTable.listServers().find((s) => s && s.pid === resourceTracker.pid && Number(s.port) !== Number(this.port));
+              if (owned) inferredFromPort = owned.port;
+            }
+            const reqBody = this._bodyChunks.length > 0 ? VirtualBuffer.concat(this._bodyChunks) : undefined;
+            const fullUrl = `http://${this.host}:${this.port}${this.path.startsWith('/') ? '' : '/'}${this.path}`;
+            activePortTable.dispatchRequest(fullUrl, {
+              method: this.method,
+              headers: { ...this.headers },
+              body: reqBody,
+              _fromPort: inferredFromPort
+            }).then(async (res) => {
+              if (this.destroyed) {
+                this._finishInFlight();
+                return;
+              }
+              const resHeaders = {};
+              if (res && res.headers && typeof res.headers.forEach === 'function') {
+                res.headers.forEach((v, k) => { resHeaders[String(k).toLowerCase()] = String(v); });
+              }
+              let buf = VirtualBuffer.alloc(0);
+              if (res && typeof res.arrayBuffer === 'function') {
+                const ab = await res.arrayBuffer();
+                buf = VirtualBuffer.from(ab);
+              }
+              traceEntry.status = (res && res.status) || 200;
+              traceEntry.durationMs = Math.max(0, performance.now() - traceEntry._t0);
+              traceEntry.responseBytes = buf.length;
+              traceEntry.responseHeaders = resHeaders;
+              if (inferredFromPort) traceEntry.fromPort = inferredFromPort;
+              if (res && res._chaosEffect) traceEntry.chaosEffect = res._chaosEffect;
+              const clientRes = new IncomingMessage({
+                statusCode: (res && res.status) || 200,
+                headers: resHeaders
+              });
+              this._onResponseHeaders(clientRes);
+              if (buf.length > 0) clientRes._pushData(buf);
+              clientRes._pushEnd();
+              this._finishInFlight();
+            }).catch((err) => {
+              if (this.destroyed) {
+                this._finishInFlight();
+                return;
+              }
+              err.errno = err.errno || -61;
+              err.syscall = err.syscall || 'connect';
+              err.address = this.host;
+              err.port = this.port;
+              traceEntry.status = err.code || 'ECONNREFUSED';
+              traceEntry.durationMs = Math.max(0, performance.now() - traceEntry._t0);
+              if (inferredFromPort) traceEntry.fromPort = inferredFromPort;
+              if (err && err.chaosEffect) traceEntry.chaosEffect = err.chaosEffect;
+              this._finishInFlight();
+              this.emit('error', err);
+            });
+            return;
+          }
           if (!server || !server._listening) {
             const err = new Error(`connect ECONNREFUSED ${this.host}:${this.port}`);
             err.code = 'ECONNREFUSED';
@@ -6497,304 +6710,7 @@ function __initVirtualRuntime(rootScope) {
       });
     });
 
-    class SqliteDatabase {
-      constructor(filename = ':memory:') {
-        this.filename = filename;
-        this.tables = new Map();
-      }
-
-      run(sql, params = []) {
-        const stmt = sql.trim();
-        if (/^CREATE\s+TABLE/i.test(stmt)) {
-          const match = stmt.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)\s*\((.*)\)/is);
-          if (match) {
-            const tableName = match[1];
-            const colDefs = match[2].split(',').map(c => c.trim());
-            const cols = [];
-            for (const c of colDefs) {
-              const parts = c.split(/\s+/);
-              const colName = parts[0];
-              const isPk = /PRIMARY\s+KEY/i.test(c);
-              const isAuto = /AUTOINCREMENT/i.test(c) || (/INTEGER/i.test(parts[1]) && isPk);
-              cols.push({ name: colName, type: parts[1] || 'TEXT', isPk, isAuto });
-            }
-            if (!this.tables.has(tableName)) {
-              this.tables.set(tableName, { columns: cols, rows: [], autoInc: 0 });
-            }
-          }
-          return { changes: 0, lastInsertRowid: 0 };
-        }
-
-        if (/^DROP\s+TABLE/i.test(stmt)) {
-          const match = stmt.match(/^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
-          if (match) this.tables.delete(match[1]);
-          return { changes: 0, lastInsertRowid: 0 };
-        }
-
-        if (/^INSERT\s+INTO/i.test(stmt)) {
-          const match = stmt.match(/^INSERT\s+INTO\s+([a-zA-Z0-9_]+)(?:\s*\(([^)]+)\))?\s*VALUES\s*\((.*)\)/is);
-          if (match) {
-            const tableName = match[1];
-            const table = this.tables.get(tableName);
-            if (!table) throw new Error(`no such table: ${tableName}`);
-            const colNames = match[2] ? match[2].split(',').map(s => s.trim()) : table.columns.filter(c => !c.isPk).map(c => c.name);
-            const valExprs = match[3].split(',').map(s => s.trim());
-            const pList = Array.isArray(params) ? [...params] : [params];
-            const row = {};
-
-            table.autoInc++;
-            const pkCol = table.columns.find(c => c.isPk);
-            if (pkCol) {
-              row[pkCol.name] = table.autoInc;
-            }
-
-            for (let i = 0; i < colNames.length; i++) {
-              const cName = colNames[i];
-              const expr = valExprs[i] !== undefined ? valExprs[i] : '?';
-              if (expr === '?') {
-                row[cName] = pList.shift();
-              } else if (/^['"].*['"]$/.test(expr)) {
-                row[cName] = expr.slice(1, -1);
-              } else if (!isNaN(Number(expr))) {
-                row[cName] = Number(expr);
-              } else {
-                row[cName] = expr;
-              }
-            }
-            table.rows.push(row);
-            return { changes: 1, lastInsertRowid: table.autoInc };
-          }
-        }
-
-        if (/^DELETE\s+FROM/i.test(stmt)) {
-          const match = stmt.match(/^DELETE\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*))?$/is);
-          if (match) {
-            const table = this.tables.get(match[1]);
-            if (!table) throw new Error(`no such table: ${match[1]}`);
-            const whereClause = match[2] ? match[2].trim() : null;
-            const pList = Array.isArray(params) ? [...params] : [params];
-            const beforeLen = table.rows.length;
-            if (!whereClause) {
-              table.rows = [];
-            } else {
-              table.rows = table.rows.filter(r => !this._matchWhere(r, whereClause, pList));
-            }
-            return { changes: beforeLen - table.rows.length, lastInsertRowid: table.autoInc };
-          }
-        }
-
-        if (/^UPDATE\s+/i.test(stmt)) {
-          const match = stmt.match(/^UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+(.*?)(?:\s+WHERE\s+(.*))?$/is);
-          if (match) {
-            const table = this.tables.get(match[1]);
-            if (!table) throw new Error(`no such table: ${match[1]}`);
-            const setParts = match[2].split(',').map(s => s.trim());
-            const whereClause = match[3] ? match[3].trim() : null;
-            const pList = Array.isArray(params) ? [...params] : [params];
-            let changes = 0;
-            for (const row of table.rows) {
-              const rowParams = [...pList];
-              const setUpdates = [];
-              for (const sp of setParts) {
-                const eqIdx = sp.indexOf('=');
-                const col = sp.slice(0, eqIdx).trim();
-                let valExpr = sp.slice(eqIdx + 1).trim();
-                let val = valExpr === '?' ? rowParams.shift() : (/^['"].*['"]$/.test(valExpr) ? valExpr.slice(1, -1) : (!isNaN(Number(valExpr)) ? Number(valExpr) : valExpr));
-                setUpdates.push([col, val]);
-              }
-              if (!whereClause || this._matchWhere(row, whereClause, rowParams)) {
-                for (const [col, val] of setUpdates) row[col] = val;
-                changes++;
-              }
-            }
-            return { changes, lastInsertRowid: table.autoInc };
-          }
-        }
-
-        return { changes: 0, lastInsertRowid: 0 };
-      }
-
-      _matchWhere(row, whereClause, pList) {
-        if (!whereClause) return true;
-        const eqMatch = whereClause.match(/^([a-zA-Z0-9_]+)\s*(=|!=|<>|>=|<=|>|<)\s*(.*)$/);
-        if (eqMatch) {
-          const col = eqMatch[1].trim();
-          const op = eqMatch[2];
-          let expected = eqMatch[3].trim();
-          if (expected === '?') {
-            expected = pList.shift();
-          } else if (/^['"].*['"]$/.test(expected)) {
-            expected = expected.slice(1, -1);
-          } else if (!isNaN(Number(expected))) {
-            expected = Number(expected);
-          }
-          const actual = row[col];
-          if (op === '=') return String(actual) === String(expected);
-          if (op === '!=' || op === '<>') return String(actual) !== String(expected);
-          if (op === '>') return Number(actual) > Number(expected);
-          if (op === '<') return Number(actual) < Number(expected);
-          if (op === '>=') return Number(actual) >= Number(expected);
-          if (op === '<=') return Number(actual) <= Number(expected);
-        }
-        return true;
-      }
-
-      exec(sql) {
-        const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
-        for (const s of statements) {
-          this.run(s);
-        }
-      }
-
-      transaction(fn) {
-        return (...args) => fn(...args);
-      }
-
-      close() {}
-
-      query(sql) {
-        const db = this;
-        return {
-          all(...args) {
-            let params = args;
-            if (args.length === 1 && Array.isArray(args[0])) params = args[0];
-            return db._executeSelect(sql, params);
-          },
-          get(...args) {
-            const rows = this.all(...args);
-            return rows[0] || null;
-          },
-          values(...args) {
-            const rows = this.all(...args);
-            return rows.map(r => Object.values(r));
-          },
-          run(...args) {
-            let params = args;
-            if (args.length === 1 && Array.isArray(args[0])) params = args[0];
-            return db.run(sql, params);
-          }
-        };
-      }
-
-      prepare(sql) {
-        return this.query(sql);
-      }
-
-      _executeSelect(sql, params = []) {
-        const s = sql.trim().replace(/;$/, '');
-        const match = s.match(/^SELECT\s+(.*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+(.*?))?(?:\s+GROUP\s+BY\s+(.*?))?(?:\s+ORDER\s+BY\s+(.*?))?(?:\s+LIMIT\s+(\d+|\?)(?:\s+OFFSET\s+(\d+|\?))?)?$/is);
-        if (!match) return [];
-        const selectColsRaw = match[1].trim();
-        const tableName = match[2].trim();
-        const whereClause = match[3] ? match[3].trim() : null;
-        const groupByClause = match[4] ? match[4].trim() : null;
-        const orderByClause = match[5] ? match[5].trim() : null;
-        const limitRaw = match[6] ? match[6].trim() : null;
-        const offsetRaw = match[7] ? match[7].trim() : null;
-
-        const table = this.tables.get(tableName);
-        if (!table) return [];
-
-        let pList = Array.isArray(params) ? [...params] : [params];
-        let filteredRows = table.rows.filter(row => {
-          const rowParams = [...pList];
-          return this._matchWhere(row, whereClause, rowParams);
-        });
-        if (whereClause && whereClause.includes('?')) {
-          const qCount = (whereClause.match(/\?/g) || []).length;
-          pList.splice(0, qCount);
-        }
-
-        const colSpecs = [];
-        if (selectColsRaw !== '*') {
-          const parts = selectColsRaw.split(',').map(p => p.trim());
-          for (const p of parts) {
-            const asMatch = p.match(/^(.*?)\s+(?:as\s+)?([a-zA-Z0-9_]+)$/i);
-            if (asMatch) {
-              colSpecs.push({ expr: asMatch[1].trim(), alias: asMatch[2].trim() });
-            } else {
-              colSpecs.push({ expr: p, alias: p });
-            }
-          }
-        }
-
-        let outputRows = [];
-        if (groupByClause) {
-          const groupCol = groupByClause.trim();
-          const groups = new Map();
-          for (const row of filteredRows) {
-            const key = row[groupCol];
-            if (!groups.has(key)) groups.set(key, []);
-            groups.get(key).push(row);
-          }
-
-          for (const [key, rows] of groups.entries()) {
-            const outRow = {};
-            for (const col of colSpecs) {
-              const expr = col.expr;
-              const alias = col.alias;
-              const aggMatch = expr.match(/^(AVG|SUM|COUNT|MIN|MAX)\(([a-zA-Z0-9_*]+)\)$/i);
-              if (aggMatch) {
-                const fn = aggMatch[1].toUpperCase();
-                const aggCol = aggMatch[2];
-                if (fn === 'COUNT') {
-                  outRow[alias] = rows.length;
-                } else if (fn === 'AVG') {
-                  const sum = rows.reduce((acc, r) => acc + (Number(r[aggCol]) || 0), 0);
-                  outRow[alias] = rows.length > 0 ? sum / rows.length : 0;
-                } else if (fn === 'SUM') {
-                  outRow[alias] = rows.reduce((acc, r) => acc + (Number(r[aggCol]) || 0), 0);
-                } else if (fn === 'MIN') {
-                  outRow[alias] = Math.min(...rows.map(r => Number(r[aggCol]) || 0));
-                } else if (fn === 'MAX') {
-                  outRow[alias] = Math.max(...rows.map(r => Number(r[aggCol]) || 0));
-                }
-              } else if (expr === groupCol) {
-                outRow[alias] = key;
-              } else {
-                outRow[alias] = rows[0] ? rows[0][expr] : null;
-              }
-            }
-            outputRows.push(outRow);
-          }
-        } else {
-          for (const row of filteredRows) {
-            if (selectColsRaw === '*') {
-              outputRows.push(Object.assign({}, row));
-            } else {
-              const outRow = {};
-              for (const col of colSpecs) {
-                outRow[col.alias] = row[col.expr];
-              }
-              outputRows.push(outRow);
-            }
-          }
-        }
-
-        if (orderByClause) {
-          const parts = orderByClause.trim().split(/\s+/);
-          const orderCol = parts[0];
-          const desc = parts[1] && parts[1].toUpperCase() === 'DESC';
-          outputRows.sort((a, b) => {
-            const valA = a[orderCol];
-            const valB = b[orderCol];
-            if (valA === valB) return 0;
-            if (valA === undefined) return 1;
-            if (valB === undefined) return -1;
-            const res = valA > valB ? 1 : -1;
-            return desc ? -res : res;
-          });
-        }
-
-        if (limitRaw !== null) {
-          const limitVal = limitRaw === '?' ? Number(pList.shift() || 0) : Number(limitRaw);
-          const offsetVal = offsetRaw !== null ? (offsetRaw === '?' ? Number(pList.shift() || 0) : Number(offsetRaw)) : 0;
-          outputRows = outputRows.slice(offsetVal, offsetVal + limitVal);
-        }
-
-        return outputRows;
-      }
-    }
+    const SqliteDatabase = createSqliteDatabase(vfs, () => sandboxProcess.cwd());
 
     function crc32Hash(str) {
       return VirtualZlib.crc32( typeof str === 'string' || str instanceof Uint8Array ? str : String(str) );
@@ -7548,14 +7464,25 @@ function __initVirtualRuntime(rootScope) {
         urlStr = String(urlOrReq);
       }
 
+      let parsedLocal = null;
       try {
         const parsed = new URL(urlStr);
         const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '0.0.0.0';
-        if (isLocal && activePortTable) {
-          return await activePortTable.dispatchRequest(urlStr, finalInit);
-        }
+        if (isLocal) parsedLocal = parsed;
       } catch (err) {
-        _runtimeLogger.debug('virtualFetch local URL dispatch skipped', err);
+        _runtimeLogger.debug('virtualFetch local URL parse skipped', err);
+      }
+
+      if (parsedLocal && activePortTable) {
+        let dispatchInit = finalInit;
+        if (!dispatchInit._fromPort && resourceTracker && resourceTracker.pid && typeof activePortTable.listServers === 'function') {
+          const targetPort = Number(parsedLocal.port || (parsedLocal.protocol === 'https:' ? 443 : 80));
+          const owned = activePortTable.listServers().find((s) => s && s.pid === resourceTracker.pid && Number(s.port) !== targetPort);
+          if (owned) {
+            dispatchInit = Object.assign({}, finalInit, { _fromPort: owned.port });
+          }
+        }
+        return await activePortTable.dispatchRequest(urlStr, dispatchInit);
       }
 
       if (typeof globalThis.fetch === 'function') {
@@ -7991,6 +7918,641 @@ function __initVirtualRuntime(rootScope) {
     return transpileTS(source, filename, { keepEsm: true });
   }
 
+  function createSqliteDatabase(vfs = null, getCwd = null) {
+    function stripSqlComments(sql) {
+      return String(sql || '')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/--[^\r\n]*/g, ' ')
+        .trim();
+    }
+
+    function splitValueTuples(rawValues) {
+      const tuples = [];
+      let depth = 0;
+      let inQuote = null;
+      let start = -1;
+      for (let i = 0; i < rawValues.length; i++) {
+        const ch = rawValues[i];
+        if (inQuote) {
+          if (ch === inQuote && rawValues[i - 1] !== '\\') inQuote = null;
+          continue;
+        }
+        if (ch === "'" || ch === '"') {
+          inQuote = ch;
+        } else if (ch === '(') {
+          if (depth === 0) start = i + 1;
+          depth++;
+        } else if (ch === ')') {
+          depth--;
+          if (depth === 0 && start !== -1) {
+            tuples.push(rawValues.slice(start, i));
+            start = -1;
+          }
+        }
+      }
+      return tuples;
+    }
+
+    function splitCsvRespectingQuotes(str) {
+      const out = [];
+      let cur = '';
+      let inQuote = null;
+      let depth = 0;
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (inQuote) {
+          cur += ch;
+          if (ch === inQuote && str[i - 1] !== '\\') inQuote = null;
+          continue;
+        }
+        if (ch === "'" || ch === '"') {
+          inQuote = ch;
+          cur += ch;
+        } else if (ch === '(') {
+          depth++;
+          cur += ch;
+        } else if (ch === ')') {
+          depth = Math.max(0, depth - 1);
+          cur += ch;
+        } else if (ch === ',' && depth === 0) {
+          out.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      if (cur.trim()) out.push(cur.trim());
+      return out;
+    }
+
+    return class SqliteDatabase {
+      constructor(filename = ':memory:') {
+        this.filename = filename || ':memory:';
+        this.tables = new Map();
+        this.indexes = new Map();
+        this._loadFromVfs();
+      }
+
+      _resolveDbPath() {
+        if (!this.filename || this.filename === ':memory:') return null;
+        const cwd = typeof getCwd === 'function' ? getCwd() : '/workspace';
+        return VirtualPath.resolve(cwd || '/workspace', String(this.filename));
+      }
+
+      _loadFromVfs() {
+        const p = this._resolveDbPath();
+        if (!p || !vfs || typeof vfs.existsSync !== 'function' || !vfs.existsSync(p)) return;
+        try {
+          const raw = vfs.readFileSync(p, 'utf8');
+          const trimmed = String(raw || '').trim();
+          if (!trimmed) return;
+          if (trimmed.startsWith('{')) {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && parsed.__codelab_sqlite__) {
+              if (parsed.tables && typeof parsed.tables === 'object') {
+                for (const [tName, tVal] of Object.entries(parsed.tables)) {
+                  this.tables.set(tName, tVal);
+                }
+              }
+              if (parsed.indexes && typeof parsed.indexes === 'object') {
+                for (const [iName, iVal] of Object.entries(parsed.indexes)) {
+                  this.indexes.set(iName, iVal);
+                }
+              }
+              return;
+            }
+          }
+          this.exec(trimmed);
+        } catch (err) {
+          _runtimeLogger.debug('SqliteDatabase._loadFromVfs skipped', err);
+        }
+      }
+
+      _persistToVfs() {
+        const p = this._resolveDbPath();
+        if (!p || !vfs || typeof vfs.writeFileSync !== 'function') return;
+        try {
+          const dir = VirtualPath.dirname(p);
+          if (typeof vfs.existsSync === 'function' && !vfs.existsSync(dir) && typeof vfs.mkdirSync === 'function') {
+            vfs.mkdirSync(dir, { recursive: true });
+          }
+          const payload = JSON.stringify({
+            __codelab_sqlite__: 1,
+            tables: Object.fromEntries(this.tables),
+            indexes: Object.fromEntries(this.indexes)
+          });
+          vfs.writeFileSync(p, payload);
+        } catch (err) {
+          _runtimeLogger.debug('SqliteDatabase._persistToVfs failed', err);
+        }
+      }
+
+      run(sql, params = []) {
+        const stmt = stripSqlComments(sql).replace(/;$/, '').trim();
+        if (!stmt) return { changes: 0, lastInsertRowid: 0 };
+
+        if (/^CREATE\s+(?:TEMP\s+|TEMPORARY\s+)?TABLE/i.test(stmt)) {
+          const match = stmt.match(/^CREATE\s+(?:TEMP\s+|TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)\s*\(([\s\S]*)\)/i);
+          if (match) {
+            const tableName = match[1];
+            const colDefs = splitCsvRespectingQuotes(match[2]);
+            const cols = [];
+            for (const c of colDefs) {
+              if (/^(PRIMARY\s+KEY|FOREIGN\s+KEY|CONSTRAINT|UNIQUE|CHECK)\b/i.test(c)) continue;
+              const parts = c.split(/\s+/);
+              const colName = parts[0].replace(/^["'`]|["'`]$/g, '');
+              const isPk = /PRIMARY\s+KEY/i.test(c);
+              const isAuto = /AUTOINCREMENT/i.test(c) || (/INTEGER/i.test(parts[1] || '') && isPk);
+              cols.push({ name: colName, type: parts[1] || 'TEXT', isPk, isAuto, raw: c });
+            }
+            if (!this.tables.has(tableName)) {
+              this.tables.set(tableName, { columns: cols, rows: [], autoInc: 0, sql: stmt });
+              this._persistToVfs();
+            }
+          }
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
+        if (/^DROP\s+TABLE/i.test(stmt)) {
+          const match = stmt.match(/^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
+          if (match) {
+            this.tables.delete(match[1]);
+            this._persistToVfs();
+          }
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
+        if (/^CREATE\s+(?:UNIQUE\s+)?INDEX/i.test(stmt)) {
+          const match = stmt.match(/^CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)\s+ON\s+([a-zA-Z0-9_]+)\s*\(([^)]+)\)/i);
+          if (match) {
+            const unique = Boolean(match[1]);
+            const idxName = match[2];
+            const tblName = match[3];
+            const cols = match[4].split(',').map((s) => s.trim().split(/\s+/)[0]);
+            this.indexes.set(idxName, { name: idxName, table: tblName, columns: cols, unique, sql: stmt });
+            this._persistToVfs();
+          }
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
+        if (/^DROP\s+INDEX/i.test(stmt)) {
+          const match = stmt.match(/^DROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
+          if (match) {
+            this.indexes.delete(match[1]);
+            this._persistToVfs();
+          }
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
+        if (/^ALTER\s+TABLE/i.test(stmt)) {
+          const match = stmt.match(/^ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+ADD\s+(?:COLUMN\s+)?([a-zA-Z0-9_]+)\s*(.*)$/i);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (table) {
+              const colName = match[2];
+              const colType = (match[3] || 'TEXT').split(/\s+/)[0] || 'TEXT';
+              table.columns.push({ name: colName, type: colType, isPk: false, isAuto: false });
+              this._persistToVfs();
+            }
+          }
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
+        if (/^PRAGMA\s+/i.test(stmt)) {
+          return { changes: 0, lastInsertRowid: 0 };
+        }
+
+        if (/^INSERT\s+(?:OR\s+(?:REPLACE|IGNORE)\s+)?INTO/i.test(stmt)) {
+          const match = stmt.match(/^INSERT\s+(?:OR\s+(REPLACE|IGNORE)\s+)?INTO\s+([a-zA-Z0-9_]+)(?:\s*\(([^)]+)\))?\s*VALUES\s*([\s\S]*)$/i);
+          if (match) {
+            const conflictMode = (match[1] || '').toUpperCase();
+            const tableName = match[2];
+            const table = this.tables.get(tableName);
+            if (!table) throw new Error(`no such table: ${tableName}`);
+            const explicitCols = match[3] ? match[3].split(',').map((s) => s.trim()) : null;
+            const tuples = splitValueTuples(match[4]);
+            const pList = Array.isArray(params) ? [...params] : [params];
+            let insertedCount = 0;
+
+            for (const tupleStr of (tuples.length > 0 ? tuples : [match[4].replace(/^\(|\)$/g, '')])) {
+              const valExprs = splitCsvRespectingQuotes(tupleStr);
+              const colNames = explicitCols
+                ? explicitCols
+                : (valExprs.length === table.columns.length
+                  ? table.columns.map((c) => c.name)
+                  : table.columns.filter((c) => !c.isPk).map((c) => c.name));
+              const row = {};
+              const pkCol = table.columns.find((c) => c.isPk);
+
+              for (let i = 0; i < colNames.length; i++) {
+                const cName = colNames[i];
+                const expr = valExprs[i] !== undefined ? valExprs[i] : '?';
+                if (expr === '?') {
+                  row[cName] = pList.shift();
+                } else if (/^['"][\s\S]*['"]$/.test(expr)) {
+                  row[cName] = expr.slice(1, -1).replace(/''/g, "'");
+                } else if (/^null$/i.test(expr)) {
+                  row[cName] = null;
+                } else if (!isNaN(Number(expr))) {
+                  row[cName] = Number(expr);
+                } else {
+                  row[cName] = expr;
+                }
+              }
+
+              if (pkCol) {
+                if (row[pkCol.name] === undefined || row[pkCol.name] === null) {
+                  table.autoInc++;
+                  row[pkCol.name] = table.autoInc;
+                } else if (typeof row[pkCol.name] === 'number' && row[pkCol.name] > table.autoInc) {
+                  table.autoInc = row[pkCol.name];
+                }
+                const existingIdx = table.rows.findIndex((r) => String(r[pkCol.name]) === String(row[pkCol.name]));
+                if (existingIdx !== -1) {
+                  if (conflictMode === 'IGNORE') continue;
+                  if (conflictMode === 'REPLACE') {
+                    table.rows[existingIdx] = row;
+                    insertedCount++;
+                    continue;
+                  }
+                }
+              } else {
+                table.autoInc++;
+              }
+
+              table.rows.push(row);
+              insertedCount++;
+            }
+            this._persistToVfs();
+            return { changes: insertedCount, lastInsertRowid: table.autoInc };
+          }
+        }
+
+        if (/^DELETE\s+FROM/i.test(stmt)) {
+          const match = stmt.match(/^DELETE\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+([\s\S]*))?$/i);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (!table) throw new Error(`no such table: ${match[1]}`);
+            const whereClause = match[2] ? match[2].trim() : null;
+            const pList = Array.isArray(params) ? [...params] : [params];
+            const beforeLen = table.rows.length;
+            if (!whereClause) {
+              table.rows = [];
+            } else {
+              table.rows = table.rows.filter((r) => !this._matchWhere(r, whereClause, [...pList]));
+            }
+            this._persistToVfs();
+            return { changes: beforeLen - table.rows.length, lastInsertRowid: table.autoInc };
+          }
+        }
+
+        if (/^UPDATE\s+/i.test(stmt)) {
+          const match = stmt.match(/^UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+([\s\S]*?)(?:\s+WHERE\s+([\s\S]*))?$/i);
+          if (match) {
+            const table = this.tables.get(match[1]);
+            if (!table) throw new Error(`no such table: ${match[1]}`);
+            const setParts = splitCsvRespectingQuotes(match[2]);
+            const whereClause = match[3] ? match[3].trim() : null;
+            const pList = Array.isArray(params) ? [...params] : [params];
+            let changes = 0;
+            for (const row of table.rows) {
+              const rowParams = [...pList];
+              const setUpdates = [];
+              for (const sp of setParts) {
+                const eqIdx = sp.indexOf('=');
+                const col = sp.slice(0, eqIdx).trim();
+                const valExpr = sp.slice(eqIdx + 1).trim();
+                const val = valExpr === '?'
+                  ? rowParams.shift()
+                  : (/^['"][\s\S]*['"]$/.test(valExpr)
+                    ? valExpr.slice(1, -1)
+                    : (!isNaN(Number(valExpr)) ? Number(valExpr) : valExpr));
+                setUpdates.push([col, val]);
+              }
+              if (!whereClause || this._matchWhere(row, whereClause, rowParams)) {
+                for (const [col, val] of setUpdates) row[col] = val;
+                changes++;
+              }
+            }
+            this._persistToVfs();
+            return { changes, lastInsertRowid: table.autoInc };
+          }
+        }
+
+        return { changes: 0, lastInsertRowid: 0 };
+      }
+
+      _matchWhere(row, whereClause, pList) {
+        if (!whereClause) return true;
+        const andParts = whereClause.split(/\s+AND\s+/i);
+        for (const part of andParts) {
+          const trimmed = part.trim();
+          const isNullMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s+IS\s+(NOT\s+)?NULL$/i);
+          if (isNullMatch) {
+            const col = isNullMatch[1];
+            const isNot = Boolean(isNullMatch[2]);
+            const isNull = row[col] === null || row[col] === undefined;
+            if (isNot ? isNull : !isNull) return false;
+            continue;
+          }
+          const likeMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s+LIKE\s+(.+)$/i);
+          if (likeMatch) {
+            const col = likeMatch[1];
+            let pat = likeMatch[2].trim();
+            if (pat === '?') pat = String(pList.shift() || '');
+            else if (/^['"].*['"]$/.test(pat)) pat = pat.slice(1, -1);
+            const re = new RegExp('^' + pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'i');
+            if (!re.test(String(row[col] ?? ''))) return false;
+            continue;
+          }
+          const eqMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s*(=|!=|<>|>=|<=|>|<)\s*(.*)$/);
+          if (eqMatch) {
+            const col = eqMatch[1].trim();
+            const op = eqMatch[2];
+            let expected = eqMatch[3].trim();
+            if (expected === '?') {
+              expected = pList.shift();
+            } else if (/^['"].*['"]$/.test(expected)) {
+              expected = expected.slice(1, -1);
+            } else if (!isNaN(Number(expected))) {
+              expected = Number(expected);
+            }
+            const actual = row[col];
+            let ok = true;
+            if (op === '=') ok = String(actual) === String(expected);
+            else if (op === '!=' || op === '<>') ok = String(actual) !== String(expected);
+            else if (op === '>') ok = Number(actual) > Number(expected);
+            else if (op === '<') ok = Number(actual) < Number(expected);
+            else if (op === '>=') ok = Number(actual) >= Number(expected);
+            else if (op === '<=') ok = Number(actual) <= Number(expected);
+            if (!ok) return false;
+          }
+        }
+        return true;
+      }
+
+      exec(sql) {
+        const cleaned = stripSqlComments(sql);
+        const statements = cleaned.split(';').map((s) => s.trim()).filter(Boolean);
+        for (const s of statements) {
+          this.run(s);
+        }
+      }
+
+      transaction(fn) {
+        return (...args) => fn(...args);
+      }
+
+      close() {
+        this._persistToVfs();
+      }
+
+      query(sql) {
+        const db = this;
+        return {
+          all(...args) {
+            let params = args;
+            if (args.length === 1 && Array.isArray(args[0])) params = args[0];
+            return db._executeSelect(sql, params);
+          },
+          get(...args) {
+            const rows = this.all(...args);
+            return rows[0] || null;
+          },
+          values(...args) {
+            const rows = this.all(...args);
+            return rows.map((r) => Object.values(r));
+          },
+          run(...args) {
+            let params = args;
+            if (args.length === 1 && Array.isArray(args[0])) params = args[0];
+            return db.run(sql, params);
+          }
+        };
+      }
+
+      prepare(sql) {
+        return this.query(sql);
+      }
+
+      _evalAggregate(fn, aggCol, rows) {
+        if (fn === 'COUNT') {
+          if (aggCol === '*') return rows.length;
+          return rows.filter((r) => r[aggCol] !== null && r[aggCol] !== undefined).length;
+        }
+        if (fn === 'AVG') {
+          const sum = rows.reduce((acc, r) => acc + (Number(r[aggCol]) || 0), 0);
+          return rows.length > 0 ? sum / rows.length : 0;
+        }
+        if (fn === 'SUM') {
+          return rows.reduce((acc, r) => acc + (Number(r[aggCol]) || 0), 0);
+        }
+        if (fn === 'MIN') {
+          return rows.length > 0 ? Math.min(...rows.map((r) => Number(r[aggCol]) || 0)) : null;
+        }
+        if (fn === 'MAX') {
+          return rows.length > 0 ? Math.max(...rows.map((r) => Number(r[aggCol]) || 0)) : null;
+        }
+        return null;
+      }
+
+      _executeSelect(sql, params = []) {
+        const s = stripSqlComments(sql).replace(/;$/, '').trim();
+        if (!s) return [];
+
+        if (/^EXPLAIN\s+QUERY\s+PLAN\s+/i.test(s)) {
+          const inner = s.replace(/^EXPLAIN\s+QUERY\s+PLAN\s+/i, '').trim();
+          const m = inner.match(/^SELECT\s+[\s\S]*?\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+([\s\S]*?))?(?:\s+GROUP|\s+ORDER|\s+LIMIT|$)/i);
+          if (m) {
+            const tblName = m[1];
+            const whereRaw = (m[2] || '').replace(/'[^']*'|"[^"]*"/g, '');
+            const table = this.tables.get(tblName);
+            const pkCol = table && table.columns.find((c) => c.isPk);
+            if (pkCol && new RegExp(`\\b${pkCol.name}\\b`, 'i').test(whereRaw)) {
+              return [{ id: 0, parent: 0, notused: 0, detail: `SEARCH ${tblName} USING INTEGER PRIMARY KEY (rowid=?)` }];
+            }
+            for (const idx of this.indexes.values()) {
+              if (idx.table === tblName && idx.columns.some((c) => new RegExp(`\\b${c}\\b`, 'i').test(whereRaw))) {
+                return [{ id: 0, parent: 0, notused: 0, detail: `SEARCH ${tblName} USING INDEX ${idx.name} (${idx.columns.join(',')}=?)` }];
+              }
+            }
+            return [{ id: 0, parent: 0, notused: 0, detail: `SCAN ${tblName}` }];
+          }
+          return [{ id: 0, parent: 0, notused: 0, detail: 'SCAN' }];
+        }
+
+        if (/^PRAGMA\s+table_info\s*\(\s*([a-zA-Z0-9_]+)\s*\)/i.test(s)) {
+          const m = s.match(/^PRAGMA\s+table_info\s*\(\s*([a-zA-Z0-9_]+)\s*\)/i);
+          const tbl = m && this.tables.get(m[1]);
+          if (!tbl) return [];
+          return tbl.columns.map((c, idx) => ({
+            cid: idx,
+            name: c.name,
+            type: c.type || 'TEXT',
+            notnull: 0,
+            dflt_value: null,
+            pk: c.isPk ? 1 : 0
+          }));
+        }
+
+        if (/^PRAGMA\s+index_list\s*\(\s*([a-zA-Z0-9_]+)\s*\)/i.test(s)) {
+          const m = s.match(/^PRAGMA\s+index_list\s*\(\s*([a-zA-Z0-9_]+)\s*\)/i);
+          const tblName = m ? m[1] : '';
+          const out = [];
+          let seq = 0;
+          for (const idx of this.indexes.values()) {
+            if (idx.table === tblName) {
+              out.push({
+                seq: seq++,
+                name: idx.name,
+                unique: idx.unique ? 1 : 0,
+                origin: 'c',
+                partial: 0
+              });
+            }
+          }
+          return out;
+        }
+
+        if (/^(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA)\b/i.test(s)) {
+          this.run(s, params);
+          return [];
+        }
+
+        const match = s.match(/^SELECT\s+(?:DISTINCT\s+)?([\s\S]*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+([\s\S]*?))?(?:\s+GROUP\s+BY\s+([\s\S]*?))?(?:\s+ORDER\s+BY\s+([\s\S]*?))?(?:\s+LIMIT\s+(\d+|\?)(?:\s+OFFSET\s+(\d+|\?))?)?$/i);
+        if (!match) {
+          const noFromMatch = s.match(/^SELECT\s+([\s\S]+)$/i);
+          if (noFromMatch) {
+            const parts = splitCsvRespectingQuotes(noFromMatch[1]);
+            const outRow = {};
+            for (const p of parts) {
+              const asMatch = p.match(/^([\s\S]*?)\s+AS\s+([a-zA-Z0-9_]+)$/i);
+              const expr = (asMatch ? asMatch[1] : p).trim();
+              const alias = (asMatch ? asMatch[2] : p).trim();
+              if (/^sqlite_version\(\)$/i.test(expr)) outRow[alias] = '3.45.0';
+              else if (/^['"].*['"]$/.test(expr)) outRow[alias] = expr.slice(1, -1);
+              else if (!isNaN(Number(expr))) outRow[alias] = Number(expr);
+              else outRow[alias] = expr;
+            }
+            return [outRow];
+          }
+          return [];
+        }
+        const selectColsRaw = match[1].trim();
+        const tableName = match[2].trim();
+        const whereClause = match[3] ? match[3].trim() : null;
+        const groupByClause = match[4] ? match[4].trim() : null;
+        const orderByClause = match[5] ? match[5].trim() : null;
+        const limitRaw = match[6] ? match[6].trim() : null;
+        const offsetRaw = match[7] ? match[7].trim() : null;
+
+        const table = this.tables.get(tableName);
+        if (!table) return [];
+
+        const pList = Array.isArray(params) ? [...params] : [params];
+        const filteredRows = table.rows.filter((row) => {
+          const rowParams = [...pList];
+          return this._matchWhere(row, whereClause, rowParams);
+        });
+        if (whereClause && whereClause.includes('?')) {
+          const qCount = (whereClause.match(/\?/g) || []).length;
+          pList.splice(0, qCount);
+        }
+
+        const colSpecs = [];
+        let hasAggregate = false;
+        if (selectColsRaw !== '*') {
+          const parts = splitCsvRespectingQuotes(selectColsRaw);
+          for (const p of parts) {
+            const asMatch = p.match(/^([\s\S]*?)\s+(?:AS\s+)?([a-zA-Z0-9_]+)$/i);
+            const isFuncWithSpace = /^(AVG|SUM|COUNT|MIN|MAX)\s*\([^)]+\)$/i.test(p.trim());
+            const spec = (asMatch && !isFuncWithSpace)
+              ? { expr: asMatch[1].trim(), alias: asMatch[2].trim() }
+              : { expr: p.trim(), alias: p.trim() };
+            if (/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i.test(spec.expr)) {
+              hasAggregate = true;
+            }
+            colSpecs.push(spec);
+          }
+        }
+
+        let outputRows = [];
+        if (groupByClause) {
+          const groupCol = groupByClause.trim();
+          const groups = new Map();
+          for (const row of filteredRows) {
+            const key = row[groupCol];
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(row);
+          }
+
+          for (const [key, rows] of groups.entries()) {
+            const outRow = {};
+            for (const col of colSpecs) {
+              const expr = col.expr;
+              const alias = col.alias;
+              const aggMatch = expr.match(/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i);
+              if (aggMatch) {
+                outRow[alias] = this._evalAggregate(aggMatch[1].toUpperCase(), aggMatch[2].trim(), rows);
+              } else if (expr === groupCol) {
+                outRow[alias] = key;
+              } else {
+                outRow[alias] = rows[0] ? rows[0][expr] : null;
+              }
+            }
+            outputRows.push(outRow);
+          }
+        } else if (hasAggregate) {
+          const outRow = {};
+          for (const col of colSpecs) {
+            const aggMatch = col.expr.match(/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i);
+            if (aggMatch) {
+              outRow[col.alias] = this._evalAggregate(aggMatch[1].toUpperCase(), aggMatch[2].trim(), filteredRows);
+            } else {
+              outRow[col.alias] = filteredRows[0] ? filteredRows[0][col.expr] : null;
+            }
+          }
+          outputRows.push(outRow);
+        } else {
+          for (const row of filteredRows) {
+            if (selectColsRaw === '*') {
+              outputRows.push(Object.assign({}, row));
+            } else {
+              const outRow = {};
+              for (const col of colSpecs) {
+                outRow[col.alias] = row[col.expr];
+              }
+              outputRows.push(outRow);
+            }
+          }
+        }
+
+        if (orderByClause) {
+          const parts = orderByClause.trim().split(/\s+/);
+          const orderCol = parts[0];
+          const desc = parts[1] && parts[1].toUpperCase() === 'DESC';
+          outputRows.sort((a, b) => {
+            const valA = a[orderCol];
+            const valB = b[orderCol];
+            if (valA === valB) return 0;
+            if (valA === undefined) return 1;
+            if (valB === undefined) return -1;
+            const res = valA > valB ? 1 : -1;
+            return desc ? -res : res;
+          });
+        }
+
+        if (limitRaw !== null) {
+          const limitVal = limitRaw === '?' ? Number(pList.shift() || 0) : Number(limitRaw);
+          const offsetVal = offsetRaw !== null ? (offsetRaw === '?' ? Number(pList.shift() || 0) : Number(offsetRaw)) : 0;
+          outputRows = outputRows.slice(offsetVal, offsetVal + limitVal);
+        }
+
+        return outputRows;
+      }
+    };
+  }
+
   return {
     VirtualBuffer,
     VirtualCrypto,
@@ -8009,6 +8571,7 @@ function __initVirtualRuntime(rootScope) {
     createVirtualFs,
     createVirtualHttp,
     createVirtualNet,
+    createSqliteDatabase,
     transpileTS,
     transpileForBrowser,
     preloadNpmPackages,
@@ -8316,6 +8879,7 @@ export const VirtualDns: any = _runtimeApi.VirtualDns;
 export const createVirtualFs: (options?: any) => any = _runtimeApi.createVirtualFs;
 export const createVirtualHttp: (portTable?: any, vfs?: any) => any = _runtimeApi.createVirtualHttp;
 export const createVirtualNet: (portTable?: any) => any = _runtimeApi.createVirtualNet;
+export const createSqliteDatabase: (vfs?: any, getCwd?: () => string) => any = _runtimeApi.createSqliteDatabase;
 export const transpileTS: (code: string, filename?: string) => string = _runtimeApi.transpileTS;
 export const transpileForBrowser: (source: string, filename?: string) => string = _runtimeApi.transpileForBrowser;
 export const preloadNpmPackages: (

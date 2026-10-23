@@ -58,6 +58,7 @@ const SUITES = [
   'tests/test-scm-engine.js',
   'tests/test-preview-live-bridge.js',
   'tests/test-terminal-multisession-cdn.js',
+  'tests/test-system-design-tools.js',
   'tests/test-version-sync.js',
   'tests/test-typescript-consolidation.js',
   'tests/test-untracked-dist.js',

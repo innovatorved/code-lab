@@ -242,6 +242,7 @@ ${workbenchCode}
       createVirtualHttp: CodeLabRuntime.createVirtualHttp,
       createVirtualNet: CodeLabRuntime.createVirtualNet,
       createVirtualPortTable: CodeLabRuntime.createVirtualPortTable,
+      createSqliteDatabase: CodeLabRuntime.createSqliteDatabase,
       createWorkerRuntimeSource: CodeLabRuntime.createWorkerRuntimeSource,
       CodeLabCsp: CodeLabCsp,
       CodeLabLogger: CodeLabLogger,
@@ -344,6 +345,7 @@ const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
+const createSqliteDatabase = CodeLabRuntime.createSqliteDatabase;
 const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
 const createPosixShell = CodeLabShell ? CodeLabShell.createPosixShell : null;
 const cloneGitHubRepository = CodeLabShell ? CodeLabShell.cloneGitHubRepository : null;
@@ -474,6 +476,7 @@ export {
   createVirtualHttp,
   createVirtualNet,
   createVirtualPortTable,
+  createSqliteDatabase,
   createWorkerRuntimeSource
 };
 export default CodeLab;
@@ -520,6 +523,7 @@ const transpileTS = CodeLabRuntime.transpileTS;
 const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
 const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
+const createSqliteDatabase = CodeLabRuntime.createSqliteDatabase;
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
@@ -548,6 +552,7 @@ export {
   transpileForBrowser,
   preloadNpmPackages,
   createVirtualPortTable,
+  createSqliteDatabase,
   executeInVirtualRuntime,
   createWorkerRuntimeSource,
   cancelWorkerExecution,

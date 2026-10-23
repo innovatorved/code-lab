@@ -1581,6 +1581,7 @@ declare module 'bun:sqlite' {
             this.logger.debug('Could not parse portTable dispatch URL.', err);
           }
           const method = String((init && init.method) || 'GET').toUpperCase();
+          const fromPort = (init && init._fromPort) ? Number(init._fromPort) : null;
           try {
             const res = await origDispatch(url, init);
             const durationMs = Math.max(0.1, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
@@ -1606,8 +1607,9 @@ declare module 'bun:sqlite' {
             try {
               formattedBody = JSON.stringify(JSON.parse(bodyText), null, 2);
             } catch (err) {
-              void err;
+              this.logger.debug('Response body is not JSON.', err);
             }
+            const chaosEffect = (res && res._chaosEffect) || responseHeaders['x-codelab-chaos'] || null;
             if (!Array.isArray(this.lastHttpTrace)) this.lastHttpTrace = [];
             this.lastHttpTrace.push({
               id: 'trace_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -1616,6 +1618,8 @@ declare module 'bun:sqlite' {
               url: reqPath,
               fullUrl,
               port: parsedPort,
+              fromPort,
+              chaosEffect,
               status: (res && res.status) || 200,
               statusText: (res && res.statusText) || 'OK',
               durationMs,
@@ -1626,8 +1630,34 @@ declare module 'bun:sqlite' {
               responseBody: bodyText,
               formattedBody
             });
+            const netPill = this.container ? this.container.querySelector('#cl-network-pill') : null;
+            if (netPill) netPill.textContent = `${this.lastHttpTrace.length} reqs`;
             return res;
           } catch (err) {
+            const durationMs = Math.max(0.1, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+            if (!Array.isArray(this.lastHttpTrace)) this.lastHttpTrace = [];
+            const errMsg = String((err && err.message) || err);
+            this.lastHttpTrace.push({
+              id: 'trace_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+              timestamp: new Date().toLocaleTimeString(),
+              method,
+              url: reqPath,
+              fullUrl,
+              port: parsedPort,
+              fromPort,
+              chaosEffect: (err && err.chaosEffect) || (err && err.code) || 'ERROR',
+              status: 0,
+              statusText: (err && (err.chaosEffect || err.code)) || 'ERROR',
+              durationMs,
+              size: 0,
+              requestHeaders: (init && init.headers) || {},
+              requestBody: (init && init.body) || '',
+              responseHeaders: {},
+              responseBody: errMsg,
+              formattedBody: errMsg
+            });
+            const netPill = this.container ? this.container.querySelector('#cl-network-pill') : null;
+            if (netPill) netPill.textContent = `${this.lastHttpTrace.length} reqs`;
             throw err;
           }
         };
@@ -3725,10 +3755,10 @@ declare module 'bun:sqlite' {
 
       if (isFirstToken) {
         const commands = [
-          'cat', 'cd', 'clear', 'cp', 'curl', 'echo', 'env', 'export', 'find',
-          'grep', 'head', 'help', 'history', 'jobs', 'kill', 'ls', 'mkdir', 'mv',
-          'node', 'npm', 'npx', 'ps', 'pwd', 'rm', 'sed', 'sort', 'tail', 'touch',
-          'uniq', 'unset', 'wc', 'which', 'bun'
+          'ab', 'bun', 'cat', 'cd', 'chaos', 'clear', 'cp', 'curl', 'echo', 'env',
+          'export', 'find', 'grep', 'head', 'help', 'hey', 'history', 'jobs', 'kill',
+          'ls', 'mkdir', 'mv', 'node', 'npm', 'npx', 'ps', 'pwd', 'redis-cli', 'rm',
+          'sed', 'sort', 'sqlite3', 'tail', 'touch', 'uniq', 'unset', 'wc', 'which', 'wrk'
         ];
         return commands.filter(c => c.startsWith(token));
       } else {
@@ -3789,25 +3819,53 @@ declare module 'bun:sqlite' {
                   <th>Host / URL</th>
                   <th>Protocol</th>
                   <th>Process / Service</th>
-                  <th>Status</th>
-                  <th style="text-align:right;">Actions</th>
+                  <th>Status &amp; Chaos</th>
+                  <th style="text-align:right;">Chaos Injection &amp; Actions</th>
                 </tr>
               </thead>
               <tbody>
-                ${servers.map(s => `
+                ${servers.map(s => {
+                  const rule = (this.portTable && typeof this.portTable.getChaosRule === 'function')
+                    ? this.portTable.getChaosRule(s.port)
+                    : null;
+                  const isCrashed = Boolean(rule && rule.crashed);
+                  const hasLat = Boolean(rule && rule.latencyMs > 0);
+                  const hasErr = Boolean(rule && rule.errorRate > 0);
+                  const hasDrop = Boolean(rule && rule.dropRate > 0);
+                  const hasAnyChaos = isCrashed || hasLat || hasErr || hasDrop || Boolean(rule && rule.partitionFromPorts && rule.partitionFromPorts.length);
+                  const chaosPills = [];
+                  if (isCrashed) chaosPills.push(`<span class="codelab-chaos-badge codelab-chaos-badge--danger">CRASHED</span>`);
+                  if (hasLat) chaosPills.push(`<span class="codelab-chaos-badge codelab-chaos-badge--warn">+${rule.latencyMs}ms</span>`);
+                  if (hasErr) chaosPills.push(`<span class="codelab-chaos-badge codelab-chaos-badge--danger">${Math.round(rule.errorRate * 100)}% HTTP ${rule.errorStatus || 503}</span>`);
+                  if (hasDrop) chaosPills.push(`<span class="codelab-chaos-badge codelab-chaos-badge--danger">${Math.round(rule.dropRate * 100)}% DROP</span>`);
+                  return `
                   <tr>
                     <td><span class="codelab-port-tag">${s.port}</span></td>
                     <td><a href="http://127.0.0.1:${s.port}/" target="_blank" class="codelab-port-link">http://127.0.0.1:${s.port}/</a></td>
                     <td><span class="codelab-badge">${escapeHtml(s.protocol || 'HTTP/1.1')}</span></td>
                     <td><code>${escapeHtml(s.service || (s.pid ? `PID ${s.pid}` : 'node'))}</code></td>
-                    <td><span class="codelab-port-status codelab-port-status--listening"><span class="codelab-port-status-dot"></span>LISTENING</span></td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <span class="codelab-port-status ${isCrashed ? 'codelab-port-status--crashed' : 'codelab-port-status--listening'}">
+                          <span class="codelab-port-status-dot"></span>${isCrashed ? 'CRASHED' : 'LISTENING'}
+                        </span>
+                        ${chaosPills.join('')}
+                      </div>
+                    </td>
                     <td style="text-align:right;white-space:nowrap;">
+                      <span class="codelab-chaos-btn-group" title="Inject network faults on port :${s.port}">
+                        <button type="button" class="codelab-btn codelab-btn--sm ${hasLat ? 'codelab-btn--chaos-active' : ''}" data-cl-action="chaos-latency" data-port="${s.port}" title="Toggle +200ms network latency on :${s.port}">+200ms</button>
+                        <button type="button" class="codelab-btn codelab-btn--sm ${hasErr ? 'codelab-btn--chaos-active' : ''}" data-cl-action="chaos-error" data-port="${s.port}" title="Toggle 25% HTTP 503 error rate on :${s.port}">25% 503</button>
+                        <button type="button" class="codelab-btn codelab-btn--sm ${isCrashed ? 'codelab-btn--danger' : ''}" data-cl-action="chaos-crash" data-port="${s.port}" title="Simulate node crash (ECONNREFUSED) on :${s.port}">${isCrashed ? 'Recover' : 'Crash'}</button>
+                        ${hasAnyChaos ? `<button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="chaos-heal" data-port="${s.port}" title="Heal all chaos rules on :${s.port}">Heal</button>` : ''}
+                      </span>
                       <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--primary" data-cl-action="open-web-preview" data-port="${s.port}" data-cl-port="${s.port}">Preview</button>
                       <button type="button" class="codelab-btn codelab-btn--sm" data-cl-action="open-port-client" data-port="${s.port}" data-cl-port="${s.port}">Open in Client</button>
                       <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--danger" data-cl-action="stop-port" data-port="${s.port}" data-cl-port="${s.port}">Stop</button>
                     </td>
                   </tr>
-                `).join('')}
+                `;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -3860,7 +3918,7 @@ declare module 'bun:sqlite' {
         <div class="codelab-ports-panel">
           <div class="codelab-panel-section">
             <div class="codelab-section-title">
-              <span>${CL_ICONS.radio || ''} Active Port Listeners</span>
+              <span>${CL_ICONS.radio || ''} Active Port Listeners &amp; Chaos Controls</span>
               <span class="codelab-badge">${servers.length} listening</span>
             </div>
             ${serversHtml}
@@ -3945,6 +4003,85 @@ declare module 'bun:sqlite' {
       const traces = Array.isArray(this.lastHttpTrace) ? this.lastHttpTrace : [];
       const filter = this.networkFilter;
 
+      // Compute SLO & Latency Percentiles across all captured traces
+      const totalReqs = traces.length;
+      let count2xx = 0;
+      let count429 = 0;
+      let count5xxOrErr = 0;
+      const sortedDurations = traces.map(t => Number(t.durationMs || 0)).sort((a, b) => a - b);
+      for (const t of traces) {
+        const st = Number(t.status || 0);
+        if (st >= 200 && st < 300) count2xx++;
+        else if (st === 429) count429++;
+        else if (st >= 500 || st === 0) count5xxOrErr++;
+      }
+      const pctLat = (p) => {
+        if (!sortedDurations.length) return '0.0';
+        const idx = Math.min(sortedDurations.length - 1, Math.floor((p / 100) * sortedDurations.length));
+        return sortedDurations[idx].toFixed(1);
+      };
+      const okPct = totalReqs > 0 ? ((count2xx / totalReqs) * 100).toFixed(1) : '100.0';
+      const p50Ms = pctLat(50);
+      const p95Ms = pctLat(95);
+      const p99Ms = pctLat(99);
+
+      // Build Live Service Topology & Chaos Map
+      const servers = (this.portTable && typeof this.portTable.listServers === 'function')
+        ? this.portTable.listServers()
+        : [];
+      const edgeMap = new Map();
+      for (const t of traces) {
+        const src = t.fromPort ? `:${t.fromPort}` : 'Client';
+        const dst = `:${t.port || 3000}`;
+        const key = `${src}→${dst}`;
+        const cur = edgeMap.get(key) || { src, dst, targetPort: Number(t.port || 3000), count: 0, errCount: 0, totalMs: 0 };
+        cur.count++;
+        if (Number(t.status || 0) >= 500 || Number(t.status || 0) === 0) cur.errCount++;
+        cur.totalMs += Number(t.durationMs || 0);
+        edgeMap.set(key, cur);
+      }
+
+      let topologyHtml = '';
+      if (servers.length > 0 || edgeMap.size > 0) {
+        const edgePills = Array.from(edgeMap.values()).map(e => {
+          const avg = (e.totalMs / Math.max(1, e.count)).toFixed(1);
+          const hasErrors = e.errCount > 0;
+          return `
+            <span class="codelab-topo-edge ${hasErrors ? 'codelab-topo-edge--err' : ''}">
+              <strong>${escapeHtml(e.src)}</strong>
+              <span class="codelab-topo-arrow">──(${e.count} req · ${avg}ms${hasErrors ? ` · ${e.errCount} err` : ''})──▶</span>
+              <strong>${escapeHtml(e.dst)}</strong>
+            </span>
+          `;
+        }).join('');
+
+        const nodePills = servers.map(s => {
+          const rule = (this.portTable && typeof this.portTable.getChaosRule === 'function')
+            ? this.portTable.getChaosRule(s.port)
+            : null;
+          const isCrashed = Boolean(rule && rule.crashed);
+          const hasLat = Boolean(rule && rule.latencyMs > 0);
+          const hasErr = Boolean(rule && rule.errorRate > 0);
+          return `
+            <span class="codelab-topo-node ${isCrashed ? 'is-crashed' : (hasLat || hasErr ? 'is-degraded' : 'is-healthy')}">
+              <span class="codelab-port-status-dot"></span>
+              <code>:${s.port}</code>
+              <span>${escapeHtml(s.service || 'node')}</span>
+              ${isCrashed ? '<span class="codelab-chaos-badge codelab-chaos-badge--danger">CRASHED</span>' : ''}
+              ${hasLat ? `<span class="codelab-chaos-badge codelab-chaos-badge--warn">+${rule.latencyMs}ms</span>` : ''}
+              ${hasErr ? `<span class="codelab-chaos-badge codelab-chaos-badge--danger">${Math.round(rule.errorRate * 100)}% ${rule.errorStatus || 503}</span>` : ''}
+            </span>
+          `;
+        }).join('');
+
+        topologyHtml = `
+          <div class="codelab-topo-bar">
+            <div class="codelab-topo-nodes">${nodePills || '<span style="font-size:11px;color:var(--cl-fg-muted);">No listening servers</span>'}</div>
+            ${edgePills ? `<div class="codelab-topo-edges">${edgePills}</div>` : ''}
+          </div>
+        `;
+      }
+
       const filtered = traces.filter(t => {
         if (filter.method && filter.method !== 'ALL' && (t.method || 'GET').toUpperCase() !== filter.method) return false;
         if (filter.status && filter.status !== 'ALL') {
@@ -3952,7 +4089,7 @@ declare module 'bun:sqlite' {
           if (filter.status === '2xx' && (s < 200 || s >= 300)) return false;
           if (filter.status === '3xx' && (s < 300 || s >= 400)) return false;
           if (filter.status === '4xx' && (s < 400 || s >= 500)) return false;
-          if (filter.status === '5xx' && (s < 500 || s >= 600)) return false;
+          if (filter.status === '5xx' && (s < 500 && s !== 0)) return false;
         }
         if (filter.search) {
           const query = filter.search.toLowerCase();
@@ -3971,23 +4108,26 @@ declare module 'bun:sqlite' {
         rowsHtml = `
           <tr>
             <td colspan="7" style="text-align:center;padding:32px;color:var(--cl-fg-muted);">
-              ${traces.length === 0 ? 'No network requests recorded yet. Run a demo, tests, or send an HTTP request to inspect traffic.' : 'No network requests match the active filters.'}
+              ${traces.length === 0 ? 'No network requests recorded yet. Run a demo, click "⚡ Load Test", or run `hey -n 50 http://localhost:3000` in the terminal.' : 'No network requests match the active filters.'}
             </td>
           </tr>
         `;
       } else {
         const maxDuration = Math.max(1, ...filtered.map(t => t.durationMs || 1));
         rowsHtml = filtered.map(t => {
-          const status = Number(t.status || 200);
-          const statusClass = status < 300 ? 'status-2xx' : (status < 400 ? 'status-3xx' : (status < 500 ? 'status-4xx' : 'status-5xx'));
+          const status = Number(t.status || 0);
+          const statusLabel = status === 0 ? (t.statusText || 'ERR') : String(status);
+          const statusClass = status === 0 ? 'status-5xx' : (status < 300 ? 'status-2xx' : (status < 400 ? 'status-3xx' : (status < 500 ? 'status-4xx' : 'status-5xx')));
           const widthPct = Math.min(100, Math.max(8, Math.round(((t.durationMs || 1) / maxDuration) * 100)));
           const isSelected = selectedTrace && String(selectedTrace.id) === String(t.id);
+          const hopLabel = t.fromPort ? `:${t.fromPort}→:${t.port || 3000}` : `:${t.port || 3000}`;
+          const chaosChip = t.chaosEffect ? `<span class="codelab-chaos-badge codelab-chaos-badge--warn" style="margin-left:4px;">${escapeHtml(String(t.chaosEffect))}</span>` : '';
           return `
             <tr class="codelab-net-row ${isSelected ? 'selected' : ''}" data-cl-action="select-net-trace" data-trace-id="${escapeHtml(t.id || '')}" data-cl-trace-id="${escapeHtml(t.id || '')}">
-              <td><span class="codelab-status-badge ${statusClass}">${status}</span></td>
+              <td><span class="codelab-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>${chaosChip}</td>
               <td><span class="codelab-method-badge codelab-method-${(t.method || 'GET').toLowerCase()}">${escapeHtml(t.method || 'GET')}</span></td>
               <td class="codelab-net-path" title="${escapeHtml(t.url || '/')}">${escapeHtml(t.url || '/')}</td>
-              <td><code>${t.port || 3000}</code></td>
+              <td><code>${escapeHtml(hopLabel)}</code></td>
               <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${(t.durationMs || 0).toFixed(1)} ms</td>
               <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${t.size != null ? t.size : 0} B</td>
               <td class="codelab-waterfall-cell">
@@ -4021,6 +4161,8 @@ declare module 'bun:sqlite' {
               <div class="codelab-net-detail__section">
                 <div class="codelab-detail-label">General</div>
                 <div class="codelab-detail-kv"><strong>URL:</strong> 127.0.0.1:${selectedTrace.port}${escapeHtml(selectedTrace.url || '/')}</div>
+                ${selectedTrace.fromPort ? `<div class="codelab-detail-kv"><strong>Caller Port:</strong> :${selectedTrace.fromPort}</div>` : ''}
+                ${selectedTrace.chaosEffect ? `<div class="codelab-detail-kv"><strong>Chaos Fault:</strong> ${escapeHtml(String(selectedTrace.chaosEffect))}</div>` : ''}
                 <div class="codelab-detail-kv"><strong>Status:</strong> ${selectedTrace.status} ${escapeHtml(selectedTrace.statusText || '')}</div>
                 <div class="codelab-detail-kv"><strong>Duration:</strong> ${(selectedTrace.durationMs || 0).toFixed(2)} ms</div>
                 <div class="codelab-detail-kv"><strong>Size:</strong> ${selectedTrace.size || 0} bytes</div>
@@ -4050,8 +4192,42 @@ declare module 'bun:sqlite' {
 
       bodyEl.innerHTML = `
         <div class="codelab-network-panel ${selectedTrace ? 'has-detail' : ''}">
+          <div class="codelab-slo-bar" role="region" aria-label="SLO and Latency Telemetry">
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">Requests</span>
+              <span class="codelab-slo-val">${totalReqs}</span>
+            </div>
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">2xx SLO</span>
+              <span class="codelab-slo-val ${Number(okPct) < 95 && totalReqs > 0 ? 'is-warn' : 'is-ok'}">${okPct}%</span>
+            </div>
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">429 Throttled</span>
+              <span class="codelab-slo-val ${count429 > 0 ? 'is-warn' : ''}">${count429}</span>
+            </div>
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">5xx / Faults</span>
+              <span class="codelab-slo-val ${count5xxOrErr > 0 ? 'is-err' : ''}">${count5xxOrErr}</span>
+            </div>
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">p50</span>
+              <span class="codelab-slo-val">${p50Ms} ms</span>
+            </div>
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">p95</span>
+              <span class="codelab-slo-val">${p95Ms} ms</span>
+            </div>
+            <div class="codelab-slo-metric">
+              <span class="codelab-slo-label">p99</span>
+              <span class="codelab-slo-val">${p99Ms} ms</span>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+              <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--primary" data-cl-action="run-quick-loadtest" title="Run 50 concurrent requests (hey -n 50 -c 10) against active server">⚡ Load Test (50 reqs)</button>
+            </div>
+          </div>
+          ${topologyHtml}
           <div class="codelab-net-toolbar">
-            <input type="text" class="codelab-input" id="cl-net-search" placeholder="Filter URL or method..." value="${escapeHtml(filter.search)}" aria-label="Filter network traces">
+            <input type="text" class="codelab-input" id="cl-net-search" placeholder="Filter URL, port, or method..." value="${escapeHtml(filter.search)}" aria-label="Filter network traces">
             <select class="codelab-select" id="cl-net-method" aria-label="Filter by method">
               <option value="ALL" ${filter.method === 'ALL' ? 'selected' : ''}>All Methods</option>
               <option value="GET" ${filter.method === 'GET' ? 'selected' : ''}>GET</option>
@@ -4065,7 +4241,7 @@ declare module 'bun:sqlite' {
               <option value="2xx" ${filter.status === '2xx' ? 'selected' : ''}>2xx Success</option>
               <option value="3xx" ${filter.status === '3xx' ? 'selected' : ''}>3xx Redirect</option>
               <option value="4xx" ${filter.status === '4xx' ? 'selected' : ''}>4xx Client Error</option>
-              <option value="5xx" ${filter.status === '5xx' ? 'selected' : ''}>5xx Server Error</option>
+              <option value="5xx" ${filter.status === '5xx' ? 'selected' : ''}>5xx / Network Fault</option>
             </select>
             <button type="button" class="codelab-btn" data-cl-action="clear-net-traces">Clear</button>
             <span style="margin-left:auto;font-size:11.5px;color:var(--cl-fg-muted);">${filtered.length} of ${traces.length} requests</span>
@@ -4075,10 +4251,10 @@ declare module 'bun:sqlite' {
               <table class="codelab-net-table">
                 <thead>
                   <tr>
-                    <th style="width:55px;">Status</th>
+                    <th style="width:85px;">Status</th>
                     <th style="width:65px;">Method</th>
                     <th>Path</th>
-                    <th style="width:60px;">Port</th>
+                    <th style="width:95px;">Route</th>
                     <th style="width:75px;">Time</th>
                     <th style="width:70px;">Size</th>
                     <th style="width:140px;">Waterfall</th>
@@ -4275,6 +4451,9 @@ declare module 'bun:sqlite' {
           this._updatePortsPill();
           if (this.drawerTab === 'ports') this._renderDrawerBody();
           this._dismissPortToast(port);
+        }));
+        this._portListenerUnsubs.push(this.portTable.on('chaos', () => {
+          if (this.drawerTab === 'ports' || this.drawerTab === 'network') this._renderDrawerBody();
         }));
       } catch (err) {
         this.logger.warn('Failed to attach portTable event listeners.', err);
@@ -6218,6 +6397,43 @@ declare module 'bun:sqlite' {
               this.networkFilter.selectedTraceId = null;
             }
             this._renderDrawerBody();
+          } else if (action === 'chaos-latency' || action === 'chaos-error' || action === 'chaos-crash' || action === 'chaos-heal') {
+            const port = Number(actionBtn.dataset.port || actionBtn.dataset.clPort);
+            if (port && this.portTable && typeof this.portTable.setChaosRule === 'function') {
+              const cur = (typeof this.portTable.getChaosRule === 'function' ? this.portTable.getChaosRule(port) : null) || {};
+              if (action === 'chaos-latency') {
+                const nextLat = cur.latencyMs > 0 ? 0 : 200;
+                this.portTable.setChaosRule(port, { latencyMs: nextLat, jitterMs: nextLat ? 40 : 0 });
+                this._showToast(nextLat ? `Injected +200ms latency (±40ms jitter) on :${port}` : `Removed latency injection on :${port}`, 'info');
+              } else if (action === 'chaos-error') {
+                const nextErr = cur.errorRate > 0 ? 0 : 0.25;
+                this.portTable.setChaosRule(port, { errorRate: nextErr, errorStatus: 503 });
+                this._showToast(nextErr ? `Injected 25% HTTP 503 error rate on :${port}` : `Removed HTTP 503 fault injection on :${port}`, nextErr ? 'error' : 'info');
+              } else if (action === 'chaos-crash') {
+                const nextCrash = !cur.crashed;
+                this.portTable.setChaosRule(port, { crashed: nextCrash });
+                this._showToast(nextCrash ? `Port :${port} marked CRASHED (ECONNREFUSED)` : `Port :${port} recovered`, nextCrash ? 'error' : 'info');
+              } else if (action === 'chaos-heal') {
+                this.portTable.clearChaosRules(port);
+                this._showToast(`Port :${port} healed (all fault rules cleared)`, 'info');
+              }
+              this._renderDrawerBody();
+            }
+          } else if (action === 'run-quick-loadtest') {
+            const targetPort = this._firstListeningPort() || 3000;
+            const targetUrl = `http://127.0.0.1:${targetPort}/`;
+            if (this.shell && typeof this.shell.execute === 'function') {
+              this._showToast(`Running load test: hey -n 50 -c 10 ${targetUrl}`, 'info');
+              this.shell.execute(`hey -n 50 -c 10 ${targetUrl}`, {}).then((res) => {
+                if (res && res.stdout) {
+                  this.terminalLogs.push({ type: 'system', text: `\n$ hey -n 50 -c 10 ${targetUrl}` });
+                  this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+                }
+                this._renderDrawerBody();
+              }).catch((err) => {
+                this.logger.debug('Quick load test failed.', err);
+              });
+            }
           }
           return;
         }

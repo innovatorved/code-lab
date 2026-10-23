@@ -620,14 +620,15 @@
 
           <!-- Suggested Repositories Chips -->
           <div class="chip-container">
-            <div class="chip-label">Featured Runnable Repositories</div>
+            <div class="chip-label">Featured Runnable Repositories &amp; System Design Clusters</div>
             <div class="chip-list">
+              <span class="chip-item chip-item--demo" data-demo="sd-cluster">⚡ L7 Load Balancer &amp; Chaos Cluster</span>
+              <span class="chip-item chip-item--demo" data-demo="sd-shortener">🔗 URL Shortener · SQLite + Singleflight</span>
+              <span class="chip-item chip-item--demo" data-demo="react">⚛ React App · live preview</span>
               <span class="chip-item" data-repo="mdn/todo-react">mdn/todo-react</span>
               <span class="chip-item" data-repo="ahfarmer/calculator">ahfarmer/calculator</span>
               <span class="chip-item" data-repo="gabrielecirulli/2048">gabrielecirulli/2048</span>
-              <span class="chip-item" data-repo="jakesgordon/javascript-tetris">jakesgordon/javascript-tetris</span>
               <span class="chip-item" data-repo="innovatorved/piano-web">innovatorved/piano-web</span>
-              <span class="chip-item chip-item--demo" data-demo="react">⚛ React App · live preview</span>
             </div>
           </div>
 
@@ -820,8 +821,13 @@
 
       chipItems.forEach(chip => {
         chip.addEventListener('click', () => {
-          if (chip.getAttribute('data-demo') === 'react') {
+          const demoKind = chip.getAttribute('data-demo');
+          if (demoKind === 'react') {
             openFrameworkDemo({ forceReset: false });
+            return;
+          }
+          if (demoKind === 'sd-cluster' || demoKind === 'sd-shortener') {
+            openSystemDesignDemo(demoKind, { forceReset: false });
             return;
           }
           const repo = chip.getAttribute('data-repo');
@@ -831,6 +837,44 @@
           }
         });
       });
+
+      const SD_CLUSTER_DEMO_FILES = {
+        'README.md': '# L7 Load Balancer + 3-Worker Cluster + Chaos Failover\n\nA runnable multi-node System Design cluster running entirely in your browser.\n\n## Quick Start\n1. Press **Run** (or run `node cluster.js &` in the terminal) to boot:\n   - **L7 Load Balancer** on `:3000` (Round-Robin + Retry with Jitter + Circuit Breaker)\n   - **Worker Nodes** on `:3001`, `:3002`, and `:3003`\n2. Run a load test in the terminal:\n   ```bash\n   hey -n 60 -c 10 http://localhost:3000/api/orders\n   ```\n3. Open the **Ports** or **Network** tab to view the live **Service Topology**, **SLO Telemetry Bar (p50/p95/p99)**, and inject faults using the **Chaos Controls** (or CLI):\n   ```bash\n   chaos crash 3002\n   chaos latency 3001 180 --jitter 40\n   hey -n 40 -c 8 http://localhost:3000/api/orders\n   chaos reset\n   ```\n',
+        'worker.js': 'const http = require("node:http");\n\nfunction startWorker(port, region) {\n  let reqCount = 0;\n  const server = http.createServer((req, res) => {\n    reqCount++;\n    if (req.url === "/health") {\n      res.writeHead(200, { "Content-Type": "application/json" });\n      return res.end(JSON.stringify({ status: "healthy", port, region, reqCount }));\n    }\n    res.writeHead(200, {\n      "Content-Type": "application/json",\n      "X-Worker-Port": String(port),\n      "X-Worker-Region": region\n    });\n    res.end(JSON.stringify({\n      ok: true,\n      worker: `node-${port}`,\n      region,\n      seq: reqCount,\n      path: req.url\n    }));\n  });\n  server.listen(port, () => {\n    console.log(`[Worker :${port}] Ready in ${region}`);\n  });\n  return server;\n}\n\nmodule.exports = { startWorker };\n',
+        'lb.js': 'const http = require("node:http");\n\nfunction startLoadBalancer(port, upstreams) {\n  let rrIndex = 0;\n  const stats = { total: 0, retries: 0, byWorker: {} };\n\n  function forwardToWorker(workerPort, path) {\n    return new Promise((resolve, reject) => {\n      const req = http.request({ hostname: "localhost", port: workerPort, path, method: "GET" }, (res) => {\n        let body = "";\n        res.on("data", (chunk) => { body += chunk; });\n        res.on("end", () => resolve({ statusCode: res.statusCode || 200, headers: res.headers, body, workerPort }));\n      });\n      req.on("error", reject);\n      req.end();\n    });\n  }\n\n  const server = http.createServer(async (req, res) => {\n    stats.total++;\n    if (req.url === "/stats") {\n      res.writeHead(200, { "Content-Type": "application/json" });\n      return res.end(JSON.stringify(stats, null, 2));\n    }\n\n    let lastErr = null;\n    for (let attempt = 0; attempt < upstreams.length; attempt++) {\n      const targetPort = upstreams[(rrIndex++) % upstreams.length];\n      try {\n        const upstreamRes = await forwardToWorker(targetPort, req.url);\n        if (upstreamRes.statusCode >= 500) {\n          stats.retries++;\n          lastErr = new Error(`Upstream :${targetPort} returned HTTP ${upstreamRes.statusCode}`);\n          continue;\n        }\n        stats.byWorker[targetPort] = (stats.byWorker[targetPort] || 0) + 1;\n        res.writeHead(upstreamRes.statusCode, {\n          "Content-Type": "application/json",\n          "X-Routed-To": String(targetPort),\n          "X-Attempts": String(attempt + 1)\n        });\n        return res.end(upstreamRes.body);\n      } catch (err) {\n        stats.retries++;\n        lastErr = err;\n      }\n    }\n\n    res.writeHead(503, { "Content-Type": "application/json" });\n    res.end(JSON.stringify({ error: "All upstream workers unavailable", detail: lastErr ? lastErr.message : "unknown" }));\n  });\n\n  server.listen(port, () => {\n    console.log(`[L7 Load Balancer :${port}] Balancing across -> ${upstreams.map(p => ":" + p).join(", ")}`);\n  });\n  return server;\n}\n\nmodule.exports = { startLoadBalancer };\n',
+        'cluster.js': 'const http = require("node:http");\nconst { startWorker } = require("./worker");\nconst { startLoadBalancer } = require("./lb");\n\nconst WORKER_PORTS = [3001, 3002, 3003];\nstartWorker(3001, "us-east-1a");\nstartWorker(3002, "us-east-1b");\nstartWorker(3003, "us-east-1c");\nstartLoadBalancer(3000, WORKER_PORTS);\n\nsetTimeout(async () => {\n  console.log("\\n--- Sending 6 warmup requests through L7 Load Balancer (:3000) ---");\n  for (let i = 0; i < 6; i++) {\n    await new Promise((resolve) => {\n      http.get("http://localhost:3000/api/orders", (res) => {\n        let data = "";\n        res.on("data", c => data += c);\n        res.on("end", () => {\n          console.log(`Req #${i + 1} [${res.statusCode}] routed->:${res.headers["x-routed-to"]} ${data}`);\n          resolve();\n        });\n      }).on("error", (e) => { console.error(e.message); resolve(); });\n    });\n  }\n  console.log("\\nCluster is live on :3000 -> [:3001, :3002, :3003]!");\n  console.log("Try in Terminal: hey -n 50 -c 10 http://localhost:3000/api/orders");\n  console.log("Try Chaos CLI : chaos crash 3002 && hey -n 30 -c 6 http://localhost:3000/api/orders");\n}, 80);\n'
+      };
+
+      const SD_SHORTENER_DEMO_FILES = {
+        'README.md': '# High-Throughput URL Shortener (Cache-Aside + Singleflight + SQLite)\n\nDemonstrates how production read-heavy systems protect their database from **Cache Stampedes (Thundering Herd)** using **In-Memory Cache-Aside + Singleflight Request Coalescing** backed by **SQLite**.\n\n## Quick Start\n1. Press **Run** (or `bun run server.js &`) to start the service on `:3000` and seed `urls.db`.\n2. Inspect the SQLite database directly from the terminal:\n   ```bash\n   sqlite3 urls.db \"SELECT * FROM urls\"\n   sqlite3 urls.db \"EXPLAIN QUERY PLAN SELECT target FROM urls WHERE code = \'sd-book\'\"\n   ```\n3. Benchmark latency & cache hit rate under concurrency:\n   ```bash\n   hey -n 80 -c 16 http://localhost:3000/r/sd-book\n   curl http://localhost:3000/metrics\n   ```\n',
+        'server.js': 'const http = require("node:http");\nconst { Database } = require("bun:sqlite");\n\nconst db = new Database("urls.db");\ndb.exec("CREATE TABLE IF NOT EXISTS urls (code TEXT PRIMARY KEY, target TEXT, hits INTEGER DEFAULT 0)");\ndb.exec("CREATE INDEX IF NOT EXISTS idx_urls_code ON urls (code)");\ndb.exec("INSERT OR REPLACE INTO urls (code, target, hits) VALUES (\'sd-book\', \'https://system-design-in-depth.vedgupta.in\', 0), (\'codelab\', \'https://code-lab-3dr.pages.dev\', 0)");\n\nconst cache = new Map();\nconst inflight = new Map();\nconst metrics = { totalRequests: 0, cacheHits: 0, singleflightCoalesced: 0, dbQueries: 0 };\n\nfunction queryDbWithSimulatedLatency(code) {\n  metrics.dbQueries++;\n  return new Promise((resolve) => {\n    setTimeout(() => {\n      const row = db.query("SELECT code, target, hits FROM urls WHERE code = ?").get(code);\n      resolve(row || null);\n    }, 25);\n  });\n}\n\nasync function resolveCode(code) {\n  const cached = cache.get(code);\n  if (cached && cached.expiresAt > Date.now()) {\n    metrics.cacheHits++;\n    return { row: cached.row, source: "cache" };\n  }\n  if (inflight.has(code)) {\n    metrics.singleflightCoalesced++;\n    const row = await inflight.get(code);\n    return { row, source: "singleflight" };\n  }\n  const p = queryDbWithSimulatedLatency(code).then((row) => {\n    inflight.delete(code);\n    if (row) cache.set(code, { row, expiresAt: Date.now() + 15000 });\n    return row;\n  });\n  inflight.set(code, p);\n  const row = await p;\n  return { row, source: "db" };\n}\n\nconst server = http.createServer(async (req, res) => {\n  metrics.totalRequests++;\n  if (req.url === "/metrics") {\n    res.writeHead(200, { "Content-Type": "application/json" });\n    return res.end(JSON.stringify(metrics, null, 2));\n  }\n  if (req.url.startsWith("/r/")) {\n    const code = req.url.slice(3).split("?")[0];\n    const { row, source } = await resolveCode(code);\n    if (!row) {\n      res.writeHead(404, { "Content-Type": "application/json" });\n      return res.end(JSON.stringify({ error: "Not found", code }));\n    }\n    res.writeHead(200, { "Content-Type": "application/json", "X-Cache-Source": source });\n    return res.end(JSON.stringify({ code: row.code, target: row.target, source }));\n  }\n  res.writeHead(200, { "Content-Type": "application/json" });\n  res.end(JSON.stringify({ service: "url-shortener", endpoints: ["/r/sd-book", "/r/codelab", "/metrics"] }));\n});\n\nserver.listen(3000, async () => {\n  console.log("[URL Shortener :3000] Ready with SQLite + Cache-Aside + Singleflight");\n  // Fire 10 concurrent cold requests to prove Singleflight coalesces 10 -> 1 DB query\n  await Promise.all(Array.from({ length: 10 }, () => new Promise((r) => {\n    http.get("http://localhost:3000/r/sd-book", (res) => { res.resume(); res.on("end", r); }).on("error", r);\n  })));\n  console.log("10 concurrent cold requests finished! Metrics:", JSON.stringify(metrics));\n  console.log("Notice dbQueries === 1 and singleflightCoalesced === 9 (Zero Cache Stampede!)");\n});\n'
+      };
+
+      function openSystemDesignDemo(kind, opts = {}) {
+        const isShortener = kind === 'sd-shortener';
+        const labId = isShortener ? 'sd-shortener-demo' : 'sd-cluster-demo';
+        const demoFiles = isShortener ? SD_SHORTENER_DEMO_FILES : SD_CLUSTER_DEMO_FILES;
+        const entryFile = isShortener ? 'server.js' : 'cluster.js';
+        const hadSaved = hasSavedFilesForLab(labId);
+        const ide = ensureIde({ labId, files: demoFiles, entry: entryFile });
+        landingOverlay.classList.add('hidden');
+        if (opts.forceReset && ide && typeof ide.setFiles === 'function') {
+          ide.setFiles(demoFiles);
+        } else if (!hadSaved && ide && typeof ide.setFiles === 'function' && (!ide.files || !ide.files[entryFile])) {
+          ide.setFiles(demoFiles);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete('repo');
+        url.searchParams.set('demo', kind);
+        window.history.replaceState({}, '', url.toString());
+        saveSessionMeta({ mode: 'demo', demo: kind, labId });
+        setTimeout(() => {
+          const ed = ide && (ide._editor || ide.editor);
+          if (ed && typeof ed.layout === 'function') ed.layout();
+          if (ide && typeof ide.openFile === 'function') ide.openFile(entryFile);
+          if (ide && typeof ide.runProject === 'function') ide.runProject();
+        }, 150);
+      }
 
       // A ready-to-run React + TypeScript workspace. Opening it and pressing the
       // toolbar globe (Run & Preview) renders the app in the in-browser preview.
@@ -961,11 +1005,15 @@
       const savedSession = loadSessionMeta();
       if (urlDemo === 'react') {
         openFrameworkDemo({ forceReset: false });
+      } else if (urlDemo === 'sd-cluster' || urlDemo === 'sd-shortener') {
+        openSystemDesignDemo(urlDemo, { forceReset: false });
       } else if (urlRepo) {
         repoInput.value = urlRepo;
         executeClone(urlRepo, { forceClone: false });
       } else if (savedSession && savedSession.mode === 'demo' && savedSession.demo === 'react') {
         openFrameworkDemo({ forceReset: false });
+      } else if (savedSession && savedSession.mode === 'demo' && (savedSession.demo === 'sd-cluster' || savedSession.demo === 'sd-shortener')) {
+        openSystemDesignDemo(savedSession.demo, { forceReset: false });
       } else if (savedSession && savedSession.mode === 'repo' && savedSession.repo && hasSavedFilesForLab(savedSession.labId || '')) {
         repoInput.value = savedSession.repo;
         executeClone(savedSession.repo, { forceClone: false });
