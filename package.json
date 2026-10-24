@@ -76,6 +76,7 @@
     "src",
     "README.md",
     "ARCHITECTURE.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "repository": {
@@ -122,7 +123,12 @@
     "web-component",
     "system-design",
     "browser-sandbox",
-    "guided-labs"
+    "guided-labs",
+    "cpp",
+    "webassembly",
+    "wasi",
+    "clang",
+    "dsa"
   ],
   "author": "Ved Gupta",
   "license": "MIT"
