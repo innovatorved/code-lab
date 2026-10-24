@@ -151,10 +151,22 @@ try {
   throw new Error(`Failed to bundle src/scm.ts: ${err.message}`);
 }
 
+let workbenchComponentsCode;
+try {
+  workbenchComponentsCode = execFileSync(
+    localBin('esbuild'),
+    ['src/workbench/index.ts', '--bundle', '--format=iife', '--global-name=CodeLabWorkbenchComponents'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle src/workbench/index.ts: ${err.message}`);
+}
+
 let guidedLabExtCode;
 let javascriptExtCode;
 let typescriptExtCode;
 let cppExtCode;
+let pythonExtCode;
 try {
   guidedLabExtCode = execFileSync(
     localBin('esbuild'),
@@ -174,6 +186,11 @@ try {
   cppExtCode = execFileSync(
     localBin('esbuild'),
     ['src/extensions/cpp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCpp'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+  pythonExtCode = execFileSync(
+    localBin('esbuild'),
+    ['src/extensions/python.ts', '--bundle', '--format=iife', '--global-name=CodeLabPython'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -210,11 +227,13 @@ ${storageCode}
 ${searchCode}
 ${diagnosticsCode}
 ${scmCode}
+${workbenchComponentsCode}
   root.CodeLabZip = CodeLabZip;
   root.CodeLabStorage = CodeLabStorage;
   root.CodeLabSearch = CodeLabSearch;
   root.CodeLabDiagnostics = CodeLabDiagnostics;
   root.CodeLabScm = CodeLabScm;
+  root.CodeLabWorkbenchComponents = CodeLabWorkbenchComponents;
 
   // --- Module 1: Runtime Engine ---
   (function () {
@@ -247,6 +266,7 @@ ${guidedLabExtCode}
 ${javascriptExtCode}
 ${typescriptExtCode}
 ${cppExtCode}
+${pythonExtCode}
 
   const CodeLab = root.CodeLab;
   const CodeLabWorkbench = root.CodeLabWorkbench;
@@ -256,6 +276,7 @@ ${cppExtCode}
     CodeLab.extensions.javascript = CodeLabJavaScript.javascriptExtension;
     CodeLab.extensions.typescript = CodeLabTypeScript.typescriptExtension;
     CodeLab.extensions.cpp = CodeLabCpp.cppExtension;
+    CodeLab.extensions.python = CodeLabPython.pythonExtension;
   }
 
   // Support CommonJS / Node.js / Bundlers
@@ -329,6 +350,7 @@ ${cppExtCode}
       unstageFile: CodeLabScm.unstageFile,
       commitChanges: CodeLabScm.commitChanges,
       computeShortCommitHash: CodeLabScm.computeShortCommitHash,
+      CodeLabWorkbenchComponents: CodeLabWorkbenchComponents,
       default: CodeLab
     });
   }
@@ -346,11 +368,13 @@ ${storageCode}
 ${searchCode}
 ${diagnosticsCode}
 ${scmCode}
+${workbenchComponentsCode}
 _root.CodeLabZip = CodeLabZip;
 _root.CodeLabStorage = CodeLabStorage;
 _root.CodeLabSearch = CodeLabSearch;
 _root.CodeLabDiagnostics = CodeLabDiagnostics;
 _root.CodeLabScm = CodeLabScm;
+_root.CodeLabWorkbenchComponents = CodeLabWorkbenchComponents;
 
 // --- Module 1: Runtime Engine ---
 (function () {
@@ -377,6 +401,7 @@ ${guidedLabExtCode}
 ${javascriptExtCode}
 ${typescriptExtCode}
 ${cppExtCode}
+${pythonExtCode}
 
 const CodeLabRuntime = _root.CodeLabRuntime;
 const CodeLabShell = _root.CodeLabShell;
@@ -389,6 +414,7 @@ if (CodeLab && CodeLab.extensions) {
   CodeLab.extensions.javascript = CodeLabJavaScript.javascriptExtension;
   CodeLab.extensions.typescript = CodeLabTypeScript.typescriptExtension;
   CodeLab.extensions.cpp = CodeLabCpp.cppExtension;
+  CodeLab.extensions.python = CodeLabPython.pythonExtension;
 }
 
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
@@ -539,7 +565,8 @@ export {
   executeWasiModule,
   WasiExitSignal,
   createSqliteDatabase,
-  createWorkerRuntimeSource
+  createWorkerRuntimeSource,
+  CodeLabWorkbenchComponents
 };
 export default CodeLab;
 `;
@@ -1055,11 +1082,11 @@ export interface CodeLabOptions {
   previewOrigin?: string;
   /** Initial workbench mode ('guided' | 'sandbox') */
   mode?: 'guided' | 'sandbox';
-  /** Initial workspace language ('js' | 'ts' | 'cpp') */
-  language?: 'js' | 'ts' | 'cpp';
-  lang?: 'js' | 'ts' | 'cpp';
+  /** Initial workspace language ('js' | 'ts' | 'cpp' | 'py') */
+  language?: 'js' | 'ts' | 'cpp' | 'py';
+  lang?: 'js' | 'ts' | 'cpp' | 'py';
   /** Enabled languages in the language switcher */
-  languages?: Array<'js' | 'ts' | 'cpp'>;
+  languages?: Array<'js' | 'ts' | 'cpp' | 'py'>;
   /** Explicit theme override ('dark' | 'light' | 'auto') */
   theme?: 'dark' | 'light' | 'auto';
   /** Set to false to disable localStorage persistence and use in-memory state only */
@@ -1089,6 +1116,16 @@ export interface CodeLabOptions {
   cppSolutionFiles?: Record<string, string>;
   /** Explicit C++ starter files map for guided mode */
   cppStarterFiles?: Record<string, string>;
+  /** Explicit Python files map for sandbox mode */
+  pyFiles?: Record<string, string>;
+  pySolutionFiles?: Record<string, string>;
+  /** Explicit Python starter files map for guided mode */
+  pyStarterFiles?: Record<string, string>;
+  /** Python toolchain configuration */
+  python?: {
+    preloadPackages?: string[];
+    cdnBaseUrl?: string;
+  };
   /** Modular extensions or plugins to install on mount */
   extensions?: Array<any>;
   plugins?: Array<any>;
@@ -1099,6 +1136,7 @@ export interface CodeLabOptions {
     starterFiles?: Record<string, string>;
     tsStarterFiles?: Record<string, string>;
     cppStarterFiles?: Record<string, string>;
+    pyStarterFiles?: Record<string, string>;
     steps?: CodeLabStep[];
   };
   /** Initial active step index (0-based) */
@@ -1137,8 +1175,8 @@ export declare class CodeLabWorkbench {
   openTabs: string[];
   activeFile: string | null;
   mode: 'guided' | 'sandbox';
-  lang: 'js' | 'ts' | 'cpp';
-  enabledLanguages: Set<'js' | 'ts' | 'cpp'>;
+  lang: 'js' | 'ts' | 'cpp' | 'py';
+  enabledLanguages: Set<'js' | 'ts' | 'cpp' | 'py'>;
   activeStepIndex: number;
   completedSteps: Set<string>;
   steps: CodeLabStep[];
@@ -1170,9 +1208,15 @@ export declare class CodeLabWorkbench {
   deleteFile(filename: string): boolean;
   deleteFolder(folderPrefix: string): boolean;
   setMode(newMode: 'guided' | 'sandbox'): void;
-  setLanguage(newLang: 'js' | 'ts' | 'cpp'): void;
+  setLanguage(newLang: 'js' | 'ts' | 'cpp' | 'py'): void;
   switchDrawerTab(tabName: 'tests' | 'terminal' | 'ports' | 'network' | 'inspector'): void;
-  configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts' | 'cpp'; stepIndex?: number }): void;
+  configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts' | 'cpp' | 'py'; stepIndex?: number }): void;
+  runCode(): Promise<void>;
+  runActiveFile(): Promise<void>;
+  shareSnapshot(): Promise<void>;
+  formatActiveDocument(): Promise<void>;
+  toggleWebPreview(): void;
+  runSelectedCode(): Promise<void>;
   openCommandPalette(mode?: 'commands' | 'files'): void;
   closeCommandPalette(): void;
   openContextMenu(x: number, y: number, items: Array<{ label?: string; action?: () => void; danger?: boolean; separator?: boolean }>): void;
@@ -1351,6 +1395,7 @@ export interface CodeLabStatic {
   };
 }
 
+export declare const CodeLabWorkbenchComponents: any;
 export declare const CodeLab: CodeLabStatic;
 export default CodeLab;
 `;
@@ -1411,7 +1456,9 @@ try {
   execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/typescript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
   execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCpp', umdFooter('CodeLabCpp'), '--outfile=dist/extensions/cpp.js'], { stdio: 'inherit', cwd: PKG_DIR });
   execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/cpp.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  console.log('✓ Built dist/extensions/{guided-lab,javascript,typescript,cpp}.{js,esm.js}');
+  execFileSync(localBin('esbuild'), ['src/extensions/python.ts', '--bundle', '--format=iife', '--global-name=CodeLabPython', umdFooter('CodeLabPython'), '--outfile=dist/extensions/python.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/python.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/python.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  console.log('✓ Built dist/extensions/{guided-lab,javascript,typescript,cpp,python}.{js,esm.js}');
 } catch (e) {
   console.error('Failed to bundle extensions:', e.message);
 }

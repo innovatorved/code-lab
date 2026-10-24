@@ -22,8 +22,9 @@ export type GuidedStep = z.infer<typeof GuidedStepSchema>;
 
 // ── 2. Language Bundle ──────────────────────────────────────────────────────
 
-export const LanguageIdSchema = z.enum(['js', 'ts', 'cpp']);
+export const LanguageIdSchema = z.enum(['js', 'ts', 'cpp', 'py']);
 export type LanguageId = z.infer<typeof LanguageIdSchema>;
+export const LanguageEnum = LanguageIdSchema;
 
 export const LanguageBundleSchema = z.object({
   language: LanguageIdSchema.default('js'),
@@ -52,6 +53,12 @@ export const GuidedLabExtensionOptionsSchema = z.object({
   cppStarterFiles: z.record(z.string()).optional(),
   cppSolutionFiles: z.record(z.string()).optional(),
   cppFiles: z.record(z.string()).optional(),
+  pyStarterFiles: z.record(z.string()).optional(),
+  pySolutionFiles: z.record(z.string()).optional(),
+  pyFiles: z.record(z.string()).optional(),
+  pyEntry: z.string().optional(),
+  pyTestEntry: z.string().optional(),
+  pyTestCode: z.string().optional(),
   summary: z.string().optional(),
   onStepComplete: z.function().args(GuidedStepSchema, z.number()).returns(z.void()).optional(),
   onLabComplete: z.function().args(z.string()).returns(z.void()).optional()
@@ -91,6 +98,36 @@ export const CppExtensionOptionsSchema = z.object({
 });
 
 export type CppExtensionOptions = z.infer<typeof CppExtensionOptionsSchema>;
+
+export const PythonToolchainProgressSchema = z.object({
+  stage: z.enum(['downloading', 'caching', 'extracting', 'initializing', 'ready']),
+  loadedBytes: z.number().optional(),
+  totalBytes: z.number().optional(),
+  percent: z.number().optional(),
+  message: z.string().optional()
+});
+
+export type PythonToolchainProgress = z.infer<typeof PythonToolchainProgressSchema>;
+
+export const PythonExtensionOptionsSchema = z.object({
+  cdnBaseUrl: z.string().optional(),
+  indexUrl: z.string().optional(),
+  pyodideIndexUrl: z.string().optional(),
+  cacheInIndexedDB: z.boolean().default(true),
+  preload: z.boolean().default(false),
+  activate: z.boolean().optional(),
+  entry: z.string().default('main.py'),
+  testEntry: z.string().default('test.py'),
+  packages: z.array(z.string()).optional(),
+  preloadPackages: z.array(z.string()).optional(),
+  compilerMemoryLimitMb: z.number().optional(),
+  files: z.record(z.string()).optional(),
+  starterFiles: z.record(z.string()).optional(),
+  solutionFiles: z.record(z.string()).optional(),
+  onProgress: z.function().args(z.any()).returns(z.void()).optional()
+});
+
+export type PythonExtensionOptions = z.infer<typeof PythonExtensionOptionsSchema>;
 
 // ── 4. GitHub Clone Options & Progress ──────────────────────────────────────
 
@@ -210,6 +247,14 @@ export const WorkbenchOptionsSchema = z.object({
   cppFiles: z.record(z.string()).optional(),
   cppStarterFiles: z.record(z.string()).optional(),
   cppSolutionFiles: z.record(z.string()).optional(),
+  pyFiles: z.record(z.string()).optional(),
+  pyStarterFiles: z.record(z.string()).optional(),
+  pySolutionFiles: z.record(z.string()).optional(),
+  pyEntry: z.string().optional().default('main.py'),
+  pyTestEntry: z.string().optional().default('test.py'),
+  pyTestCode: z.string().optional(),
+  showWebPreview: z.boolean().optional(),
+  stdin: z.string().optional(),
   guided: z.any().optional(),
   mode: z.enum(['guided', 'sandbox']).optional(),
   language: LanguageIdSchema.optional(),

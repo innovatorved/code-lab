@@ -207,6 +207,25 @@ async function runSuite() {
     }
   });
 
+  console.log('\n--- Suite G: Direct Source TypeScript surface and CodeLabWorkbench exports ---');
+
+  await test('G1 code-lab.d.ts declares CodeLabWorkbenchComponents and Python options', () => {
+    const dts = fs.readFileSync(path.join(DIST, 'code-lab.d.ts'), 'utf8');
+    assert.match(dts, /CodeLabWorkbenchComponents/, 'CodeLabWorkbenchComponents must be declared in code-lab.d.ts');
+    assert.match(dts, /'js' \| 'ts' \| 'cpp' \| 'py'/, 'py language must be declared in code-lab.d.ts');
+    assert.match(dts, /pyFiles\?:/, 'pyFiles must be declared in code-lab.d.ts');
+  });
+
+  await test('G2 dist/code-lab.js and dist/code-lab.esm.js export CodeLabWorkbench', async () => {
+    const cjs = require(path.join(PKG_DIR, 'dist/code-lab.js'));
+    assert.ok(cjs.CodeLabWorkbench, 'dist/code-lab.js must export CodeLabWorkbench');
+    assert.ok(cjs.CodeLabWorkbenchComponents, 'dist/code-lab.js must export CodeLabWorkbenchComponents');
+
+    const esm = await import(pathToFileURL(path.join(PKG_DIR, 'dist/code-lab.esm.js')).href);
+    assert.ok(esm.CodeLabWorkbench, 'dist/code-lab.esm.js must export CodeLabWorkbench');
+    assert.ok(esm.CodeLabWorkbenchComponents, 'dist/code-lab.esm.js must export CodeLabWorkbenchComponents');
+  });
+
   console.log('\n════════════════════════════════════════════════════════════════════════════');
   console.log(`Package Surface Integrity Complete: ${passed} passed, ${failed} failed`);
   console.log('════════════════════════════════════════════════════════════════════════════\n');

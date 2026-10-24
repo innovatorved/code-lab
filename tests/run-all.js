@@ -60,6 +60,8 @@ const SUITES = [
   'tests/test-terminal-multisession-cdn.js',
   'tests/test-system-design-tools.js',
   'tests/test-cpp-extension.js',
+  'tests/test-python-extension.js',
+  'tests/test-ide-power-features.js',
   'tests/test-version-sync.js',
   'tests/test-typescript-consolidation.js',
   'tests/test-untracked-dist.js',

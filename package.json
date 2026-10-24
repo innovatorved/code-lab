@@ -1,7 +1,7 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "0.2.0",
-  "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, and Real WebAssembly C++20 (Clang/WASI) Extension.",
+  "version": "0.3.0",
+  "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, Real WebAssembly C++20 (Clang/WASI) Extension, and Python 3.12 (Pyodide WebAssembly) Extension.",
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",
   "types": "./dist/code-lab.d.ts",
@@ -54,6 +54,12 @@
       "import": "./dist/extensions/cpp.esm.js",
       "require": "./dist/extensions/cpp.js",
       "default": "./dist/extensions/cpp.js"
+    },
+    "./extensions/python": {
+      "types": "./dist/extensions/python.d.ts",
+      "import": "./dist/extensions/python.esm.js",
+      "require": "./dist/extensions/python.js",
+      "default": "./dist/extensions/python.js"
     },
     "./schemas": {
       "types": "./dist/schemas.d.ts",

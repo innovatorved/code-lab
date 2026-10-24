@@ -4,6 +4,33 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-24
+
+### Added
+- **Core Codebase Modularization (`src/workbench/`, `src/runtime/`, `src/shell/`)**:
+  - Refactored monolithic files into clean, single-responsibility submodules while keeping all package entrypoints (`src/index.ts`, `dist/code-lab.{js,esm.js,d.ts}`, `dist/extensions/*`) 100% backwards-compatible.
+  - Safe, idempotent `.use()` extension chaining that refreshes toolbar and language switcher controls without destroying an already mounted Monaco instance or leaking DOM listeners.
+- **Contextual Execution UI & Smooth Workbench UX**:
+  - **Guided Lab Mode**: Features prominent `[▶ Run Demo (⇧⌘↵)]` and primary `[✓ Verify Step (⌘↵)]` actions in the topbar with the `Test Suite` drawer tab open by default.
+  - **Normal / Sandbox Mode**: Features a VS Code-style split button `[▶ Run Code (⌘↵) | ▾]` with dropdown options (`Run Entry`, `Run Active File`, `Run Tests`, `Configure Stdin`), with the drawer defaulting to `Terminal & REPL` and the `Test Suite` tab neatly hidden until tests are executed.
+  - **Contextual Web Preview**: Topbar globe button and drawer tab are automatically hidden on pure DSA / C++ / Python workspaces and dynamically reveal only when HTML files exist or an HTTP/Bun server listens on a port.
+- **Six High-Impact IDE Power Features**:
+  - **First-Class Problems Drawer Tab**: Dedicated `⚠ Problems (N)` tab aggregating JS/TS, C++, and Python diagnostics with live badges and 1-click cursor navigation to error line and column.
+  - **Execution Time & Peak Memory HUD Badge**: High-resolution performance badge (`⏱ 12.4 ms · 🧠 1.8 MB`) in the drawer header and status bar across Node, Bun, WASI C++, and Pyodide.
+  - **Collapsible Stdin / Custom Input Panel**: Monospace textarea in the drawer for passing DSA / competitive-programming input directly into `std::cin`, `sys.stdin`, and `process.stdin`.
+  - **Native Monaco Side-by-Side Diff Editor**: Inline Monaco diff editor (`monaco.editor.createDiffEditor`) with segmented toggles for `Starter ↔ Current` and `Current ↔ Solution` with 1-click revert and solution apply.
+  - **Visible Command Palette Pill & Format Document**: Clickable topbar `🔍 Command Palette (⇧⌘P)` pill trigger + `Format Document` (`⇧⌥F`) across all languages.
+  - **Zero-Backend URL Workspace Snapshot**: URL hash snapshot compression (`#codelab=<base64url>`) powered by `CompressionStream('deflate-raw')` for instant zero-server workspace sharing.
+- **Built-in VS Code-Style C++20 Intelligence (`@innovatorved/code-lab/extensions/cpp`)**:
+  - Rich Monaco completions for STL containers, algorithms, types, and standard library headers with detailed hover documentation.
+  - Debounced static AST linter (`analyzeCppSource`) and live Clang compiler stderr error-squiggles (`applyClangStderrDiagnostics`).
+- **Python 3.12 WebAssembly Extension (`@innovatorved/code-lab/extensions/python`)**:
+  - Pure CPython 3.12 WebAssembly execution via Pyodide with lazy-loaded CDN binaries and IndexedDB caching.
+  - Seeded `/usr/lib/python/` standard DSA helpers (`codelab_dsa.py` with `ListNode`, `TreeNode`, `MinHeap`, `MaxHeap`) and structured test framework (`codelab_test.py` with `describe`, `it`, `assert_equal`, `__CODELAB_TEST__` telemetry).
+  - Shell CLI commands: `python`, `python3`, `pytest`, `pip` (expanding POSIX coreutils to 71).
+  - 4-way language switcher (`JS | TS | C++ | PY`).
+  - Traceback and static linting (`applyPythonTracebackDiagnostics`, `analyzePythonSource`) and PEP-8 formatting (`formatPythonSource`).
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

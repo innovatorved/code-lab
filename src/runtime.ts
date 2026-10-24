@@ -8606,6 +8606,7 @@ function __initVirtualRuntime(rootScope) {
           if (vfs.existsSync(alt)) entryAbs = alt;
         }
         const isCppEntry = /\.(cpp|cc|cxx)$/i.test(entryAbs);
+        const isPyEntry = /\.py$/i.test(entryAbs);
         const isWasmEntry = /\.wasm$/i.test(entryAbs) || Boolean(options.wasmBinary);
         if (isWasmEntry) {
           const wasmBytes = options.wasmBinary || vfs.readFileSync(entryAbs);
@@ -8655,6 +8656,36 @@ function __initVirtualRuntime(rootScope) {
             exitCode = compileRes.exitCode;
             hasExited = true;
           }
+        } else if (isPyEntry) {
+          const pyCompiler =
+            options.pythonCompiler ||
+            (typeof globalThis !== 'undefined' && globalThis.__codelabPythonCompiler) ||
+            (rootScope && rootScope.__codelabPythonCompiler);
+          if (typeof pyCompiler !== 'function') {
+            throw new Error(
+              'Python WebAssembly toolchain is not registered. Enable pythonExtension from "@innovatorved/code-lab/extensions/python" to run Python files.'
+            );
+          }
+          const pyRes = await pyCompiler({
+            entry: entryAbs,
+            vfs,
+            files: typeof vfs.toSnapshot === 'function' ? vfs.toSnapshot('/workspace') : (files || {}),
+            args: argv || [entryAbs],
+            env: Object.assign({}, sandboxProcess.env, options.env || {}),
+            stdin: options.stdin || '',
+            testFilter,
+            onStdout: emitStdout,
+            onStderr: emitStderr
+          });
+          if (pyRes) {
+            exitCode = typeof pyRes.exitCode === 'number' ? pyRes.exitCode : (pyRes.ok ? 0 : 1);
+            if (pyRes.testResults && Array.isArray(pyRes.testResults)) {
+              for (const tr of pyRes.testResults) {
+                testResults.push(tr);
+              }
+            }
+          }
+          hasExited = true;
         } else {
           // Check if the file in VFS starts with WASM magic bytes (\0asm)
           let rawBuf = null;
@@ -9521,12 +9552,13 @@ _hostRuntime.cancelWorkerExecution = function cancelWorkerExecution(reason = 'Ex
 };
 
 _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
-  const isCppOrWasm =
+  const isNonJs =
     Boolean(options.wasmBinary) ||
     Boolean(options.cppCompiler) ||
-    (typeof options.entry === 'string' && /\.(cpp|cc|cxx|wasm)$/i.test(options.entry));
+    Boolean(options.pythonCompiler) ||
+    (typeof options.entry === 'string' && /\.(cpp|cc|cxx|wasm|py)$/i.test(options.entry));
   if (
-    isCppOrWasm ||
+    isNonJs ||
     typeof Worker === 'undefined' ||
     typeof Blob === 'undefined' ||
     typeof URL === 'undefined' ||

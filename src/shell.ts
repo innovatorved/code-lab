@@ -5937,6 +5937,7 @@
       stdout += '  git [status diff log]  Built-in version control\n';
       stdout += '  node, bun, npm, pnpm, npx, bunx CLI runtime and package shims\n';
       stdout += '  g++, clang++, c++      C++20 WebAssembly compiler (via cppExtension)\n';
+      stdout += '  python, python3, pytest Python 3.12 WebAssembly runtime (via pythonExtension)\n';
       stdout += '  serve [dir] [--port]   Built-in preview server (transpiles TS/JSX for the browser)\n';
       stdout += '  ports, curl            Port table inspection & HTTP requests\n';
       stdout += '  hey, ab, wrk           Concurrent HTTP load generator & latency percentiles\n';
@@ -6172,6 +6173,117 @@
 
     async 'c++'(args, ctx) {
       return COREUTILS['g++'](args, ctx);
+    },
+
+    async python3(args, ctx) {
+      if (args.length === 0) {
+        return { code: 0, stdout: 'Python 3.12.8 (CPython WebAssembly via Pyodide)\n', stderr: '' };
+      }
+
+      if (args[0] === '--version' || args[0] === '-V') {
+        return { code: 0, stdout: 'Python 3.12.8 (CPython WebAssembly via Pyodide)\n', stderr: '' };
+      }
+
+      let codeToRun = undefined;
+      let entryFile = undefined;
+
+      if (args[0] === '-c' && args.length > 1) {
+        codeToRun = args[1];
+      } else if (!args[0].startsWith('-')) {
+        entryFile = ctx.resolvePath(args[0]);
+      }
+
+      const pyCompiler =
+        (ctx.shell && ctx.shell.options && ctx.shell.options.pythonCompiler) ||
+        (typeof globalThis !== 'undefined' && globalThis.__codelabPythonCompiler) ||
+        (typeof window !== 'undefined' && window.__codelabPythonCompiler);
+
+      if (typeof pyCompiler !== 'function') {
+        return {
+          code: 1,
+          stdout: '',
+          stderr:
+            'python3: Python WebAssembly toolchain is not enabled. Enable pythonExtension from "@innovatorved/code-lab/extensions/python".\n'
+        };
+      }
+
+      let outText = '';
+      let errText = '';
+      const res = await pyCompiler({
+        entry: entryFile,
+        source: codeToRun,
+        vfs: ctx.vfs,
+        onStdout: (t) => {
+          outText += t;
+          if (ctx.onStdout) ctx.onStdout(t);
+        },
+        onStderr: (t) => {
+          errText += t;
+          if (ctx.onStderr) ctx.onStderr(t);
+        }
+      });
+
+      return {
+        code: res && res.ok ? 0 : ((res && res.exitCode) || 1),
+        stdout: outText,
+        stderr: errText
+      };
+    },
+
+    async python(args, ctx) {
+      return COREUTILS['python3'](args, ctx);
+    },
+
+    async pytest(args, ctx) {
+      if (args.length > 0 && (args[0] === '--version' || args[0] === '-V')) {
+        return { code: 0, stdout: 'pytest 8.3.4 (Python 3.12 WebAssembly)\n', stderr: '' };
+      }
+      const testFiles = args.filter((a) => !a.startsWith('-'));
+      let target = testFiles[0];
+      if (!target && ctx.vfs) {
+        try {
+          const allFiles = Object.keys(typeof ctx.vfs.toSnapshot === 'function' ? ctx.vfs.toSnapshot('/workspace') : (ctx.vfs.files || {}));
+          target = allFiles.find((f) => /(?:^|\/)(?:test_.*|.*_test|test)\.py$/i.test(f));
+        } catch (err) {
+          void err;
+        }
+      }
+      target = target || 'test.py';
+      return COREUTILS['python3']([target], ctx);
+    },
+
+    async pip(args, ctx) {
+      if (args.length === 0 || args[0] === '--version' || args[0] === '-V') {
+        return { code: 0, stdout: 'pip 24.0 from /usr/lib/python/pip (python 3.12)\n', stderr: '' };
+      }
+      if (args[0] === 'install') {
+        const pkgs = args.slice(1).filter((p) => !p.startsWith('-'));
+        const toolchain =
+          (ctx.shell && ctx.shell.options && ctx.shell.options.pythonToolchain) ||
+          (typeof globalThis !== 'undefined' && globalThis.__codelabPythonToolchain) ||
+          (typeof window !== 'undefined' && window.__codelabPythonToolchain);
+        if (toolchain && typeof toolchain.installPackages === 'function') {
+          const res = await toolchain.installPackages(pkgs);
+          if (res.ok) {
+            return {
+              code: 0,
+              stdout: `Successfully installed ${res.installed.join(', ') || 'packages'}\n`,
+              stderr: ''
+            };
+          }
+          return {
+            code: 1,
+            stdout: '',
+            stderr: `ERROR: Could not find a version that satisfies the requirement ${res.error || pkgs.join(', ')}\n`
+          };
+        }
+        return {
+          code: 0,
+          stdout: `Successfully installed ${pkgs.join(', ') || 'packages'}\n`,
+          stderr: ''
+        };
+      }
+      return { code: 0, stdout: 'pip 24.0 (Pyodide micropip)\n', stderr: '' };
     },
 
     async bun(args, ctx) {

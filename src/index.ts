@@ -1,11 +1,11 @@
 /**
- * @innovatorved/code-lab v0.2.0
- * Browser-native IDE, POSIX Shell, Web Worker Node.js/Bun Runtime, WASI C++20 Toolchain, and Git Engine.
+ * @innovatorved/code-lab v0.3.0
+ * Browser-native IDE, POSIX Shell, Web Worker Node.js/Bun Runtime, WASI C++20 Toolchain, Python 3.12 WebAssembly, and Git Engine.
  */
 
 export * from './schemas';
 export * from './logger';
-export { SafeHtml, isSafeHtml, raw, html } from './html';
+export { type SafeHtml, isSafeHtml, raw, html } from './html';
 export * from './csp';
 export * from './zip';
 export {
@@ -50,6 +50,13 @@ export {
   CodeLabShell
 } from './shell';
 export * from './terminal';
+export {
+  CodeLabWorkbench,
+  Workbench,
+  CodeLabElement,
+  CodeLab
+} from './workbench';
+export * from './workbench/index';
 export { guidedLabExtension } from './extensions/guided-lab';
 export {
   type JavaScriptExtensionOptions,
@@ -65,22 +72,46 @@ export {
   type CppCompileOptions,
   type CppCompileResult,
   type CppCompilerAdapter,
+  type CppSymbolDoc,
   DEFAULT_CPP_CDN_BASE_URL,
   BUILTIN_CPP_HEADERS,
+  STANDARD_CPP20_HEADERS,
+  CPP_COMPLETIONS_AND_HOVERS,
   extractTarToVfs,
   createTarArchive,
   seedCppHeadersIntoVfs,
   parseCppCompilerFlags,
   CppToolchainManager,
   registerCppCompilerOnRuntime,
+  registerMonacoCppLanguageService,
+  analyzeCppSource,
+  applyClangStderrDiagnostics,
   cppExtension,
   createCppExtension
 } from './extensions/cpp';
+export {
+  type ExtendedPythonExtensionOptions,
+  type PythonCompileResult,
+  type PythonSymbolDoc,
+  DEFAULT_PYTHON_CDN_BASE_URL,
+  BUILTIN_PYTHON_MODULES,
+  PYTHON_COMPLETIONS_AND_HOVERS,
+  PythonToolchainManager,
+  seedPythonModulesIntoVfs,
+  registerPythonCompilerOnRuntime,
+  registerMonacoPythonLanguageService,
+  analyzePythonSource,
+  applyPythonTracebackDiagnostics,
+  formatPythonSource,
+  pythonExtension,
+  createPythonExtension
+} from './extensions/python';
 
 import { guidedLabExtension } from './extensions/guided-lab';
 import { javascriptExtension } from './extensions/javascript';
 import { typescriptExtension } from './extensions/typescript';
 import { cppExtension } from './extensions/cpp';
+import { pythonExtension } from './extensions/python';
 
 declare const globalThis: any;
 const root = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : {});
@@ -92,6 +123,7 @@ if (root.CodeLab) {
   root.CodeLab.extensions.javascript = javascriptExtension;
   root.CodeLab.extensions.typescript = typescriptExtension;
   root.CodeLab.extensions.cpp = cppExtension;
+  root.CodeLab.extensions.python = pythonExtension;
 }
 
 export default (root.CodeLab || {});

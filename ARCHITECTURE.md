@@ -1,6 +1,6 @@
-# `@innovatorved/code-lab` Architecture (v0.2.0)
+# `@innovatorved/code-lab` Architecture (v0.3.0)
 
-`@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 + WASI C++20 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`; modular extensions under `@innovatorved/code-lab/extensions/{guided-lab,javascript,typescript,cpp}`).
+`@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 + WASI C++20 + Python 3.12 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`; modular extensions under `@innovatorved/code-lab/extensions/{guided-lab,javascript,typescript,cpp,python}`).
 
 It is designed around two strictly decoupled layers that can be used together (`dist/code-lab.js`) or independently (`dist/runtime.js`, `dist/shell.js`, `dist/terminal.js` for headless or modular execution):
 
@@ -27,7 +27,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 │                     src/terminal.ts)  │  │  (src/runtime.ts)                │
 │  • Recursive-descent AST parser       │  │  • Web Worker pool + preemption  │
 │  • Pipes (|), redirects (>, >>, 2>&1) │  │  • In-memory POSIX VFS (/tmp, …) │
-│  • 67 POSIX coreutils + git + jq      │  │  • Node.js v22 (50 built-in mods)│
+│  • 71 POSIX coreutils + git + jq      │  │  • Node.js v22 (50 built-in mods)│
 │  • Interactive PTY ANSI/256-color     │  │  • Bun v1.1 (serve, sqlite, test)│
 │  • Job table (ps, jobs, fg, bg, kill) │  │  • WASI Preview 1 + C++20 Clang  │
 └───────────────────────────────────────┘  └──────────────────────────────────┘
@@ -69,11 +69,11 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 `createPosixShell` implements a complete POSIX shell interpreter inside the browser:
 - **Lexer & Recursive-Descent AST Parser**: Supports single/double quotes, escape sequences, pipelines (`cmd1 | cmd2 | cmd3`), logical operators (`&&`, `||`, `;`), background execution (`&`), I/O redirection (`>`, `>>`, `<`, `<<<`, `2>`, `2>&1`, `&>`), environment variable expansion (`$VAR`, `${VAR:-default}`, `${VAR:=default}`, `${#VAR}`, `$?`, `$$`), command substitution (`$(...)`), arithmetic expansion (`$((...))`), brace expansion (`{a,b,c}`, `{1..5}`), and globbing (`*`, `?`, `**`).
-- **67 Built-in Coreutils**:
+- **71 Built-in Coreutils**:
   - File & Directory: `ls`, `cat`, `head`, `tail`, `wc`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `ln`, `pwd`, `cd`, `find`, `tree`, `stat`, `file`, `du`, `df`, `chmod`, `chown`, `mktemp`, `basename`, `dirname`, `realpath`.
   - Text & Data Processing: `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `tr`, `tee`, `xargs`, `diff`, `jq`, `xxd`, `hexdump`, `base64`, `md5sum`, `sha256sum`.
   - Networking, Load Testing, Chaos & Databases: `curl`, `hey` (`ab`, `wrk`), `chaos`, `sqlite3`, `redis-cli`, `nc`, `ping`, `dig`, `nslookup`, `lsof`, `netstat`, `ss`, `ps`, `top`, `kill`, `jobs`, `fg`, `bg`, `tar`, `gzip`, `gunzip`.
-  - Developer Toolchains: `node`, `bun`, `npm`, `pnpm`, `npx`, `bunx`, `tsc`, `g++`, `clang++`, `c++`, `git` (`init`, `status`, `add`, `commit`, `log`, `diff`, `branch`, `checkout`, `clone`).
+  - Developer Toolchains: `node`, `bun`, `npm`, `pnpm`, `npx`, `bunx`, `tsc`, `g++`, `clang++`, `c++`, `python`, `python3`, `pytest`, `pip`, `git` (`init`, `status`, `add`, `commit`, `log`, `diff`, `branch`, `checkout`, `clone`).
   - Web Preview: `serve` (built-in static dev server that transpiles TS/TSX/JSX to browser-native ESM and injects a jsDelivr `+esm` import map for bare specifiers).
 
 ---
@@ -113,6 +113,7 @@ Running `bun run build` (`bun run tools/bundle.js`) produces:
 - `dist/extensions/javascript.js`, `dist/extensions/javascript.esm.js` & `dist/extensions/javascript.d.ts` (zero-dependency JavaScript language extension)
 - `dist/extensions/typescript.js`, `dist/extensions/typescript.esm.js` & `dist/extensions/typescript.d.ts` (opt-in TypeScript language extension)
 - `dist/extensions/cpp.js`, `dist/extensions/cpp.esm.js` & `dist/extensions/cpp.d.ts` (opt-in Real C++20 in WebAssembly Clang/LLVM + LLD + WASI Preview 1 toolchain extension)
+- `dist/extensions/python.js`, `dist/extensions/python.esm.js` & `dist/extensions/python.d.ts` (opt-in Real Python 3.12 in WebAssembly CPython WASI / Pyodide extension)
 - `dist/code-lab.css` (standalone dark/light CSS variables & workbench styles)
 - `dist/preview-sw.js` (Web Preview virtual-loopback Service Worker for pop-out tabs; also copied to `examples/cloud-ide/public/preview-sw.js` for root scope)
 - `dist/code-lab.d.ts` (TypeScript definitions for `CodeLab`, `CodeLabWorkbench`, `CodeLabElement`, `CodeLabRuntime`, `CodeLabShell`, `CodeLabTerminal`, and the strict leaf modules `zip`, `storage`, `search`, `diagnostics`, and `scm`)
@@ -132,6 +133,6 @@ Running `bun run build` (`bun run tools/bundle.js`) produces:
 | **Visual Source Control (SCM)** | Staging, unstaging, diffing, and commit history | `src/scm.ts` (`createGitState`, `computeGitStatus`, `stageFile`, `unstageFile`, `commitChanges`, `computeShortCommitHash`) — Pure TypeScript SCM state machine synced with the POSIX shell `git` command |
 | **Live Preview & Error Overlay** | Hot/debounced reload, console bridge, runtime error overlay | `src/csp.ts` (`buildPreviewShims`) + `src/workbench.ts` — 300ms debounced VFS-synced auto-reload, `codelab:preview-console` forwarding to terminal logs, and `codelab:preview-error` in-frame overlay |
 
-All 41 test suites (`bun run test:all` and `node tests/run-all.js`) and the Playwright Chromium E2E suite (`bun run test:browser`) verify these modules and end-to-end workbench flows against the built `dist/*` artifacts.
+All 43 test suites (`bun run test:all` and `node tests/run-all.js`) and the Playwright Chromium E2E suite (`bun run test:browser`) verify these modules and end-to-end workbench flows against the built `dist/*` artifacts.
 
 

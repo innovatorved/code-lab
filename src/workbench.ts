@@ -57,7 +57,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.2.0';
+  const CODELAB_VERSION = '0.3.0';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -1135,8 +1135,8 @@ int main() {
 `
   };
 
-  // Helper to convert JS file set to TS or C++ file set if explicit language files aren't provided
-  function mapFilesToLanguage(filesObj, lang, explicitTsFiles, explicitCppFiles) {
+  // Helper to convert JS file set to TS, C++, or Python file set if explicit language files aren't provided
+  function mapFilesToLanguage(filesObj, lang, explicitTsFiles, explicitCppFiles, explicitPyFiles) {
     if (lang === 'ts' && explicitTsFiles && Object.keys(explicitTsFiles).length > 0) {
       return { ...explicitTsFiles };
     }
@@ -1159,6 +1159,25 @@ int main() {
       }
       return outCpp;
     }
+    if (lang === 'py') {
+      if (explicitPyFiles && Object.keys(explicitPyFiles).length > 0) {
+        return { ...explicitPyFiles };
+      }
+      const existingPy = {};
+      for (const [name, content] of Object.entries(filesObj || {})) {
+        if (/\.(py|md)$/i.test(name)) {
+          existingPy[name] = content;
+        }
+      }
+      if (Object.keys(existingPy).some(f => /\.py$/i.test(f))) {
+        return existingPy;
+      }
+      const outPy = { ...DEFAULT_STANDALONE_PYTHON_FILES };
+      if (filesObj && filesObj['README.md']) {
+        outPy['README.md'] = filesObj['README.md'];
+      }
+      return outPy;
+    }
     const out = {};
     for (const [name, content] of Object.entries(filesObj || {})) {
       if (lang === 'ts' && name.endsWith('.js')) {
@@ -1172,6 +1191,11 @@ int main() {
     }
     return out;
   }
+
+  const DEFAULT_STANDALONE_PYTHON_FILES = {
+    'main.py': `"""\\nStandalone Python 3.12 Sandbox with CPython WebAssembly.\\n"""\\nfrom codelab_test import describe, it, assert_equal\\n\\ndef solve(x):\\n    return x\\n\\nif __name__ == '__main__':\\n    print("Hello from Python 3.12 in CodeLab!")\\n    print("Output:", solve({"status": "ok"}))\\n`,
+    'test.py': `from codelab_test import describe, it, assert_equal\\nfrom main import solve\\n\\nwith describe("Python Sandbox Test Suite"):\\n    with it("returns input value"):\\n        assert_equal(solve(42), 42)\\n`
+  };
 
   const DEFAULT_STANDALONE_FILES = {
     'index.js': `'use strict';\n\nfunction solve(input) {\n  return input;\n}\n\nmodule.exports = { solve };\n`,
@@ -1215,7 +1239,12 @@ int main() {
     tablet: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
     smartphone: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>',
     externalLink: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
-    x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+    x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    warning: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    memory: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v2"/><path d="M10 19v2"/><path d="M14 19v2"/><path d="M18 19v2"/><path d="M6 3v2"/><path d="M10 3v2"/><path d="M14 3v2"/><path d="M18 3v2"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>',
+    keyboard: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>',
+    share: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
   };
 
   let _workbenchInstanceCounter = 0;
@@ -1392,7 +1421,9 @@ int main() {
         ...(options.tsStarterFiles ? { tsStarterFiles: options.tsStarterFiles } : {}),
         ...((options.tsSolutionFiles || options.tsFiles) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles } : {}),
         ...(options.cppStarterFiles ? { cppStarterFiles: options.cppStarterFiles } : {}),
-        ...((options.cppSolutionFiles || options.cppFiles) ? { cppSolutionFiles: options.cppSolutionFiles || options.cppFiles } : {})
+        ...((options.cppSolutionFiles || options.cppFiles) ? { cppSolutionFiles: options.cppSolutionFiles || options.cppFiles } : {}),
+        ...(options.pyStarterFiles ? { pyStarterFiles: options.pyStarterFiles } : {}),
+        ...((options.pySolutionFiles || options.pyFiles) ? { pySolutionFiles: options.pySolutionFiles || options.pyFiles } : {})
       };
       this.steps = options.steps || this.guidedConfig?.steps || [];
       this.hasGuidedLab = Boolean(
@@ -1403,7 +1434,7 @@ int main() {
       this.enabledLanguages = new Set(['js']);
       if (Array.isArray(options.languages)) {
         for (const l of options.languages) {
-          if (l === 'js' || l === 'ts' || l === 'cpp') this.enabledLanguages.add(l);
+          if (l === 'js' || l === 'ts' || l === 'cpp' || l === 'py') this.enabledLanguages.add(l);
         }
       }
       if (
@@ -1425,6 +1456,15 @@ int main() {
       ) {
         this.enabledLanguages.add('cpp');
       }
+      if (
+        this.guidedConfig.pyStarterFiles ||
+        this.guidedConfig.pySolutionFiles ||
+        this.guidedConfig.pyFiles ||
+        options.lang === 'py' ||
+        options.language === 'py'
+      ) {
+        this.enabledLanguages.add('py');
+      }
       this.hasMultipleLanguages = Boolean(
         options.hasMultipleLanguages ||
         options.languages ||
@@ -1435,8 +1475,13 @@ int main() {
         this.guidedConfig.cppStarterFiles ||
         this.guidedConfig.cppSolutionFiles ||
         this.guidedConfig.cppFiles ||
+        this.guidedConfig.pyStarterFiles ||
+        this.guidedConfig.pySolutionFiles ||
+        this.guidedConfig.pyFiles ||
         (this.hasGuidedLab && (options.lang || options.language))
       );
+      this.showWebPreviewOption = Boolean(options.showWebPreview);
+      this._diffManager = null;
 
       // Load saved user state from localStorage (with in-memory fallback)
       this.savedState = this._loadState();
@@ -1463,7 +1508,12 @@ int main() {
       this.renamingItem = null;
       this._draggedFile = null;
       this.guideTab = 'steps'; // 'steps' | 'readme'
-      this.drawerTab = 'tests'; // 'tests' | 'terminal' | 'ports' | 'preview' | 'network' | 'inspector'
+      this.drawerTab = (this.hasGuidedLab && this.mode === 'guided') ? 'tests' : 'terminal';
+      this.testSuiteVisible = Boolean(this.hasGuidedLab && this.mode === 'guided');
+      this.lastDurationMs = null;
+      this.lastPeakMemoryBytes = null;
+      this.customStdin = (options && options.stdin) || '';
+      this._eventsBound = false;
       // ── Web Preview (M3) state ──
       this.previewState = {
         port: null,
@@ -1601,6 +1651,7 @@ int main() {
       this._renderShell();
       this._bindEvents();
       this._initEditor();
+      this._checkUrlSnapshot();
 
       const initialPlugins = [
         ...(Array.isArray(options.extensions) ? options.extensions : []),
@@ -2032,9 +2083,12 @@ int main() {
         }
       }
       if (durEl) {
-        if (typeof this.lastRunDurationMs === 'number' && !Number.isNaN(this.lastRunDurationMs)) {
+        const ms = (typeof this.lastDurationMs === 'number' && !Number.isNaN(this.lastDurationMs))
+          ? this.lastDurationMs
+          : this.lastRunDurationMs;
+        if (typeof ms === 'number' && !Number.isNaN(ms)) {
           durEl.style.display = 'inline-flex';
-          durEl.textContent = `⚡ ${this.lastRunDurationMs.toFixed(1)}ms`;
+          durEl.textContent = `⚡ ${ms.toFixed(1)}ms`;
         } else {
           durEl.style.display = 'none';
         }
@@ -2045,10 +2099,13 @@ int main() {
       if (langEl) {
         langEl.textContent = this.lang === 'cpp'
           ? 'C++20 (Clang/WASI)'
-          : this.lang === 'ts'
-            ? 'TypeScript 5.x'
-            : 'JavaScript (CJS/ESM)';
+          : this.lang === 'py'
+            ? 'Python 3.12 (CPython WASI)'
+            : this.lang === 'ts'
+              ? 'TypeScript 5.x'
+              : 'JavaScript (CJS/ESM)';
       }
+      this._updateTelemetryHud();
     }
 
     _getBaseFilesForModeAndLang(mode, lang) {
@@ -2057,19 +2114,21 @@ int main() {
         ...this.referenceFiles,
         ...(this.guidedConfig?.starterFiles || {})
       };
-      if (mode === 'guided' && (this.guidedConfig?.starterFiles || this.guidedConfig?.tsStarterFiles || this.guidedConfig?.cppStarterFiles)) {
+      if (mode === 'guided' && (this.guidedConfig?.starterFiles || this.guidedConfig?.tsStarterFiles || this.guidedConfig?.cppStarterFiles || this.guidedConfig?.pyStarterFiles)) {
         return mapFilesToLanguage(
           baseJsStarter,
           lang,
           this.guidedConfig?.tsStarterFiles,
-          this.guidedConfig?.cppStarterFiles
+          this.guidedConfig?.cppStarterFiles,
+          this.guidedConfig?.pyStarterFiles
         );
       }
       return mapFilesToLanguage(
         baseJsSolution,
         lang,
         this.guidedConfig?.tsSolutionFiles,
-        this.guidedConfig?.cppSolutionFiles
+        this.guidedConfig?.cppSolutionFiles,
+        this.guidedConfig?.pySolutionFiles
       );
     }
 
@@ -2093,6 +2152,20 @@ int main() {
 
     _pickDefaultFile() {
       const names = Object.keys(this.files);
+      if (this.lang === 'py') {
+        if (this.guidedConfig?.mainFile) {
+          const pyMain = this.guidedConfig.mainFile.replace(/\.(js|ts|cpp)$/, '.py');
+          if (this.files[pyMain]) return pyMain;
+        }
+        if (this.files['main.py']) return 'main.py';
+        if (this.files['solution.py']) return 'solution.py';
+        if (this.files['app.py']) return 'app.py';
+        const pyImpl = names.find(f =>
+          /\.py$/i.test(f) &&
+          !/(^|\/)(demo|test.*|.*_test)\.py$/i.test(f)
+        );
+        return pyImpl || names.find(f => !f.endsWith('.md')) || names[0] || '';
+      }
       if (this.lang === 'cpp') {
         if (this.guidedConfig?.mainFile) {
           const cppMain = this.guidedConfig.mainFile.replace(/\.(js|ts)$/, '.hpp');
@@ -2124,6 +2197,29 @@ int main() {
 
     _findEntryFile(kind) {
       const names = Object.keys(this.files);
+      if (this.lang === 'py') {
+        if (kind === 'test') {
+          if (this.explicitTestEntry) {
+            const pyTest = this.explicitTestEntry.replace(/\.(js|ts|cpp)$/, '.py');
+            if (this.files[pyTest]) return pyTest;
+            if (this.files[this.explicitTestEntry]) return this.explicitTestEntry;
+          }
+          if (this.files['test.py']) return 'test.py';
+          if (this.files['test_main.py']) return 'test_main.py';
+          return names.find(f => /(^|\/)(test.*|.*_test)\.py$/i.test(f)) || null;
+        }
+        if (this.explicitEntry) {
+          const pyEntry = this.explicitEntry.replace(/\.(js|ts|cpp)$/, '.py');
+          if (this.files[pyEntry]) return pyEntry;
+          if (this.files[this.explicitEntry]) return this.explicitEntry;
+        }
+        if (this.files['main.py']) return 'main.py';
+        if (this.files['demo.py']) return 'demo.py';
+        if (this.files['app.py']) return 'app.py';
+        return names.find(f => /(^|\/)(main|demo|app)\.py$/i.test(f)) ||
+          names.find(f => /\.py$/i.test(f) && !/(^|\/)(test.*|.*_test)\.py$/i.test(f)) ||
+          null;
+      }
       if (this.lang === 'cpp') {
         if (kind === 'test') {
           if (this.explicitTestEntry) {
@@ -2155,16 +2251,16 @@ int main() {
         if (this.files[candidate]) return candidate;
         if (this.files[this.explicitEntry]) return this.explicitEntry;
       }
-      const pattern = kind === 'test' ? /(^|\/)test\.(js|ts|cpp|cc|cxx)$/i : /(^|\/)(demo|main)\.(js|ts|cpp|cc|cxx)$/i;
+      const pattern = kind === 'test' ? /(^|\/)test\.(js|ts|cpp|cc|cxx|py)$/i : /(^|\/)(demo|main)\.(js|ts|cpp|cc|cxx|py)$/i;
       const found = names.find(f => pattern.test(f));
       if (found) return found;
       if (kind === 'demo') {
-        const isConfigOrTest = f => /(^|\/)(test|.*\.(?:test|spec|config|d))\.(js|ts|mjs|cjs|cpp|cc|cxx)$/i.test(f) || /(^|\/)\.[^/]+$/i.test(f);
+        const isConfigOrTest = f => /(^|\/)(test|.*\.(?:test|spec|config|d))\.(js|ts|mjs|cjs|cpp|cc|cxx|py)$/i.test(f) || /(^|\/)\.[^/]+$/i.test(f);
         const hasHtmlEntry = Boolean(this.files['index.html'] || this.files['public/index.html']);
         if (hasHtmlEntry) {
           return names.find(f => /(^|\/)(server|app|demo)\.(js|ts)$/i.test(f) && !/^src\//i.test(f)) || null;
         }
-        return names.find(f => /\.(js|ts|cpp|cc|cxx)$/i.test(f) && !isConfigOrTest(f)) || null;
+        return names.find(f => /\.(js|ts|cpp|cc|cxx|py)$/i.test(f) && !isConfigOrTest(f)) || null;
       }
       return null;
     }
@@ -2186,9 +2282,17 @@ int main() {
           ? 'Send Ctrl+C — interrupt the running command'
           : 'Send Ctrl+C (clears the current input line)';
       }
-      this.container.querySelectorAll('[data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
+      this.container.querySelectorAll('[data-cl-action="run-code"], [data-cl-action="run-entry"], [data-cl-action="run-active-file"], [data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
         btn.disabled = this.isRunning;
       });
+    }
+
+    _hasWebContent() {
+      if (this.showWebPreviewOption === true) return true;
+      if (!this.files) return false;
+      if (this.files['index.html'] || this.files['src/index.html'] || this.files['public/index.html']) return true;
+      if (this.portTable && typeof this.portTable.listServers === 'function' && this.portTable.listServers().length > 0) return true;
+      return false;
     }
 
     _renderLanguageSwitcherHtml() {
@@ -2203,11 +2307,13 @@ int main() {
         !this.enabledLanguages.has('cpp')
       );
       const showCpp = Boolean(this.enabledLanguages && this.enabledLanguages.has('cpp'));
+      const showPy = Boolean(this.enabledLanguages && this.enabledLanguages.has('py'));
       return `
               <div class="codelab-lang-switch" role="group" aria-label="Language Selector">
                 <button type="button" class="codelab-lang-btn ${this.lang === 'js' ? 'active' : ''}" data-cl-lang="js" data-lang="js" aria-pressed="${this.lang === 'js'}">JS</button>
                 ${showTs ? `<button type="button" class="codelab-lang-btn ${this.lang === 'ts' ? 'active' : ''}" data-cl-lang="ts" data-lang="ts" aria-pressed="${this.lang === 'ts'}">TS</button>` : ''}
                 ${showCpp ? `<button type="button" class="codelab-lang-btn ${this.lang === 'cpp' ? 'active' : ''}" data-cl-lang="cpp" data-lang="cpp" aria-pressed="${this.lang === 'cpp'}">C++</button>` : ''}
+                ${showPy ? `<button type="button" class="codelab-lang-btn ${this.lang === 'py' ? 'active' : ''}" data-cl-lang="py" data-lang="py" aria-pressed="${this.lang === 'py'}">PY</button>` : ''}
               </div>
       `;
     }
@@ -2226,6 +2332,83 @@ int main() {
         }
       } else if (htmlStr) {
         topLeft.insertAdjacentHTML('beforeend', htmlStr);
+      }
+    }
+
+    _refreshToolbarAndTabs() {
+      if (!this.container) return;
+      this._refreshLanguageSwitcher();
+      const topbar = this.container.querySelector('.codelab-topbar');
+      if (topbar) {
+        const previewBtn = topbar.querySelector('#cl-preview-app-btn');
+        const hasWeb = this._hasWebContent();
+        if (hasWeb) {
+          if (!previewBtn) {
+            const stopBtn = topbar.querySelector('#cl-stop-btn');
+            if (stopBtn && stopBtn.parentElement) {
+              const globeHtml = `<button type="button" class="codelab-btn codelab-btn--icon" id="cl-preview-app-btn" data-cl-action="preview-app" title="Run &amp; Preview in Browser" aria-label="Run and Preview in Browser">${CL_ICONS.globe}</button>`;
+              stopBtn.insertAdjacentHTML('afterend', globeHtml);
+            }
+          } else {
+            previewBtn.style.display = 'inline-flex';
+          }
+        } else if (previewBtn) {
+          previewBtn.style.display = 'none';
+        }
+      }
+      this._refreshDrawerTabs();
+    }
+
+    _refreshDrawerTabs() {
+      if (!this.container) return;
+      const drawerTabs = this.container.querySelector('.codelab-drawer__tabs');
+      if (!drawerTabs) return;
+
+      const isGuided = Boolean(this.hasGuidedLab && this.mode === 'guided');
+      const showTests = isGuided || this.testSuiteVisible || this.drawerTab === 'tests';
+      const hasWeb = this._hasWebContent();
+      const problemsCount = this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function'
+        ? this._diagnosticsStore.getAll().length
+        : 0;
+
+      let probTab = drawerTabs.querySelector('[data-cl-drawertab="problems"]');
+      if (!probTab) {
+        const termTab = drawerTabs.querySelector('[data-cl-drawertab="terminal"]');
+        if (termTab) {
+          termTab.insertAdjacentHTML('afterend', `
+            <button type="button" role="tab" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
+              ${CL_ICONS.warning}
+              <span>Problems</span>
+              <span class="codelab-badge ${problemsCount > 0 ? 'codelab-badge--warn' : ''}" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:${problemsCount > 0 ? '#cca700' : 'rgba(255,255,255,0.1)'};color:#fff;">${problemsCount}</span>
+            </button>
+          `);
+        }
+      } else {
+        const countSpan = probTab.querySelector('#cl-problems-count');
+        if (countSpan) countSpan.textContent = String(problemsCount);
+      }
+
+      let testTab = drawerTabs.querySelector('[data-cl-drawertab="tests"]');
+      if (testTab) {
+        testTab.style.display = showTests ? 'inline-flex' : 'none';
+      }
+
+      let stdinTab = drawerTabs.querySelector('[data-cl-drawertab="stdin"]');
+      if (!stdinTab) {
+        const afterTab = testTab || drawerTabs.querySelector('[data-cl-drawertab="problems"]') || drawerTabs.querySelector('[data-cl-drawertab="terminal"]');
+        if (afterTab) {
+          afterTab.insertAdjacentHTML('afterend', `
+            <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input">
+              ${CL_ICONS.keyboard}
+              <span>Stdin</span>
+            </button>
+          `);
+        }
+      }
+
+      let previewTab = drawerTabs.querySelector('[data-cl-drawertab="preview"]');
+      if (previewTab) {
+        previewTab.style.display = hasWeb ? 'inline-flex' : 'none';
       }
     }
 
@@ -2270,6 +2453,12 @@ int main() {
               </div>
               ` : ''}
               ${this._renderLanguageSwitcherHtml()}
+              <span class="codelab-toolbar__sep" aria-hidden="true"></span>
+              <button type="button" class="codelab-cmd-trigger" data-cl-action="command-palette" title="Open Command Palette (⌘K / ⇧⌘P)">
+                ${CL_ICONS.search}
+                <span>Command Palette</span>
+                <kbd style="opacity:0.7">⇧⌘P</kbd>
+              </button>
             </div>
 
             <div class="codelab-topbar__right">
@@ -2277,18 +2466,50 @@ int main() {
                 ${CL_ICONS.stop}
                 <span>Stop</span>
               </button>
-              <button type="button" class="codelab-btn codelab-btn--run" data-cl-action="run-demo" title="Run demo.js (⌘+Shift+Enter)">
-                ${CL_ICONS.play}
-                <span>Run Demo</span>
-                <span class="codelab-btn__kbd">⇧⌘↵</span>
+              ${(this.hasGuidedLab && this.mode === 'guided') ? `
+                <button type="button" class="codelab-btn codelab-btn--run" data-cl-action="run-demo" title="Run demo.js (⌘+Shift+Enter)">
+                  ${CL_ICONS.play}
+                  <span>Run Demo</span>
+                  <span class="codelab-btn__kbd">⇧⌘↵</span>
+                </button>
+                <button type="button" class="codelab-btn codelab-btn--test" id="cl-primary-exec-btn" data-cl-action="verify-step" title="Verify Current Step (⌘+Enter)">
+                  ${CL_ICONS.check}
+                  <span>Verify Step</span>
+                  <span class="codelab-btn__kbd">⌘↵</span>
+                </button>
+              ` : `
+                <div class="codelab-btn-split">
+                  <button type="button" class="codelab-btn codelab-btn--run codelab-btn-split__main" id="cl-primary-exec-btn" data-cl-action="run-code" title="Run Code (⌘↵)">
+                    ${CL_ICONS.play}
+                    <span>Run Code</span>
+                    <span class="codelab-btn__kbd">⌘↵</span>
+                  </button>
+                  <button type="button" class="codelab-btn codelab-btn--run codelab-btn-split__trigger" id="cl-split-run-trigger" title="More Execution Options" aria-haspopup="true">
+                    ${CL_ICONS.chevronDown}
+                  </button>
+                  <div class="codelab-split-menu" id="cl-split-run-menu">
+                    <button type="button" class="codelab-split-menu__item" data-cl-action="run-demo">
+                      <span>▶ Run Entry / Demo</span> <kbd style="opacity:0.6">⌘↵</kbd>
+                    </button>
+                    <button type="button" class="codelab-split-menu__item" data-cl-action="run-active-file">
+                      <span>▶ Run Active File (${escapeHtml(this.activeFile || 'active')})</span> <kbd style="opacity:0.6">⇧⌘↵</kbd>
+                    </button>
+                    ${this._findEntryFile('test') ? `
+                    <button type="button" class="codelab-split-menu__item" data-cl-action="run-tests">
+                      <span>✓ Run Test Suite</span>
+                    </button>
+                    ` : ''}
+                    <button type="button" class="codelab-split-menu__item" data-cl-action="open-stdin">
+                      <span>⌨ Configure Stdin / Input...</span>
+                    </button>
+                  </div>
+                </div>
+              `}
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-preview-app-btn" data-cl-action="preview-app" title="Run &amp; Preview in Browser" aria-label="Run and Preview in Browser" style="display: ${this._hasWebContent() ? 'inline-flex' : 'none'}">
+                ${CL_ICONS.globe}
               </button>
-              <button type="button" class="codelab-btn codelab-btn--test" id="cl-primary-exec-btn" data-cl-action="${(this.hasGuidedLab && this.mode === 'guided') ? 'verify-step' : 'run-tests'}" title="${(this.hasGuidedLab && this.mode === 'guided') ? 'Verify Current Step (⌘+Enter)' : 'Run Test Suite (⌘+Enter)'}">
-                ${CL_ICONS.check}
-                <span>${(this.hasGuidedLab && this.mode === 'guided') ? 'Verify Step' : 'Run Tests'}</span>
-                <span class="codelab-btn__kbd">⌘↵</span>
-              </button>
-              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-preview-app-btn" data-cl-action="preview-app" title="Run &amp; Preview in Browser (built-in dev server)" aria-label="Run and Preview in Browser">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="share-snapshot" title="Share Snapshot Link (#codelab=...)" aria-label="Share Snapshot Link">
+                ${CL_ICONS.share}
               </button>
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               ${this.hasGuidedLab ? `
@@ -2386,22 +2607,33 @@ int main() {
               <div class="codelab-drawer codelab-bottom" id="cl-drawer">
                 <div class="codelab-drawer__bar">
                   <div class="codelab-drawer__tabs" role="tablist" aria-label="Execution Output Panels">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal">
+                      ${CL_ICONS.terminal}
+                      <span>Terminal &amp; REPL</span>
+                    </button>
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
+                      ${CL_ICONS.warning}
+                      <span>Problems</span>
+                      <span class="codelab-badge" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:rgba(255,255,255,0.1);color:#fff;">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
+                    </button>
+                    ${((this.hasGuidedLab && this.mode === 'guided') || this.testSuiteVisible || this.drawerTab === 'tests') ? `
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests">
                       ${CL_ICONS.check}
                       <span>Test Suite</span>
                       <span class="codelab-drawer__pill" id="cl-test-pill">Ready</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal">
-                      ${CL_ICONS.terminal}
-                      <span>Terminal &amp; REPL</span>
+                    ` : ''}
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input">
+                      ${CL_ICONS.keyboard}
+                      <span>Stdin</span>
                     </button>
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports">
                       ${CL_ICONS.radio}
                       <span>Ports</span>
                       <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview">
-                      ${CL_ICONS.externalLink || CL_ICONS.radio || ''}
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview" style="display: ${this._hasWebContent() ? 'inline-flex' : 'none'}">
+                      ${CL_ICONS.globe}
                       <span>Web Preview</span>
                     </button>
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network">
@@ -2415,6 +2647,7 @@ int main() {
                       <span class="codelab-drawer__pill" id="cl-vfs-pill">0 files</span>
                     </button>
                   </div>
+                  <div class="codelab-hud-pill" id="cl-telemetry-hud" style="display:none;" title="Last Execution Telemetry"></div>
                   <div style="display:flex;align-items:center;gap:6px;">
                     <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);">Ctrl+C</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Output" style="padding:2px 6px;font-size:11px;">Clear</button>
@@ -2443,7 +2676,7 @@ int main() {
               <span class="codelab-statusbar__sep">·</span>
               <span class="codelab-statusbar__item">UTF-8</span>
               <span class="codelab-statusbar__sep">·</span>
-              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
+              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
             </div>
           </footer>
 
@@ -3452,6 +3685,15 @@ int main() {
       });
 
       // Update pills
+      const problemsCountEl = this.container.querySelector('#cl-problems-count');
+      if (problemsCountEl) {
+        const count = this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function'
+          ? this._diagnosticsStore.getAll().length
+          : 0;
+        problemsCountEl.textContent = String(count);
+      }
+      this._updateTelemetryHud();
+
       if (testPill) {
         if (!this.lastTestResults.length) {
           testPill.textContent = 'Ready';
@@ -3477,6 +3719,61 @@ int main() {
         const diskCount = this.lastFsSnapshot.length;
         const httpCount = this.lastHttpTrace.length;
         vfsPill.textContent = httpCount > 0 ? `${diskCount} files · ${httpCount} reqs` : `${diskCount} files`;
+      }
+
+      if (this.drawerTab === 'problems') {
+        const store = this._diagnosticsStore;
+        const problems = store && typeof store.getAll === 'function' ? store.getAll() : [];
+        if (!problems.length) {
+          bodyEl.innerHTML = `
+            <div style="color:var(--cl-fg-muted);padding:16px;text-align:center;">
+              ${CL_ICONS.check} No problems detected in workspace.
+            </div>
+          `;
+          return;
+        }
+        bodyEl.innerHTML = `
+          <div class="codelab-problems-list">
+            ${problems.map(p => {
+              const icon = p.severity === 'error' ? '✖' : (p.severity === 'warning' ? '⚠' : 'ℹ');
+              const cls = p.severity === 'error' ? 'codelab-problem-item--error' : (p.severity === 'warning' ? 'codelab-problem-item--warning' : 'codelab-problem-item--info');
+              return `
+                <div class="codelab-problem-item ${cls}" data-cl-problem-file="${escapeHtml(p.file || '')}" data-cl-problem-line="${p.line || 1}" data-cl-problem-col="${p.col || 1}" role="button" tabindex="0">
+                  <span class="codelab-problem-item__icon">${icon}</span>
+                  <span class="codelab-problem-item__msg">${escapeHtml(p.message || '')}</span>
+                  <span class="codelab-problem-item__loc">${escapeHtml(p.file || '')}:${p.line || 1}:${p.col || 1}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+        return;
+      }
+
+      if (this.drawerTab === 'stdin') {
+        bodyEl.innerHTML = `
+          <div class="codelab-stdin-panel" style="padding:10px;height:100%;display:flex;flex-direction:column;box-sizing:border-box;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;color:var(--cl-fg-muted);">
+              <span>Standard Input (std::cin / sys.stdin / process.stdin)</span>
+              <button type="button" class="codelab-btn codelab-btn--sm" id="cl-stdin-clear-btn" style="padding:2px 8px;font-size:11px;">Clear</button>
+            </div>
+            <textarea id="cl-stdin-textarea" class="codelab-stdin-textarea" style="flex:1;width:100%;background:var(--cl-bg-input, #1e1e1e);color:var(--cl-fg, #d4d4d4);border:1px solid var(--cl-border, #333);border-radius:4px;padding:8px;font-family:var(--cl-font-mono, monospace);font-size:12px;resize:none;outline:none;box-sizing:border-box;" placeholder="Enter or paste custom stdin here (used by std::cin, sys.stdin, fs.readFileSync(0))...">${escapeHtml(this.customStdin || '')}</textarea>
+          </div>
+        `;
+        const ta = bodyEl.querySelector('#cl-stdin-textarea');
+        if (ta) {
+          ta.addEventListener('input', () => {
+            this.customStdin = ta.value;
+          });
+        }
+        const clearBtn = bodyEl.querySelector('#cl-stdin-clear-btn');
+        if (clearBtn && ta) {
+          clearBtn.addEventListener('click', () => {
+            this.customStdin = '';
+            ta.value = '';
+          });
+        }
+        return;
       }
 
       if (this.drawerTab === 'tests') {
@@ -3835,6 +4132,33 @@ int main() {
         this._activeStreamLine = '';
         this._activeStreamEl = null;
       }
+    }
+
+    _updateTelemetryHud() {
+      const hud = this.container ? this.container.querySelector('#cl-telemetry-hud') : null;
+      if (!hud) return;
+      if (this.lastDurationMs === null && this.lastPeakMemoryBytes === null) {
+        hud.style.display = 'none';
+        return;
+      }
+      hud.style.display = 'inline-flex';
+      let timeStr = '';
+      if (this.lastDurationMs !== null) {
+        timeStr = this.lastDurationMs < 1000
+          ? `${this.lastDurationMs.toFixed(1)} ms`
+          : `${(this.lastDurationMs / 1000).toFixed(2)} s`;
+      }
+      let memStr = '';
+      if (this.lastPeakMemoryBytes !== null && this.lastPeakMemoryBytes > 0) {
+        const mb = this.lastPeakMemoryBytes / (1024 * 1024);
+        const suffix = this.lang === 'cpp' ? 'Wasm' : this.lang === 'py' ? 'Heap' : 'Mem';
+        memStr = `${mb < 0.1 ? (this.lastPeakMemoryBytes / 1024).toFixed(1) + ' KB' : mb.toFixed(1) + ' MB'} ${suffix}`;
+      }
+      hud.innerHTML = `
+        ${timeStr ? `<span class="codelab-hud-pill__metric">${CL_ICONS.clock} <span>${timeStr}</span></span>` : ''}
+        ${timeStr && memStr ? `<span style="opacity:0.4;">·</span>` : ''}
+        ${memStr ? `<span class="codelab-hud-pill__metric">${CL_ICONS.memory} <span>${memStr}</span></span>` : ''}
+      `;
     }
 
     _handleInterrupt() {
@@ -5932,13 +6256,19 @@ int main() {
       let model = typeof this.monaco.editor.getModel === 'function' ? this.monaco.editor.getModel(uri) : null;
       const lang = /\.(cpp|cc|cxx|hpp|h)$/i.test(filename)
         ? 'cpp'
-        : filename.endsWith('.ts')
-          ? 'typescript'
-          : filename.endsWith('.json')
-            ? 'json'
-            : filename.endsWith('.md')
-              ? 'markdown'
-              : 'javascript';
+        : /\.py$/i.test(filename)
+          ? 'python'
+          : filename.endsWith('.ts')
+            ? 'typescript'
+            : filename.endsWith('.json')
+              ? 'json'
+              : filename.endsWith('.html')
+                ? 'html'
+                : filename.endsWith('.css')
+                  ? 'css'
+                  : filename.endsWith('.md')
+                    ? 'markdown'
+                    : 'javascript';
       if (!model) {
         model = this.monaco.editor.createModel(this.files[filename] || '', lang, uri);
         if (model && typeof model.onDidChangeContent === 'function') {
@@ -5947,6 +6277,12 @@ int main() {
             this.files[filename] = val;
             this._saveState();
             this._notifyCodeChange(filename, val);
+            if (this.lang === 'py' && typeof this._pyLintHandler === 'function') {
+              this._pyLintHandler(filename, val);
+            }
+            if (this.lang === 'cpp' && typeof this._cppLintHandler === 'function') {
+              this._cppLintHandler(filename, val);
+            }
           });
         }
       } else if (model.getValue() !== (this.files[filename] || '')) {
@@ -6049,6 +6385,9 @@ int main() {
 
     // ── Event Delegation & Interactive Splitters ───────────────────────────
     _bindEvents() {
+      if (this._eventsBound) return;
+      this._eventsBound = true;
+
       this._bindSplitters();
 
       this._escHandler = e => {
@@ -6117,6 +6456,16 @@ int main() {
           this.openCommandPalette('commands');
           return;
         }
+        if ((e.metaKey || e.ctrlKey) && keyLower === 'k') {
+          e.preventDefault();
+          this.openCommandPalette('commands');
+          return;
+        }
+        if (e.altKey && e.shiftKey && keyLower === 'f') {
+          e.preventDefault();
+          this.formatActiveDocument();
+          return;
+        }
         if ((e.metaKey || e.ctrlKey) && !e.shiftKey && keyLower === 'p') {
           e.preventDefault();
           this.openCommandPalette('files');
@@ -6133,11 +6482,15 @@ int main() {
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
           e.preventDefault();
           if (e.shiftKey) {
-            this.runDemo();
+            if (this.mode === 'guided') {
+              this.runDemo();
+            } else {
+              this.runActiveFile();
+            }
           } else if (this.mode === 'guided') {
             this.verifyCurrentStep();
           } else {
-            this.runTests();
+            this.runCode();
           }
         }
       });
@@ -6414,6 +6767,36 @@ int main() {
           return;
         }
 
+        const splitTrigger = e.target.closest('#cl-split-run-trigger');
+        if (splitTrigger) {
+          e.stopPropagation();
+          const menu = this.container.querySelector('#cl-split-run-menu');
+          if (menu) menu.classList.toggle('active');
+          return;
+        }
+
+        const splitMenu = this.container.querySelector('#cl-split-run-menu');
+        if (splitMenu && splitMenu.classList.contains('active') && !e.target.closest('.codelab-btn-split')) {
+          splitMenu.classList.remove('active');
+        }
+
+        const problemItem = e.target.closest('[data-cl-problem-file]');
+        if (problemItem) {
+          e.stopPropagation();
+          const pFile = problemItem.dataset.clProblemFile;
+          const pLine = Number(problemItem.dataset.clProblemLine || 1);
+          const pCol = Number(problemItem.dataset.clProblemCol || 1);
+          if (pFile) {
+            this.openFile(pFile);
+            if (this.editor && typeof this.editor.revealLineInCenter === 'function') {
+              this.editor.revealLineInCenter(pLine);
+              this.editor.setPosition({ lineNumber: pLine, column: pCol });
+              this.editor.focus();
+            }
+          }
+          return;
+        }
+
         const drawerTabBtn = e.target.closest('[data-cl-drawertab]');
         if (drawerTabBtn) {
           this.switchDrawerTab(drawerTabBtn.dataset.clDrawertab);
@@ -6422,8 +6805,16 @@ int main() {
 
         const actionBtn = e.target.closest('[data-cl-action], [data-action]');
         if (actionBtn) {
+          if (splitMenu && splitMenu.classList.contains('active')) {
+            splitMenu.classList.remove('active');
+          }
           const action = actionBtn.dataset.clAction || actionBtn.dataset.action;
-          if (action === 'run-demo') this.runDemo();
+          if (action === 'run-code') this.runCode();
+          else if (action === 'run-entry') this.runEntry();
+          else if (action === 'run-active-file') this.runActiveFile();
+          else if (action === 'open-stdin') this.switchDrawerTab('stdin');
+          else if (action === 'share-snapshot') this.shareSnapshot();
+          else if (action === 'run-demo') this.runDemo();
           else if (action === 'run-tests') this.runTests();
           else if (action === 'stop-run') this.stopExecution();
           else if (action === 'interrupt') this._handleInterrupt();
@@ -6711,9 +7102,15 @@ int main() {
     // ── VS Code Command Palette & Quick Open ────────────────────────────────
     _getPaletteCommands() {
       return [
+        { id: 'run-code', label: 'CodeLab: Run Code (Entry or Active File)', shortcut: '⌘↵', action: () => this.runCode() },
+        { id: 'run-active', label: 'CodeLab: Run Active File', shortcut: '⇧⌘↵', action: () => this.runActiveFile() },
         { id: 'run-demo', label: 'CodeLab: Run Demo Script', shortcut: '⇧⌘↵', action: () => this.runDemo() },
         { id: 'run-tests', label: 'CodeLab: Run Unit Tests', shortcut: '⌘↵', action: () => this.runTests() },
         { id: 'verify-step', label: 'CodeLab: Verify Current Guided Step', shortcut: '⌘↵', action: () => this.verifyCurrentStep() },
+        { id: 'format-document', label: 'Editor: Format Document', shortcut: '⇧⌥F', action: () => this.formatActiveDocument() },
+        { id: 'share-snapshot', label: 'CodeLab: Share Snapshot Link (#codelab=...)', action: () => this.shareSnapshot() },
+        { id: 'open-stdin', label: 'View: Open Stdin / Custom Input Panel', action: () => this.switchDrawerTab('stdin') },
+        { id: 'view-problems-tab', label: 'View: Focus Problems Drawer Tab', action: () => this.switchDrawerTab('problems') },
         { id: 'compare-solution', label: 'CodeLab: Compare Active File with Reference Solution (Diff)', action: () => this.showDiffModal(this.activeFile || this._pickDefaultFile(), 'solution') },
         { id: 'compare-starter', label: 'CodeLab: Compare Active File with Starter Template (Diff)', action: () => this.showDiffModal(this.activeFile || this._pickDefaultFile(), 'starter') },
         { id: 'apply-solution', label: 'CodeLab: Apply Reference Solution to Active File', action: () => this.applyReferenceSolution() },
@@ -6724,9 +7121,10 @@ int main() {
         { id: 'export-workspace', label: 'Workspace: Export Workspace as JSON', action: () => this.exportWorkspace({ download: true }) },
         { id: 'export-workspace-zip', label: 'Workspace: Export Project as ZIP Archive', action: () => this.exportProjectZip({ download: true }) },
         { id: 'reset-workspace', label: 'Workspace: Reset Workspace to Clean State', action: () => this.resetLab() },
-        { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript / C++', action: () => {
+        { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript / C++ / Python', action: () => {
           const order = ['js', 'ts'];
           if (this.enabledLanguages && this.enabledLanguages.has('cpp')) order.push('cpp');
+          if (this.enabledLanguages && this.enabledLanguages.has('py')) order.push('py');
           const next = order[(order.indexOf(this.lang) + 1) % order.length] || 'js';
           this.setLanguage(next);
         } },
@@ -6922,6 +7320,31 @@ int main() {
     }
 
     showDiffModal(targetFile = null, compareTarget = 'solution') {
+      const file = targetFile || this.activeFile || this._pickDefaultFile();
+      if (!this._diffManager) {
+        let DiffManagerCls = (root && root.CodeLabWorkbenchComponents && root.CodeLabWorkbenchComponents.CodeLabDiffEditorManager) ||
+          (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents && globalThis.CodeLabWorkbenchComponents.CodeLabDiffEditorManager) ||
+          null;
+        if (!DiffManagerCls && typeof require === 'function') {
+          try {
+            const mod = require('./workbench/diff-editor');
+            DiffManagerCls = mod.CodeLabDiffEditorManager;
+          } catch (err) {
+            void err;
+          }
+        }
+        if (DiffManagerCls) {
+          this._diffManager = new DiffManagerCls(this);
+        }
+      }
+      if (this._diffManager && typeof window !== 'undefined' && window.monaco && window.monaco.editor && typeof window.monaco.editor.createDiffEditor === 'function') {
+        const ok = this._diffManager.openInlineDiff(file, compareTarget);
+        if (ok) return;
+      }
+      this.showDiffModalFallback(file, compareTarget);
+    }
+
+    showDiffModalFallback(targetFile = null, compareTarget = 'solution') {
       const slot = this.container.querySelector('#cl-modal-slot');
       if (!slot) return;
 
@@ -7307,7 +7730,7 @@ int main() {
     }
 
     setLanguage(newLang) {
-      if (newLang !== 'js' && newLang !== 'ts' && newLang !== 'cpp') return;
+      if (newLang !== 'js' && newLang !== 'ts' && newLang !== 'cpp' && newLang !== 'py') return;
       if (this.lang === newLang) return;
       this.lang = newLang;
       if (this.enabledLanguages instanceof Set) {
@@ -7318,7 +7741,11 @@ int main() {
       this.activeFile = this._pickDefaultFile();
       this._saveState();
 
-      this._refreshLanguageSwitcher();
+      if (typeof this._refreshToolbarAndTabs === 'function') {
+        this._refreshToolbarAndTabs();
+      } else {
+        this._refreshLanguageSwitcher();
+      }
       this.container.querySelectorAll('[data-cl-lang]').forEach(btn => {
         const isActive = btn.dataset.clLang === this.lang;
         btn.classList.toggle('active', isActive);
@@ -7328,6 +7755,7 @@ int main() {
       this._syncAllModels();
       this._syncActiveFileToView();
       this._renderGuidePane();
+      this._updateStatusBar();
     }
 
     switchLang(newLang) {
@@ -7357,7 +7785,7 @@ int main() {
       if (mode === 'guided' || mode === 'sandbox') {
         this.setMode(mode);
       }
-      if (lang === 'js' || lang === 'ts' || lang === 'cpp') {
+      if (lang === 'js' || lang === 'ts' || lang === 'cpp' || lang === 'py') {
         this.setLanguage(lang);
       }
       if (typeof stepIndex === 'number' && !Number.isNaN(stepIndex)) {
@@ -7612,6 +8040,7 @@ int main() {
       const payload = {
         ...execOptions,
         instanceId: this.instanceId,
+        stdin: execOptions.stdin !== undefined ? execOptions.stdin : (this.customStdin || ''),
         cppCompiler: execOptions.cppCompiler || this.cppCompiler,
         onStdout: execOptions.onStdout || ((chunk) => this._appendTerminalStream('stdout', chunk)),
         onStderr: execOptions.onStderr || ((chunk) => this._appendTerminalStream('stderr', chunk)),
@@ -7619,7 +8048,8 @@ int main() {
       };
       try {
         const isCppEntry = Boolean(payload && typeof payload.entry === 'string' && /\.(cpp|cc|cxx|wasm)$/i.test(payload.entry));
-        if (!isCppEntry && typeof root.CodeLabRuntime?.preloadNpmPackages === 'function' && payload && payload.files) {
+        const isPyEntry = Boolean(payload && typeof payload.entry === 'string' && /\.py$/i.test(payload.entry));
+        if (!isCppEntry && !isPyEntry && typeof root.CodeLabRuntime?.preloadNpmPackages === 'function' && payload && payload.files) {
           const rawDetected = this._detectPackages();
           const detectedList = Array.isArray(rawDetected)
             ? rawDetected
@@ -7636,9 +8066,22 @@ int main() {
             payload.packages = Object.assign({}, preloaded, payload.packages || {});
           }
         }
-        this._setRuntimeStatus('running', isCppEntry ? `Compiling & Running ${payload.entry}...` : `Running ${payload.entry || payload.mode || 'script'}...`);
+        this._setRuntimeStatus('running', isCppEntry ? `Compiling & Running ${payload.entry}...` : isPyEntry ? `Running Python 3.12: ${payload.entry}...` : `Running ${payload.entry || payload.mode || 'script'}...`);
         let res;
-        if (isCppEntry && typeof root.CodeLabRuntime?.executeInVirtualRuntime === 'function') {
+        const pyRunner = this.pythonCompiler || (typeof globalThis !== 'undefined' && globalThis.__codelabPythonCompiler) || (typeof root !== 'undefined' && root.__codelabPythonCompiler);
+        if ((isPyEntry || this.lang === 'py') && pyRunner) {
+          res = await pyRunner(payload);
+        } else if (isPyEntry || this.lang === 'py') {
+          this._setRuntimeStatus('error', 'Python 3.12 extension not loaded');
+          return {
+            ok: false,
+            exitCode: 1,
+            stdout: '',
+            stderr: 'Python WebAssembly toolchain is not registered. Enable pythonExtension from "@innovatorved/code-lab/extensions/python" to run Python files.\n',
+            durationMs: 0,
+            peakMemoryBytes: 0
+          };
+        } else if (isCppEntry && typeof root.CodeLabRuntime?.executeInVirtualRuntime === 'function') {
           res = await root.CodeLabRuntime.executeInVirtualRuntime(payload);
         } else if (typeof root.CodeLabRuntime?.executeInWorker === 'function') {
           res = await root.CodeLabRuntime.executeInWorker(payload);
@@ -7649,6 +8092,9 @@ int main() {
         }
         const elapsed = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
         this.lastRunDurationMs = res && typeof res.durationMs === 'number' ? res.durationMs : elapsed;
+        this.lastDurationMs = this.lastRunDurationMs;
+        this.lastPeakMemoryBytes = res && typeof res.peakMemoryBytes === 'number' ? res.peakMemoryBytes : null;
+        this._updateTelemetryHud();
         this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
         return res;
       } catch (err) {
@@ -7661,14 +8107,36 @@ int main() {
       }
     }
 
-    async runDemo() {
-      if (this.isRunning) return;
-      const entry = this._findEntryFile('demo');
+    async runCode() {
+      const entry = this._findEntryFile('demo') || this.activeFile || this._pickDefaultFile();
       if (!entry) {
-        if ((this.files['index.html'] || this.files['public/index.html']) && typeof this.previewApp === 'function') {
-          return this.previewApp();
-        }
-        this.terminalLogs.push({ type: 'stderr', text: 'No demo.js / demo.ts file found in this workspace.' });
+        this.terminalLogs.push({ type: 'stderr', text: 'No entry file or active file to run.' });
+        this.drawerTab = 'terminal';
+        this._renderDrawerBody();
+        return;
+      }
+      return this._executeEntryFile(entry);
+    }
+
+    async runEntry() {
+      return this.runCode();
+    }
+
+    async runActiveFile() {
+      const file = this.activeFile || this._pickDefaultFile();
+      if (!file) {
+        this.terminalLogs.push({ type: 'stderr', text: 'No active file to run.' });
+        this.drawerTab = 'terminal';
+        this._renderDrawerBody();
+        return;
+      }
+      return this._executeEntryFile(file);
+    }
+
+    async _executeEntryFile(entry) {
+      if (this.isRunning) return;
+      if (!entry || this.files[entry] === undefined) {
+        this.terminalLogs.push({ type: 'stderr', text: `File not found: ${entry || 'entry'}` });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
@@ -7677,11 +8145,14 @@ int main() {
       this.isRunning = true;
       this._updateRunStateUI();
       this.drawerTab = 'terminal';
-      const isCppDemo = /\.(cpp|cc|cxx)$/i.test(entry);
-      this.terminalLogs.push({
-        type: 'system',
-        text: isCppDemo ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out` : `\n$ node ${entry}`
-      });
+      const isCpp = /\.(cpp|cc|cxx)$/i.test(entry);
+      const isPy = /\.py$/i.test(entry);
+      const cmdText = isCpp
+        ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out`
+        : isPy
+        ? `\n$ python3 ${entry}`
+        : `\n$ node ${entry}`;
+      this.terminalLogs.push({ type: 'system', text: cmdText });
       this._renderDrawerBody();
 
       let abortCtrl = new AbortController();
@@ -7695,6 +8166,7 @@ int main() {
           files: { ...this.files },
           entry,
           mode: 'run',
+          stdin: this.customStdin || '',
           signal: abortCtrl.signal,
           onStdout: (c) => {
             streamedStdout = true;
@@ -7721,6 +8193,9 @@ int main() {
         if (!aborted) {
           this.lastFsSnapshot = res.fsSnapshot || [];
           this.lastHttpTrace = res.httpTrace || [];
+          if (res.durationMs !== undefined) this.lastDurationMs = res.durationMs;
+          if (res.peakMemoryBytes !== undefined) this.lastPeakMemoryBytes = res.peakMemoryBytes;
+          this._updateTelemetryHud();
         }
 
         if (this.onRun) {
@@ -7744,23 +8219,199 @@ int main() {
       return lastRes;
     }
 
+    async runDemo() {
+      if (this.isRunning) return;
+      const entry = this._findEntryFile('demo') || this._findEntryFile('entry') || this.activeFile;
+      if (!entry) {
+        if ((this.files['index.html'] || this.files['public/index.html']) && typeof this.previewApp === 'function') {
+          return this.previewApp();
+        }
+        this.terminalLogs.push({ type: 'stderr', text: 'No entry or demo file found in this workspace.' });
+        this.drawerTab = 'terminal';
+        this._renderDrawerBody();
+        return;
+      }
+      return this._executeEntryFile(entry);
+    }
+
+    async formatActiveDocument() {
+      if (!this.activeFile) return;
+      const file = this.activeFile;
+      const code = this.files[file] || '';
+      if (!code) return;
+
+      if (file.endsWith('.js') || file.endsWith('.ts') || file.endsWith('.jsx') || file.endsWith('.tsx')) {
+        if (this.editor && typeof this.editor.getAction === 'function') {
+          const action = this.editor.getAction('editor.action.formatDocument');
+          if (action && typeof action.run === 'function') {
+            await action.run();
+            const newCode = this.editor.getValue();
+            this.files[file] = newCode;
+            this._saveState();
+            this._notifyCodeChange(file, newCode);
+            return;
+          }
+        }
+      } else if (file.endsWith('.cpp') || file.endsWith('.hpp') || file.endsWith('.cc') || file.endsWith('.h')) {
+        let formatter = (root && root.CodeLabWorkbenchComponents && root.CodeLabWorkbenchComponents.formatCppSource) ||
+          (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents && globalThis.CodeLabWorkbenchComponents.formatCppSource) ||
+          null;
+        if (!formatter && typeof require === 'function') {
+          try {
+            const mod = require('./workbench/editor');
+            formatter = mod.formatCppSource;
+          } catch (err) {
+            void err;
+          }
+        }
+        if (formatter) {
+          const formatted = formatter(code);
+          if (formatted !== code) {
+            this.files[file] = formatted;
+            if (this.editor && this.editor.getModel()) {
+              this.editor.setValue(formatted);
+            }
+            this._saveState();
+            this._notifyCodeChange(file, formatted);
+          }
+        }
+      } else if (file.endsWith('.py')) {
+        let formatter = (root && root.CodeLabPython && root.CodeLabPython.formatPythonSource) ||
+          (typeof globalThis !== 'undefined' && globalThis.CodeLabPython && globalThis.CodeLabPython.formatPythonSource) ||
+          null;
+        if (!formatter && typeof require === 'function') {
+          try {
+            const mod = require('./extensions/python');
+            formatter = mod.formatPythonSource;
+          } catch (err) {
+            void err;
+          }
+        }
+        if (formatter) {
+          const formatted = formatter(code);
+          if (formatted !== code) {
+            this.files[file] = formatted;
+            if (this.editor && this.editor.getModel()) {
+              this.editor.setValue(formatted);
+            }
+            this._saveState();
+            this._notifyCodeChange(file, formatted);
+          }
+        }
+      }
+    }
+
+    async shareSnapshot() {
+      let compressor = (root && root.CodeLabWorkbenchComponents && root.CodeLabWorkbenchComponents.compressWorkspaceSnapshot) ||
+        (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents && globalThis.CodeLabWorkbenchComponents.compressWorkspaceSnapshot) ||
+        null;
+      if (!compressor && typeof require === 'function') {
+        try {
+          const mod = require('./workbench/share');
+          compressor = mod.compressWorkspaceSnapshot;
+        } catch (err) {
+          void err;
+        }
+      }
+      if (!compressor) {
+        this._showToast('Snapshot compression not available', 'error');
+        return;
+      }
+      try {
+        const payload = {
+          lang: this.lang,
+          activeFile: this.activeFile,
+          files: { ...this.files },
+          stdin: this.customStdin || ''
+        };
+        const token = await compressor(payload);
+        if (typeof window !== 'undefined' && window.location) {
+          const newUrl = `${window.location.origin}${window.location.pathname}#codelab=${token}`;
+          if (window.history && typeof window.history.replaceState === 'function') {
+            window.history.replaceState(null, '', newUrl);
+          } else {
+            window.location.hash = `codelab=${token}`;
+          }
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(newUrl);
+            this._showToast('Snapshot link copied to clipboard! (#codelab=...)', 'success');
+          } else {
+            this._showToast('Snapshot link generated in URL hash (#codelab=...)', 'success');
+          }
+        }
+      } catch (err) {
+        this.logger.error('Failed to create snapshot.', err);
+        this._showToast('Failed to create snapshot', 'error');
+      }
+    }
+
+    async _checkUrlSnapshot() {
+      if (typeof window === 'undefined' || !window.location || !window.location.hash) return;
+      const hash = window.location.hash;
+      const match = hash.match(/#(?:codelab|snapshot)=([A-Za-z0-9_-]+)/);
+      if (!match) return;
+      const token = match[1];
+      let decompressor = (root && root.CodeLabWorkbenchComponents && root.CodeLabWorkbenchComponents.decompressWorkspaceSnapshot) ||
+        (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents && globalThis.CodeLabWorkbenchComponents.decompressWorkspaceSnapshot) ||
+        null;
+      if (!decompressor && typeof require === 'function') {
+        try {
+          const mod = require('./workbench/share');
+          decompressor = mod.decompressWorkspaceSnapshot;
+        } catch (err) {
+          void err;
+        }
+      }
+      if (!decompressor) return;
+      try {
+        const snapshot = await decompressor(token);
+        if (snapshot && snapshot.files && typeof snapshot.files === 'object') {
+          this.files = { ...snapshot.files };
+          if (snapshot.lang && (snapshot.lang === 'js' || snapshot.lang === 'ts' || snapshot.lang === 'cpp' || snapshot.lang === 'py')) {
+            this.lang = snapshot.lang;
+          }
+          if (snapshot.stdin) {
+            this.customStdin = snapshot.stdin;
+          }
+          if (snapshot.activeFile && this.files[snapshot.activeFile]) {
+            this.activeFile = snapshot.activeFile;
+          }
+          this.openTabs = Object.keys(this.files);
+          this._renderFileLists();
+          this._renderBreadcrumbs();
+          this._syncAllModels();
+          if (this.activeFile) this.openFile(this.activeFile);
+          this._showToast('Restored workspace from snapshot URL', 'success');
+        }
+      } catch (err) {
+        this.logger.warn('Failed to decompress URL snapshot.', err);
+      }
+    }
+
     async runTests(filterTestNames = null) {
       if (this.isRunning) return;
       const entry = this._findEntryFile('test');
       if (!entry) {
-        this.terminalLogs.push({ type: 'stderr', text: 'No test.js / test.ts file found in this workspace.' });
+        this.terminalLogs.push({ type: 'stderr', text: 'No test file (test.js, test.ts, test.cpp, test.py) found in this workspace.' });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
       }
 
       this.isRunning = true;
-      this._updateRunStateUI();
+      this.testSuiteVisible = true;
       this.drawerTab = 'tests';
+      this._refreshDrawerTabs();
+      this._updateRunStateUI();
       const isCppTest = /\.(cpp|cc|cxx)$/i.test(entry);
+      const isPyTest = /\.py$/i.test(entry);
       this.terminalLogs.push({
         type: 'system',
-        text: isCppTest ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out` : `\n$ node ${entry}`
+        text: isCppTest
+          ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out`
+          : isPyTest
+          ? `\n$ pytest ${entry}`
+          : `\n$ node ${entry}`
       });
 
       let abortCtrl = new AbortController();
@@ -7774,6 +8425,7 @@ int main() {
           files: { ...this.files },
           entry,
           mode: 'test',
+          stdin: this.customStdin || '',
           testFilter: filterTestNames,
           signal: abortCtrl.signal,
           onStdout: (c) => {
@@ -7793,6 +8445,9 @@ int main() {
           this.lastTestResults = res.testResults || [];
           this.lastFsSnapshot = res.fsSnapshot || [];
           this.lastHttpTrace = res.httpTrace || [];
+          if (res.durationMs !== undefined) this.lastDurationMs = res.durationMs;
+          if (res.peakMemoryBytes !== undefined) this.lastPeakMemoryBytes = res.peakMemoryBytes;
+          this._updateTelemetryHud();
         }
 
         if (!aborted && !streamedStdout && res.stdout) {
@@ -8352,6 +9007,7 @@ int main() {
     }
 
     showProblemsModal() {
+      this.switchDrawerTab('problems');
       const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
       if (!slot) return;
       const items = this.getDiagnostics();
@@ -8750,7 +9406,11 @@ int main() {
       if (this.enabledLanguages instanceof Set && this.enabledLanguages.size > 1) {
         this.hasMultipleLanguages = true;
       }
-      this._refreshLanguageSwitcher();
+      if (typeof this._refreshToolbarAndTabs === 'function') {
+        this._refreshToolbarAndTabs();
+      } else {
+        this._refreshLanguageSwitcher();
+      }
       return this;
     }
 
@@ -8885,8 +9545,13 @@ int main() {
       openCommandPalette(mode) { if (this._instance) this._instance.openCommandPalette(mode); }
       showDiffModal(file, target) { if (this._instance) this._instance.showDiffModal(file, target); }
       cloneRepo(repoInput, opts) { return this._instance ? this._instance.cloneRepo(repoInput, opts) : Promise.reject(new Error('Workbench not mounted')); }
+      runCode() { return this._instance ? this._instance.runCode() : Promise.resolve(); }
+      runEntry() { return this._instance ? this._instance.runEntry() : Promise.resolve(); }
+      runActiveFile() { return this._instance ? this._instance.runActiveFile() : Promise.resolve(); }
       runDemo() { return this._instance ? this._instance.runDemo() : Promise.resolve(); }
       runTests(filter) { return this._instance ? this._instance.runTests(filter) : Promise.resolve(); }
+      formatActiveDocument() { return this._instance ? this._instance.formatActiveDocument() : Promise.resolve(); }
+      shareSnapshot() { return this._instance ? this._instance.shareSnapshot() : Promise.resolve(); }
       previewApp() { return this._instance ? this._instance.previewApp() : Promise.resolve(null); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
       reset() { if (this._instance) this._instance.reset(); }
@@ -8981,7 +9646,8 @@ int main() {
       guidedLab: null,
       javascript: null,
       typescript: null,
-      cpp: null
+      cpp: null,
+      python: null
     },
     parseGitHubRepoUrl,
     cloneRepo: cloneGitHubRepository,
@@ -9008,3 +9674,22 @@ int main() {
     module.exports = CodeLabSDK;
   }
 })(typeof window !== 'undefined' ? window : globalThis);
+
+// ── TypeScript module surface (stripped from browser bundles) ──────────────
+const _hostWorkbench: any = (typeof globalThis !== 'undefined' ? (globalThis as any).CodeLabWorkbench : undefined)
+  || (typeof window !== 'undefined' ? (window as any).CodeLabWorkbench : undefined)
+  || (typeof module !== 'undefined' && module.exports && (module.exports.CodeLabWorkbench || module.exports) ? (module.exports.CodeLabWorkbench || module.exports) : undefined);
+
+const _hostElement: any = (typeof globalThis !== 'undefined' ? (globalThis as any).CodeLabElement : undefined)
+  || (typeof window !== 'undefined' ? (window as any).CodeLabElement : undefined)
+  || (typeof module !== 'undefined' && module.exports ? module.exports.CodeLabElement : undefined);
+
+const _hostSDK: any = (typeof globalThis !== 'undefined' ? (globalThis as any).CodeLab : undefined)
+  || (typeof window !== 'undefined' ? (window as any).CodeLab : undefined)
+  || (typeof module !== 'undefined' && module.exports ? module.exports : {});
+
+export const CodeLabWorkbench: any = _hostWorkbench;
+export const Workbench: any = _hostWorkbench;
+export const CodeLabElement: any = _hostElement;
+export const CodeLab: any = _hostSDK;
+export default _hostSDK;
