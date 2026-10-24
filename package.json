@@ -1,7 +1,7 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "0.1.13",
-  "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, and Web Worker Node.js/Bun Virtual Runtime.",
+  "version": "0.2.0",
+  "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, and Real WebAssembly C++20 (Clang/WASI) Extension.",
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",
   "types": "./dist/code-lab.d.ts",
@@ -36,6 +36,24 @@
       "import": "./dist/extensions/guided-lab.esm.js",
       "require": "./dist/extensions/guided-lab.js",
       "default": "./dist/extensions/guided-lab.js"
+    },
+    "./extensions/javascript": {
+      "types": "./dist/extensions/javascript.d.ts",
+      "import": "./dist/extensions/javascript.esm.js",
+      "require": "./dist/extensions/javascript.js",
+      "default": "./dist/extensions/javascript.js"
+    },
+    "./extensions/typescript": {
+      "types": "./dist/extensions/typescript.d.ts",
+      "import": "./dist/extensions/typescript.esm.js",
+      "require": "./dist/extensions/typescript.js",
+      "default": "./dist/extensions/typescript.js"
+    },
+    "./extensions/cpp": {
+      "types": "./dist/extensions/cpp.d.ts",
+      "import": "./dist/extensions/cpp.esm.js",
+      "require": "./dist/extensions/cpp.js",
+      "default": "./dist/extensions/cpp.js"
     },
     "./schemas": {
       "types": "./dist/schemas.d.ts",

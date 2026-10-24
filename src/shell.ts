@@ -1682,13 +1682,16 @@
         }
         return Array.from(children).sort();
       },
-      readFileSync(p) {
+      readFileSync(p, encoding) {
         const np = norm(p);
         const f = files.get(np);
         if (!f) {
           const err = new Error(`ENOENT: no such file or directory, open '${p}'`);
           err.code = 'ENOENT';
           throw err;
+        }
+        if (!encoding && f.rawBytes instanceof Uint8Array) {
+          return f.rawBytes;
         }
         return f.data;
       },
@@ -1700,9 +1703,13 @@
           let cur = '';
           for (const pt of parts) { cur += '/' + pt; dirs.add(cur); }
         }
-        const str = typeof data === 'string' ? data : (data.toString ? data.toString('utf8') : String(data));
+        const isBinary = data instanceof Uint8Array;
+        const rawBytes = isBinary ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
+        const str = isBinary
+          ? new TextDecoder('utf-8').decode(rawBytes)
+          : (typeof data === 'string' ? data : (data && data.toString ? data.toString('utf8') : String(data)));
         const prevMode = files.has(np) ? files.get(np).mode : 0o100644;
-        files.set(np, { data: str, mtimeMs: Date.now(), mode: prevMode });
+        files.set(np, { data: str, rawBytes, mtimeMs: Date.now(), mode: prevMode });
       },
       appendFileSync(p, data) {
         const np = norm(p);
@@ -5929,6 +5936,7 @@
       stdout += '  history, ps, jobs, kill Process and job management\n';
       stdout += '  git [status diff log]  Built-in version control\n';
       stdout += '  node, bun, npm, pnpm, npx, bunx CLI runtime and package shims\n';
+      stdout += '  g++, clang++, c++      C++20 WebAssembly compiler (via cppExtension)\n';
       stdout += '  serve [dir] [--port]   Built-in preview server (transpiles TS/JSX for the browser)\n';
       stdout += '  ports, curl            Port table inspection & HTTP requests\n';
       stdout += '  hey, ab, wrk           Concurrent HTTP load generator & latency percentiles\n';
@@ -6045,6 +6053,125 @@
         signal: ctx.signal
       });
       return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
+    },
+
+    async 'g++'(args, ctx) {
+      if (args.includes('--version') || args.includes('-v')) {
+        return {
+          code: 0,
+          stdout: 'clang version 18.1.8 (Target: wasm32-unknown-wasi)\nTarget: wasm32-unknown-wasi\nThread model: posix\nInstalledDir: /usr/bin\n',
+          stderr: ''
+        };
+      }
+      if (args.includes('--help') || args.includes('-h')) {
+        return {
+          code: 0,
+          stdout:
+            'Usage: g++ [options] file...\n' +
+            'Options:\n' +
+            '  -std=<standard>    Assume that the input sources are for <standard> (c++17, c++20, c++23)\n' +
+            '  -O0, -O1, -O2, -O3 Optimization level\n' +
+            '  -o <file>          Write output to <file> (default: a.out)\n' +
+            '  -I <dir>           Add directory to include search path\n',
+          stderr: ''
+        };
+      }
+
+      const sourceFiles = [];
+      const extraFlags = [];
+      let outputPath = PosixPath.join(ctx.cwd, 'a.out');
+      let std = 'c++20';
+      let optLevel = '-O2';
+
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === '-o' && i + 1 < args.length) {
+          outputPath = ctx.resolvePath(args[++i]);
+        } else if (arg.startsWith('-o') && arg.length > 2) {
+          outputPath = ctx.resolvePath(arg.slice(2));
+        } else if (arg.startsWith('-std=')) {
+          const val = arg.slice(5);
+          if (val === 'c++17' || val === 'gnu++17') std = 'c++17';
+          else if (val === 'c++23' || val === 'c++2b' || val === 'gnu++23') std = 'c++23';
+          else std = 'c++20';
+        } else if (arg === '-O0' || arg === '-O1' || arg === '-O2' || arg === '-O3') {
+          optLevel = arg;
+        } else if (arg.startsWith('-I') || arg.startsWith('-D') || arg.startsWith('-W')) {
+          extraFlags.push(arg);
+        } else if (!arg.startsWith('-')) {
+          sourceFiles.push(ctx.resolvePath(arg));
+        }
+      }
+
+      if (sourceFiles.length === 0) {
+        return { code: 1, stdout: '', stderr: 'g++: fatal error: no input files\ncompilation terminated.\n' };
+      }
+
+      for (const src of sourceFiles) {
+        if (!ctx.vfs.existsSync(src)) {
+          return { code: 1, stdout: '', stderr: `g++: error: ${src}: No such file or directory\n` };
+        }
+      }
+
+      const cppCompiler =
+        (ctx.shell && ctx.shell.options && ctx.shell.options.cppCompiler) ||
+        (typeof globalThis !== 'undefined' && globalThis.__codelabCppCompiler) ||
+        (typeof window !== 'undefined' && window.__codelabCppCompiler);
+
+      if (typeof cppCompiler !== 'function') {
+        return {
+          code: 1,
+          stdout: '',
+          stderr:
+            'g++: C++ toolchain is not enabled. Enable cppExtension from "@innovatorved/code-lab/extensions/cpp" to compile C++ files.\n'
+        };
+      }
+
+      let outText = '';
+      let errText = '';
+      const compileRes = await cppCompiler({
+        entry: sourceFiles[0],
+        sourceFiles,
+        outputPath,
+        std,
+        optLevel,
+        extraFlags,
+        vfs: ctx.vfs,
+        onStdout: (t) => {
+          outText += t;
+          if (ctx.onStdout) ctx.onStdout(t);
+        },
+        onStderr: (t) => {
+          errText += t;
+          if (ctx.onStderr) ctx.onStderr(t);
+        }
+      });
+
+      if (!compileRes || compileRes.exitCode !== 0) {
+        return {
+          code: (compileRes && compileRes.exitCode) || 1,
+          stdout: outText,
+          stderr: errText || 'g++: error: linker command failed with exit code 1\n'
+        };
+      }
+
+      if (compileRes.wasmBinary) {
+        ctx.vfs.writeFileSync(outputPath, compileRes.wasmBinary);
+        if (typeof ctx.vfs.chmodSync === 'function') {
+          try { ctx.vfs.chmodSync(outputPath, 0o755); } catch (err) { _shellLogger.debug('chmodSync failed on compiled binary', err); }
+        }
+        if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', outputPath);
+      }
+
+      return { code: 0, stdout: outText, stderr: errText };
+    },
+
+    async 'clang++'(args, ctx) {
+      return COREUTILS['g++'](args, ctx);
+    },
+
+    async 'c++'(args, ctx) {
+      return COREUTILS['g++'](args, ctx);
     },
 
     async bun(args, ctx) {
@@ -7649,6 +7776,10 @@
       return { code: lastCode, exitCode: lastCode, stdout: combinedStdout, stderr: combinedStderr, ok: lastCode === 0 };
     }
 
+    async executeCommand(commandLine, execOptions = {}) {
+      return this.execute(commandLine, execOptions);
+    }
+
     async _executeWithRedirects(redirects, context, execFn) {
       if (!redirects || redirects.length === 0) {
         return execFn(context);
@@ -8328,6 +8459,48 @@
           }
           Object.assign(context.env, this.env);
           context.cwd = this.cwd;
+        }
+      } else if (
+        (cmdName.startsWith('./') || cmdName.startsWith('../') || cmdName.startsWith('/')) &&
+        this.vfs.existsSync(this.resolvePath(cmdName))
+      ) {
+        const absBin = this.resolvePath(cmdName);
+        const st = this.vfs.statSync(absBin);
+        if (st && st.isDirectory()) {
+          res = { code: 126, stdout: '', stderr: `shell: ${cmdName}: Is a directory\n` };
+        } else if (hasVirtualRuntime()) {
+          let rawData = null;
+          try { rawData = this.vfs.readFileSync(absBin); } catch (err) { _shellLogger.debug('Failed to read binary', err); }
+          const isWasmMagic =
+            (rawData instanceof Uint8Array &&
+              rawData.length >= 4 &&
+              rawData[0] === 0x00 &&
+              rawData[1] === 0x61 &&
+              rawData[2] === 0x73 &&
+              rawData[3] === 0x6d) ||
+            (typeof rawData === 'string' && rawData.startsWith('\0asm'));
+          const runRes = await executeInVirtualRuntime({
+            mode: 'run',
+            entry: absBin,
+            wasmBinary: isWasmMagic && rawData instanceof Uint8Array ? rawData : undefined,
+            argv: [cmdName, ...args],
+            stdin: effectiveStdin,
+            env: cmdEnv,
+            vfs: this.vfs,
+            activePortTable: this.portTable,
+            pid: cmdCtx.pid,
+            isBackground: cmdCtx.isBackground,
+            onStdout: cmdCtx.onStdout,
+            onStderr: cmdCtx.onStderr,
+            signal: context.signal
+          });
+          res = {
+            code: runRes.ok ? 0 : (runRes.exitCode || 1),
+            stdout: runRes.stdout || '',
+            stderr: runRes.stderr || ''
+          };
+        } else {
+          res = { code: 126, stdout: '', stderr: `shell: ${cmdName}: cannot execute binary file\n` };
         }
       } else if (DIRECT_DEV_TOOL_RE.test(cmdName)) {
         // A native dev server (vite/ng/astro/…) typed directly. It cannot run in

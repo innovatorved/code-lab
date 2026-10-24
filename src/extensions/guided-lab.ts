@@ -34,7 +34,17 @@ export function guidedLabExtension(workbench: any, options: Partial<GuidedLabExt
     steps: workbench.steps
   };
 
+  if (!workbench.enabledLanguages || !(workbench.enabledLanguages instanceof Set)) {
+    workbench.enabledLanguages = new Set(['js']);
+  }
+
   if (parsed.tsStarterFiles || parsed.tsSolutionFiles || parsed.tsFiles) {
+    workbench.enabledLanguages.add('ts');
+    workbench.hasMultipleLanguages = true;
+  }
+
+  if (parsed.cppStarterFiles || parsed.cppSolutionFiles || parsed.cppFiles) {
+    workbench.enabledLanguages.add('cpp');
     workbench.hasMultipleLanguages = true;
   }
 

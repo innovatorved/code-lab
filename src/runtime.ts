@@ -1077,10 +1077,11 @@ function __initVirtualRuntime(rootScope) {
       };
     }
 
-    // Seed initial project files into /workspace
+    // Seed initial project files into /workspace (preserving system paths like /usr, /tmp, /lib, /include)
     for (const [relPath, content] of Object.entries(initialFiles)) {
       const cleanRel = relPath.startsWith('/') ? relPath.slice(1) : relPath;
-      const fullPath = (relPath.startsWith('/workspace/') || relPath === '/workspace')
+      const isSystemPath = /^\/(workspace|usr|tmp|lib|include|etc|bin|dev)(\/|$)/.test(relPath);
+      const fullPath = isSystemPath
         ? normPath(relPath)
         : normPath(`/workspace/${cleanRel}`);
       ensureParentDirs(fullPath);
@@ -1091,7 +1092,7 @@ function __initVirtualRuntime(rootScope) {
         ctimeMs: Date.now(),
         ino: nextIno++,
         mode: 0o100644,
-        isInitialProjectFile: true
+        isInitialProjectFile: !/^\/(usr|tmp|lib|include|etc|bin|dev)(\/|$)/.test(fullPath)
       });
     }
 
@@ -1199,7 +1200,10 @@ function __initVirtualRuntime(rootScope) {
         }
 
         let inode = files.get(np);
-        if (flagStr.startsWith('r')) {
+        if (flagStr.includes('x') && inode) {
+          throw fsError('EEXIST', 'open', p, 'file already exists');
+        }
+        if (flagStr.startsWith('r') && !flagStr.includes('c')) {
           if (!inode) throw fsError('ENOENT', 'open', p, 'no such file or directory');
         } else if (flagStr.startsWith('w')) {
           const parent = VirtualPath.dirname(np);
@@ -1211,7 +1215,7 @@ function __initVirtualRuntime(rootScope) {
             inode.data = new Uint8Array(0);
             inode.mtimeMs = Date.now();
           }
-        } else if (flagStr.startsWith('a')) {
+        } else if (flagStr.startsWith('a') || flagStr.includes('c')) {
           const parent = VirtualPath.dirname(np);
           if (!dirs.has(parent)) throw fsError('ENOENT', 'open', p, 'no such file or directory');
           if (!inode) {
@@ -1229,6 +1233,26 @@ function __initVirtualRuntime(rootScope) {
           isDirectory: false
         });
         return fd;
+      },
+
+      lseekSync(fd, offset, whence = 0) {
+        const entry = fdTable.get(fd);
+        if (!entry || entry.isDirectory) throw fsError('EBADF', 'lseek', String(fd), 'bad file descriptor');
+        const off = Number(offset) || 0;
+        let nextPos = entry.pos;
+        if (whence === 0) nextPos = off; // SEEK_SET
+        else if (whence === 1) nextPos = entry.pos + off; // SEEK_CUR
+        else if (whence === 2) nextPos = (entry.inode ? entry.inode.data.byteLength : 0) + off; // SEEK_END
+        else throw fsError('EINVAL', 'lseek', String(fd), 'invalid whence');
+        if (nextPos < 0) throw fsError('EINVAL', 'lseek', String(fd), 'negative seek offset');
+        entry.pos = nextPos;
+        return entry.pos;
+      },
+
+      tellSync(fd) {
+        const entry = fdTable.get(fd);
+        if (!entry || entry.isDirectory) throw fsError('EBADF', 'tell', String(fd), 'bad file descriptor');
+        return entry.pos;
       },
 
       closeSync(fd) {
@@ -5401,6 +5425,715 @@ function __initVirtualRuntime(rootScope) {
     return loaded;
   }
 
+  class WasiExitSignal extends Error {
+    constructor(code) {
+      super(`WASI proc_exit(${code})`);
+      this.name = 'WasiExitSignal';
+      this.code = Number(code) || 0;
+      this._isWasiExit = true;
+    }
+  }
+
+  function createVirtualWasi(defaults = {}) {
+    class WASI {
+      constructor(options = {}) {
+        const merged = Object.assign({}, defaults, options);
+        this.args = Array.isArray(merged.args) ? merged.args.map(String) : ['wasm'];
+        this.env = merged.env && typeof merged.env === 'object' ? Object.assign({}, merged.env) : {};
+        this.preopens = merged.preopens && typeof merged.preopens === 'object'
+          ? Object.assign({}, merged.preopens)
+          : { '.': '/workspace', '/workspace': '/workspace', '/usr': '/usr', '/tmp': '/tmp', '/': '/' };
+        this.returnOnExit = merged.returnOnExit !== false;
+        this.vfs = merged.vfs || createVirtualFs();
+        this.onStdout = typeof merged.onStdout === 'function' ? merged.onStdout : null;
+        this.onStderr = typeof merged.onStderr === 'function' ? merged.onStderr : null;
+        const rawStdin = merged.stdin !== undefined ? merged.stdin : '';
+        this._stdinBytes = typeof rawStdin === 'string'
+          ? utf8Encode(rawStdin)
+          : (rawStdin instanceof Uint8Array ? rawStdin : new Uint8Array(0));
+        this._stdinPos = 0;
+        this.memory = merged.memory || null;
+        this._fds = new Map();
+        this._nextFd = 3;
+
+        this._fds.set(0, { type: 'stdio', path: '/dev/stdin', isDir: false, preopen: null, vfsFd: null });
+        this._fds.set(1, { type: 'stdio', path: '/dev/stdout', isDir: false, preopen: null, vfsFd: null });
+        this._fds.set(2, { type: 'stdio', path: '/dev/stderr', isDir: false, preopen: null, vfsFd: null });
+
+        for (const [guestPath, hostPath] of Object.entries(this.preopens)) {
+          const cleanHost = String(hostPath || '/');
+          try {
+            if (!this.vfs.existsSync(cleanHost)) {
+              this.vfs.mkdirSync(cleanHost, { recursive: true });
+            }
+          } catch (err) {
+            _runtimeLogger.debug('WASI preopen mkdir skipped', err);
+          }
+          const fd = this._nextFd++;
+          this._fds.set(fd, {
+            type: 'preopen',
+            path: cleanHost,
+            isDir: true,
+            preopen: String(guestPath),
+            vfsFd: null
+          });
+        }
+
+        this.wasiImport = this._createImports();
+      }
+
+      _getMem(instance) {
+        const mem = (instance && instance.exports && instance.exports.memory) || this.memory;
+        if (!mem) throw new Error('WASI instance does not export WebAssembly.Memory');
+        return {
+          bytes: new Uint8Array(mem.buffer),
+          view: new DataView(mem.buffer)
+        };
+      }
+
+      _mapFsError(err) {
+        const code = err && err.code;
+        if (code === 'ENOENT') return 44;
+        if (code === 'EBADF') return 8;
+        if (code === 'EEXIST') return 20;
+        if (code === 'EINVAL') return 28;
+        if (code === 'EISDIR') return 31;
+        if (code === 'ENOTDIR') return 54;
+        if (code === 'ENOTEMPTY') return 55;
+        if (code === 'EPERM' || code === 'EACCES') return 63;
+        return 29; // EIO
+      }
+
+      _resolveAt(dirfd, relPath) {
+        const dirEntry = this._fds.get(dirfd);
+        if (!dirEntry || !dirEntry.isDir) return { err: 8, path: null };
+        const cleanRel = String(relPath || '').replace(/\0+$/, '');
+        if (!cleanRel || cleanRel === '.') return { err: 0, path: dirEntry.path };
+        if (cleanRel.startsWith('/')) return { err: 0, path: VirtualPath.resolve('/', cleanRel) };
+        return { err: 0, path: VirtualPath.resolve(dirEntry.path, cleanRel) };
+      }
+
+      _writeFilestat(view, bufPtr, stat, isDir) {
+        view.setBigUint64(bufPtr + 0, 1n, true);
+        view.setBigUint64(bufPtr + 8, BigInt(stat && stat.ino ? stat.ino : 1), true);
+        view.setUint8(bufPtr + 16, isDir ? 3 : 4);
+        for (let i = 17; i < 24; i++) view.setUint8(bufPtr + i, 0);
+        view.setBigUint64(bufPtr + 24, 1n, true);
+        view.setBigUint64(bufPtr + 32, BigInt(stat && stat.size ? stat.size : 0), true);
+        const mtimeNs = BigInt(Math.floor((stat && stat.mtimeMs) || Date.now())) * 1000000n;
+        view.setBigUint64(bufPtr + 40, mtimeNs, true);
+        view.setBigUint64(bufPtr + 48, mtimeNs, true);
+        view.setBigUint64(bufPtr + 56, mtimeNs, true);
+      }
+
+      _createImports() {
+        const self = this;
+        return {
+          args_sizes_get(argcPtr, argvBufSizePtr) {
+            const { view } = self._getMem();
+            let total = 0;
+            for (const arg of self.args) total += utf8Encode(arg).byteLength + 1;
+            view.setUint32(argcPtr, self.args.length, true);
+            view.setUint32(argvBufSizePtr, total, true);
+            return 0;
+          },
+          args_get(argvPtr, argvBufPtr) {
+            const { bytes, view } = self._getMem();
+            let bufOffset = argvBufPtr;
+            for (let i = 0; i < self.args.length; i++) {
+              view.setUint32(argvPtr + i * 4, bufOffset, true);
+              const enc = utf8Encode(self.args[i]);
+              bytes.set(enc, bufOffset);
+              bytes[bufOffset + enc.byteLength] = 0;
+              bufOffset += enc.byteLength + 1;
+            }
+            return 0;
+          },
+          environ_sizes_get(countPtr, bufSizePtr) {
+            const { view } = self._getMem();
+            const entries = Object.entries(self.env);
+            let total = 0;
+            for (const [k, v] of entries) total += utf8Encode(`${k}=${v}`).byteLength + 1;
+            view.setUint32(countPtr, entries.length, true);
+            view.setUint32(bufSizePtr, total, true);
+            return 0;
+          },
+          environ_get(environPtr, environBufPtr) {
+            const { bytes, view } = self._getMem();
+            const entries = Object.entries(self.env);
+            let bufOffset = environBufPtr;
+            for (let i = 0; i < entries.length; i++) {
+              view.setUint32(environPtr + i * 4, bufOffset, true);
+              const enc = utf8Encode(`${entries[i][0]}=${entries[i][1]}`);
+              bytes.set(enc, bufOffset);
+              bytes[bufOffset + enc.byteLength] = 0;
+              bufOffset += enc.byteLength + 1;
+            }
+            return 0;
+          },
+          clock_res_get(_clockId, resPtr) {
+            const { view } = self._getMem();
+            view.setBigUint64(resPtr, 1000n, true);
+            return 0;
+          },
+          clock_time_get(clockId, _precision, timePtr) {
+            const { view } = self._getMem();
+            const nowMs = clockId === 0 ? Date.now() : performance.now();
+            view.setBigUint64(timePtr, BigInt(Math.round(nowMs * 1e6)), true);
+            return 0;
+          },
+          fd_advise() { return 0; },
+          fd_allocate(fd, offsetBig, lenBig) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.isDir || entry.vfsFd === null) return 8;
+            try {
+              const st = self.vfs.fstatSync(entry.vfsFd);
+              const needed = Number(offsetBig) + Number(lenBig);
+              if (needed > st.size) self.vfs.truncateSync(entry.path, needed);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_close(fd) {
+            const entry = self._fds.get(fd);
+            if (!entry) return 8;
+            if (entry.type === 'stdio') return 0;
+            if (entry.vfsFd !== null) {
+              try { self.vfs.closeSync(entry.vfsFd); } catch (err) { _runtimeLogger.debug('WASI fd_close vfs error', err); }
+            }
+            self._fds.delete(fd);
+            return 0;
+          },
+          fd_datasync() { return 0; },
+          fd_sync() { return 0; },
+          fd_fdstat_get(fd, statPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry) return 8;
+            const { view } = self._getMem();
+            const filetype = entry.type === 'stdio' ? 2 : (entry.isDir ? 3 : 4);
+            view.setUint8(statPtr + 0, filetype);
+            view.setUint8(statPtr + 1, 0);
+            view.setUint16(statPtr + 2, entry.fdflags || 0, true);
+            view.setUint32(statPtr + 4, 0, true);
+            view.setBigUint64(statPtr + 8, 0xffffffffffffffffn, true);
+            view.setBigUint64(statPtr + 16, 0xffffffffffffffffn, true);
+            return 0;
+          },
+          fd_fdstat_set_flags(fd, flags) {
+            const entry = self._fds.get(fd);
+            if (!entry) return 8;
+            entry.fdflags = flags;
+            return 0;
+          },
+          fd_fdstat_set_rights() { return 0; },
+          fd_filestat_get(fd, bufPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry) return 8;
+            const { view } = self._getMem();
+            if (entry.type === 'stdio') {
+              self._writeFilestat(view, bufPtr, { ino: fd + 1, size: 0, mtimeMs: Date.now() }, false);
+              view.setUint8(bufPtr + 16, 2);
+              return 0;
+            }
+            try {
+              const st = self.vfs.statSync(entry.path);
+              self._writeFilestat(view, bufPtr, st, st.isDirectory());
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_filestat_set_size(fd, sizeBig) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.isDir) return 8;
+            try {
+              self.vfs.truncateSync(entry.path, Number(sizeBig));
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_filestat_set_times() { return 0; },
+          fd_prestat_get(fd, bufPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.type !== 'preopen') return 8;
+            const { view } = self._getMem();
+            const nameBytes = utf8Encode(entry.preopen);
+            view.setUint8(bufPtr + 0, 0);
+            view.setUint32(bufPtr + 4, nameBytes.byteLength, true);
+            return 0;
+          },
+          fd_prestat_dir_name(fd, pathPtr, pathLen) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.type !== 'preopen') return 8;
+            const { bytes } = self._getMem();
+            const nameBytes = utf8Encode(entry.preopen);
+            bytes.set(nameBytes.subarray(0, pathLen), pathPtr);
+            return 0;
+          },
+          fd_read(fd, iovsPtr, iovsLen, nreadPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry) return 8;
+            const { bytes, view } = self._getMem();
+            let totalRead = 0;
+            if (fd === 0) {
+              for (let i = 0; i < iovsLen; i++) {
+                const ptr = view.getUint32(iovsPtr + i * 8, true);
+                const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+                if (len <= 0) continue;
+                const avail = Math.min(len, self._stdinBytes.byteLength - self._stdinPos);
+                if (avail > 0) {
+                  bytes.set(self._stdinBytes.subarray(self._stdinPos, self._stdinPos + avail), ptr);
+                  self._stdinPos += avail;
+                  totalRead += avail;
+                }
+                if (avail < len) break;
+              }
+              view.setUint32(nreadPtr, totalRead, true);
+              return 0;
+            }
+            if (entry.isDir || entry.vfsFd === null) return 8;
+            try {
+              for (let i = 0; i < iovsLen; i++) {
+                const ptr = view.getUint32(iovsPtr + i * 8, true);
+                const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+                if (len <= 0) continue;
+                const n = self.vfs.readSync(entry.vfsFd, bytes, ptr, len, null);
+                totalRead += n;
+                if (n < len) break;
+              }
+              view.setUint32(nreadPtr, totalRead, true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_pread(fd, iovsPtr, iovsLen, offsetBig, nreadPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.isDir || entry.vfsFd === null) return 8;
+            const { bytes, view } = self._getMem();
+            let pos = Number(offsetBig);
+            let totalRead = 0;
+            try {
+              for (let i = 0; i < iovsLen; i++) {
+                const ptr = view.getUint32(iovsPtr + i * 8, true);
+                const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+                if (len <= 0) continue;
+                const n = self.vfs.readSync(entry.vfsFd, bytes, ptr, len, pos);
+                pos += n;
+                totalRead += n;
+                if (n < len) break;
+              }
+              view.setUint32(nreadPtr, totalRead, true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_write(fd, iovsPtr, iovsLen, nwrittenPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry) return 8;
+            const { bytes, view } = self._getMem();
+            let totalWritten = 0;
+            if (fd === 1 || fd === 2) {
+              const chunks = [];
+              for (let i = 0; i < iovsLen; i++) {
+                const ptr = view.getUint32(iovsPtr + i * 8, true);
+                const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+                if (len > 0) {
+                  chunks.push(bytes.subarray(ptr, ptr + len));
+                  totalWritten += len;
+                }
+              }
+              if (totalWritten > 0) {
+                const merged = new Uint8Array(totalWritten);
+                let off = 0;
+                for (const c of chunks) {
+                  merged.set(c, off);
+                  off += c.byteLength;
+                }
+                const text = utf8Decode(merged);
+                if (fd === 1 && self.onStdout) self.onStdout(text);
+                else if (fd === 2 && self.onStderr) self.onStderr(text);
+              }
+              view.setUint32(nwrittenPtr, totalWritten, true);
+              return 0;
+            }
+            if (entry.isDir || entry.vfsFd === null) return 8;
+            try {
+              for (let i = 0; i < iovsLen; i++) {
+                const ptr = view.getUint32(iovsPtr + i * 8, true);
+                const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+                if (len <= 0) continue;
+                const n = self.vfs.writeSync(entry.vfsFd, bytes, ptr, len);
+                totalWritten += n;
+              }
+              view.setUint32(nwrittenPtr, totalWritten, true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_pwrite(fd, iovsPtr, iovsLen, offsetBig, nwrittenPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.isDir || entry.vfsFd === null) return 8;
+            const { bytes, view } = self._getMem();
+            let pos = Number(offsetBig);
+            let totalWritten = 0;
+            try {
+              for (let i = 0; i < iovsLen; i++) {
+                const ptr = view.getUint32(iovsPtr + i * 8, true);
+                const len = view.getUint32(iovsPtr + i * 8 + 4, true);
+                if (len <= 0) continue;
+                const n = self.vfs.writeSync(entry.vfsFd, bytes, ptr, len, pos);
+                pos += n;
+                totalWritten += n;
+              }
+              view.setUint32(nwrittenPtr, totalWritten, true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_seek(fd, offsetBig, whence, newOffsetPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.isDir || entry.vfsFd === null) return 8;
+            const { view } = self._getMem();
+            try {
+              const nextPos = self.vfs.lseekSync(entry.vfsFd, Number(offsetBig), Number(whence));
+              view.setBigUint64(newOffsetPtr, BigInt(nextPos), true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_tell(fd, offsetPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry || entry.isDir || entry.vfsFd === null) return 8;
+            const { view } = self._getMem();
+            try {
+              const pos = self.vfs.tellSync(entry.vfsFd);
+              view.setBigUint64(offsetPtr, BigInt(pos), true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          fd_renumber(fromFd, toFd) {
+            const entry = self._fds.get(fromFd);
+            if (!entry) return 8;
+            const existing = self._fds.get(toFd);
+            if (existing && existing.vfsFd !== null) {
+              try { self.vfs.closeSync(existing.vfsFd); } catch (err) { _runtimeLogger.debug('WASI fd_renumber close error', err); }
+            }
+            self._fds.set(toFd, entry);
+            self._fds.delete(fromFd);
+            return 0;
+          },
+          fd_readdir(fd, bufPtr, bufLen, cookieBig, bufusedPtr) {
+            const entry = self._fds.get(fd);
+            if (!entry || !entry.isDir) return 8;
+            const { bytes, view } = self._getMem();
+            try {
+              const names = ['.', '..', ...self.vfs.readdirSync(entry.path)];
+              let offset = 0;
+              const startIdx = Number(cookieBig);
+              for (let i = startIdx; i < names.length; i++) {
+                const name = names[i];
+                const nameBytes = utf8Encode(name);
+                const fullPath = name === '.' || name === '..' ? entry.path : VirtualPath.resolve(entry.path, name);
+                let isDir = true;
+                let ino = 1;
+                try {
+                  const st = self.vfs.statSync(fullPath);
+                  isDir = st.isDirectory();
+                  ino = st.ino || 1;
+                } catch (err) {
+                  _runtimeLogger.debug('WASI fd_readdir stat skipped', err);
+                }
+                const headerSize = 24;
+                const totalEntrySize = headerSize + nameBytes.byteLength;
+                if (offset + headerSize > bufLen) break;
+                view.setBigUint64(bufPtr + offset + 0, BigInt(i + 1), true);
+                view.setBigUint64(bufPtr + offset + 8, BigInt(ino), true);
+                view.setUint32(bufPtr + offset + 16, nameBytes.byteLength, true);
+                view.setUint8(bufPtr + offset + 20, isDir ? 3 : 4);
+                const copyNameLen = Math.min(nameBytes.byteLength, bufLen - (offset + headerSize));
+                bytes.set(nameBytes.subarray(0, copyNameLen), bufPtr + offset + headerSize);
+                offset += headerSize + copyNameLen;
+                if (copyNameLen < nameBytes.byteLength) break;
+              }
+              view.setUint32(bufusedPtr, offset, true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          path_create_directory(dirfd, pathPtr, pathLen) {
+            const { bytes } = self._getMem();
+            const rel = utf8Decode(bytes.subarray(pathPtr, pathPtr + pathLen));
+            const resolved = self._resolveAt(dirfd, rel);
+            if (resolved.err) return resolved.err;
+            try {
+              self.vfs.mkdirSync(resolved.path, { recursive: true });
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          path_filestat_get(dirfd, _flags, pathPtr, pathLen, bufPtr) {
+            const { bytes, view } = self._getMem();
+            const rel = utf8Decode(bytes.subarray(pathPtr, pathPtr + pathLen));
+            const resolved = self._resolveAt(dirfd, rel);
+            if (resolved.err) return resolved.err;
+            try {
+              const st = self.vfs.statSync(resolved.path);
+              self._writeFilestat(view, bufPtr, st, st.isDirectory());
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          path_filestat_set_times() { return 0; },
+          path_link() { return 52; },
+          path_open(dirfd, _dirflags, pathPtr, pathLen, oflags, _rightsBase, _rightsInheriting, fdflags, openedFdPtr) {
+            const { bytes, view } = self._getMem();
+            const rel = utf8Decode(bytes.subarray(pathPtr, pathPtr + pathLen));
+            const resolved = self._resolveAt(dirfd, rel);
+            if (resolved.err) return resolved.err;
+            const targetPath = resolved.path;
+            const isCreat = (oflags & 1) !== 0;
+            const isDirFlag = (oflags & 2) !== 0;
+            const isExcl = (oflags & 4) !== 0;
+            const isTrunc = (oflags & 8) !== 0;
+            const isAppend = (fdflags & 1) !== 0;
+
+            try {
+              if (self.vfs.existsSync(targetPath) && self.vfs.statSync(targetPath).isDirectory()) {
+                const newFd = self._nextFd++;
+                self._fds.set(newFd, {
+                  type: 'dir',
+                  path: targetPath,
+                  isDir: true,
+                  preopen: null,
+                  vfsFd: null,
+                  fdflags
+                });
+                view.setUint32(openedFdPtr, newFd, true);
+                return 0;
+              }
+              if (isDirFlag) return 54; // ENOTDIR
+
+              let modeStr = 'r+';
+              if (isAppend) modeStr = 'a+';
+              else if (isTrunc) modeStr = 'w+';
+              else if (isCreat) modeStr = 'r+c';
+              if (isExcl) modeStr += 'x';
+
+              const parentDir = VirtualPath.dirname(targetPath);
+              if (isCreat && !self.vfs.existsSync(parentDir)) {
+                self.vfs.mkdirSync(parentDir, { recursive: true });
+              }
+
+              const vfsFd = self.vfs.openSync(targetPath, modeStr);
+              const newFd = self._nextFd++;
+              self._fds.set(newFd, {
+                type: 'file',
+                path: targetPath,
+                isDir: false,
+                preopen: null,
+                vfsFd,
+                fdflags
+              });
+              view.setUint32(openedFdPtr, newFd, true);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          path_readlink() { return 52; },
+          path_remove_directory(dirfd, pathPtr, pathLen) {
+            const { bytes } = self._getMem();
+            const rel = utf8Decode(bytes.subarray(pathPtr, pathPtr + pathLen));
+            const resolved = self._resolveAt(dirfd, rel);
+            if (resolved.err) return resolved.err;
+            try {
+              self.vfs.rmdirSync(resolved.path);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          path_rename(oldFd, oldPathPtr, oldPathLen, newFd, newPathPtr, newPathLen) {
+            const { bytes } = self._getMem();
+            const oldRel = utf8Decode(bytes.subarray(oldPathPtr, oldPathPtr + oldPathLen));
+            const newRel = utf8Decode(bytes.subarray(newPathPtr, newPathPtr + newPathLen));
+            const oldRes = self._resolveAt(oldFd, oldRel);
+            if (oldRes.err) return oldRes.err;
+            const newRes = self._resolveAt(newFd, newRel);
+            if (newRes.err) return newRes.err;
+            try {
+              self.vfs.renameSync(oldRes.path, newRes.path);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          path_symlink() { return 52; },
+          path_unlink_file(dirfd, pathPtr, pathLen) {
+            const { bytes } = self._getMem();
+            const rel = utf8Decode(bytes.subarray(pathPtr, pathPtr + pathLen));
+            const resolved = self._resolveAt(dirfd, rel);
+            if (resolved.err) return resolved.err;
+            try {
+              self.vfs.unlinkSync(resolved.path);
+              return 0;
+            } catch (err) {
+              return self._mapFsError(err);
+            }
+          },
+          poll_oneoff(_inPtr, _outPtr, _nsubscriptions, neventsPtr) {
+            const { view } = self._getMem();
+            view.setUint32(neventsPtr, 0, true);
+            return 0;
+          },
+          proc_exit(rval) {
+            throw new WasiExitSignal(rval);
+          },
+          proc_raise() { return 0; },
+          random_get(bufPtr, bufLen) {
+            const { bytes } = self._getMem();
+            const rand = VirtualCrypto.randomBytes(bufLen);
+            bytes.set(rand, bufPtr);
+            return 0;
+          },
+          sched_yield() { return 0; },
+          sock_accept() { return 52; },
+          sock_recv() { return 52; },
+          sock_send() { return 52; },
+          sock_shutdown() { return 52; }
+        };
+      }
+
+      getImportObject() {
+        return {
+          wasi_snapshot_preview1: this.wasiImport,
+          wasi_unstable: this.wasiImport
+        };
+      }
+
+      bindMemory(memory) {
+        this.memory = memory;
+        return this;
+      }
+
+      setMemory(memory) {
+        this.memory = memory;
+        return this;
+      }
+
+      start(instance) {
+        if (!instance || !instance.exports) {
+          throw new Error('WASI.start requires a WebAssembly.Instance with exports');
+        }
+        if (instance.exports.memory) {
+          this.memory = instance.exports.memory;
+        }
+        try {
+          if (typeof instance.exports._start === 'function') {
+            instance.exports._start();
+          } else if (typeof instance.exports.main === 'function') {
+            const ret = instance.exports.main(0, 0);
+            if (typeof ret === 'number') return ret;
+          }
+          return 0;
+        } catch (err) {
+          if (err && err._isWasiExit) {
+            if (this.returnOnExit) return err.code;
+            throw err;
+          }
+          throw err;
+        }
+      }
+
+      initialize(instance) {
+        if (!instance || !instance.exports) {
+          throw new Error('WASI.initialize requires a WebAssembly.Instance with exports');
+        }
+        if (instance.exports.memory) {
+          this.memory = instance.exports.memory;
+        }
+        if (typeof instance.exports._initialize === 'function') {
+          instance.exports._initialize();
+        }
+      }
+    }
+
+    const defaultWasi = new WASI(defaults);
+    defaultWasi.WASI = WASI;
+    return defaultWasi;
+  }
+
+  async function executeWasiModule(wasmBytesOrModule, options = {}) {
+    const startTime = performance.now();
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    const onStdout = (text) => {
+      stdoutChunks.push(text);
+      if (typeof options.onStdout === 'function') options.onStdout(text);
+    };
+    const onStderr = (text) => {
+      stderrChunks.push(text);
+      if (typeof options.onStderr === 'function') options.onStderr(text);
+    };
+
+    const vfs = options.vfs || createVirtualFs(options.files || {});
+    const { WASI } = createVirtualWasi();
+    const wasi = new WASI({
+      args: options.args || options.argv || ['wasm'],
+      env: options.env || {},
+      preopens: options.preopens || { '.': '/workspace', '/workspace': '/workspace', '/usr': '/usr', '/tmp': '/tmp', '/': '/' },
+      vfs,
+      stdin: options.stdin || '',
+      onStdout,
+      onStderr,
+      returnOnExit: true
+    });
+
+    let exitCode = 0;
+    try {
+      const importObject = Object.assign({}, wasi.getImportObject(), options.imports || {});
+      let instance;
+      if (typeof WebAssembly !== 'undefined' && wasmBytesOrModule instanceof WebAssembly.Module) {
+        instance = await WebAssembly.instantiate(wasmBytesOrModule, importObject);
+      } else {
+        const bytes = wasmBytesOrModule instanceof Uint8Array
+          ? wasmBytesOrModule
+          : new Uint8Array(wasmBytesOrModule);
+        const instantiated = await WebAssembly.instantiate(bytes, importObject);
+        instance = instantiated.instance || instantiated;
+      }
+      exitCode = wasi.start(instance);
+    } catch (err) {
+      if (err && err._isWasiExit) {
+        exitCode = err.code;
+      } else {
+        exitCode = 1;
+        onStderr((err && err.stack ? err.stack : String(err)) + '\n');
+      }
+    }
+
+    return {
+      ok: exitCode === 0,
+      exitCode,
+      durationMs: Math.max(0, performance.now() - startTime),
+      stdout: stdoutChunks.join(''),
+      stderr: stderrChunks.join(''),
+      vfs
+    };
+  }
+
   async function executeInVirtualRuntime(options = {}) {
     const {
       files = {},
@@ -5468,9 +6201,55 @@ function __initVirtualRuntime(rootScope) {
       if (typeof cb === 'function') cb(TRUNCATION_NOTICE);
     }
 
+    let _stdoutLineBuf = '';
+    function _processStdoutText(rawText) {
+      let s = String(rawText);
+      if (s.includes('__CODELAB_TEST__:') || _stdoutLineBuf.length > 0) {
+        const combined = _stdoutLineBuf + s;
+        const lines = combined.split('\n');
+        _stdoutLineBuf = lines.pop() || '';
+        const visibleLines = [];
+        for (const line of lines) {
+          const cleanLine = line.replace(/\r$/, '');
+          const markerIdx = cleanLine.indexOf('__CODELAB_TEST__:');
+          if (markerIdx !== -1) {
+            const prefix = cleanLine.slice(0, markerIdx);
+            if (prefix) visibleLines.push(prefix);
+            const jsonPart = cleanLine.slice(markerIdx + '__CODELAB_TEST__:'.length).trim();
+            try {
+              const parsed = JSON.parse(jsonPart);
+              if (parsed && parsed.name && !shouldSkipTest(parsed.name)) {
+                const idx = ++testIndex;
+                const isPass = parsed.passed !== undefined
+                  ? Boolean(parsed.passed)
+                  : (parsed.status === 'pass' || parsed.status === 'passed');
+                const item = {
+                  index: idx,
+                  name: String(parsed.name),
+                  status: isPass ? 'pass' : 'fail',
+                  passed: isPass,
+                  durationMs: Number(parsed.durationMs) || 0,
+                  error: parsed.error || null
+                };
+                testResults.push(item);
+                if (typeof onTestResult === 'function') onTestResult(item);
+              }
+            } catch (err) {
+              _runtimeLogger.debug('Failed to parse __CODELAB_TEST__ payload', err);
+            }
+          } else {
+            visibleLines.push(line);
+          }
+        }
+        s = visibleLines.length > 0 ? visibleLines.join('\n') + '\n' : '';
+      }
+      return s;
+    }
+
     function emitStdout(text) {
       if (outputTruncated) return;
-      const s = String(text);
+      const s = _processStdoutText(text);
+      if (!s) return;
       if (totalOutputBytes + s.length > maxOutputBytes) {
         const remaining = Math.max(0, maxOutputBytes - totalOutputBytes);
         if (remaining > 0) {
@@ -7177,9 +7956,7 @@ function __initVirtualRuntime(rootScope) {
       createTracing: () => ({ enable() {}, disable() {} }),
       getEnabledCategories: () => ''
     };
-    const VirtualWasi = {
-      WASI: class WASI { constructor() { throw new Error('wasi is not supported in the virtual runtime.'); } }
-    };
+    const VirtualWasi = createVirtualWasi({ vfs, onStdout: emitStdout, onStderr: emitStderr });
 
     const VirtualStreamWeb = {
       ReadableStream: typeof ReadableStream !== 'undefined' ? ReadableStream : undefined,
@@ -7828,9 +8605,79 @@ function __initVirtualRuntime(rootScope) {
           const alt = `/workspace/src/${entry.replace(/^\/+/, '')}`;
           if (vfs.existsSync(alt)) entryAbs = alt;
         }
-        const res = loadModule(entryAbs, true);
-        if (res && typeof res.then === 'function') {
-          await raceWithAbort(res);
+        const isCppEntry = /\.(cpp|cc|cxx)$/i.test(entryAbs);
+        const isWasmEntry = /\.wasm$/i.test(entryAbs) || Boolean(options.wasmBinary);
+        if (isWasmEntry) {
+          const wasmBytes = options.wasmBinary || vfs.readFileSync(entryAbs);
+          const wasiRes = await executeWasiModule(wasmBytes, {
+            vfs,
+            args: argv || [entryAbs],
+            env: Object.assign({}, sandboxProcess.env, options.env || {}),
+            stdin: options.stdin || '',
+            onStdout: emitStdout,
+            onStderr: emitStderr
+          });
+          exitCode = wasiRes.exitCode;
+          hasExited = true;
+        } else if (isCppEntry) {
+          const cppCompiler =
+            options.cppCompiler ||
+            (typeof globalThis !== 'undefined' && globalThis.__codelabCppCompiler) ||
+            (rootScope && rootScope.__codelabCppCompiler);
+          if (typeof cppCompiler !== 'function') {
+            throw new Error(
+              'C++ toolchain is not registered. Enable cppExtension from "@innovatorved/code-lab/extensions/cpp" to compile and run C++ files.'
+            );
+          }
+          const compileRes = await cppCompiler({
+            entry: entryAbs,
+            vfs,
+            files: typeof vfs.toSnapshot === 'function' ? vfs.toSnapshot('/workspace') : (files || {}),
+            args: argv || [entryAbs],
+            env: Object.assign({}, sandboxProcess.env, options.env || {}),
+            stdin: options.stdin || '',
+            testFilter,
+            onStdout: emitStdout,
+            onStderr: emitStderr
+          });
+          if (compileRes && compileRes.wasmBinary) {
+            const wasiRes = await executeWasiModule(compileRes.wasmBinary, {
+              vfs,
+              args: compileRes.args || argv || [entryAbs],
+              env: Object.assign({}, sandboxProcess.env, options.env || {}),
+              stdin: options.stdin || '',
+              onStdout: emitStdout,
+              onStderr: emitStderr
+            });
+            exitCode = wasiRes.exitCode;
+            hasExited = true;
+          } else if (compileRes && typeof compileRes.exitCode === 'number') {
+            exitCode = compileRes.exitCode;
+            hasExited = true;
+          }
+        } else {
+          // Check if the file in VFS starts with WASM magic bytes (\0asm)
+          let rawBuf = null;
+          if (vfs.existsSync(entryAbs)) {
+            try { rawBuf = vfs.readFileSync(entryAbs); } catch (err) { _runtimeLogger.debug('Failed to probe binary header', err); }
+          }
+          if (rawBuf && rawBuf.length >= 4 && rawBuf[0] === 0x00 && rawBuf[1] === 0x61 && rawBuf[2] === 0x73 && rawBuf[3] === 0x6d) {
+            const wasiRes = await executeWasiModule(rawBuf, {
+              vfs,
+              args: argv || [entryAbs],
+              env: Object.assign({}, sandboxProcess.env, options.env || {}),
+              stdin: options.stdin || '',
+              onStdout: emitStdout,
+              onStderr: emitStderr
+            });
+            exitCode = wasiRes.exitCode;
+            hasExited = true;
+          } else {
+            const res = loadModule(entryAbs, true);
+            if (res && typeof res.then === 'function') {
+              await raceWithAbort(res);
+            }
+          }
         }
       }
 
@@ -7881,6 +8728,11 @@ function __initVirtualRuntime(rootScope) {
       resourceTracker.allTimers.clear();
       resourceTracker.activeImmediates.clear();
       resourceTracker.inFlightHttp.clear();
+      if (_stdoutLineBuf.length > 0) {
+        const leftover = _stdoutLineBuf;
+        _stdoutLineBuf = '';
+        emitStdout(leftover + '\n');
+      }
       if (!isBackground) {
         vhttp.closeAllServers();
         vnet.closeAllServers();
@@ -8576,6 +9428,8 @@ function __initVirtualRuntime(rootScope) {
     transpileForBrowser,
     preloadNpmPackages,
     createVirtualPortTable,
+    createVirtualWasi,
+    executeWasiModule,
     executeInVirtualRuntime
   };
 
@@ -8667,7 +9521,17 @@ _hostRuntime.cancelWorkerExecution = function cancelWorkerExecution(reason = 'Ex
 };
 
 _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
-  if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) {
+  const isCppOrWasm =
+    Boolean(options.wasmBinary) ||
+    Boolean(options.cppCompiler) ||
+    (typeof options.entry === 'string' && /\.(cpp|cc|cxx|wasm)$/i.test(options.entry));
+  if (
+    isCppOrWasm ||
+    typeof Worker === 'undefined' ||
+    typeof Blob === 'undefined' ||
+    typeof URL === 'undefined' ||
+    !URL.createObjectURL
+  ) {
     return _hostRuntime.executeInVirtualRuntime(options);
   }
 
@@ -8836,7 +9700,10 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         argv: options.argv,
         pid: options.pid,
         isBackground: options.isBackground,
-        printReplResult: options.printReplResult
+        printReplResult: options.printReplResult,
+        stdin: options.stdin,
+        wasmBinary: options.wasmBinary,
+        env: options.env
       }
     });
   });
@@ -8888,6 +9755,8 @@ export const preloadNpmPackages: (
   onProgress?: (pkg: string) => void
 ) => Promise<Record<string, string>> = _runtimeApi.preloadNpmPackages;
 export const createVirtualPortTable: () => any = _runtimeApi.createVirtualPortTable;
+export const createVirtualWasi: (options?: any) => any = _runtimeApi.createVirtualWasi;
+export const executeWasiModule: (wasmBytesOrModule: Uint8Array | ArrayBuffer | WebAssembly.Module, options?: any) => Promise<{ exitCode: number; stdout: string; stderr: string }> = _runtimeApi.executeWasiModule;
 export const executeInVirtualRuntime: (options?: any) => Promise<any> = _runtimeApi.executeInVirtualRuntime;
 const createWorkerRuntimeSourceExport: () => string = _runtimeApi.createWorkerRuntimeSource;
 export { createWorkerRuntimeSourceExport as createWorkerRuntimeSource };

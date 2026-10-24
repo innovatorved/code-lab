@@ -151,6 +151,35 @@ try {
   throw new Error(`Failed to bundle src/scm.ts: ${err.message}`);
 }
 
+let guidedLabExtCode;
+let javascriptExtCode;
+let typescriptExtCode;
+let cppExtCode;
+try {
+  guidedLabExtCode = execFileSync(
+    localBin('esbuild'),
+    ['src/extensions/guided-lab.ts', '--bundle', '--format=iife', '--global-name=CodeLabGuidedLab'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+  javascriptExtCode = execFileSync(
+    localBin('esbuild'),
+    ['src/extensions/javascript.ts', '--bundle', '--format=iife', '--global-name=CodeLabJavaScript'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+  typescriptExtCode = execFileSync(
+    localBin('esbuild'),
+    ['src/extensions/typescript.ts', '--bundle', '--format=iife', '--global-name=CodeLabTypeScript'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+  cppExtCode = execFileSync(
+    localBin('esbuild'),
+    ['src/extensions/cpp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCpp'],
+    { cwd: PKG_DIR, encoding: 'utf8' }
+  );
+} catch (err) {
+  throw new Error(`Failed to bundle extensions for umbrella bundle: ${err.message}`);
+}
+
 const BANNER = `/**
  * ============================================================
  * @innovatorved/code-lab v${PKG_VERSION} — Standalone Browser Code IDE & Virtual Runtime
@@ -213,9 +242,21 @@ ${terminalCode}
 ${workbenchCode}
   })();
 
+  // --- Module 5: Modular Language & Guided Lab Extensions ---
+${guidedLabExtCode}
+${javascriptExtCode}
+${typescriptExtCode}
+${cppExtCode}
+
   const CodeLab = root.CodeLab;
   const CodeLabWorkbench = root.CodeLabWorkbench;
   const CodeLabElement = root.CodeLabElement;
+  if (CodeLab && CodeLab.extensions) {
+    CodeLab.extensions.guidedLab = CodeLabGuidedLab.guidedLabExtension;
+    CodeLab.extensions.javascript = CodeLabJavaScript.javascriptExtension;
+    CodeLab.extensions.typescript = CodeLabTypeScript.typescriptExtension;
+    CodeLab.extensions.cpp = CodeLabCpp.cppExtension;
+  }
 
   // Support CommonJS / Node.js / Bundlers
   if (typeof module !== 'undefined' && module.exports) {
@@ -242,6 +283,9 @@ ${workbenchCode}
       createVirtualHttp: CodeLabRuntime.createVirtualHttp,
       createVirtualNet: CodeLabRuntime.createVirtualNet,
       createVirtualPortTable: CodeLabRuntime.createVirtualPortTable,
+      createVirtualWasi: CodeLabRuntime.createVirtualWasi,
+      executeWasiModule: CodeLabRuntime.executeWasiModule,
+      WasiExitSignal: CodeLabRuntime.WasiExitSignal,
       createSqliteDatabase: CodeLabRuntime.createSqliteDatabase,
       createWorkerRuntimeSource: CodeLabRuntime.createWorkerRuntimeSource,
       CodeLabCsp: CodeLabCsp,
@@ -328,12 +372,24 @@ ${terminalCode}
 ${workbenchCode}
 })();
 
+// --- Module 5: Modular Language & Guided Lab Extensions ---
+${guidedLabExtCode}
+${javascriptExtCode}
+${typescriptExtCode}
+${cppExtCode}
+
 const CodeLabRuntime = _root.CodeLabRuntime;
 const CodeLabShell = _root.CodeLabShell;
 const CodeLabTerminal = _root.CodeLabTerminal;
 const CodeLabWorkbench = _root.CodeLabWorkbench;
 const CodeLabElement = _root.CodeLabElement;
 const CodeLab = _root.CodeLab;
+if (CodeLab && CodeLab.extensions) {
+  CodeLab.extensions.guidedLab = CodeLabGuidedLab.guidedLabExtension;
+  CodeLab.extensions.javascript = CodeLabJavaScript.javascriptExtension;
+  CodeLab.extensions.typescript = CodeLabTypeScript.typescriptExtension;
+  CodeLab.extensions.cpp = CodeLabCpp.cppExtension;
+}
 
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const executeInWorker = CodeLabRuntime.executeInWorker;
@@ -345,6 +401,9 @@ const createVirtualFs = CodeLabRuntime.createVirtualFs;
 const createVirtualHttp = CodeLabRuntime.createVirtualHttp;
 const createVirtualNet = CodeLabRuntime.createVirtualNet;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
+const createVirtualWasi = CodeLabRuntime.createVirtualWasi;
+const executeWasiModule = CodeLabRuntime.executeWasiModule;
+const WasiExitSignal = CodeLabRuntime.WasiExitSignal;
 const createSqliteDatabase = CodeLabRuntime.createSqliteDatabase;
 const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
 const createPosixShell = CodeLabShell ? CodeLabShell.createPosixShell : null;
@@ -476,6 +535,9 @@ export {
   createVirtualHttp,
   createVirtualNet,
   createVirtualPortTable,
+  createVirtualWasi,
+  executeWasiModule,
+  WasiExitSignal,
   createSqliteDatabase,
   createWorkerRuntimeSource
 };
@@ -523,6 +585,9 @@ const transpileTS = CodeLabRuntime.transpileTS;
 const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
 const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const createVirtualPortTable = CodeLabRuntime.createVirtualPortTable;
+const createVirtualWasi = CodeLabRuntime.createVirtualWasi;
+const executeWasiModule = CodeLabRuntime.executeWasiModule;
+const WasiExitSignal = CodeLabRuntime.WasiExitSignal;
 const createSqliteDatabase = CodeLabRuntime.createSqliteDatabase;
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
@@ -552,6 +617,9 @@ export {
   transpileForBrowser,
   preloadNpmPackages,
   createVirtualPortTable,
+  createVirtualWasi,
+  executeWasiModule,
+  WasiExitSignal,
   createSqliteDatabase,
   executeInVirtualRuntime,
   createWorkerRuntimeSource,
@@ -987,9 +1055,11 @@ export interface CodeLabOptions {
   previewOrigin?: string;
   /** Initial workbench mode ('guided' | 'sandbox') */
   mode?: 'guided' | 'sandbox';
-  /** Initial workspace language ('js' | 'ts') */
-  language?: 'js' | 'ts';
-  lang?: 'js' | 'ts';
+  /** Initial workspace language ('js' | 'ts' | 'cpp') */
+  language?: 'js' | 'ts' | 'cpp';
+  lang?: 'js' | 'ts' | 'cpp';
+  /** Enabled languages in the language switcher */
+  languages?: Array<'js' | 'ts' | 'cpp'>;
   /** Explicit theme override ('dark' | 'light' | 'auto') */
   theme?: 'dark' | 'light' | 'auto';
   /** Set to false to disable localStorage persistence and use in-memory state only */
@@ -1014,12 +1084,21 @@ export interface CodeLabOptions {
   tsSolutionFiles?: Record<string, string>;
   /** Explicit TypeScript starter files map for guided mode */
   tsStarterFiles?: Record<string, string>;
+  /** Explicit C++ files map for sandbox mode */
+  cppFiles?: Record<string, string>;
+  cppSolutionFiles?: Record<string, string>;
+  /** Explicit C++ starter files map for guided mode */
+  cppStarterFiles?: Record<string, string>;
+  /** Modular extensions or plugins to install on mount */
+  extensions?: Array<any>;
+  plugins?: Array<any>;
   /** Ordered guided steps */
   steps?: CodeLabStep[];
   /** Guided configuration object */
   guided?: {
     starterFiles?: Record<string, string>;
     tsStarterFiles?: Record<string, string>;
+    cppStarterFiles?: Record<string, string>;
     steps?: CodeLabStep[];
   };
   /** Initial active step index (0-based) */
@@ -1058,7 +1137,8 @@ export declare class CodeLabWorkbench {
   openTabs: string[];
   activeFile: string | null;
   mode: 'guided' | 'sandbox';
-  lang: 'js' | 'ts';
+  lang: 'js' | 'ts' | 'cpp';
+  enabledLanguages: Set<'js' | 'ts' | 'cpp'>;
   activeStepIndex: number;
   completedSteps: Set<string>;
   steps: CodeLabStep[];
@@ -1090,9 +1170,9 @@ export declare class CodeLabWorkbench {
   deleteFile(filename: string): boolean;
   deleteFolder(folderPrefix: string): boolean;
   setMode(newMode: 'guided' | 'sandbox'): void;
-  setLanguage(newLang: 'js' | 'ts'): void;
+  setLanguage(newLang: 'js' | 'ts' | 'cpp'): void;
   switchDrawerTab(tabName: 'tests' | 'terminal' | 'ports' | 'network' | 'inspector'): void;
-  configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts'; stepIndex?: number }): void;
+  configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts' | 'cpp'; stepIndex?: number }): void;
   openCommandPalette(mode?: 'commands' | 'files'): void;
   closeCommandPalette(): void;
   openContextMenu(x: number, y: number, items: Array<{ label?: string; action?: () => void; danger?: boolean; separator?: boolean }>): void;
@@ -1316,16 +1396,24 @@ if (fs.existsSync(previewSwPath)) {
   }
 }
 
-// 3. Build Extensions (guided-lab)
+// 3. Build Extensions (guided-lab, javascript, typescript, cpp)
 const EXT_DIR = path.join(DIST_DIR, 'extensions');
 fs.mkdirSync(EXT_DIR, { recursive: true });
 
 try {
-  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=iife', '--global-name=CodeLabGuidedLab', '--outfile=dist/extensions/guided-lab.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  const umdFooter = (globalName) =>
+    `--footer:js=if(typeof module!=="undefined"&&module.exports)module.exports=${globalName};if(typeof globalThis!=="undefined")globalThis.${globalName}=${globalName};`;
+  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=iife', '--global-name=CodeLabGuidedLab', umdFooter('CodeLabGuidedLab'), '--outfile=dist/extensions/guided-lab.js'], { stdio: 'inherit', cwd: PKG_DIR });
   execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/guided-lab.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  console.log('✓ Built dist/extensions/guided-lab.js & guided-lab.esm.js');
+  execFileSync(localBin('esbuild'), ['src/extensions/javascript.ts', '--bundle', '--format=iife', '--global-name=CodeLabJavaScript', umdFooter('CodeLabJavaScript'), '--outfile=dist/extensions/javascript.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/javascript.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/javascript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--format=iife', '--global-name=CodeLabTypeScript', umdFooter('CodeLabTypeScript'), '--outfile=dist/extensions/typescript.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/typescript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCpp', umdFooter('CodeLabCpp'), '--outfile=dist/extensions/cpp.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/cpp.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  console.log('✓ Built dist/extensions/{guided-lab,javascript,typescript,cpp}.{js,esm.js}');
 } catch (e) {
-  console.error('Failed to bundle guided-lab extension:', e.message);
+  console.error('Failed to bundle extensions:', e.message);
 }
 
 // 3b. Bundle Zod schemas (the `./schemas` subpath export)

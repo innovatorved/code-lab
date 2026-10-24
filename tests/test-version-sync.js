@@ -42,8 +42,8 @@ console.log('\n═════════════════════�
 console.log('   P0-4: Version Single Source of Truth');
 console.log('════════════════════════════════════════════════════════════════════════════\n');
 
-test('package.json uses the locked 0.1.x line', () => {
-  assert.match(version, /^0\.1\.\d+(?:[-+].+)?$/, `unexpected version ${version}`);
+test('package.json uses the locked 0.x line', () => {
+  assert.match(version, /^0\.[12]\.\d+(?:[-+].+)?$/, `unexpected version ${version}`);
 });
 
 test('source SDK version matches package.json', () => {

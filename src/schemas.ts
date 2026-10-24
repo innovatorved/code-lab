@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Zod Schemas and Inferred TypeScript Types for code-lab v0.1.13
+ * Zod Schemas and Inferred TypeScript Types for code-lab v0.2.0
  */
 
 // ── 1. Guided Step ──────────────────────────────────────────────────────────
@@ -22,8 +22,11 @@ export type GuidedStep = z.infer<typeof GuidedStepSchema>;
 
 // ── 2. Language Bundle ──────────────────────────────────────────────────────
 
+export const LanguageIdSchema = z.enum(['js', 'ts', 'cpp']);
+export type LanguageId = z.infer<typeof LanguageIdSchema>;
+
 export const LanguageBundleSchema = z.object({
-  language: z.enum(['js', 'ts']).default('js'),
+  language: LanguageIdSchema.default('js'),
   files: z.record(z.string()).default({}),
   starterFiles: z.record(z.string()).optional(),
   solutionFiles: z.record(z.string()).optional(),
@@ -39,19 +42,55 @@ export const GuidedLabExtensionOptionsSchema = z.object({
   steps: z.array(GuidedStepSchema).default([]),
   stepIndex: z.number().int().nonnegative().default(0),
   mode: z.enum(['guided', 'sandbox']).default('guided'),
-  language: z.enum(['js', 'ts']).optional(),
-  lang: z.enum(['js', 'ts']).optional(),
+  language: LanguageIdSchema.optional(),
+  lang: LanguageIdSchema.optional(),
   starterFiles: z.record(z.string()).optional(),
   solutionFiles: z.record(z.string()).optional(),
   tsStarterFiles: z.record(z.string()).optional(),
   tsSolutionFiles: z.record(z.string()).optional(),
   tsFiles: z.record(z.string()).optional(),
+  cppStarterFiles: z.record(z.string()).optional(),
+  cppSolutionFiles: z.record(z.string()).optional(),
+  cppFiles: z.record(z.string()).optional(),
   summary: z.string().optional(),
   onStepComplete: z.function().args(GuidedStepSchema, z.number()).returns(z.void()).optional(),
   onLabComplete: z.function().args(z.string()).returns(z.void()).optional()
 });
 
 export type GuidedLabExtensionOptions = z.infer<typeof GuidedLabExtensionOptionsSchema>;
+
+export const CppToolchainProgressSchema = z.object({
+  stage: z.enum(['downloading', 'caching', 'extracting', 'compiling', 'linking', 'ready']),
+  loadedBytes: z.number().optional(),
+  totalBytes: z.number().optional(),
+  percent: z.number().optional(),
+  message: z.string().optional()
+});
+
+export type CppToolchainProgress = z.infer<typeof CppToolchainProgressSchema>;
+
+export const CppExtensionOptionsSchema = z.object({
+  toolchainUrl: z.string().optional(),
+  clangWasmUrl: z.string().optional(),
+  clangUrl: z.string().optional(),
+  lldWasmUrl: z.string().optional(),
+  lldUrl: z.string().optional(),
+  sysrootTarUrl: z.string().optional(),
+  sysrootUrl: z.string().optional(),
+  cacheInIndexedDB: z.boolean().default(true),
+  preload: z.boolean().default(false),
+  std: z.enum(['c++17', 'c++20', 'c++23']).default('c++20'),
+  optLevel: z.enum(['-O0', '-O1', '-O2', '-O3']).default('-O2'),
+  flags: z.array(z.string()).default(['-O2', '-Wall', '-Wextra']),
+  headers: z.record(z.string()).optional(),
+  extraHeaders: z.record(z.string()).optional(),
+  files: z.record(z.string()).optional(),
+  starterFiles: z.record(z.string()).optional(),
+  solutionFiles: z.record(z.string()).optional(),
+  onProgress: z.function().args(z.any()).returns(z.void()).optional()
+});
+
+export type CppExtensionOptions = z.infer<typeof CppExtensionOptionsSchema>;
 
 // ── 4. GitHub Clone Options & Progress ──────────────────────────────────────
 
@@ -127,7 +166,7 @@ export const WorkspaceSnapshotSchema = z.object({
   openTabs: z.array(z.string()).default([]),
   activeFile: z.string().nullable().optional(),
   mode: z.enum(['guided', 'sandbox']).optional(),
-  lang: z.enum(['js', 'ts']).optional(),
+  lang: LanguageIdSchema.optional(),
   labId: z.string().optional()
 });
 
@@ -168,10 +207,13 @@ export const WorkbenchOptionsSchema = z.object({
   tsFiles: z.record(z.string()).optional(),
   tsStarterFiles: z.record(z.string()).optional(),
   tsSolutionFiles: z.record(z.string()).optional(),
+  cppFiles: z.record(z.string()).optional(),
+  cppStarterFiles: z.record(z.string()).optional(),
+  cppSolutionFiles: z.record(z.string()).optional(),
   guided: z.any().optional(),
   mode: z.enum(['guided', 'sandbox']).optional(),
-  language: z.enum(['js', 'ts']).optional(),
-  lang: z.enum(['js', 'ts']).optional(),
+  language: LanguageIdSchema.optional(),
+  lang: LanguageIdSchema.optional(),
   stepIndex: z.number().int().optional(),
   onStepComplete: z.function().args(z.any(), z.number()).returns(z.void()).optional(),
   onLabComplete: z.function().args(z.string()).returns(z.void()).optional()

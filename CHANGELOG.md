@@ -4,6 +4,57 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-24
+
+### Added
+- **Real C++20 in WebAssembly Extension (`@innovatorved/code-lab/extensions/cpp`, `src/extensions/cpp.ts`)**:
+  - Real ~35 MB Clang/LLVM + LLD (`wasm-ld`) + WASI C++20 Sysroot (`libc` + `libc++`) toolchain downloaded on demand only when `cppExtension` is used and cached persistently in `IndexedDB` (`codelab_cpp_toolchain_v1`).
+  - Built-in Competitive Programming & DSA headers seeded into `/usr/include`: `<bits/stdc++.h>`, `<codelab/dsa.hpp>` (`ListNode`, `TreeNode`, `buildLinkedList`, `buildBinaryTree`, `printMatrix`, `BenchmarkTimer`), and `<codelab/test.hpp>` (`DESCRIBE`, `TEST`, `IT`, `ASSERT_EQ`, `ASSERT_NE`, `ASSERT_TRUE`, `ASSERT_FALSE`) emitting structured `__CODELAB_TEST__:{json}` markers to `code-lab`'s Test Suite drawer and Guided Lab `Verify Step`.
+  - Pure TypeScript POSIX UStar `.tar` extractor and generator (`extractTarToVfs`, `createTarArchive`).
+- **WASI Preview 1 Syscall Layer (`src/runtime.ts`)**:
+  - Added `createVirtualWasi` (`wasi_snapshot_preview1`) and `executeWasiModule` backed by `VirtualFS` (`fd_read`, `fd_write`, `fd_seek`, `fd_close`, `path_open`, `path_create_directory`, `path_unlink_file`, `args_get`, `environ_get`, `clock_time_get`, `random_get`, `proc_exit` via `WasiExitSignal`).
+  - `executeInVirtualRuntime` now supports `.wasm` and `.cpp` entrypoints directly and parses `__CODELAB_TEST__:{json}` lines into `testResults`.
+- **POSIX Shell C++ Compiler & WASI Binary Execution (`src/shell.ts`)**:
+  - Added `g++`, `clang++`, and `c++` commands (`67` total POSIX coreutils) plus direct `./<binary>` (`.wasm` magic byte `0x00 0x61 0x73 0x6d`) execution with `< input.txt` stdin and `> output.txt` / `>>` stdout redirection.
+- **Modular Language Extensions (`@innovatorved/code-lab/extensions/{javascript,typescript,cpp}`)**:
+  - **JavaScript (`javascriptExtension`)**: Enabled **by default out-of-the-box** using the browser's native JS engine and `code-lab`'s zero-dependency `node` & `bun` virtual runtime.
+  - **TypeScript (`typescriptExtension`)**: Opt-in zero-dependency browser extension using `code-lab`'s built-in `transpileTS` + virtual `node`/`bun` runtime.
+  - **C++ (`cppExtension`)**: Opt-in WebAssembly Clang/LLVM + WASI C++20 extension.
+- **3-Way Language Switcher (`JS | TS | C++`) & Multi-Language Guided Labs (`src/workbench.ts`, `src/schemas.ts`)**:
+  - Added `cppStarterFiles`, `cppSolutionFiles`, and `cppFiles` to `GuidedLabExtensionOptionsSchema` and `WorkbenchOptionsSchema`.
+  - Workbench language switcher dynamically renders pills for the enabled languages (`wb.enabledLanguages`).
+
+### Breaking Changes & Migration Guide (`v0.1.x` $\rightarrow$ `v0.2.0`)
+1. **Default Workbench Language Surface (`['js']` by default)**:
+   - **Before (`v0.1.x`)**: Mounting a standalone workbench without language extensions exposed only JavaScript unless `guidedLabExtension` was configured with `ts*` files.
+   - **Now (`v0.2.0`)**: JavaScript (`javascriptExtension`) + zero-dependency virtual `node` and `bun` remains enabled by default (`0 MB` extra download). To enable TypeScript or C++ in the workbench toolbar switcher (`JS | TS | C++`), register `typescriptExtension` and/or `cppExtension` via `.use()` or `extensions: [...]`:
+     ```ts
+     import CodeLab, {
+       typescriptExtension,
+       cppExtension,
+       guidedLabExtension
+     } from '@innovatorved/code-lab';
+
+     const lab = CodeLab.mount('#editor', {
+       id: 'dsa-binary-search',
+       title: 'Binary Search in Depth',
+       language: 'cpp'
+     })
+       .use(typescriptExtension)
+       .use((wb) => cppExtension(wb, { std: 'c++20' }))
+       .use((wb) =>
+         guidedLabExtension(wb, {
+           starterFiles: { 'src/solution.js': '...' },
+           tsStarterFiles: { 'src/solution.ts': '...' },
+           cppStarterFiles: { 'src/solution.cpp': '...' },
+           steps: [...]
+         })
+       );
+     ```
+   - **Backward Compatibility**: Existing `guidedLabExtension(wb, { tsStarterFiles })` or `cppStarterFiles` configs automatically add `'ts'` / `'cpp'` to `wb.enabledLanguages`.
+2. **`LanguageIdSchema` Enum Widened**:
+   - `LanguageIdSchema` (`@innovatorved/code-lab/schemas`) is now `z.enum(['js', 'ts', 'cpp'])` (previously `z.enum(['js', 'ts'])`). TypeScript consumers switching exhaustively on `LanguageId` should handle `'cpp'`.
+
 ## [0.1.13] - 2026-10-23
 
 ### Added

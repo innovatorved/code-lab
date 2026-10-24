@@ -57,7 +57,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.1.13';
+  const CODELAB_VERSION = '0.2.0';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -1096,10 +1096,68 @@ declare module 'bun:sqlite' {
     return monacoPromise;
   }
 
-  // Helper to convert JS file set to TS file set if explicit TS files aren't provided
-  function mapFilesToLanguage(filesObj, lang, explicitTsFiles) {
+  const DEFAULT_STANDALONE_CPP_FILES = {
+    'solution.hpp': `#pragma once
+#include <bits/stdc++.h>
+#include <codelab/dsa.hpp>
+using namespace std;
+
+vector<int> twoSum(const vector<int>& nums, int target) {
+  unordered_map<int, int> seen;
+  for (int i = 0; i < (int)nums.size(); ++i) {
+    int complement = target - nums[i];
+    if (seen.count(complement)) return {seen[complement], i};
+    seen[nums[i]] = i;
+  }
+  return {};
+}
+`,
+    'main.cpp': `#include "solution.hpp"
+
+int main() {
+  vector<int> nums = {2, 7, 11, 15};
+  codelab::dbg(twoSum(nums, 9));
+  return 0;
+}
+`,
+    'test.cpp': `#include <codelab/test.hpp>
+#include "solution.hpp"
+
+int main() {
+  DESCRIBE("Standalone C++ Sandbox", [] {
+    TEST("twoSum finds target pair indices", [] {
+      ASSERT_EQ(twoSum({2, 7, 11, 15}, 9), (vector<int>{0, 1}));
+      ASSERT_EQ(twoSum({3, 2, 4}, 6), (vector<int>{1, 2}));
+    });
+  });
+  return codelab::test::exit_code();
+}
+`
+  };
+
+  // Helper to convert JS file set to TS or C++ file set if explicit language files aren't provided
+  function mapFilesToLanguage(filesObj, lang, explicitTsFiles, explicitCppFiles) {
     if (lang === 'ts' && explicitTsFiles && Object.keys(explicitTsFiles).length > 0) {
       return { ...explicitTsFiles };
+    }
+    if (lang === 'cpp') {
+      if (explicitCppFiles && Object.keys(explicitCppFiles).length > 0) {
+        return { ...explicitCppFiles };
+      }
+      const existingCpp = {};
+      for (const [name, content] of Object.entries(filesObj || {})) {
+        if (/\.(cpp|cc|cxx|h|hpp|md)$/i.test(name)) {
+          existingCpp[name] = content;
+        }
+      }
+      if (Object.keys(existingCpp).some(f => /\.(cpp|cc|cxx)$/i.test(f))) {
+        return existingCpp;
+      }
+      const outCpp = { ...DEFAULT_STANDALONE_CPP_FILES };
+      if (filesObj && filesObj['README.md']) {
+        outCpp['README.md'] = filesObj['README.md'];
+      }
+      return outCpp;
     }
     const out = {};
     for (const [name, content] of Object.entries(filesObj || {})) {
@@ -1332,7 +1390,9 @@ declare module 'bun:sqlite' {
         ...(options.guided || {}),
         ...(options.starterFiles ? { starterFiles: options.starterFiles } : {}),
         ...(options.tsStarterFiles ? { tsStarterFiles: options.tsStarterFiles } : {}),
-        ...((options.tsSolutionFiles || options.tsFiles) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles } : {})
+        ...((options.tsSolutionFiles || options.tsFiles) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles } : {}),
+        ...(options.cppStarterFiles ? { cppStarterFiles: options.cppStarterFiles } : {}),
+        ...((options.cppSolutionFiles || options.cppFiles) ? { cppSolutionFiles: options.cppSolutionFiles || options.cppFiles } : {})
       };
       this.steps = options.steps || this.guidedConfig?.steps || [];
       this.hasGuidedLab = Boolean(
@@ -1340,12 +1400,41 @@ declare module 'bun:sqlite' {
         options.guidedLab ||
         (this.steps && this.steps.length > 0)
       );
-      this.hasMultipleLanguages = Boolean(
+      this.enabledLanguages = new Set(['js']);
+      if (Array.isArray(options.languages)) {
+        for (const l of options.languages) {
+          if (l === 'js' || l === 'ts' || l === 'cpp') this.enabledLanguages.add(l);
+        }
+      }
+      if (
         options.hasMultipleLanguages ||
-        options.languages ||
         this.guidedConfig.tsStarterFiles ||
         this.guidedConfig.tsSolutionFiles ||
         this.guidedConfig.tsFiles ||
+        options.lang === 'ts' ||
+        options.language === 'ts'
+      ) {
+        this.enabledLanguages.add('ts');
+      }
+      if (
+        this.guidedConfig.cppStarterFiles ||
+        this.guidedConfig.cppSolutionFiles ||
+        this.guidedConfig.cppFiles ||
+        options.lang === 'cpp' ||
+        options.language === 'cpp'
+      ) {
+        this.enabledLanguages.add('cpp');
+      }
+      this.hasMultipleLanguages = Boolean(
+        options.hasMultipleLanguages ||
+        options.languages ||
+        this.enabledLanguages.size > 1 ||
+        this.guidedConfig.tsStarterFiles ||
+        this.guidedConfig.tsSolutionFiles ||
+        this.guidedConfig.tsFiles ||
+        this.guidedConfig.cppStarterFiles ||
+        this.guidedConfig.cppSolutionFiles ||
+        this.guidedConfig.cppFiles ||
         (this.hasGuidedLab && (options.lang || options.language))
       );
 
@@ -1513,10 +1602,12 @@ declare module 'bun:sqlite' {
       this._bindEvents();
       this._initEditor();
 
-      if (Array.isArray(options.plugins)) {
-        for (const plugin of options.plugins) {
-          this.use(plugin);
-        }
+      const initialPlugins = [
+        ...(Array.isArray(options.extensions) ? options.extensions : []),
+        ...(Array.isArray(options.plugins) ? options.plugins : [])
+      ];
+      for (const plugin of initialPlugins) {
+        this.use(plugin);
       }
 
       if (options.repo && typeof options.repo === 'string') {
@@ -1952,7 +2043,11 @@ declare module 'bun:sqlite' {
         curEl.textContent = `Ln ${this.cursorPos.lineNumber || 1}, Col ${this.cursorPos.column || 1}`;
       }
       if (langEl) {
-        langEl.textContent = this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)';
+        langEl.textContent = this.lang === 'cpp'
+          ? 'C++20 (Clang/WASI)'
+          : this.lang === 'ts'
+            ? 'TypeScript 5.x'
+            : 'JavaScript (CJS/ESM)';
       }
     }
 
@@ -1962,10 +2057,20 @@ declare module 'bun:sqlite' {
         ...this.referenceFiles,
         ...(this.guidedConfig?.starterFiles || {})
       };
-      if (mode === 'guided' && this.guidedConfig?.starterFiles) {
-        return mapFilesToLanguage(baseJsStarter, lang, this.guidedConfig?.tsStarterFiles);
+      if (mode === 'guided' && (this.guidedConfig?.starterFiles || this.guidedConfig?.tsStarterFiles || this.guidedConfig?.cppStarterFiles)) {
+        return mapFilesToLanguage(
+          baseJsStarter,
+          lang,
+          this.guidedConfig?.tsStarterFiles,
+          this.guidedConfig?.cppStarterFiles
+        );
       }
-      return mapFilesToLanguage(baseJsSolution, lang, this.guidedConfig?.tsSolutionFiles);
+      return mapFilesToLanguage(
+        baseJsSolution,
+        lang,
+        this.guidedConfig?.tsSolutionFiles,
+        this.guidedConfig?.cppSolutionFiles
+      );
     }
 
     _isUserCreatedFile(filename) {
@@ -1988,6 +2093,21 @@ declare module 'bun:sqlite' {
 
     _pickDefaultFile() {
       const names = Object.keys(this.files);
+      if (this.lang === 'cpp') {
+        if (this.guidedConfig?.mainFile) {
+          const cppMain = this.guidedConfig.mainFile.replace(/\.(js|ts)$/, '.hpp');
+          if (this.files[cppMain]) return cppMain;
+          const cppMainSrc = this.guidedConfig.mainFile.replace(/\.(js|ts)$/, '.cpp');
+          if (this.files[cppMainSrc]) return cppMainSrc;
+        }
+        if (this.files['solution.hpp']) return 'solution.hpp';
+        if (this.files['main.cpp']) return 'main.cpp';
+        const cppImpl = names.find(f =>
+          /\.(cpp|cc|cxx|hpp|h)$/i.test(f) &&
+          !/(^|\/)(demo|test)\.(cpp|cc|cxx)$/i.test(f)
+        );
+        return cppImpl || names.find(f => !f.endsWith('.md')) || names[0] || '';
+      }
       const ext = this.lang === 'ts' ? '.ts' : '.js';
       if (this.guidedConfig?.mainFile) {
         const mainCandidate = this.lang === 'ts'
@@ -2004,6 +2124,27 @@ declare module 'bun:sqlite' {
 
     _findEntryFile(kind) {
       const names = Object.keys(this.files);
+      if (this.lang === 'cpp') {
+        if (kind === 'test') {
+          if (this.explicitTestEntry) {
+            const cppTest = this.explicitTestEntry.replace(/\.(js|ts)$/, '.cpp');
+            if (this.files[cppTest]) return cppTest;
+            if (this.files[this.explicitTestEntry]) return this.explicitTestEntry;
+          }
+          if (this.files['test.cpp']) return 'test.cpp';
+          return names.find(f => /(^|\/)test\.(cpp|cc|cxx)$/i.test(f)) || null;
+        }
+        if (this.explicitEntry) {
+          const cppEntry = this.explicitEntry.replace(/\.(js|ts)$/, '.cpp');
+          if (this.files[cppEntry]) return cppEntry;
+          if (this.files[this.explicitEntry]) return this.explicitEntry;
+        }
+        if (this.files['main.cpp']) return 'main.cpp';
+        if (this.files['demo.cpp']) return 'demo.cpp';
+        return names.find(f => /(^|\/)(main|demo)\.(cpp|cc|cxx)$/i.test(f)) ||
+          names.find(f => /\.(cpp|cc|cxx)$/i.test(f) && !/(^|\/)test\.(cpp|cc|cxx)$/i.test(f)) ||
+          null;
+      }
       if (kind === 'test' && this.explicitTestEntry) {
         const candidate = this.lang === 'ts' ? this.explicitTestEntry.replace(/\.js$/, '.ts') : this.explicitTestEntry;
         if (this.files[candidate]) return candidate;
@@ -2014,16 +2155,16 @@ declare module 'bun:sqlite' {
         if (this.files[candidate]) return candidate;
         if (this.files[this.explicitEntry]) return this.explicitEntry;
       }
-      const pattern = kind === 'test' ? /(^|\/)test\.(js|ts)$/i : /(^|\/)demo\.(js|ts)$/i;
+      const pattern = kind === 'test' ? /(^|\/)test\.(js|ts|cpp|cc|cxx)$/i : /(^|\/)(demo|main)\.(js|ts|cpp|cc|cxx)$/i;
       const found = names.find(f => pattern.test(f));
       if (found) return found;
       if (kind === 'demo') {
-        const isConfigOrTest = f => /(^|\/)(test|.*\.(?:test|spec|config|d))\.(js|ts|mjs|cjs)$/i.test(f) || /(^|\/)\.[^/]+$/i.test(f);
+        const isConfigOrTest = f => /(^|\/)(test|.*\.(?:test|spec|config|d))\.(js|ts|mjs|cjs|cpp|cc|cxx)$/i.test(f) || /(^|\/)\.[^/]+$/i.test(f);
         const hasHtmlEntry = Boolean(this.files['index.html'] || this.files['public/index.html']);
         if (hasHtmlEntry) {
           return names.find(f => /(^|\/)(server|app|demo)\.(js|ts)$/i.test(f) && !/^src\//i.test(f)) || null;
         }
-        return names.find(f => /\.(js|ts)$/i.test(f) && !isConfigOrTest(f)) || null;
+        return names.find(f => /\.(js|ts|cpp|cc|cxx)$/i.test(f) && !isConfigOrTest(f)) || null;
       }
       return null;
     }
@@ -2048,6 +2189,44 @@ declare module 'bun:sqlite' {
       this.container.querySelectorAll('[data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
         btn.disabled = this.isRunning;
       });
+    }
+
+    _renderLanguageSwitcherHtml() {
+      const hasMulti = Boolean(
+        this.hasMultipleLanguages ||
+        (this.enabledLanguages && this.enabledLanguages.size > 1)
+      );
+      if (!hasMulti) return '';
+      const showTs = Boolean(
+        !this.enabledLanguages ||
+        this.enabledLanguages.has('ts') ||
+        !this.enabledLanguages.has('cpp')
+      );
+      const showCpp = Boolean(this.enabledLanguages && this.enabledLanguages.has('cpp'));
+      return `
+              <div class="codelab-lang-switch" role="group" aria-label="Language Selector">
+                <button type="button" class="codelab-lang-btn ${this.lang === 'js' ? 'active' : ''}" data-cl-lang="js" data-lang="js" aria-pressed="${this.lang === 'js'}">JS</button>
+                ${showTs ? `<button type="button" class="codelab-lang-btn ${this.lang === 'ts' ? 'active' : ''}" data-cl-lang="ts" data-lang="ts" aria-pressed="${this.lang === 'ts'}">TS</button>` : ''}
+                ${showCpp ? `<button type="button" class="codelab-lang-btn ${this.lang === 'cpp' ? 'active' : ''}" data-cl-lang="cpp" data-lang="cpp" aria-pressed="${this.lang === 'cpp'}">C++</button>` : ''}
+              </div>
+      `;
+    }
+
+    _refreshLanguageSwitcher() {
+      if (!this.container) return;
+      const topLeft = this.container.querySelector('.codelab-topbar__left');
+      if (!topLeft) return;
+      const existing = topLeft.querySelector('.codelab-lang-switch');
+      const htmlStr = this._renderLanguageSwitcherHtml().trim();
+      if (existing) {
+        if (htmlStr) {
+          existing.outerHTML = htmlStr;
+        } else {
+          existing.remove();
+        }
+      } else if (htmlStr) {
+        topLeft.insertAdjacentHTML('beforeend', htmlStr);
+      }
     }
 
     // ── Render Workbench DOM ───────────────────────────────────────────────
@@ -2090,12 +2269,7 @@ declare module 'bun:sqlite' {
                 </button>
               </div>
               ` : ''}
-              ${this.hasMultipleLanguages ? `
-              <div class="codelab-lang-switch" role="group" aria-label="Language Selector">
-                <button type="button" class="codelab-lang-btn ${this.lang === 'js' ? 'active' : ''}" data-cl-lang="js" data-lang="js" aria-pressed="${this.lang === 'js'}">JS</button>
-                <button type="button" class="codelab-lang-btn ${this.lang === 'ts' ? 'active' : ''}" data-cl-lang="ts" data-lang="ts" aria-pressed="${this.lang === 'ts'}">TS</button>
-              </div>
-              ` : ''}
+              ${this._renderLanguageSwitcherHtml()}
             </div>
 
             <div class="codelab-topbar__right">
@@ -2269,7 +2443,7 @@ declare module 'bun:sqlite' {
               <span class="codelab-statusbar__sep">·</span>
               <span class="codelab-statusbar__item">UTF-8</span>
               <span class="codelab-statusbar__sep">·</span>
-              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
+              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
             </div>
           </footer>
 
@@ -2290,13 +2464,30 @@ declare module 'bun:sqlite' {
       this._updateRunStateUI();
     }
 
+    _resolveStepTargetFile(rawTarget) {
+      if (!rawTarget) return '';
+      if (this.lang === 'cpp') {
+        const asHpp = rawTarget.replace(/\.(js|ts)$/, '.hpp');
+        if (this.files && this.files[asHpp] !== undefined) return asHpp;
+        const asCpp = rawTarget.replace(/\.(js|ts)$/, '.cpp');
+        if (this.files && this.files[asCpp] !== undefined) return asCpp;
+        if (this.files && this.files['solution.hpp'] !== undefined) return 'solution.hpp';
+        if (this.files && this.files['main.cpp'] !== undefined) return 'main.cpp';
+        return asCpp;
+      }
+      if (this.lang === 'ts') {
+        return rawTarget.replace(/\.js$/, '.ts');
+      }
+      return rawTarget;
+    }
+
     _detectActiveSymbol(filePath) {
       if (!filePath || !this.files || typeof this.files[filePath] !== 'string') return '';
       if (this.mode === 'guided' && this.steps && this.steps.length > 0) {
         const step = this.steps[this.activeStepIndex];
         if (step) {
           const rawTarget = step.targetFile || '';
-          const stepTarget = this.lang === 'ts' && rawTarget ? rawTarget.replace(/\.js$/, '.ts') : rawTarget;
+          const stepTarget = rawTarget ? this._resolveStepTargetFile(rawTarget) : '';
           if ((!stepTarget || stepTarget === filePath) && (step.targetSymbol || step.symbol)) {
             return String(step.targetSymbol || step.symbol);
           }
@@ -2499,7 +2690,7 @@ declare module 'bun:sqlite' {
 
       const step = this.steps[this.activeStepIndex] || this.steps[0];
       const isStepPassed = this.completedSteps.has(step.id);
-      const targetFile = this.lang === 'ts' && step.targetFile ? step.targetFile.replace(/\.js$/, '.ts') : (step.targetFile || this._pickDefaultFile());
+      const targetFile = step.targetFile ? this._resolveStepTargetFile(step.targetFile) : this._pickDefaultFile();
       const progressPct = Math.round((this.completedSteps.size / Math.max(1, this.steps.length)) * 100);
 
       // Match step test results
@@ -2726,8 +2917,8 @@ declare module 'bun:sqlite' {
         const sortedFiles = Array.from(node.files.entries()).sort((a, b) => a[0].localeCompare(b[0]));
         for (const [baseName, fullPath] of sortedFiles) {
           const isActive = fullPath === this.activeFile;
-          const badge = fullPath.endsWith('.md') ? 'DOC' : fullPath.endsWith('.json') ? 'PKG' : /(^|\/)test\./i.test(fullPath) ? 'TEST' : /(^|\/)demo\./i.test(fullPath) ? 'DEMO' : 'SRC';
-          const ext = fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
+          const badge = fullPath.endsWith('.md') ? 'DOC' : fullPath.endsWith('.json') ? 'PKG' : /(^|\/)test\./i.test(fullPath) ? 'TEST' : /(^|\/)(demo|main)\./i.test(fullPath) ? 'DEMO' : /\.(hpp|h)$/i.test(fullPath) ? 'HDR' : 'SRC';
+          const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(fullPath) ? 'cpp' : fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
           const fileIcon = ext === 'json' ? CL_ICONS.database : ext === 'md' ? CL_ICONS.book : CL_ICONS.file;
           const indent = depth * 14 + 10;
           treeHtml += `
@@ -2851,10 +3042,10 @@ declare module 'bun:sqlite' {
       const openTabs = Array.isArray(this.openTabs) ? this.openTabs : [];
       const tabsHtml = openTabs.map(f => {
         const isActive = f === this.activeFile;
-        const ext = f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
+        const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(f) ? 'cpp' : f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
         return `
           <div role="tab" tabindex="0" aria-selected="${isActive}" class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
-            <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext.toUpperCase()}</span>
+            <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext === 'cpp' ? 'C++' : ext.toUpperCase()}</span>
             <span class="codelab-tab__label">${escapeHtml(f)}</span>
             <button type="button" class="codelab-tab__close" data-action="close-tab" data-cl-file="${escapeHtml(f)}" title="Close ${escapeHtml(f)}" aria-label="Close ${escapeHtml(f)}">×</button>
           </div>
@@ -3109,7 +3300,7 @@ declare module 'bun:sqlite' {
     createFile(rawName, initialContent = null) {
       let clean = String(rawName).trim().replace(/^\/+/, '');
       if (!clean) return;
-      if (!/\.(js|ts|json|md|txt)$/i.test(clean) && !clean.includes('.')) {
+      if (!/\.(js|ts|cpp|cc|cxx|hpp|h|json|md|txt)$/i.test(clean) && !clean.includes('.')) {
         clean += `.${this.lang}`;
       }
       if (this.files[clean] !== undefined) {
@@ -3127,7 +3318,11 @@ declare module 'bun:sqlite' {
       } else {
         this.files[clean] = clean.endsWith('.json')
           ? '{\n  "name": "' + this.labId + '",\n  "dependencies": {}\n}\n'
-          : `'use strict';\n\n// ${clean}\n`;
+          : /\.(hpp|h)$/i.test(clean)
+            ? `#pragma once\n#include <bits/stdc++.h>\n\n// ${clean}\n`
+            : /\.(cpp|cc|cxx)$/i.test(clean)
+              ? `#include <bits/stdc++.h>\nusing namespace std;\n\n// ${clean}\nint main() {\n    return 0;\n}\n`
+              : `'use strict';\n\n// ${clean}\n`;
       }
       this._saveState();
       this._getOrCreateModel(clean);
@@ -5735,7 +5930,15 @@ declare module 'bun:sqlite' {
       const rawUri = `file:///${this.labId}/${filename}`;
       const uri = uriParser ? uriParser.parse(rawUri) : { toString: () => rawUri };
       let model = typeof this.monaco.editor.getModel === 'function' ? this.monaco.editor.getModel(uri) : null;
-      const lang = filename.endsWith('.ts') ? 'typescript' : filename.endsWith('.json') ? 'json' : filename.endsWith('.md') ? 'markdown' : 'javascript';
+      const lang = /\.(cpp|cc|cxx|hpp|h)$/i.test(filename)
+        ? 'cpp'
+        : filename.endsWith('.ts')
+          ? 'typescript'
+          : filename.endsWith('.json')
+            ? 'json'
+            : filename.endsWith('.md')
+              ? 'markdown'
+              : 'javascript';
       if (!model) {
         model = this.monaco.editor.createModel(this.files[filename] || '', lang, uri);
         if (model && typeof model.onDidChangeContent === 'function') {
@@ -6521,7 +6724,12 @@ declare module 'bun:sqlite' {
         { id: 'export-workspace', label: 'Workspace: Export Workspace as JSON', action: () => this.exportWorkspace({ download: true }) },
         { id: 'export-workspace-zip', label: 'Workspace: Export Project as ZIP Archive', action: () => this.exportProjectZip({ download: true }) },
         { id: 'reset-workspace', label: 'Workspace: Reset Workspace to Clean State', action: () => this.resetLab() },
-        { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript', action: () => this.setLanguage(this.lang === 'js' ? 'ts' : 'js') },
+        { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript / C++', action: () => {
+          const order = ['js', 'ts'];
+          if (this.enabledLanguages && this.enabledLanguages.has('cpp')) order.push('cpp');
+          const next = order[(order.indexOf(this.lang) + 1) % order.length] || 'js';
+          this.setLanguage(next);
+        } },
         { id: 'switch-mode', label: 'Mode: Switch Guided / Sandbox Mode', action: () => this.setMode(this.mode === 'guided' ? 'sandbox' : 'guided') },
         { id: 'toggle-guide', label: 'View: Toggle Guide Sidebar', action: () => this.toggleGuide() },
         { id: 'toggle-drawer', label: 'View: Toggle Bottom Drawer (Tests / Terminal / VFS)', action: () => {
@@ -6986,7 +7194,7 @@ declare module 'bun:sqlite' {
         const step = this.steps[idx];
         if (step) {
           const rawTarget = step.targetFile || this._pickDefaultFile();
-          const targetFile = this.lang === 'ts' && rawTarget ? rawTarget.replace(/\.js$/, '.ts') : rawTarget;
+          const targetFile = rawTarget ? this._resolveStepTargetFile(rawTarget) : this._pickDefaultFile();
           this.openFile(targetFile, step.targetSymbol || `TODO (Step ${idx + 1})`);
         }
       }
@@ -7090,15 +7298,27 @@ declare module 'bun:sqlite' {
       }
     }
 
+    get language() {
+      return this.lang;
+    }
+
+    set language(newLang) {
+      this.setLanguage(newLang);
+    }
+
     setLanguage(newLang) {
-      if (newLang !== 'js' && newLang !== 'ts') return;
+      if (newLang !== 'js' && newLang !== 'ts' && newLang !== 'cpp') return;
       if (this.lang === newLang) return;
       this.lang = newLang;
+      if (this.enabledLanguages instanceof Set) {
+        this.enabledLanguages.add(newLang);
+      }
       this.files = this._computeInitialFiles();
       this.openTabs = this._orderedFileNames();
       this.activeFile = this._pickDefaultFile();
       this._saveState();
 
+      this._refreshLanguageSwitcher();
       this.container.querySelectorAll('[data-cl-lang]').forEach(btn => {
         const isActive = btn.dataset.clLang === this.lang;
         btn.classList.toggle('active', isActive);
@@ -7108,6 +7328,14 @@ declare module 'bun:sqlite' {
       this._syncAllModels();
       this._syncActiveFileToView();
       this._renderGuidePane();
+    }
+
+    switchLang(newLang) {
+      return this.setLanguage(newLang);
+    }
+
+    switchMode(newMode) {
+      return this.setMode(newMode);
     }
 
     configure({ mode, lang, stepIndex, onClose } = {}) {
@@ -7129,7 +7357,7 @@ declare module 'bun:sqlite' {
       if (mode === 'guided' || mode === 'sandbox') {
         this.setMode(mode);
       }
-      if (lang === 'js' || lang === 'ts') {
+      if (lang === 'js' || lang === 'ts' || lang === 'cpp') {
         this.setLanguage(lang);
       }
       if (typeof stepIndex === 'number' && !Number.isNaN(stepIndex)) {
@@ -7384,12 +7612,14 @@ declare module 'bun:sqlite' {
       const payload = {
         ...execOptions,
         instanceId: this.instanceId,
+        cppCompiler: execOptions.cppCompiler || this.cppCompiler,
         onStdout: execOptions.onStdout || ((chunk) => this._appendTerminalStream('stdout', chunk)),
         onStderr: execOptions.onStderr || ((chunk) => this._appendTerminalStream('stderr', chunk)),
         signal: execOptions.signal || this._activeCommandAbortController?.signal
       };
       try {
-        if (typeof root.CodeLabRuntime?.preloadNpmPackages === 'function' && payload && payload.files) {
+        const isCppEntry = Boolean(payload && typeof payload.entry === 'string' && /\.(cpp|cc|cxx|wasm)$/i.test(payload.entry));
+        if (!isCppEntry && typeof root.CodeLabRuntime?.preloadNpmPackages === 'function' && payload && payload.files) {
           const rawDetected = this._detectPackages();
           const detectedList = Array.isArray(rawDetected)
             ? rawDetected
@@ -7406,9 +7636,11 @@ declare module 'bun:sqlite' {
             payload.packages = Object.assign({}, preloaded, payload.packages || {});
           }
         }
-        this._setRuntimeStatus('running', `Running ${payload.entry || payload.mode || 'script'}...`);
+        this._setRuntimeStatus('running', isCppEntry ? `Compiling & Running ${payload.entry}...` : `Running ${payload.entry || payload.mode || 'script'}...`);
         let res;
-        if (typeof root.CodeLabRuntime?.executeInWorker === 'function') {
+        if (isCppEntry && typeof root.CodeLabRuntime?.executeInVirtualRuntime === 'function') {
+          res = await root.CodeLabRuntime.executeInVirtualRuntime(payload);
+        } else if (typeof root.CodeLabRuntime?.executeInWorker === 'function') {
           res = await root.CodeLabRuntime.executeInWorker(payload);
         } else if (typeof root.CodeLabRuntime?.executeInVirtualRuntime === 'function') {
           res = await root.CodeLabRuntime.executeInVirtualRuntime(payload);
@@ -7445,13 +7677,18 @@ declare module 'bun:sqlite' {
       this.isRunning = true;
       this._updateRunStateUI();
       this.drawerTab = 'terminal';
-      this.terminalLogs.push({ type: 'system', text: `\n$ node ${entry}` });
+      const isCppDemo = /\.(cpp|cc|cxx)$/i.test(entry);
+      this.terminalLogs.push({
+        type: 'system',
+        text: isCppDemo ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out` : `\n$ node ${entry}`
+      });
       this._renderDrawerBody();
 
-      const abortCtrl = new AbortController();
+      let abortCtrl = new AbortController();
       this._activeCommandAbortController = abortCtrl;
       let streamedStdout = false;
       let streamedStderr = false;
+      let lastRes = null;
 
       try {
         const res = await this._executeRuntime({
@@ -7468,6 +7705,7 @@ declare module 'bun:sqlite' {
             this._appendTerminalStream('stderr', c);
           }
         });
+        lastRes = res;
         this._flushTerminalStream();
         const aborted = this._isAbortResult(res, abortCtrl.signal);
 
@@ -7503,6 +7741,7 @@ declare module 'bun:sqlite' {
       }
 
       this._renderDrawerBody();
+      return lastRes;
     }
 
     async runTests(filterTestNames = null) {
@@ -7518,12 +7757,17 @@ declare module 'bun:sqlite' {
       this.isRunning = true;
       this._updateRunStateUI();
       this.drawerTab = 'tests';
-      this.terminalLogs.push({ type: 'system', text: `\n$ node ${entry}` });
+      const isCppTest = /\.(cpp|cc|cxx)$/i.test(entry);
+      this.terminalLogs.push({
+        type: 'system',
+        text: isCppTest ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out` : `\n$ node ${entry}`
+      });
 
-      const abortCtrl = new AbortController();
+      let abortCtrl = new AbortController();
       this._activeCommandAbortController = abortCtrl;
       let streamedStdout = false;
       let streamedStderr = false;
+      let lastRes = null;
 
       try {
         const res = await this._executeRuntime({
@@ -7541,6 +7785,7 @@ declare module 'bun:sqlite' {
             this._appendTerminalStream('stderr', c);
           }
         });
+        lastRes = res;
         this._flushTerminalStream();
         const aborted = this._isAbortResult(res, abortCtrl.signal);
 
@@ -7621,6 +7866,7 @@ declare module 'bun:sqlite' {
       this._renderStepPills();
       this._renderGuidePane();
       this._renderDrawerBody();
+      return lastRes;
     }
 
     async verifyCurrentStep() {
@@ -7951,7 +8197,7 @@ declare module 'bun:sqlite' {
       if (data.mode === 'guided' || data.mode === 'sandbox') {
         this.mode = data.mode;
       }
-      if (data.language === 'js' || data.language === 'ts') {
+      if (data.language === 'js' || data.language === 'ts' || data.language === 'cpp') {
         this.lang = data.language;
       }
       if (data.files && typeof data.files === 'object') {
@@ -8501,6 +8747,10 @@ declare module 'bun:sqlite' {
       } else if (typeof plugin === 'object' && typeof plugin.install === 'function') {
         plugin.install(this, pluginOptions);
       }
+      if (this.enabledLanguages instanceof Set && this.enabledLanguages.size > 1) {
+        this.hasMultipleLanguages = true;
+      }
+      this._refreshLanguageSwitcher();
       return this;
     }
 
@@ -8563,7 +8813,7 @@ declare module 'bun:sqlite' {
           if (rootEl) rootEl.setAttribute('data-cl-theme', this._instance._resolvedTheme());
         } else if (name === 'mode' && (newVal === 'guided' || newVal === 'sandbox')) {
           this._instance.switchMode(newVal);
-        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts')) {
+        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts' || newVal === 'cpp')) {
           this._instance.switchLang(newVal);
         } else if (name === 'title' && newVal) {
           this._instance.title = newVal;
@@ -8728,7 +8978,10 @@ declare module 'bun:sqlite' {
     renderMarkdown: renderSimpleMarkdown,
     renderSimpleMarkdown: renderSimpleMarkdown,
     extensions: {
-      guidedLab: null
+      guidedLab: null,
+      javascript: null,
+      typescript: null,
+      cpp: null
     },
     parseGitHubRepoUrl,
     cloneRepo: cloneGitHubRepository,

@@ -59,6 +59,7 @@ const SUITES = [
   'tests/test-preview-live-bridge.js',
   'tests/test-terminal-multisession-cdn.js',
   'tests/test-system-design-tools.js',
+  'tests/test-cpp-extension.js',
   'tests/test-version-sync.js',
   'tests/test-typescript-consolidation.js',
   'tests/test-untracked-dist.js',

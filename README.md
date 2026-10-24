@@ -2,21 +2,22 @@
 
 > **Note:** This project is in active development. APIs and sandbox internals are stable for production use.
 
-Browser-native code IDE workbench, modular guided challenge engine (`@innovatorved/code-lab/extensions/guided-lab`), POSIX shell with 64 UNIX coreutils, public GitHub repository cloner (`git clone`), and Web Worker execution runtime for **Node.js** and **Bun** (JavaScript & TypeScript) with Zod type safety and zero backend server dependencies.
+Browser-native code IDE workbench, modular guided challenge engine (`@innovatorved/code-lab/extensions/guided-lab`), modular language extensions (`javascript`, `typescript`, and real WebAssembly `cpp`), POSIX shell with 67 UNIX coreutils, public GitHub repository cloner (`git clone`), and Web Worker execution runtime for **Node.js**, **Bun** (JavaScript & TypeScript), and **C++20 (Clang/LLVM + WASI)** with Zod type safety and zero backend server dependencies.
 
 - **Live Cloud IDE & GitHub Repo Explorer**: **[https://code-lab-3dr.pages.dev](https://code-lab-3dr.pages.dev)** — Enter any public GitHub repository (`owner/repo` or URL) to clone and run it directly in your browser.
-- **Built for**: [System Design In Depth](https://system-design-in-depth.vedgupta.in)
+- **Built for**: [System Design In Depth](https://system-design-in-depth.vedgupta.in) & Data Structures & Algorithms (DSA) In Depth
 
 ---
 
 ## Features
 
-- **Modular Architecture (`v0.1.13`)**: Pure, general-purpose browser IDE (`code-lab`) by default with File Explorer, Monaco Editor, and PTY Terminal. Curriculum features (Guided Steps, Mode Switcher, and JS/TS switcher) are encapsulated in an opt-in modular extension (`@innovatorved/code-lab/extensions/guided-lab`).
-- **End-to-End TypeScript & Zod Type Safety**: Written in TypeScript with strict runtime schemas and inferred types (`z.infer<typeof ...>`) for workbench options, guided labs, runtime execution, and git cloning.
+- **Modular Architecture (`v0.2.0`)**: Pure, general-purpose browser IDE (`code-lab`) by default with File Explorer, Monaco Editor, PTY Terminal, and zero-dependency **JavaScript + Node.js/Bun** execution out of the box. Additional languages (`@innovatorved/code-lab/extensions/typescript` and `@innovatorved/code-lab/extensions/cpp`) and curriculum features (`@innovatorved/code-lab/extensions/guided-lab`) are opt-in modular extensions.
+- **Real C++20 in WebAssembly (`@innovatorved/code-lab/extensions/cpp`)**: Compile and run real C++17/C++20/C++23 code natively in the browser via a WebAssembly Clang/LLVM + LLD (`wasm-ld`) + WASI `libc++` sysroot toolchain (~35 MB downloaded on demand only when the C++ extension is used and cached in `IndexedDB`). Includes `<bits/stdc++.h>`, `<codelab/dsa.hpp>` (`ListNode`, `TreeNode`, `buildLinkedList`, `buildBinaryTree`), and `<codelab/test.hpp>` (`DESCRIBE`, `TEST`, `ASSERT_EQ`) wired directly into the Test Suite drawer and Guided Lab step verification.
+- **End-to-End TypeScript & Zod Type Safety**: Written in TypeScript with strict runtime schemas and inferred types (`z.infer<typeof ...>`) for workbench options, guided labs, C++ toolchain options, runtime execution, and git cloning.
 - **Public GitHub Repository Cloning (`git clone`)**: Clone any public GitHub repository (`git clone https://github.com/owner/repo` or `git clone owner/repo --branch main` in the terminal, or `await lab.cloneRepo('owner/repo')` via the SDK) directly into `/workspace` with zero authentication required (automatic GitHub Trees API + jsDelivr unlimited fallback). Clone progress (`remote: Enumerating objects…`, `Receiving objects: n%…`) streams into the terminal in real time as it downloads.
 - **Interactive IDE Workbench**: Multi-file Monaco editor, collapsible hierarchical file tree with drag-and-drop, a workspace **folder switcher** (breadcrumb dropdown that scopes the explorer to any subfolder), decoupled editor tabs, Command Palette (`Cmd+Shift+P`), Quick Open (`Cmd+P`), breadcrumbs, and line-by-line solution diff viewer.
 - **Interactive PTY Terminal**: Inline prompt (`codelab:/workspace$ `), cursor navigation, history (`Up`/`Down`), `Ctrl+R` reverse-i-search, `Tab` auto-completion, `Ctrl+C` interrupt, `Ctrl+L` clear, and 256-color / TrueColor ANSI support.
-- **POSIX Shell & 64 Coreutils**: Full pure-JS AST interpreter supporting pipelines (`|`), redirects (`>`, `>>`, `2>&1`, `<<<`, `<<EOF`), control flow (`if`/`for`/`while`/`case`), functions, arithmetic `$((...))`, brace expansion `{1..5}`, and 64 UNIX commands (`git`, `ls`, `cat`, `grep`, `find`, `sed`, `awk`, `jq`, `tar`, `curl`, `hey`, `ab`, `wrk`, `chaos`, `sqlite3`, `redis-cli`, `nc`, `lsof`, `tsc`, etc.).
+- **POSIX Shell & 67 Coreutils**: Full pure-JS AST interpreter supporting pipelines (`|`), redirects (`>`, `>>`, `<`, `2>&1`, `<<<`, `<<EOF`), control flow (`if`/`for`/`while`/`case`), functions, arithmetic `$((...))`, brace expansion `{1..5}`, and 67 UNIX commands (`g++`, `clang++`, `c++`, `git`, `ls`, `cat`, `grep`, `find`, `sed`, `awk`, `jq`, `tar`, `curl`, `hey`, `ab`, `wrk`, `chaos`, `sqlite3`, `redis-cli`, `nc`, `lsof`, `tsc`, etc.) plus direct `./a.out` WASI binary execution.
 - **Dual Runtime Engines (Node.js v22 & Bun v1.1)**:
   - **Node.js**: 50 built-in modules (`fs`, `fs/promises`, `http`, `https`, `net`, `stream`, `events`, `crypto`, `zlib`, `vm`, `worker_threads`, `readline`, `module`, `node:test`, `assert`, etc.).
   - **Bun**: Native `.ts` transpilation, `Bun.serve()`, `Bun.file()`, `Bun.write()`, `Bun.spawn()`, `Bun.password`, `Bun.hash()`, `bun:test`, and VFS-backed `bun:sqlite`.
@@ -113,6 +114,44 @@ const res = await executeInWorker({
 console.log(res.ok, res.testResults);
 ```
 
+### 4. Modular Language Extensions (TypeScript & Real C++20 in WebAssembly)
+
+JavaScript (`node` and `bun` zero-dependency browser runtime) is enabled out of the box. You can opt into TypeScript (`@innovatorved/code-lab/extensions/typescript`) and/or Real C++20 in WebAssembly (`@innovatorved/code-lab/extensions/cpp`):
+
+```js
+import CodeLab from '@innovatorved/code-lab';
+import { typescriptExtension } from '@innovatorved/code-lab/extensions/typescript';
+import { cppExtension } from '@innovatorved/code-lab/extensions/cpp';
+import { guidedLabExtension } from '@innovatorved/code-lab/extensions/guided-lab';
+
+const lab = CodeLab.mount('#editor', {
+  id: 'dsa-binary-search',
+  title: 'Binary Search (JS / TS / C++20)',
+  language: 'cpp'
+})
+  .use(typescriptExtension)
+  .use((wb) => cppExtension(wb, { std: 'c++20', cacheInIndexedDB: true }))
+  .use((wb) =>
+    guidedLabExtension(wb, {
+      starterFiles: { 'src/solution.js': 'module.exports = { search: () => -1 };\n' },
+      tsStarterFiles: { 'src/solution.ts': 'export const search = (nums: number[], target: number): number => -1;\n' },
+      cppStarterFiles: {
+        'src/solution.hpp': '#pragma once\n#include <bits/stdc++.h>\nint search(const std::vector<int>& nums, int target) { return -1; }\n',
+        'src/test.cpp': '#include <codelab/test.hpp>\n#include "solution.hpp"\nint main() {\n  DESCRIBE("Binary Search", {\n    TEST("finds target", {\n      ASSERT_EQ(search({-1, 0, 3, 5, 9, 12}, 9), 4);\n    });\n  });\n  return CODELAB_TEST_EXIT_CODE();\n}\n'
+      },
+      steps: [
+        {
+          id: 'step-1',
+          title: 'Implement O(log N) binary search',
+          targetFile: 'src/solution.hpp',
+          instructions: 'Return the index of `target` in `nums`, or `-1` if not found.',
+          testNames: ['finds target']
+        }
+      ]
+    })
+  );
+```
+
 ---
 
 ## Documentation
@@ -122,7 +161,7 @@ Complete documentation is published on the [GitHub Wiki](https://github.com/inno
 - **[Quick Start](https://github.com/innovatorved/code-lab/wiki/Quick-Start)**: Setup, CDN, and quick examples.
 - **[Integration Guide](https://github.com/innovatorved/code-lab/wiki/Integration-Guide)**: Embedding in React, Next.js, Vite, and HTML.
 - **[Workbench Configuration](https://github.com/innovatorved/code-lab/wiki/Workbench-Configuration)**: Complete reference of options, methods, events, and shortcuts.
-- **[POSIX Shell & Coreutils](https://github.com/innovatorved/code-lab/wiki/POSIX-Shell-and-Coreutils)**: Pipelines, redirects, background jobs, and 64 UNIX commands.
+- **[POSIX Shell & Coreutils](https://github.com/innovatorved/code-lab/wiki/POSIX-Shell-and-Coreutils)**: Pipelines, redirects, background jobs, and 67 UNIX commands.
 - **[Runtime APIs (Node & Bun)](https://github.com/innovatorved/code-lab/wiki/Runtime-APIs)**: 50 Node.js built-ins, Bun APIs, `bun:test`, `bun:sqlite`, and npm install.
 - **[HTTP Servers & Networking](https://github.com/innovatorved/code-lab/wiki/HTTP-Servers-and-Networking)**: Virtual port table, background servers, `curl`, and Port Preview.
 - **[Headless Runtime](https://github.com/innovatorved/code-lab/wiki/Headless-Runtime)**: Run code and tests programmatically with zero UI.
@@ -146,15 +185,16 @@ bun run tests/test-all-builds.js             # 15/15 builds & 226 unit tests
 bun run tests/test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
 bun run tests/test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports, npm/pnpm
 bun run tests/test-frameworks.js             # React/Preact/Vue/Angular support + browser preview server
-bun run tests/test-coreutils-adversarial.js  # Adversarial stress tests on 64 coreutils
+bun run tests/test-coreutils-adversarial.js  # Adversarial stress tests on 67 coreutils
 bun run tests/test-stress-shell.js           # Deep pipelines, redirections, large stdout
 bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
+bun run tests/test-cpp-extension.js          # Real C++20 WASI runtime, g++, and language extensions
 ```
 
 Individual suites also run under Node 20, 22 and 24 — CI exercises all three:
 
 ```bash
-bun run build && node tests/run-all.js       # same 40 suites, Node runtime
+bun run build && node tests/run-all.js       # same 41 suites, Node runtime
 ```
 
 Suites load the built bundles from `dist/` (never raw TypeScript from `src/`), so
