@@ -22,7 +22,7 @@ bun run lint
 bun run typecheck
 bun run typecheck:strict
 
-# 4. Run the 32 automated test suites under Bun and Node
+# 4. Run the 41 automated test suites under Bun and Node
 bun run tests/run-all.js
 node tests/run-all.js
 
@@ -48,6 +48,6 @@ bun run test:browser
 
 - [ ] `bun run build` succeeds and `bun run pack:check` passes.
 - [ ] `bun run lint`, `bun run typecheck`, and `bun run typecheck:strict` pass with zero errors.
-- [ ] `bun run tests/run-all.js` and `node tests/run-all.js` pass all 32 suites.
+- [ ] `bun run tests/run-all.js` and `node tests/run-all.js` pass all 41 suites.
 - [ ] `bun run test:browser` passes all Playwright Chromium specs.
 - [ ] New features or bug fixes include regression tests in `tests/`.

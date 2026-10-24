@@ -4,12 +4,12 @@
 
 | Version | Supported |
 | ------- | --------- |
-| `0.1.x` | :white_check_mark: |
-| `< 0.1` | :x: |
+| `0.2.x` | :white_check_mark: |
+| `< 0.2` | :x: |
 
 ## Threat Model & Sandbox Boundaries
 
-`@innovatorved/code-lab` executes user-supplied JavaScript, TypeScript, POSIX shell pipelines, and HTML/CSS/ESM web previews **entirely inside the visitor's browser**. There is no backend execution server.
+`@innovatorved/code-lab` executes user-supplied JavaScript, TypeScript, C++20 (WebAssembly / WASI Preview 1), POSIX shell pipelines, and HTML/CSS/ESM web previews **entirely inside the visitor's browser**. There is no backend execution server.
 
 ### 1. Code Execution (`src/runtime.ts`)
 - **Web Worker Isolation**: `executeInWorker()` runs untrusted code inside a dedicated `Blob`-backed Web Worker with no direct reference to the host `window` or `document`. Infinite loops and hung timers are preempted via `worker.terminate()` when `timeoutMs` expires.
