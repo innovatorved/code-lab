@@ -67,7 +67,7 @@ export const GuidedLabExtensionOptionsSchema = z.object({
 export type GuidedLabExtensionOptions = z.infer<typeof GuidedLabExtensionOptionsSchema>;
 
 export const CppToolchainProgressSchema = z.object({
-  stage: z.enum(['downloading', 'caching', 'extracting', 'compiling', 'linking', 'ready']),
+  stage: z.enum(['downloading', 'caching', 'extracting', 'compiling', 'linking', 'ready', 'error']),
   loadedBytes: z.number().optional(),
   totalBytes: z.number().optional(),
   percent: z.number().optional(),
