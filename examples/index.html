@@ -71,6 +71,10 @@
   <div id="lab-root"></div>
 
   <script src="../dist/code-lab.js"></script>
+  <script src="../dist/extensions/guided-lab.js"></script>
+  <script src="../dist/extensions/typescript.js"></script>
+  <script src="../dist/extensions/python.js"></script>
+  <script src="../dist/extensions/cpp.js"></script>
   <script>
     const solutionLimiter = `class TokenBucket {
   constructor(capacity, refillRatePerSec) {
@@ -151,20 +155,30 @@ server.listen(3000, () => {
 });
 `;
 
-    CodeLab.mount('#lab-root', {
+    const extList = [
+      window.CodeLabTypeScript && (window.CodeLabTypeScript.typescriptExtension || window.CodeLabTypeScript.default),
+      window.CodeLabPython && (window.CodeLabPython.pythonExtension || window.CodeLabPython.default),
+      window.CodeLabCpp && (window.CodeLabCpp.cppExtension || window.CodeLabCpp.default)
+    ].filter(Boolean);
+
+    const ide = CodeLab.mount('#lab-root', {
       id: 'standalone-token-bucket',
       title: 'Token Bucket Rate Limiter & HTTP Gateway',
       mode: 'guided',
       language: 'js',
+      extensions: extList,
       files: {
         'limiter.js': solutionLimiter,
         'server.js': serverCode,
         'demo.js': `const { TokenBucket } = require('./limiter');\n\nconst bucket = new TokenBucket(3, 1);\nconst t0 = 1000;\nconsole.log('Req 1:', bucket.allowRequest(1, t0));\nconsole.log('Req 2:', bucket.allowRequest(1, t0));\nconsole.log('Req 3:', bucket.allowRequest(1, t0));\nconsole.log('Req 4 (Burst exceeded):', bucket.allowRequest(1, t0));\nconsole.log('Req 5 (+1000ms refill):', bucket.allowRequest(1, t0 + 1000));\n`,
         'test.js': `const { test } = require('node:test');\nconst assert = require('node:assert/strict');\nconst { TokenBucket } = require('./limiter');\n\ntest('allows burst up to capacity', () => {\n  const b = new TokenBucket(2, 1);\n  assert.equal(b.allowRequest(1, 0).allowed, true);\n  assert.equal(b.allowRequest(1, 0).allowed, true);\n  assert.equal(b.allowRequest(1, 0).allowed, false);\n});\n\ntest('refills tokens over elapsed time', () => {\n  const b = new TokenBucket(2, 2);\n  b.allowRequest(2, 0);\n  assert.equal(b.allowRequest(1, 500).allowed, true);\n});\n`,
-        'README.md': `# Token Bucket Rate Limiter & HTTP Gateway\n\nThis interactive demo runs entirely in your browser inside a Web Worker virtual runtime.\n\n### Try the POSIX Shell & HTTP Loopback\nOpen **Terminal & REPL** in the bottom drawer and run:\n\`\`\`bash\nnode server.js &\ncurl -i "http://localhost:3000/check?client=user_42"\n\`\`\`\nOr open the **Ports** tab to send requests with the interactive **Mini HTTP Client** and inspect latency in the **Network** tab.`
+        'README.md': `# Token Bucket Rate Limiter & HTTP Gateway\n\nThis interactive demo runs entirely in your browser inside a Web Worker virtual runtime.\n\n### Try the POSIX Shell & HTTP Loopback\nOpen **Terminal & REPL** in the bottom drawer (use **+** in the drawer header to open multiple terminal sessions) and run:\n\`\`\`bash\nnode server.js &\ncurl -i "http://localhost:3000/check?client=user_42"\n\`\`\`\nOr open the **Ports** tab to send requests with the interactive **Mini HTTP Client** and inspect latency in the **Network** tab.`
       },
       starterFiles: {
         'limiter.js': starterLimiter
+      },
+      solutionFiles: {
+        'limiter.js': solutionLimiter
       },
       steps: [
         {
@@ -189,6 +203,37 @@ server.listen(3000, () => {
         }
       ]
     });
+
+    const guidedExt = window.CodeLabGuidedLab && (window.CodeLabGuidedLab.guidedLabExtension || window.CodeLabGuidedLab.default);
+    if (ide && typeof ide.use === 'function' && guidedExt) {
+      ide.use(guidedExt, {
+        mode: 'guided',
+        starterFiles: { 'limiter.js': starterLimiter },
+        solutionFiles: { 'limiter.js': solutionLimiter },
+        steps: [
+          {
+            id: 'step-1',
+            title: 'Time-Based Token Refill',
+            concept: 'Calculate elapsed time since lastRefill and add tokens capped at bucket capacity.',
+            instructions: ['Implement `_refill(now)` so tokens replenish smoothly over time.'],
+            hint: 'Multiply elapsedSec by this.refillRatePerSec and clamp with Math.min(this.capacity, ...).',
+            targetFile: 'limiter.js',
+            targetSymbol: '_refill',
+            testNames: ['refills tokens over elapsed time']
+          },
+          {
+            id: 'step-2',
+            title: 'Allow Request & Retry-After',
+            concept: 'Deduct tokens when available or compute exact retryAfterMs backoff.',
+            instructions: ['Implement `allowRequest(cost, now)` and verify all unit tests pass.'],
+            hint: 'If this.tokens >= cost, subtract cost and return { allowed: true }.',
+            targetFile: 'limiter.js',
+            targetSymbol: 'allowRequest',
+            testNames: ['allows burst up to capacity', 'refills tokens over elapsed time']
+          }
+        ]
+      });
+    }
   </script>
 </body>
 </html>

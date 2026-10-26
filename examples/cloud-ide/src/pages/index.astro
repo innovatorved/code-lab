@@ -13,6 +13,10 @@
   
   <link rel="stylesheet" href="/dist/code-lab.css">
   <script is:inline src="/dist/code-lab.js"></script>
+  <script is:inline src="/dist/extensions/typescript.js"></script>
+  <script is:inline src="/dist/extensions/python.js"></script>
+  <script is:inline src="/dist/extensions/cpp.js"></script>
+  <script is:inline src="/dist/extensions/guided-lab.js"></script>
 
   <style is:global>
     @font-face {
@@ -535,7 +539,7 @@
       </div>
       <div class="brand-status-pill">
         <span class="status-dot"></span>
-        <span>browser runtime</span>
+        <span>v0.3.2 &middot; browser runtime</span>
       </div>
     </div>
 
@@ -558,6 +562,11 @@
       <button type="button" class="action-btn" id="header-scm-btn" title="Source Control (Git Status, Stage, Commit)">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
         <span>Source Control</span>
+      </button>
+
+      <button type="button" class="action-btn" id="header-problems-btn" title="View Workspace Diagnostics & Problems">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Problems</span>
       </button>
 
       <button type="button" class="action-btn" id="header-zip-btn" title="Export Project as ZIP">
@@ -595,7 +604,7 @@
           </div>
           <h1 class="landing-title">Clone &amp; Explore GitHub Repositories</h1>
           <p class="landing-desc">
-            Enter any public GitHub repository to clone and explore directly in your browser. Powered by Node.js v22 and Bun v1.1 virtual Web Worker runtime with zero server dependencies.
+            Enter any public GitHub repository to clone and explore directly in your browser. Powered by Node.js v22, Bun v1.1, TypeScript, Python 3.12 (Pyodide), and C++20 (Clang/WASI) virtual Web Worker runtimes with zero server dependencies.
           </p>
         </div>
 
@@ -625,6 +634,8 @@
               <span class="chip-item chip-item--demo" data-demo="sd-cluster">⚡ L7 Load Balancer &amp; Chaos Cluster</span>
               <span class="chip-item chip-item--demo" data-demo="sd-shortener">🔗 URL Shortener · SQLite + Singleflight</span>
               <span class="chip-item chip-item--demo" data-demo="react">⚛ React App · live preview</span>
+              <span class="chip-item chip-item--demo" data-demo="cpp">⚙ C++20 WASI · DSA Benchmark</span>
+              <span class="chip-item chip-item--demo" data-demo="python">🐍 Python 3.12 · Async &amp; VFS</span>
               <span class="chip-item" data-repo="mdn/todo-react">mdn/todo-react</span>
               <span class="chip-item" data-repo="ahfarmer/calculator">ahfarmer/calculator</span>
               <span class="chip-item" data-repo="gabrielecirulli/2048">gabrielecirulli/2048</span>
@@ -671,7 +682,13 @@
         const line = document.createElement('div');
         line.className = 'progress-line ' + (phase || '');
         const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        line.innerHTML = `<span class="time">[${time}]</span><span>${message}</span>`;
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'time';
+        timeSpan.textContent = `[${time}]`;
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = String(message || '');
+        line.appendChild(timeSpan);
+        line.appendChild(msgSpan);
         progressBox.appendChild(line);
         progressBox.scrollTop = progressBox.scrollHeight;
       }
@@ -714,12 +731,18 @@
           ideInstance = null;
         }
         if (!ideInstance && window.CodeLab) {
+          const defaultExtensions = [
+            window.CodeLabTypeScript && (window.CodeLabTypeScript.typescriptExtension || window.CodeLabTypeScript.default),
+            window.CodeLabPython && (window.CodeLabPython.pythonExtension || window.CodeLabPython.default),
+            window.CodeLabCpp && (window.CodeLabCpp.cppExtension || window.CodeLabCpp.default)
+          ].filter(Boolean);
           ideInstance = window.CodeLab.mount(mountEl, {
             labId: targetLabId,
             title: 'code-lab',
             theme: document.documentElement.getAttribute('data-theme') || 'dark',
+            extensions: options.extensions || defaultExtensions,
             files: options.files || {
-              'README.md': '# Welcome to code-lab\n\nUse the interactive terminal below or run `git clone <owner/repo>` to explore any public repository.\n'
+              'README.md': '# Welcome to code-lab v0.3.2\n\nUse the interactive terminal below (click `+` in the terminal drawer header for multiple sessions) or run `git clone <owner/repo>` to explore any public repository.\n'
             },
             entry: 'demo.js',
             ...options
@@ -830,6 +853,10 @@
             openSystemDesignDemo(demoKind, { forceReset: false });
             return;
           }
+          if (demoKind === 'cpp' || demoKind === 'python') {
+            openLanguageDemo(demoKind, { forceReset: false });
+            return;
+          }
           const repo = chip.getAttribute('data-repo');
           if (repo) {
             repoInput.value = repo;
@@ -909,6 +936,42 @@
         }, 150);
       }
 
+      const CPP_DEMO_FILES = {
+        'README.md': '# C++20 WASI DSA Benchmark (Consistent Hashing Ring)\n\nPress **Run** (or run `clang++ -std=c++20 -O2 main.cpp -o app.wasm && wasi-run app.wasm` in the terminal) to compile and execute C++20 directly in WebAssembly.\n',
+        'main.cpp': '#include <iostream>\n#include <map>\n#include <string>\n#include <vector>\n\nint main() {\n  std::vector<std::string> nodes = {"node-alpha", "node-beta", "node-gamma"};\n  std::cout << "[C++20 WASI] Consistent Hash Ring initialized with " << nodes.size() << " nodes\\n";\n  for (size_t i = 0; i < nodes.size(); ++i) {\n    std::cout << "  slot[" << i << "] -> " << nodes[i] << "\\n";\n  }\n  return 0;\n}\n'
+      };
+
+      const PYTHON_DEMO_FILES = {
+        'README.md': '# Python 3.12 (Pyodide) Async & VFS Workspace\n\nPress **Run** (or run `python3 main.py` in the terminal) to execute Python 3.12 in WebAssembly with two-way Virtual File System synchronization.\n',
+        'main.py': 'import json\nimport sys\n\nreport = {\n    "runtime": sys.version.split()[0],\n    "feature": "Token Bucket Rate Limiter",\n    "allowed_burst": [True, True, True, False],\n}\n\nwith open("report.json", "w") as f:\n    json.dump(report, f, indent=2)\n\nprint("[Python 3.12] Wrote report.json to VFS:")\nprint(json.dumps(report, indent=2))\n'
+      };
+
+      function openLanguageDemo(kind, opts = {}) {
+        const isCpp = kind === 'cpp';
+        const labId = isCpp ? 'cpp-wasi-demo' : 'python-pyodide-demo';
+        const demoFiles = isCpp ? CPP_DEMO_FILES : PYTHON_DEMO_FILES;
+        const entryFile = isCpp ? 'main.cpp' : 'main.py';
+        const hadSaved = hasSavedFilesForLab(labId);
+        const ide = ensureIde({ labId, files: demoFiles, entry: entryFile, language: isCpp ? 'cpp' : 'py' });
+        landingOverlay.classList.add('hidden');
+        if (opts.forceReset && ide && typeof ide.setFiles === 'function') {
+          ide.setFiles(demoFiles);
+        } else if (!hadSaved && ide && typeof ide.setFiles === 'function' && (!ide.files || !ide.files[entryFile])) {
+          ide.setFiles(demoFiles);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete('repo');
+        url.searchParams.set('demo', kind);
+        window.history.replaceState({}, '', url.toString());
+        saveSessionMeta({ mode: 'demo', demo: kind, labId });
+        setTimeout(() => {
+          const ed = ide && (ide._editor || ide.editor);
+          if (ed && typeof ed.layout === 'function') ed.layout();
+          if (ide && typeof ide.openFile === 'function') ide.openFile(entryFile);
+          if (ide && typeof ide.runProject === 'function') ide.runProject();
+        }, 150);
+      }
+
       function openBlankWorkspace() {
         const labId = 'blank-workspace';
         const ide = ensureIde({ labId });
@@ -950,6 +1013,17 @@
           landingOverlay.classList.add('hidden');
           if (ide && typeof ide.showScmModal === 'function') {
             ide.showScmModal();
+          }
+        });
+      }
+
+      const headerProblemsBtn = document.getElementById('header-problems-btn');
+      if (headerProblemsBtn) {
+        headerProblemsBtn.addEventListener('click', () => {
+          const ide = ensureIde();
+          landingOverlay.classList.add('hidden');
+          if (ide && typeof ide.showProblemsModal === 'function') {
+            ide.showProblemsModal();
           }
         });
       }
@@ -1007,6 +1081,8 @@
         openFrameworkDemo({ forceReset: false });
       } else if (urlDemo === 'sd-cluster' || urlDemo === 'sd-shortener') {
         openSystemDesignDemo(urlDemo, { forceReset: false });
+      } else if (urlDemo === 'cpp' || urlDemo === 'python') {
+        openLanguageDemo(urlDemo, { forceReset: false });
       } else if (urlRepo) {
         repoInput.value = urlRepo;
         executeClone(urlRepo, { forceClone: false });
@@ -1014,6 +1090,8 @@
         openFrameworkDemo({ forceReset: false });
       } else if (savedSession && savedSession.mode === 'demo' && (savedSession.demo === 'sd-cluster' || savedSession.demo === 'sd-shortener')) {
         openSystemDesignDemo(savedSession.demo, { forceReset: false });
+      } else if (savedSession && savedSession.mode === 'demo' && (savedSession.demo === 'cpp' || savedSession.demo === 'python')) {
+        openLanguageDemo(savedSession.demo, { forceReset: false });
       } else if (savedSession && savedSession.mode === 'repo' && savedSession.repo && hasSavedFilesForLab(savedSession.labId || '')) {
         repoInput.value = savedSession.repo;
         executeClone(savedSession.repo, { forceClone: false });
