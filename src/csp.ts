@@ -217,7 +217,12 @@ export function buildPreviewPolicy(options: PreviewCspOptions = {}): string {
     directive('worker-src', [self, 'blob:'].concat(sourcesFor(mode, allow, 'workerSrc'))),
     directive('frame-src', withData('frameSrc')),
     directive('form-action', [self]),
-    directive('frame-ancestors', [options.frameAncestors || "'self'"])
+    directive('frame-ancestors', (() => {
+      const rawFa = typeof options.frameAncestors === 'string' ? options.frameAncestors.trim() : '';
+      if (!rawFa) return ["'self'"];
+      const tokens = cleanSources(rawFa.split(/\s+/));
+      return tokens.length > 0 ? tokens : ["'self'"];
+    })())
   ].join('; ');
 }
 
@@ -272,15 +277,6 @@ export function buildPreviewShims(): string {
     };
   }
   function shim(name) {
-    var blocked = false;
-    try {
-      var existing = window[name];
-      if (existing) { existing.getItem('__codelab_probe__'); return; }
-    } catch (err) {
-      // Expected on an opaque origin: the accessor itself throws.
-      blocked = Boolean(err);
-    }
-    void blocked;
     try {
       Object.defineProperty(window, name, { configurable: true, value: memoryStorage() });
     } catch (err) {
@@ -440,6 +436,7 @@ export function buildPreviewShims(): string {
   }
 
   window.addEventListener('message', function (event) {
+    if (event && event.source && event.source !== window.parent) return;
     var data = event && event.data;
     if (!data || typeof data !== 'object') return;
     if (data.type === 'codelab:preview-fetch-res' && data.reqId) {

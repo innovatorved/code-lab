@@ -21,6 +21,10 @@
     "src/storage.ts",
     "src/search.ts",
     "src/diagnostics.ts",
-    "src/scm.ts"
+    "src/scm.ts",
+    "src/schemas.ts",
+    "src/workbench/share.ts",
+    "src/workbench/guided-pane.ts",
+    "src/workbench/icons.ts"
   ]
 }

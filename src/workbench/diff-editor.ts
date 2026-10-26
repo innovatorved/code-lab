@@ -4,6 +4,15 @@
 
 import { CL_ICONS } from './icons';
 
+function escapeHtml(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export interface DiffComputeResult {
   hunks: Array<{ type: 'context' | 'add' | 'del'; text: string; oldLine: number | null; newLine: number | null }>;
   added: number;
@@ -115,11 +124,25 @@ export class CodeLabDiffEditorManager {
     if (editorHost) editorHost.style.display = 'none';
     if (fallbackTextarea) fallbackTextarea.style.display = 'none';
 
+    if (this.diffEditor) {
+      this.diffEditor.dispose();
+      this.diffEditor = null;
+    }
+    if (this.originalModel) {
+      this.originalModel.dispose();
+      this.originalModel = null;
+    }
+    if (this.modifiedModel) {
+      this.modifiedModel.dispose();
+      this.modifiedModel = null;
+    }
+
+    const safeFile = escapeHtml(file);
     diffContainer.innerHTML = `
       <div class="codelab-diff-toolbar">
         <span style="font-weight:600;display:inline-flex;align-items:center;gap:6px;">
           ${CL_ICONS.diff}
-          <span>Diff: <code>${file}</code> (${isStarter ? 'Current vs Starter' : 'Current vs Solution'})</span>
+          <span>Diff: <code>${safeFile}</code> (${isStarter ? 'Current vs Starter' : 'Current vs Solution'})</span>
         </span>
         <div class="codelab-segmented" style="margin-left:16px;">
           <button type="button" class="codelab-segmented__btn ${target === 'starter' ? 'active' : ''}" id="cl-diff-toggle-starter">Starter</button>
@@ -135,16 +158,14 @@ export class CodeLabDiffEditorManager {
     `;
 
     const slot = diffContainer.querySelector('#cl-diff-editor-slot');
-    if (!this.diffEditor) {
-      this.diffEditor = monaco.editor.createDiffEditor(slot, {
-        readOnly: false,
-        originalEditable: false,
-        theme: this.workbench.theme === 'light' ? 'vs' : 'vs-dark',
-        renderSideBySide: true,
-        automaticLayout: true,
-        minimap: { enabled: false }
-      });
-    }
+    this.diffEditor = monaco.editor.createDiffEditor(slot, {
+      readOnly: false,
+      originalEditable: false,
+      theme: this.workbench.theme === 'light' ? 'vs' : 'vs-dark',
+      renderSideBySide: true,
+      automaticLayout: true,
+      minimap: { enabled: false }
+    });
 
     const lang = file.endsWith('.ts') ? 'typescript' : file.endsWith('.cpp') ? 'cpp' : file.endsWith('.py') ? 'python' : 'javascript';
     this.originalModel = monaco.editor.createModel(refCode, lang);
@@ -172,13 +193,20 @@ export class CodeLabDiffEditorManager {
       this.openInlineDiff(file, 'solution');
     });
     diffContainer.querySelector('#cl-diff-revert-btn')?.addEventListener('click', () => {
-      const starterCode = (this.workbench.starterFiles && this.workbench.starterFiles[file]) || '';
+      const starterMap = this.workbench.starterFiles || (typeof this.workbench._getBaseFilesForModeAndLang === 'function' ? this.workbench._getBaseFilesForModeAndLang('guided', this.workbench.lang) : {});
+      const starterCode = (starterMap && starterMap[file]) || '';
       this.workbench.files[file] = starterCode;
       this.closeInlineDiff();
       this.workbench.openFile(file);
     });
     diffContainer.querySelector('#cl-diff-apply-btn')?.addEventListener('click', () => {
-      const solutionCode = (this.workbench.solutionFiles && this.workbench.solutionFiles[file]) || '';
+      if (typeof this.workbench.applyReferenceSolution === 'function') {
+        this.closeInlineDiff();
+        this.workbench.applyReferenceSolution();
+        return;
+      }
+      const solutionMap = this.workbench.solutionFiles || (typeof this.workbench._getBaseFilesForModeAndLang === 'function' ? this.workbench._getBaseFilesForModeAndLang('sandbox', this.workbench.lang) : {});
+      const solutionCode = (solutionMap && solutionMap[file]) || '';
       this.workbench.files[file] = solutionCode;
       this.closeInlineDiff();
       this.workbench.openFile(file);

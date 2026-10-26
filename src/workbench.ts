@@ -57,7 +57,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.3.1';
+  const CODELAB_VERSION = '0.3.2';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -632,11 +632,16 @@ declare module 'bun:sqlite' {
     if (!str) return '';
     let text = String(str);
 
-    // Markdown Links: [label](url "title") or [label](url) — supports balanced parentheses in URLs
-    text = text.replace(/\[([^\]]+)\]\(([^()\s]+(?:\((?:[^()\s]+|\([^()\s]*\))*\)[^()\s]*)*)(?:\s+"([^"]*)")?\)/g, (_, label, url, title) => {
+    // Markdown Links: [label](url "title") or [label](url) — stash anchors before emphasis regexes
+    // so underscores/asterisks inside URLs or titles are not mangled, and use non-nested quantifiers.
+    const inlineLinks = [];
+    text = text.replace(/\[([^\]]+)\]\(([^\s()]+(?:\([^\s()]*\)[^\s()]*)*)(?:\s+"([^"]*)")?\)/g, (_, label, url, title) => {
       const cleanUrl = sanitizeUrl(url);
       const titleAttr = title ? raw(` title="${escapeHtml(title)}"`) : '';
-      return String(html`<a href="${cleanUrl}" class="codelab-link" target="_blank" rel="noopener noreferrer"${titleAttr}>${label}</a>`);
+      const formattedLabel = renderInlineFormatting(label);
+      const idx = inlineLinks.length;
+      inlineLinks.push(String(html`<a href="${cleanUrl}" class="codelab-link" target="_blank" rel="noopener noreferrer"${titleAttr}>${raw(formattedLabel)}</a>`));
+      return `\x00CLLINK${idx}\x00`;
     });
 
     // Strikethrough: ~~del~~
@@ -653,6 +658,10 @@ declare module 'bun:sqlite' {
     // Italic: *text* or _text_ (ensure _ does not match inside words)
     text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
     text = text.replace(/(^|[\s(])_([^_]+)_(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>');
+
+    if (inlineLinks.length > 0) {
+      text = text.replace(/\x00CLLINK(\d+)\x00/g, (_, i) => inlineLinks[Number(i)] || '');
+    }
 
     return text;
   }
@@ -841,7 +850,7 @@ declare module 'bun:sqlite' {
       const lang = (info || '').trim().split(/\s+/)[0] || '';
       const idx = codeBlocks.length;
       codeBlocks.push(renderCodeBlock(code || '', lang));
-      return `\n\n\x00CODEBLOCK_${idx}\x00\n\n`;
+      return `\n\n\x00CLCODEBLOCK${idx}\x00\n\n`;
     });
 
     // Phase 2: Inline Code Span Extraction
@@ -853,7 +862,7 @@ declare module 'bun:sqlite' {
       }
       const idx = inlineCodes.length;
       inlineCodes.push(`<code class="codelab-inline-code">${escapeHtml(clean)}</code>`);
-      return `\x00INLINECODE_${idx}\x00`;
+      return `\x00CLINLINECODE${idx}\x00`;
     });
 
     // Phase 2b: Autolinks are the only inline construct that uses angle
@@ -866,7 +875,7 @@ declare module 'bun:sqlite' {
       autolinks.push(
         `<a href="${escapeHtml(safe)}" class="codelab-link" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`
       );
-      return `\x00AUTOLINK_${idx}\x00`;
+      return `\x00CLAUTOLINK${idx}\x00`;
     });
 
     // Phase 2c: Neutralize all remaining raw HTML. Every tag needs a `<`, so
@@ -901,7 +910,7 @@ declare module 'bun:sqlite' {
       }
       const idx = calloutBlocks.length;
       calloutBlocks.push(blockHtml);
-      return `\n\n\x00CALLOUT_${idx}\x00\n\n`;
+      return `\n\n\x00CLCALLOUT${idx}\x00\n\n`;
     });
 
     // Phase 4: GFM Tables with Column Alignments
@@ -911,7 +920,7 @@ declare module 'bun:sqlite' {
       if (rendered === tableText) return match;
       const idx = tableBlocks.length;
       tableBlocks.push(rendered);
-      return `\n\n\x00TABLE_${idx}\x00\n\n`;
+      return `\n\n\x00CLTABLE${idx}\x00\n\n`;
     });
 
     // Phase 5: Task Lists & Nested Lists
@@ -920,7 +929,7 @@ declare module 'bun:sqlite' {
     text = text.replace(/(?:^[ ]*(?:[-*+]|\d+\.)[ ]+[^\n]*(?:\n[ ]*(?:[-*+]|\d+\.)[ ]+[^\n]*|\n[ ]{2,}[^\n]*)*)+/gm, (match) => {
       const idx = listBlocks.length;
       listBlocks.push(renderListBlock(match, taskCounter));
-      return `\n\n\x00LIST_${idx}\x00\n\n`;
+      return `\n\n\x00CLLIST${idx}\x00\n\n`;
     });
 
     // Phase 6: Headings, Horizontal Rules, Paragraphs & Inline Spans
@@ -942,18 +951,18 @@ declare module 'bun:sqlite' {
       const trimmed = p.trim();
       if (!trimmed) return '';
       if (/^<(h[1-6]|hr|pre|div|blockquote|table|ul|ol)/i.test(trimmed)) return trimmed;
-      if (/^\x00(CODEBLOCK|CALLOUT|TABLE|LIST)_\d+\x00$/.test(trimmed)) return trimmed;
+      if (/^\x00CL(CODEBLOCK|CALLOUT|TABLE|LIST)\d+\x00$/.test(trimmed)) return trimmed;
       return `<p>${renderInlineFormatting(trimmed).replace(/\n/g, '<br>')}</p>`;
     }).filter(Boolean).join('\n');
 
     // Phase 7: Placeholder Restoration (Reverse order)
     let finalHtml = paras
-      .replace(/\x00LIST_(\d+)\x00/g, (_, i) => listBlocks[Number(i)] || '')
-      .replace(/\x00TABLE_(\d+)\x00/g, (_, i) => tableBlocks[Number(i)] || '')
-      .replace(/\x00CALLOUT_(\d+)\x00/g, (_, i) => calloutBlocks[Number(i)] || '')
-      .replace(/\x00CODEBLOCK_(\d+)\x00/g, (_, i) => codeBlocks[Number(i)] || '')
-      .replace(/\x00INLINECODE_(\d+)\x00/g, (_, i) => inlineCodes[Number(i)] || '')
-      .replace(/\x00AUTOLINK_(\d+)\x00/g, (_, i) => autolinks[Number(i)] || '');
+      .replace(/\x00CLLIST(\d+)\x00/g, (_, i) => listBlocks[Number(i)] || '')
+      .replace(/\x00CLTABLE(\d+)\x00/g, (_, i) => tableBlocks[Number(i)] || '')
+      .replace(/\x00CLCALLOUT(\d+)\x00/g, (_, i) => calloutBlocks[Number(i)] || '')
+      .replace(/\x00CLCODEBLOCK(\d+)\x00/g, (_, i) => codeBlocks[Number(i)] || '')
+      .replace(/\x00CLINLINECODE(\d+)\x00/g, (_, i) => inlineCodes[Number(i)] || '')
+      .replace(/\x00CLAUTOLINK(\d+)\x00/g, (_, i) => autolinks[Number(i)] || '');
 
     return finalHtml;
   }
@@ -1956,9 +1965,18 @@ int main() {
         if (root.CodeLabStorage && typeof root.CodeLabStorage.createWorkspaceStorage === 'function') {
           try {
             if (!this._idbStorage) {
-              this._idbStorage = root.CodeLabStorage.createWorkspaceStorage({ keyPrefix: STORAGE_PREFIX });
+              this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
             }
-            if (this._idbStorage && typeof this._idbStorage.save === 'function') {
+            if (this._idbStorage && typeof this._idbStorage.saveProject === 'function') {
+              Promise.resolve(this._idbStorage.saveProject({
+                id: this.labId,
+                name: this.title || this.labId,
+                files: { ...(this.files || {}) },
+                updatedAt: Date.now()
+              })).catch((err) => {
+                this.logger.debug('Async WorkspaceStorage saveProject skipped.', err);
+              });
+            } else if (this._idbStorage && typeof this._idbStorage.save === 'function') {
               Promise.resolve(this._idbStorage.save(this.labId, state)).catch((err) => {
                 this.logger.debug('Async WorkspaceStorage save skipped.', err);
               });
@@ -2285,6 +2303,7 @@ int main() {
       this.container.querySelectorAll('[data-cl-action="run-code"], [data-cl-action="run-entry"], [data-cl-action="run-active-file"], [data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
         btn.disabled = this.isRunning;
       });
+      this._updatePtyActiveLine();
     }
 
     _hasWebContent() {
@@ -2391,6 +2410,7 @@ int main() {
 
       let stdinTab = drawerTabs.querySelector('[data-cl-drawertab="stdin"]');
       if (!stdinTab) {
+        const testTab = drawerTabs.querySelector('[data-cl-drawertab="tests"]');
         const afterTab = testTab || drawerTabs.querySelector('[data-cl-drawertab="problems"]') || drawerTabs.querySelector('[data-cl-drawertab="terminal"]');
         if (afterTab) {
           afterTab.insertAdjacentHTML('afterend', `
@@ -2639,6 +2659,8 @@ int main() {
                   </div>
                   <div class="codelab-hud-pill" id="cl-telemetry-hud" style="display:none;" title="Last Execution Telemetry"></div>
                   <div style="display:flex;align-items:center;gap:6px;">
+                    <div class="codelab-terminal-sessions" id="cl-terminal-sessions"></div>
+                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal Session" aria-label="New Terminal Session" style="padding:2px 6px;font-size:11px;">+</button>
                     <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);">Ctrl+C</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Output" style="padding:2px 6px;font-size:11px;">Clear</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Minimize/Expand Drawer" aria-label="Minimize or Expand Drawer" style="padding:2px 6px;font-size:11px;">${CL_ICONS.chevronsUpDown}</button>
@@ -3727,16 +3749,27 @@ int main() {
             ${problems.map(p => {
               const icon = p.severity === 'error' ? '✖' : (p.severity === 'warning' ? '⚠' : 'ℹ');
               const cls = p.severity === 'error' ? 'codelab-problem-item--error' : (p.severity === 'warning' ? 'codelab-problem-item--warning' : 'codelab-problem-item--info');
+              const col = p.col || p.column || 1;
               return `
-                <div class="codelab-problem-item ${cls}" data-cl-problem-file="${escapeHtml(p.file || '')}" data-cl-problem-line="${p.line || 1}" data-cl-problem-col="${p.col || 1}" role="button" tabindex="0">
+                <div class="codelab-problem-item ${cls}" data-cl-problem-file="${escapeHtml(p.file || '')}" data-cl-problem-line="${p.line || 1}" data-cl-problem-col="${col}" role="button" tabindex="0">
                   <span class="codelab-problem-item__icon">${icon}</span>
                   <span class="codelab-problem-item__msg">${escapeHtml(p.message || '')}</span>
-                  <span class="codelab-problem-item__loc">${escapeHtml(p.file || '')}:${p.line || 1}:${p.col || 1}</span>
+                  <span class="codelab-problem-item__location codelab-problem-item__loc">${escapeHtml(p.file || '')}:${p.line || 1}:${col}</span>
                 </div>
               `;
             }).join('')}
           </div>
         `;
+        if (typeof bodyEl.querySelectorAll === 'function') {
+          bodyEl.querySelectorAll('.codelab-problem-item').forEach((item) => {
+            item.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                item.click();
+              }
+            });
+          });
+        }
         return;
       }
 
@@ -3808,6 +3841,7 @@ int main() {
       }
 
       if (this.drawerTab === 'terminal') {
+        this._renderTerminalSessionsBar();
         const logsHtml = this.terminalLogs
           .map(item => {
             const html = ansiToHtml ? ansiToHtml(item.text || '') : escapeHtml(item.text || '');
@@ -3816,7 +3850,13 @@ int main() {
           .join('');
         const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
         const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
-        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface" tabindex="0"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><div class="codelab-pty__active-line" id="cl-pty-active-line"><span class="codelab-pty__prompt">${escapeHtml(promptLabel)} </span><span class="codelab-pty__before">${escapeHtml(this._ptyInputBeforeCursor || '')}</span><span class="codelab-pty__cursor blink">&#x2588;</span><span class="codelab-pty__after">${escapeHtml(this._ptyInputAfterCursor || '')}</span></div><form class="codelab-repl" id="cl-repl-form" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
+        const busyAttr = this.isRunning ? ' data-busy="true" style="display:none;"' : '';
+        const promptHtml = this.isRunning ? '' : `${escapeHtml(promptLabel)} `;
+        const beforeHtml = this.isRunning ? '' : escapeHtml(this._ptyInputBeforeCursor || '');
+        const afterHtml = this.isRunning ? '' : escapeHtml(this._ptyInputAfterCursor || '');
+        const cursorClass = this.isRunning ? 'codelab-pty__cursor' : 'codelab-pty__cursor blink';
+        const cursorCharHtml = this.isRunning ? '' : '&#x2588;';
+        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface" tabindex="0"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><div class="codelab-pty__active-line" id="cl-pty-active-line"${busyAttr}><span class="codelab-pty__prompt">${promptHtml}</span><span class="codelab-pty__before">${beforeHtml}</span><span class="${cursorClass}">${cursorCharHtml}</span><span class="codelab-pty__after">${afterHtml}</span></div><form class="codelab-repl" id="cl-repl-form" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
         bodyEl.scrollTop = bodyEl.scrollHeight;
         const termSurface = bodyEl.querySelector('#cl-terminal-surface');
         const input = bodyEl.querySelector('#cl-repl-input');
@@ -3828,15 +3868,43 @@ int main() {
           });
         }
         if (input) {
-          input.value = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
-          input.addEventListener('input', () => {
+          input.value = this.isRunning ? '' : ((this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || ''));
+          const syncCaretFromInput = () => {
+            if (this.isRunning) {
+              input.value = '';
+              return;
+            }
             const val = input.value || '';
             const pos = (input.selectionStart !== undefined && input.selectionStart !== null) ? input.selectionStart : val.length;
             this._ptyInputBeforeCursor = val.slice(0, pos);
             this._ptyInputAfterCursor = val.slice(pos);
             this._updatePtyActiveLine();
+          };
+          input.addEventListener('input', syncCaretFromInput);
+          input.addEventListener('click', syncCaretFromInput);
+          input.addEventListener('keyup', e => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
+              syncCaretFromInput();
+            }
           });
           input.addEventListener('keydown', e => {
+            if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'c') {
+              e.preventDefault();
+              this._handleInterrupt();
+              return;
+            }
+            if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+              e.preventDefault();
+              this._clearTerminalLogs();
+              this._renderDrawerBody();
+              const nextInput = this.container.querySelector('#cl-repl-input');
+              if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
+              return;
+            }
+            if (this.isRunning) {
+              e.preventDefault();
+              return;
+            }
             if (e.key === 'Tab') {
               e.preventDefault();
               this._handlePtyTabCompletion(input);
@@ -3867,9 +3935,6 @@ int main() {
                 this._ptyInputAfterCursor = '';
                 this._updatePtyActiveLine();
               }
-            } else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'c') {
-              e.preventDefault();
-              this._handleInterrupt();
             } else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
               e.preventDefault();
               if (this.inRepl) {
@@ -3879,12 +3944,6 @@ int main() {
                 const nextInput = this.container.querySelector('#cl-repl-input');
                 if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
               }
-            } else if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
-              e.preventDefault();
-              this.terminalLogs = [];
-              this._renderDrawerBody();
-              const nextInput = this.container.querySelector('#cl-repl-input');
-              if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
             } else if (e.ctrlKey && e.key.toLowerCase() === 'u') {
               e.preventDefault();
               this._ptyInputBeforeCursor = '';
@@ -3915,6 +3974,7 @@ int main() {
         if (replForm) {
           replForm.addEventListener('submit', e => {
             e.preventDefault();
+            if (this.isRunning) return;
             const rawCmd = (input && input.value !== undefined ? input.value : '') ||
               ((this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || ''));
             const cmd = rawCmd.trim();
@@ -3996,7 +4056,7 @@ int main() {
       if (chunk === null || chunk === undefined || chunk === '') return;
       const rawText = String(chunk);
 
-      if (this.ptyEngine && typeof this.ptyEngine.writeStreamChunk === 'function') {
+      if (this.ptyEngine && this.ptyEngine.container && typeof this.ptyEngine.writeStreamChunk === 'function') {
         try {
           this.ptyEngine.writeStreamChunk(rawText, type);
         } catch (err) {
@@ -4037,6 +4097,14 @@ int main() {
       // A newline completes the current line: commit it to the log + DOM, then begin a fresh line.
       const commitActiveLine = () => {
         this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
+        if (this.terminalLogs.length > 2000) {
+          this.terminalLogs.splice(0, this.terminalLogs.length - 2000);
+          if (canPatchDom && termLogEl) {
+            while (termLogEl.childElementCount > 2000 && termLogEl.firstElementChild) {
+              termLogEl.removeChild(termLogEl.firstElementChild);
+            }
+          }
+        }
         patchLineInDom(this._activeStreamLine);
         this._activeStreamLine = '';
         this._activeStreamEl = null;
@@ -4204,15 +4272,39 @@ int main() {
 
     _updatePtyActiveLine() {
       if (!this.container) return;
+      const activeLine = this.container.querySelector('#cl-pty-active-line');
       const beforeEl = this.container.querySelector('.codelab-pty__before');
       const afterEl = this.container.querySelector('.codelab-pty__after');
       const promptEl = this.container.querySelector('.codelab-pty__prompt');
+      const cursorEl = this.container.querySelector('.codelab-pty__cursor');
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
       const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
 
-      if (promptEl) promptEl.textContent = promptLabel + ' ';
-      if (beforeEl) beforeEl.textContent = this._ptyInputBeforeCursor || '';
-      if (afterEl) afterEl.textContent = this._ptyInputAfterCursor || '';
+      if (this.isRunning) {
+        if (activeLine) {
+          activeLine.setAttribute('data-busy', 'true');
+          if (activeLine.style) activeLine.style.display = 'none';
+        }
+        if (promptEl) promptEl.textContent = '';
+        if (beforeEl) beforeEl.textContent = '';
+        if (cursorEl) {
+          cursorEl.textContent = '';
+          if (cursorEl.classList) cursorEl.classList.remove('blink');
+        }
+        if (afterEl) afterEl.textContent = '';
+      } else {
+        if (activeLine) {
+          activeLine.removeAttribute('data-busy');
+          if (activeLine.style) activeLine.style.display = '';
+        }
+        if (promptEl) promptEl.textContent = promptLabel + ' ';
+        if (beforeEl) beforeEl.textContent = this._ptyInputBeforeCursor || '';
+        if (cursorEl) {
+          if (!cursorEl.textContent) cursorEl.textContent = '\u2588';
+          if (cursorEl.classList) cursorEl.classList.add('blink');
+        }
+        if (afterEl) afterEl.textContent = this._ptyInputAfterCursor || '';
+      }
     }
 
     _handlePtyTabCompletion(input) {
@@ -5193,9 +5285,10 @@ int main() {
     _injectPreviewCsp(html, port) {
       if (typeof html !== 'string' || !html) return html;
 
+      const csp = String(this._previewPolicy() || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const tags = [];
       if (!/<meta[^>]+http-equiv=["']?content-security-policy/i.test(html)) {
-        tags.push(`<meta http-equiv="Content-Security-Policy" content="${this._previewPolicy()}">`);
+        tags.push(`<meta http-equiv="Content-Security-Policy" content="${csp}">`);
       }
       if (!/<base\b/i.test(html)) {
         tags.push(`<base href="/__preview/${Number(port) || 3000}/">`);
@@ -6761,26 +6854,52 @@ int main() {
         if (splitTrigger) {
           e.stopPropagation();
           const menu = this.container.querySelector('#cl-split-run-menu');
-          if (menu) menu.classList.toggle('active');
+          if (menu) {
+            const isOpen = !(menu.classList.contains('active') || menu.classList.contains('open'));
+            menu.classList.toggle('active', isOpen);
+            menu.classList.toggle('open', isOpen);
+          }
           return;
         }
 
         const splitMenu = this.container.querySelector('#cl-split-run-menu');
-        if (splitMenu && splitMenu.classList.contains('active') && !e.target.closest('.codelab-btn-split')) {
+        if (splitMenu && (splitMenu.classList.contains('active') || splitMenu.classList.contains('open')) && !e.target.closest('.codelab-btn-split')) {
           splitMenu.classList.remove('active');
+          splitMenu.classList.remove('open');
         }
 
-        const problemItem = e.target.closest('[data-cl-problem-file]');
+        const problemItem = e.target.closest('[data-cl-problem-file], [data-problem-file]');
         if (problemItem) {
           e.stopPropagation();
-          const pFile = problemItem.dataset.clProblemFile;
-          const pLine = Number(problemItem.dataset.clProblemLine || 1);
-          const pCol = Number(problemItem.dataset.clProblemCol || 1);
+          const pFile = problemItem.dataset.clProblemFile || problemItem.dataset.problemFile;
+          const pLine = Number(problemItem.dataset.clProblemLine || problemItem.dataset.problemLine || 1);
+          const pCol = Number(problemItem.dataset.clProblemCol || problemItem.dataset.problemCol || 1);
+          if (problemItem.closest('#cl-modal-slot')) {
+            this.closeModal();
+          }
           if (pFile) {
             this.openFile(pFile);
             if (this.editor && typeof this.editor.revealLineInCenter === 'function') {
               this.editor.revealLineInCenter(pLine);
               this.editor.setPosition({ lineNumber: pLine, column: pCol });
+              this.editor.focus();
+            }
+          }
+          return;
+        }
+
+        const searchMatch = e.target.closest('[data-cl-search-file]');
+        if (searchMatch) {
+          e.stopPropagation();
+          const sFile = searchMatch.dataset.clSearchFile;
+          const sLine = Number(searchMatch.dataset.clSearchLine || 1);
+          const sCol = Number(searchMatch.dataset.clSearchCol || 1);
+          this.closeModal();
+          if (sFile) {
+            this.openFile(sFile);
+            if (this.editor && typeof this.editor.revealLineInCenter === 'function') {
+              this.editor.revealLineInCenter(sLine);
+              this.editor.setPosition({ lineNumber: sLine, column: sCol });
               this.editor.focus();
             }
           }
@@ -6795,8 +6914,9 @@ int main() {
 
         const actionBtn = e.target.closest('[data-cl-action], [data-action]');
         if (actionBtn) {
-          if (splitMenu && splitMenu.classList.contains('active')) {
+          if (splitMenu && (splitMenu.classList.contains('active') || splitMenu.classList.contains('open'))) {
             splitMenu.classList.remove('active');
+            splitMenu.classList.remove('open');
           }
           const action = actionBtn.dataset.clAction || actionBtn.dataset.action;
           if (action === 'run-code') this.runCode();
@@ -6899,9 +7019,49 @@ int main() {
             if (drawer) drawer.classList.toggle('is-minimized');
             if (this.editor) setTimeout(() => this.editor.layout(), 50);
           } else if (action === 'clear-terminal') {
-            this.terminalLogs = [];
+            this._clearTerminalLogs();
             this.lastTestResults = [];
             this._renderDrawerBody();
+          } else if (action === 'new-terminal-session') {
+            this.createTerminalSession();
+            if (this.drawerTab !== 'terminal') this.switchDrawerTab('terminal');
+          } else if (action === 'switch-terminal-session') {
+            const sid = actionBtn.dataset.sessionId;
+            if (sid) this.switchTerminalSession(sid);
+          } else if (action === 'close-terminal-session') {
+            e.stopPropagation();
+            const sid = actionBtn.dataset.sessionId;
+            if (sid) this.closeTerminalSession(sid);
+          } else if (action === 'scm-stage-file') {
+            e.stopPropagation();
+            const p = actionBtn.dataset.scmPath;
+            if (p) {
+              this.stageGitFile(p);
+              this.showScmModal();
+            }
+          } else if (action === 'scm-unstage-file') {
+            e.stopPropagation();
+            const p = actionBtn.dataset.scmPath;
+            if (p) {
+              this.unstageGitFile(p);
+              this.showScmModal();
+            }
+          } else if (action === 'scm-stage-all') {
+            this.stageAllGitFiles();
+            this.showScmModal();
+          } else if (action === 'scm-commit') {
+            const msgInput = this.container.querySelector('#cl-scm-commit-input');
+            const msg = msgInput ? msgInput.value.trim() : '';
+            if (msg) {
+              this.commitGitChanges(msg);
+              this.showScmModal();
+            }
+          } else if (action === 'scm-open-file') {
+            const p = actionBtn.dataset.scmPath;
+            this.closeModal();
+            if (p && Object.prototype.hasOwnProperty.call(this.files, p)) {
+              this.openFile(p);
+            }
           } else if (action === 'toggle-hint') {
             const box = this.container.querySelector('#cl-hint-box');
             if (box) box.classList.toggle('open');
@@ -8545,6 +8705,7 @@ int main() {
     }
 
     async _handleReplCommand(cmd) {
+      if (this.isRunning) return;
       const trimmed = (cmd || '').trim();
       if (!trimmed) return;
       if (this.replHistory[this.replHistory.length - 1] !== trimmed) {
@@ -8553,7 +8714,19 @@ int main() {
       this.replHistoryIdx = -1;
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
       const promptPrefix = this.inRepl ? '> ' : `codelab:${cwdShort}$ `;
-      this.terminalLogs.push({ type: 'system', text: `${promptPrefix}${trimmed}` });
+      const echoLine = `${promptPrefix}${trimmed}`;
+      this.terminalLogs.push({ type: 'system', text: echoLine });
+      if (this.terminalLogs.length > 2000) {
+        this.terminalLogs.splice(0, this.terminalLogs.length - 2000);
+      }
+      const termLogEl = this.container ? this.container.querySelector('#cl-terminal-log') : null;
+      const ptyOwnsDom = Boolean(this.ptyEngine && this.ptyEngine.container);
+      if (termLogEl && typeof document !== 'undefined' && !ptyOwnsDom) {
+        const echoEl = document.createElement('div');
+        echoEl.className = 'codelab-log-line system';
+        echoEl.innerHTML = ansiToHtml ? ansiToHtml(echoLine) : escapeHtml(echoLine);
+        termLogEl.appendChild(echoEl);
+      }
 
       if (this.inRepl) {
         if (trimmed === '.exit' || trimmed === 'exit') {
@@ -8563,7 +8736,7 @@ int main() {
           return;
         }
         if (trimmed === '.clear' || trimmed === 'clear') {
-          this.terminalLogs = [];
+          this._clearTerminalLogs();
           this._renderDrawerBody();
           return;
         }
@@ -8616,7 +8789,7 @@ int main() {
       }
 
       if (trimmed === 'clear' || trimmed === 'cls') {
-        this.terminalLogs = [];
+        this._clearTerminalLogs();
         this._renderDrawerBody();
         return;
       }
@@ -8676,7 +8849,7 @@ int main() {
           this._syncVfsSnapshot(null, true);
 
           if (shellRes && shellRes.clear) {
-            this.terminalLogs = [];
+            this._clearTerminalLogs();
             this._renderDrawerBody();
             return;
           }
@@ -8889,6 +9062,10 @@ int main() {
       return bytes;
     }
 
+    exportZip(options = {}) {
+      return this.exportProjectZip(options);
+    }
+
     importProjectZip(zipBytes) {
       const zipMod = root.CodeLabZip;
       if (!zipMod || typeof zipMod.extractZip !== 'function') {
@@ -8899,6 +9076,42 @@ int main() {
       this.setFiles(extracted);
       this._syncFilesToShellVfs();
       return true;
+    }
+
+    importZip(zipBytes) {
+      return this.importProjectZip(zipBytes);
+    }
+
+    async saveProjectToStorage(id) {
+      if (!root.CodeLabStorage || typeof root.CodeLabStorage.createWorkspaceStorage !== 'function') {
+        return false;
+      }
+      if (!this._idbStorage) {
+        this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
+      }
+      const projectId = id || this.labId || 'workspace';
+      return this._idbStorage.saveProject({
+        id: projectId,
+        name: this.title || projectId,
+        files: { ...(this.files || {}) },
+        updatedAt: Date.now()
+      });
+    }
+
+    async loadProjectFromStorage(id) {
+      if (!root.CodeLabStorage || typeof root.CodeLabStorage.createWorkspaceStorage !== 'function') {
+        return null;
+      }
+      if (!this._idbStorage) {
+        this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
+      }
+      const projectId = id || this.labId || 'workspace';
+      const loaded = await this._idbStorage.loadProject(projectId);
+      if (loaded && loaded.files && typeof loaded.files === 'object') {
+        this.setFiles(loaded.files);
+        this._syncFilesToShellVfs();
+      }
+      return loaded;
     }
 
     searchWorkspace(options) {
@@ -8914,12 +9127,25 @@ int main() {
       if (!searchMod || typeof searchMod.replaceInFiles !== 'function') {
         throw new Error('CodeLabSearch engine is not loaded');
       }
-      const res = searchMod.replaceInFiles(this.files || {}, options);
-      if (res && res.files && res.filesModified > 0) {
-        this.setFiles(res.files);
+      const res = searchMod.replaceInFiles(this.files || {}, options, options && options.replacement);
+      const nextFiles = res && (res.updatedFiles || res.files);
+      const modifiedCount = res && (typeof res.filesModified === 'number' ? res.filesModified : (Array.isArray(res.filesAffected) ? res.filesAffected.length : 0));
+      if (nextFiles && modifiedCount > 0) {
+        this.setFiles(nextFiles);
         this._syncFilesToShellVfs();
       }
       return res;
+    }
+
+    _getGitState() {
+      const scmMod = root.CodeLabScm;
+      if (this.shell && this.shell.gitState) {
+        return this.shell.gitState;
+      }
+      if (!this._gitState && scmMod && typeof scmMod.createGitState === 'function') {
+        this._gitState = scmMod.createGitState(this.files || {});
+      }
+      return this._gitState || null;
     }
 
     getGitStatus() {
@@ -8927,8 +9153,87 @@ int main() {
       if (!scmMod || typeof scmMod.computeGitStatus !== 'function') {
         return [];
       }
-      const gs = (this.shell && this.shell.gitState) ? this.shell.gitState : scmMod.createGitState(this.files || {});
-      return scmMod.computeGitStatus(gs, this.files || {});
+      const gs = this._getGitState() || scmMod.createGitState(this.files || {});
+      const res = scmMod.computeGitStatus(this.files || {}, '/workspace', gs);
+      return res && Array.isArray(res.entries) ? res.entries : (Array.isArray(res) ? res : []);
+    }
+
+    stageGitFile(relPath) {
+      if (!relPath) return false;
+      const gs = this._getGitState();
+      if (!gs) return false;
+      const scmMod = root.CodeLabScm;
+      if (gs.staged instanceof Set) {
+        gs.staged.add(relPath);
+      } else if (scmMod && typeof scmMod.stageFile === 'function') {
+        const currentContent = Object.prototype.hasOwnProperty.call(this.files, relPath) ? this.files[relPath] : null;
+        scmMod.stageFile(gs, relPath, currentContent);
+      }
+      return true;
+    }
+
+    unstageGitFile(relPath) {
+      if (!relPath) return false;
+      const gs = this._getGitState();
+      if (!gs || !gs.staged || typeof gs.staged.delete !== 'function') return false;
+      gs.staged.delete(relPath);
+      return true;
+    }
+
+    stageAllGitFiles() {
+      const entries = this.getGitStatus();
+      for (const entry of entries) {
+        if (!entry.staged) {
+          this.stageGitFile(entry.path);
+        }
+      }
+      return true;
+    }
+
+    commitGitChanges(message) {
+      const msg = typeof message === 'string' ? message.trim() : '';
+      if (!msg) return null;
+      const gs = this._getGitState();
+      if (!gs) return null;
+      const scmMod = root.CodeLabScm;
+      if (gs.staged instanceof Set) {
+        if (gs.staged.size === 0) return null;
+        if (!gs.headSnapshot) gs.headSnapshot = {};
+        for (const relPath of gs.staged) {
+          if (Object.prototype.hasOwnProperty.call(this.files, relPath)) {
+            gs.headSnapshot[relPath] = this.files[relPath];
+          } else {
+            delete gs.headSnapshot[relPath];
+          }
+        }
+        gs.headFiles = Object.assign({}, gs.headSnapshot);
+        const hash = scmMod && typeof scmMod.computeShortCommitHash === 'function'
+          ? scmMod.computeShortCommitHash(`${gs.branch || 'main'}:${msg}:${Date.now()}`)
+          : Math.random().toString(16).slice(2, 9);
+        if (!Array.isArray(gs.commits)) gs.commits = [];
+        gs.commits.unshift({
+          hash,
+          author: 'CodeLab Developer <dev@codelab.internal>',
+          date: new Date().toUTCString(),
+          timestamp: Date.now(),
+          message: msg
+        });
+        gs.headCommit = hash;
+        gs.staged.clear();
+        this._syncFilesToShellVfs();
+        return hash;
+      }
+      if (scmMod && typeof scmMod.commitChanges === 'function') {
+        try {
+          const hash = scmMod.commitChanges(gs, msg);
+          if (gs.headFiles) gs.headSnapshot = Object.assign({}, gs.headFiles);
+          this._syncFilesToShellVfs();
+          return hash;
+        } catch (_err) {
+          return null;
+        }
+      }
+      return null;
     }
 
     getDiagnostics() {
@@ -8946,12 +9251,20 @@ int main() {
       const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
       if (!slot) return;
       const q = String(initialQuery || '');
-      const results = q ? this.searchWorkspace({ query: q }) : { matches: [], totalMatches: 0, filesMatched: 0 };
-      const rowsHtml = (results.matches || []).map((m) => `
-        <div class="codelab-search-match" data-cl-file="${escapeHtml(m.file)}" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);cursor:pointer;font-family:var(--cl-font-mono);font-size:12px;">
-          <strong>${escapeHtml(m.file)}:${m.line}:${m.column}</strong> — <span>${escapeHtml(m.lineText)}</span>
-        </div>
-      `).join('');
+      const renderRows = (queryText) => {
+        const res = queryText ? this.searchWorkspace({ query: queryText }) : { matches: [], totalMatches: 0, filesMatched: 0 };
+        if (!queryText) {
+          return '<div style="color:var(--cl-fg-muted);font-size:12px;">Enter a query to search across workspace files.</div>';
+        }
+        if (!res.matches || res.matches.length === 0) {
+          return '<div style="color:var(--cl-fg-muted);font-size:12px;">No matches found in workspace.</div>';
+        }
+        return res.matches.map((m) => `
+          <div class="codelab-search-match" data-cl-file="${escapeHtml(m.file)}" data-cl-search-file="${escapeHtml(m.file)}" data-cl-search-line="${m.line || 1}" data-cl-search-col="${m.column || 1}" role="button" tabindex="0" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);cursor:pointer;font-family:var(--cl-font-mono);font-size:12px;">
+            <strong>${escapeHtml(m.file)}:${m.line}:${m.column}</strong> — <span>${escapeHtml(m.lineText)}</span>
+          </div>
+        `).join('');
+      };
       slot.innerHTML = `
         <div class="codelab-modal-backdrop">
           <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Search Across Workspace">
@@ -8960,36 +9273,82 @@ int main() {
               <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
             </div>
             <div class="codelab-modal__body">
-              <div style="display:flex;gap:8px;margin-bottom:8px;">
-                <input id="cl-search-query-input" type="text" value="${escapeHtml(q)}" placeholder="Search text or regex..." style="flex:1;padding:6px 8px;" />
-                <input id="cl-search-replace-input" type="text" placeholder="Replace with..." style="flex:1;padding:6px 8px;" />
+              <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                <input id="cl-search-query-input" class="codelab-modal-input" type="text" value="${escapeHtml(q)}" placeholder="Search text or regex..." />
+                <input id="cl-search-replace-input" class="codelab-modal-input" type="text" placeholder="Replace with..." />
+                <button type="button" id="cl-search-replace-all-btn" class="codelab-btn codelab-btn--primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;">Replace All</button>
               </div>
-              <div id="cl-search-results-list">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">Enter a query to search across workspace files.</div>'}</div>
+              <div id="cl-search-results-list" style="max-height:320px;overflow-y:auto;">${renderRows(q)}</div>
             </div>
           </div>
         </div>
       `;
+      const queryInput = slot.querySelector('#cl-search-query-input');
+      const replaceInput = slot.querySelector('#cl-search-replace-input');
+      const replaceBtn = slot.querySelector('#cl-search-replace-all-btn');
+      const listEl = slot.querySelector('#cl-search-results-list');
+      if (queryInput && listEl) {
+        queryInput.addEventListener('input', () => {
+          listEl.innerHTML = renderRows(queryInput.value || '');
+        });
+        if (typeof queryInput.focus === 'function') queryInput.focus();
+      }
+      if (replaceBtn && queryInput && replaceInput && listEl) {
+        const triggerReplace = () => {
+          const queryVal = queryInput.value || '';
+          if (!queryVal) return;
+          this.replaceInWorkspace({ query: queryVal, replacement: replaceInput.value || '' });
+          listEl.innerHTML = renderRows(queryVal);
+        };
+        replaceBtn.addEventListener('click', triggerReplace);
+        replaceInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            triggerReplace();
+          }
+        });
+      }
     }
 
     showScmModal() {
       const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
       if (!slot) return;
       const statusList = this.getGitStatus();
-      const rowsHtml = statusList.map((entry) => `
-        <div class="codelab-scm-entry" data-scm-path="${escapeHtml(entry.path)}" style="display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--cl-border);font-family:var(--cl-font-mono);font-size:12px;">
-          <span>${escapeHtml(entry.path)}</span>
-          <span>${escapeHtml(entry.worktree !== ' ' ? entry.worktree : entry.index)}</span>
-        </div>
-      `).join('');
+      const gs = this._getGitState();
+      const branch = (gs && gs.branch) ? gs.branch : 'main';
+      const hasStaged = statusList.some((e) => e.staged);
+      const hasUnstaged = statusList.some((e) => !e.staged);
+      const rowsHtml = statusList.map((entry) => {
+        const badge = entry.staged ? `Staged (${entry.index})` : (entry.worktree !== ' ' ? entry.worktree : entry.index);
+        const actionBtn = entry.staged
+          ? `<button type="button" class="codelab-btn" data-cl-action="scm-unstage-file" data-scm-path="${escapeHtml(entry.path)}" style="padding:2px 8px;font-size:11px;">Unstage</button>`
+          : `<button type="button" class="codelab-btn" data-cl-action="scm-stage-file" data-scm-path="${escapeHtml(entry.path)}" style="padding:2px 8px;font-size:11px;">Stage</button>`;
+        return `
+          <div class="codelab-scm-entry" data-scm-path="${escapeHtml(entry.path)}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--cl-border);font-family:var(--cl-font-mono);font-size:12px;">
+            <span data-cl-action="scm-open-file" data-scm-path="${escapeHtml(entry.path)}" style="cursor:pointer;text-decoration:underline;">${escapeHtml(entry.path)}</span>
+            <span style="display:inline-flex;align-items:center;gap:8px;">
+              <span>${escapeHtml(badge)}</span>
+              ${actionBtn}
+            </span>
+          </div>
+        `;
+      }).join('');
       slot.innerHTML = `
         <div class="codelab-modal-backdrop">
           <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Source Control">
             <div class="codelab-modal__header">
-              <span>Source Control (Git Status)</span>
-              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+              <span>Source Control (Git Status · ${escapeHtml(branch)})</span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                ${hasUnstaged ? `<button type="button" class="codelab-btn" data-cl-action="scm-stage-all" style="padding:3px 8px;font-size:11px;">Stage All</button>` : ''}
+                <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+              </div>
             </div>
             <div class="codelab-modal__body">
-              <div id="cl-scm-status-list">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">Working tree clean</div>'}</div>
+              <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                <input id="cl-scm-commit-input" class="codelab-modal-input" type="text" placeholder="Commit message (e.g. feat: update module)..." />
+                <button type="button" id="cl-scm-commit-btn" class="codelab-btn codelab-btn--primary" data-cl-action="scm-commit" ${hasStaged ? '' : 'disabled'} style="padding:5px 10px;font-size:12px;white-space:nowrap;">Commit</button>
+              </div>
+              <div id="cl-scm-status-list" style="max-height:300px;overflow-y:auto;">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">Working tree clean</div>'}</div>
             </div>
           </div>
         </div>
@@ -9001,11 +9360,14 @@ int main() {
       const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
       if (!slot) return;
       const items = this.getDiagnostics();
-      const rowsHtml = items.map((d) => `
-        <div class="codelab-problem-entry" data-problem-file="${escapeHtml(d.file)}" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);font-family:var(--cl-font-mono);font-size:12px;">
-          <strong>[${escapeHtml(d.severity)}] ${escapeHtml(d.file)}:${d.line}:${d.column}</strong> — ${escapeHtml(d.message)}
-        </div>
-      `).join('');
+      const rowsHtml = items.map((d) => {
+        const col = d.col || d.column || 1;
+        return `
+          <div class="codelab-problem-entry" data-problem-file="${escapeHtml(d.file || '')}" data-cl-problem-file="${escapeHtml(d.file || '')}" data-cl-problem-line="${d.line || 1}" data-cl-problem-col="${col}" role="button" tabindex="0" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);cursor:pointer;font-family:var(--cl-font-mono);font-size:12px;">
+            <strong>[${escapeHtml(d.severity)}] ${escapeHtml(d.file || '')}:${d.line || 1}:${col}</strong> — ${escapeHtml(d.message || '')}
+          </div>
+        `;
+      }).join('');
       slot.innerHTML = `
         <div class="codelab-modal-backdrop">
           <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Problems and Diagnostics">
@@ -9019,6 +9381,40 @@ int main() {
           </div>
         </div>
       `;
+    }
+
+    _clearTerminalLogs() {
+      if (Array.isArray(this.terminalLogs)) {
+        this.terminalLogs.length = 0;
+      } else {
+        this.terminalLogs = [];
+      }
+      if (Array.isArray(this._terminalSessions)) {
+        const active = this._terminalSessions.find((s) => s.id === this._activeTerminalSessionId);
+        if (active) {
+          active.logs = this.terminalLogs;
+        }
+      }
+    }
+
+    _renderTerminalSessionsBar() {
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
+      const bar = this.container.querySelector('#cl-terminal-sessions');
+      if (!bar) return;
+      const sessions = this._ensureTerminalSessions();
+      if (sessions.length <= 1) {
+        bar.innerHTML = '';
+        return;
+      }
+      bar.innerHTML = sessions.map((s) => {
+        const isActive = s.id === this._activeTerminalSessionId;
+        return `
+          <span class="codelab-session-pill ${isActive ? 'active' : ''}" data-cl-action="switch-terminal-session" data-session-id="${escapeHtml(s.id)}" role="button" tabindex="0" title="Switch to ${escapeHtml(s.name)}">
+            <span>${escapeHtml(s.name)}</span>
+            <span data-cl-action="close-terminal-session" data-session-id="${escapeHtml(s.id)}" title="Close session" style="margin-left:2px;opacity:0.75;">&times;</span>
+          </span>
+        `;
+      }).join('');
     }
 
     _ensureTerminalSessions() {
@@ -9432,6 +9828,13 @@ int main() {
       if (this._editorResizeObserver) {
         this._editorResizeObserver.disconnect();
         this._editorResizeObserver = null;
+      }
+      if (this._diffManager && typeof this._diffManager.closeInlineDiff === 'function') {
+        try {
+          this._diffManager.closeInlineDiff();
+        } catch (err) {
+          this.logger.debug('diffManager.closeInlineDiff failed during destroy.', err);
+        }
       }
       if (this.editor) {
         this.editor.dispose();

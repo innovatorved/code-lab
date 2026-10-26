@@ -4,6 +4,15 @@
 
 import { CL_ICONS } from './icons';
 
+function escapeHtml(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export interface ToolbarRenderOptions {
   workbench: any;
   title: string;
@@ -42,7 +51,9 @@ export function renderLanguageSwitcherHtml(workbench: any): string {
 export function renderToolbarHtml(opts: ToolbarRenderOptions): string {
   const { workbench, title, backLabel, hasGuidedLab, mode, activeFile, hasWebContent, activeServerCount } = opts;
   const isGuided = Boolean(hasGuidedLab && mode === 'guided');
-  const brandLabel = title || 'code-lab';
+  const brandLabel = escapeHtml(title || 'code-lab');
+  const safeBackLabel = escapeHtml(backLabel);
+  const safeActiveFile = escapeHtml(activeFile || 'active');
 
   const testFileExists = Boolean(
     workbench._findEntryFile && workbench._findEntryFile('test') !== null
@@ -52,9 +63,9 @@ export function renderToolbarHtml(opts: ToolbarRenderOptions): string {
     <div class="codelab-topbar codelab-toolbar">
       <div class="codelab-topbar__left">
         ${workbench.onClose ? `
-          <button type="button" class="codelab-btn codelab-btn--back" data-cl-action="close-lab" title="${backLabel}">
+          <button type="button" class="codelab-btn codelab-btn--back" data-cl-action="close-lab" title="${safeBackLabel}">
             ${CL_ICONS.arrowLeft}
-            <span>${backLabel}</span>
+            <span>${safeBackLabel}</span>
           </button>
         ` : ''}
         <span class="codelab-brand ${workbench.onClose ? 'codelab-brand--with-back' : ''}" title="${brandLabel}">
@@ -118,7 +129,7 @@ export function renderToolbarHtml(opts: ToolbarRenderOptions): string {
                 <span>▶ Run Entry / Demo</span> <kbd style="opacity:0.6">⌘↵</kbd>
               </button>
               <button type="button" class="codelab-split-menu__item" data-cl-action="run-active-file">
-                <span>▶ Run Active File (${activeFile || 'active'})</span> <kbd style="opacity:0.6">⇧⌘↵</kbd>
+                <span>▶ Run Active File (${safeActiveFile})</span> <kbd style="opacity:0.6">⇧⌘↵</kbd>
               </button>
               ${testFileExists ? `
               <button type="button" class="codelab-split-menu__item" data-cl-action="run-tests">

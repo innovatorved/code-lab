@@ -791,77 +791,82 @@ export class PythonToolchainManager {
     if (this._loadingPromise) return this._loadingPromise;
 
     this._loadingPromise = (async () => {
-      this._emitProgress({
-        stage: 'downloading',
-        percent: 10,
-        message: 'Initializing CPython 3.12 WebAssembly (Pyodide)...'
-      });
+      try {
+        this._emitProgress({
+          stage: 'downloading',
+          percent: 10,
+          message: 'Initializing CPython 3.12 WebAssembly (Pyodide)...'
+        });
 
-      // Browser environment: load pyodide.js from CDN
-      if (typeof window !== 'undefined') {
-        const cdn = this.options.cdnBaseUrl || DEFAULT_PYTHON_CDN_BASE_URL;
-        if (!(window as any).loadPyodide) {
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = `${cdn.replace(/\/+$/, '')}/pyodide.js`;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error(`Failed to load pyodide.js from ${script.src}`));
-            document.head.appendChild(script);
+        // Browser environment: load pyodide.js from CDN
+        if (typeof window !== 'undefined') {
+          const cdn = this.options.cdnBaseUrl || DEFAULT_PYTHON_CDN_BASE_URL;
+          if (!(window as any).loadPyodide) {
+            await new Promise<void>((resolve, reject) => {
+              const script = document.createElement('script');
+              script.src = `${cdn.replace(/\/+$/, '')}/pyodide.js`;
+              script.onload = () => resolve();
+              script.onerror = () => reject(new Error(`Failed to load pyodide.js from ${script.src}`));
+              document.head.appendChild(script);
+            });
+          }
+
+          this._emitProgress({
+            stage: 'extracting',
+            percent: 50,
+            message: 'Bootstrapping Python runtime environment...'
           });
+
+          const loadPyodideFn = (window as any).loadPyodide;
+          this.pyodide = await loadPyodideFn({
+            indexURL: cdn
+          });
+        } else {
+          // Node / Bun headless mock toolchain for hermetic offline test runs
+          this.pyodide = {
+            FS: {
+              files: new Map<string, string>(),
+              writeFile(p: string, content: any) {
+                this.files.set(p, typeof content === 'string' ? content : String(content));
+              },
+              readFile(p: string, opts?: any) {
+                return this.files.get(p) || '';
+              },
+              unlink(p: string) {
+                this.files.delete(p);
+              },
+              mkdirTree(_p: string) {}
+            },
+            runPythonAsync: async (code: string) => {
+              return `Execution mock: ${code.slice(0, 30)}`;
+            }
+          };
+        }
+
+        // Preload specified packages if any
+        if (this.options.preloadPackages && Array.isArray(this.options.preloadPackages)) {
+          for (const pkg of this.options.preloadPackages) {
+            try {
+              if (typeof this.pyodide.loadPackage === 'function') {
+                await this.pyodide.loadPackage(pkg);
+              }
+            } catch (err) {
+              void err;
+            }
+          }
         }
 
         this._emitProgress({
-          stage: 'extracting',
-          percent: 50,
-          message: 'Bootstrapping Python runtime environment...'
+          stage: 'ready',
+          percent: 100,
+          message: 'Python 3.12 WebAssembly Toolchain Ready'
         });
 
-        const loadPyodideFn = (window as any).loadPyodide;
-        this.pyodide = await loadPyodideFn({
-          indexURL: cdn
-        });
-      } else {
-        // Node / Bun headless mock toolchain for hermetic offline test runs
-        this.pyodide = {
-          FS: {
-            files: new Map<string, string>(),
-            writeFile(p: string, content: any) {
-              this.files.set(p, typeof content === 'string' ? content : String(content));
-            },
-            readFile(p: string, opts?: any) {
-              return this.files.get(p) || '';
-            },
-            unlink(p: string) {
-              this.files.delete(p);
-            },
-            mkdirTree(_p: string) {}
-          },
-          runPythonAsync: async (code: string) => {
-            return `Execution mock: ${code.slice(0, 30)}`;
-          }
-        };
+        return this.pyodide;
+      } catch (err) {
+        this._loadingPromise = null;
+        throw err;
       }
-
-      // Preload specified packages if any
-      if (this.options.preloadPackages && Array.isArray(this.options.preloadPackages)) {
-        for (const pkg of this.options.preloadPackages) {
-          try {
-            if (typeof this.pyodide.loadPackage === 'function') {
-              await this.pyodide.loadPackage(pkg);
-            }
-          } catch (err) {
-            void err;
-          }
-        }
-      }
-
-      this._emitProgress({
-        stage: 'ready',
-        percent: 100,
-        message: 'Python 3.12 WebAssembly Toolchain Ready'
-      });
-
-      return this.pyodide;
     })();
 
     return this._loadingPromise;
@@ -919,21 +924,38 @@ export class PythonToolchainManager {
 
     const pyodide = await this.ensureLoaded();
 
-    // 1. Sync VFS files into Pyodide FS
+    // 1. Sync VFS files into Pyodide FS (recursively traversing subdirectories)
     if (req.vfs && pyodide.FS) {
-      try {
-        const vfsEntries = req.vfs.readdirSync('/workspace', { recursive: true });
-        for (const entry of vfsEntries) {
-          const fullPath = `/workspace/${entry}`;
-          if (!req.vfs.statSync(fullPath).isDirectory()) {
-            const content = req.vfs.readFileSync(fullPath, 'utf8');
-            pyodide.FS.mkdirTree('/workspace');
-            pyodide.FS.writeFile(fullPath, content);
+      const syncVfsDir = (dirPath: string) => {
+        try {
+          if (typeof pyodide.FS.mkdirTree === 'function') {
+            pyodide.FS.mkdirTree(dirPath);
           }
+          const entries = req.vfs.readdirSync(dirPath);
+          for (const entry of entries) {
+            if (!entry || entry === '.' || entry === '..') continue;
+            const fullPath = `${dirPath === '/' ? '' : dirPath}/${entry}`;
+            try {
+              const st = req.vfs.statSync(fullPath);
+              if (st && typeof st.isDirectory === 'function' && st.isDirectory()) {
+                syncVfsDir(fullPath);
+              } else {
+                const parentDir = fullPath.slice(0, fullPath.lastIndexOf('/')) || '/workspace';
+                if (typeof pyodide.FS.mkdirTree === 'function') {
+                  pyodide.FS.mkdirTree(parentDir);
+                }
+                const content = req.vfs.readFileSync(fullPath, 'utf8');
+                pyodide.FS.writeFile(fullPath, content);
+              }
+            } catch (err) {
+              void err;
+            }
+          }
+        } catch (err) {
+          void err;
         }
-      } catch (err) {
-        void err;
-      }
+      };
+      syncVfsDir('/workspace');
     }
 
     // Seed builtin /usr/lib/python modules
@@ -986,47 +1008,19 @@ export class PythonToolchainManager {
           });
         }
 
-        const rawLines = codeToRun.split('\n');
-        const futureImports: string[] = [];
-        const bodyLines: string[] = [];
-        let inDocstring = false;
-        let docChar = '';
-
-        for (const l of rawLines) {
-          const t = l.trim();
-          if (!inDocstring && (t.startsWith('"""') || t.startsWith("'''"))) {
-            if (t.length > 3 && (t.endsWith('"""') || t.endsWith("'''"))) {
-              bodyLines.push(l);
-              continue;
-            }
-            inDocstring = true;
-            docChar = t.slice(0, 3);
-            bodyLines.push(l);
-            continue;
-          }
-          if (inDocstring) {
-            if (t.endsWith(docChar)) inDocstring = false;
-            bodyLines.push(l);
-            continue;
-          }
-          if (/^from\s+__future__\s+import\s+/.test(t)) {
-            futureImports.push(t);
-          } else {
-            bodyLines.push(l);
-          }
-        }
-
+        const fileLabel = JSON.stringify(req.entry || '<exec>');
+        const encodedCode = JSON.stringify(codeToRun);
         const runnerWrapper = `
-${futureImports.join('\n')}
 import sys, tracemalloc
 if '/usr/lib/python' not in sys.path:
     sys.path.insert(0, '/usr/lib/python')
 if '/workspace' not in sys.path:
     sys.path.insert(0, '/workspace')
 
+_cl_user_code = ${encodedCode}
 tracemalloc.start()
 try:
-${bodyLines.map((l) => '    ' + l).join('\n')}
+    exec(compile(_cl_user_code, ${fileLabel}, 'exec'), globals())
 finally:
     _, _peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -1069,24 +1063,42 @@ finally:
       }
     }
 
-    // 2. Sync back files from Pyodide FS into VFS
+    // 2. Sync back files from Pyodide FS into VFS (recursively traversing subdirectories)
     if (req.vfs && pyodide.FS && typeof pyodide.FS.readdir === 'function') {
-      try {
-        const files = pyodide.FS.readdir('/workspace');
-        for (const f of files) {
-          if (f !== '.' && f !== '..') {
-            const p = `/workspace/${f}`;
+      const syncBackPyodideDir = (dirPath: string) => {
+        try {
+          const entries = pyodide.FS.readdir(dirPath);
+          for (const f of entries) {
+            if (!f || f === '.' || f === '..') continue;
+            const p = `${dirPath}/${f}`;
             try {
-              const content = pyodide.FS.readFile(p, { encoding: 'utf8' });
-              req.vfs.writeFileSync(p, content);
+              let isDir = false;
+              if (typeof pyodide.FS.stat === 'function' && typeof pyodide.FS.isDir === 'function') {
+                const st = pyodide.FS.stat(p);
+                isDir = Boolean(pyodide.FS.isDir(st.mode));
+              }
+              if (isDir) {
+                if (typeof req.vfs.mkdirSync === 'function' && !req.vfs.existsSync(p)) {
+                  req.vfs.mkdirSync(p, { recursive: true });
+                }
+                syncBackPyodideDir(p);
+              } else {
+                const parentDir = p.slice(0, p.lastIndexOf('/')) || '/workspace';
+                if (typeof req.vfs.mkdirSync === 'function' && !req.vfs.existsSync(parentDir)) {
+                  req.vfs.mkdirSync(parentDir, { recursive: true });
+                }
+                const content = pyodide.FS.readFile(p, { encoding: 'utf8' });
+                req.vfs.writeFileSync(p, content);
+              }
             } catch (err) {
               void err;
             }
           }
+        } catch (err) {
+          void err;
         }
-      } catch (err) {
-        void err;
-      }
+      };
+      syncBackPyodideDir('/workspace');
     }
 
     const durationMs = performance.now() - start;

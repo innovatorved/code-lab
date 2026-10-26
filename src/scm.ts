@@ -31,8 +31,17 @@ export interface GitState {
   branches?: string[];
   headCommit: string;
   headFiles: Record<string, string>;
-  staged: Map<string, string | null>;
+  headSnapshot?: Record<string, string>;
+  staged: Map<string, string | null> | Set<string>;
   commits: GitCommitRecord[];
+}
+
+export interface GitStatusEntry {
+  path: string;
+  status: GitFileChangeType;
+  staged: boolean;
+  index: string;
+  worktree: string;
 }
 
 export interface GitStatusResult {
@@ -43,6 +52,7 @@ export interface GitStatusResult {
   deleted: GitFileStatus[];
   staged: GitFileStatus[];
   unstaged: GitFileStatus[];
+  entries: GitStatusEntry[];
   hasChanges: boolean;
   isClean: boolean;
 }
@@ -92,15 +102,41 @@ export function createGitState(
 
 /**
  * Computes working-tree and staging-area Git status against `gitState`.
+ * Supports both `computeGitStatus(vfsFiles, repoRoot, gitState)` and
+ * `computeGitStatus(gitState, vfsFiles)` calling conventions.
  */
 export function computeGitStatus(
-  vfsFiles: Record<string, string>,
-  _repoRoot = '/workspace',
+  arg1: Record<string, string> | GitState,
+  arg2: string | Record<string, string> = '/workspace',
   gitState?: GitState
 ): GitStatusResult {
-  const state = gitState || createGitState({});
-  const headFiles = state.headFiles || {};
-  const currentStaged = state.staged instanceof Map ? state.staged : new Map<string, string | null>();
+  let vfsFiles: Record<string, string>;
+  let state: GitState;
+
+  if (
+    arg1 &&
+    typeof arg1 === 'object' &&
+    ('headFiles' in arg1 || 'headSnapshot' in arg1 || 'staged' in arg1 || 'commits' in arg1)
+  ) {
+    state = arg1 as GitState;
+    vfsFiles = (arg2 && typeof arg2 === 'object' ? arg2 : {}) as Record<string, string>;
+  } else {
+    vfsFiles = (arg1 && typeof arg1 === 'object' ? arg1 : {}) as Record<string, string>;
+    state = gitState || createGitState({});
+  }
+
+  const headFiles: Record<string, string> = state.headFiles || state.headSnapshot || {};
+  const currentStaged = new Map<string, string | null>();
+  if (state.staged instanceof Map) {
+    for (const [k, v] of state.staged.entries()) {
+      currentStaged.set(k, v);
+    }
+  } else if (state.staged instanceof Set) {
+    for (const k of state.staged.values()) {
+      const existsInVfs = Object.prototype.hasOwnProperty.call(vfsFiles, k);
+      currentStaged.set(k, existsInVfs ? vfsFiles[k] : null);
+    }
+  }
 
   const untracked: GitFileStatus[] = [];
   const modified: GitFileStatus[] = [];
@@ -110,12 +146,14 @@ export function computeGitStatus(
   for (const [filePath, stagedContent] of currentStaged.entries()) {
     const inHead = Object.prototype.hasOwnProperty.call(headFiles, filePath);
     if (stagedContent === null) {
-      staged.push({
-        path: filePath,
-        status: 'deleted',
-        staged: true,
-        oldContent: headFiles[filePath]
-      });
+      if (inHead) {
+        staged.push({
+          path: filePath,
+          status: 'deleted',
+          staged: true,
+          oldContent: headFiles[filePath]
+        });
+      }
     } else {
       staged.push({
         path: filePath,
@@ -174,6 +212,36 @@ export function computeGitStatus(
   }
 
   const unstaged: GitFileStatus[] = [...modified, ...deleted];
+  const entries: GitStatusEntry[] = [
+    ...staged.map((s) => ({
+      path: s.path,
+      status: s.status,
+      staged: true,
+      index: s.status === 'added' ? 'A' : s.status === 'deleted' ? 'D' : 'M',
+      worktree: ' '
+    })),
+    ...modified.map((m) => ({
+      path: m.path,
+      status: m.status,
+      staged: false,
+      index: ' ',
+      worktree: 'M'
+    })),
+    ...deleted.map((d) => ({
+      path: d.path,
+      status: d.status,
+      staged: false,
+      index: ' ',
+      worktree: 'D'
+    })),
+    ...untracked.map((u) => ({
+      path: u.path,
+      status: u.status,
+      staged: false,
+      index: '?',
+      worktree: '?'
+    }))
+  ];
   const isClean =
     untracked.length === 0 &&
     modified.length === 0 &&
@@ -188,6 +256,7 @@ export function computeGitStatus(
     deleted,
     staged,
     unstaged,
+    entries,
     hasChanges: !isClean,
     isClean
   };
@@ -205,15 +274,28 @@ export function stageFile(
   if (!(gitState.staged instanceof Map)) {
     gitState.staged = new Map<string, string | null>();
   }
-  gitState.staged.set(relativePath, currentContent === undefined ? null : currentContent);
+  const normalizedContent = currentContent === undefined ? null : currentContent;
+  const headFiles = gitState.headFiles || gitState.headSnapshot || {};
+  if (
+    normalizedContent === null &&
+    !Object.prototype.hasOwnProperty.call(headFiles, relativePath) &&
+    !gitState.staged.has(relativePath)
+  ) {
+    return;
+  }
+  gitState.staged.set(relativePath, normalizedContent);
 }
 
 /**
  * Removes a file from the staging index.
  */
 export function unstageFile(gitState: GitState, relativePath: string): void {
-  if (!gitState || !(gitState.staged instanceof Map)) return;
-  gitState.staged.delete(relativePath);
+  if (!gitState) return;
+  if (gitState.staged instanceof Map) {
+    gitState.staged.delete(relativePath);
+  } else if (gitState.staged instanceof Set) {
+    gitState.staged.delete(relativePath);
+  }
 }
 
 /**
@@ -229,8 +311,10 @@ export function commitChanges(gitState: GitState, message: string): string {
     throw new Error('Nothing to commit (staging area is empty)');
   }
 
-  const newHeadFiles: Record<string, string> = { ...(gitState.headFiles || {}) };
+  const newHeadFiles: Record<string, string> = { ...(gitState.headFiles || gitState.headSnapshot || {}) };
+  const diffSummaryParts: string[] = [];
   for (const [filePath, content] of gitState.staged.entries()) {
+    diffSummaryParts.push(`${filePath}:${content === null ? '<DEL>' : content}`);
     if (content === null) {
       delete newHeadFiles[filePath];
     } else {
@@ -239,12 +323,15 @@ export function commitChanges(gitState: GitState, message: string): string {
   }
 
   const timestamp = Date.now();
-  const hash = computeShortCommitHash(`${gitState.headCommit}:${trimmed}:${timestamp}`);
+  const commitSeq = Array.isArray(gitState.commits) ? gitState.commits.length : 0;
+  const hash = computeShortCommitHash(
+    `${gitState.headCommit}:${trimmed}:${timestamp}:${commitSeq}:${diffSummaryParts.join('|')}`
+  );
   const commit: GitCommitRecord = {
     hash,
     message: trimmed,
     timestamp,
-    files: newHeadFiles
+    files: { ...newHeadFiles }
   };
 
   if (!Array.isArray(gitState.commits)) {
@@ -252,7 +339,7 @@ export function commitChanges(gitState: GitState, message: string): string {
   }
   gitState.commits.push(commit);
   gitState.headCommit = hash;
-  gitState.headFiles = newHeadFiles;
+  gitState.headFiles = { ...newHeadFiles };
   gitState.staged.clear();
 
   return hash;

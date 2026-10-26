@@ -4,6 +4,31 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-26
+
+### Added
+- **Terminal Foreground Command Locking & Background Job Isolation (`src/terminal.ts`, `src/workbench.ts`, `src/shell.ts`)**:
+  - `PTYTerminalEngine` and `CodeLabWorkbench._handleReplCommand()` now lock the terminal while a foreground command is running (`isBusy` / `isCommandRunning()`), immediately echoing the command, hiding the active prompt line and blinking cursor (`data-busy="true"`), and blocking concurrent command submission until the active command completes or is interrupted via `Ctrl+C`.
+  - Background shell jobs (`cmd &`) now run with an independent per-job `AbortController` registered in the shell job table, surviving foreground `Ctrl+C` (`SIGINT`) interrupts while remaining controllable via `jobs`, `fg`, `bg`, and `kill %1`.
+- **Interactive Modals & Multi-Session Terminal Switcher (`src/workbench.ts`, `src/code-lab.css`)**:
+  - **Workspace Search & Replace Modal**: Added live search-as-you-type, a **Replace All** button wired to `replaceInWorkspace()`, dark-theme input styling, and 1-click jump to matched `file:line:column`.
+  - **Interactive Git Source Control Modal**: Added **Stage**, **Unstage**, **Stage All**, and **Commit** controls (`stageGitFile`, `unstageGitFile`, `stageAllGitFiles`, `commitGitChanges`) plus click-to-open file navigation.
+  - **Multi-Session Terminal Bar**: Added a session switcher pill bar (`bash-1`, `+`, `×`) in the terminal drawer header and fixed terminal clearing (`Ctrl+L`, `clear`, Clear button) so session log arrays remain bound across session switches.
+
+### Fixed
+- **UI & Workbench Polish**:
+  - Fixed Split-Run dropdown menu (`#cl-split-run-menu`) not opening on click due to `.open` vs `.active` CSS class mismatch.
+  - Fixed terminal visual cursor synchronization on `ArrowLeft`, `ArrowRight`, `Home`, `End`, and mouse click.
+  - Fixed uncaught `ReferenceError: testTab is not defined` in `_refreshDrawerTabs()` when dynamically inserting the `stdin` drawer tab.
+  - Fixed `showProblemsModal()` and `problems` drawer tab click/keyboard navigation and column attribute normalization.
+  - Fixed `#cl-diff-apply-btn` and `#cl-diff-revert-btn` in `src/workbench/diff-editor.ts` to properly apply reference solutions and starter files.
+- **Security, Runtime & Infrastructure Hardening**:
+  - Enforced origin and controlled-client (`self.clients.get`) verification in `src/preview-sw.js` and decoded binary (`Uint8Array` / `ArrayBuffer`) HTML bodies before CSP injection.
+  - Sanitized custom CSP policies against newline/`"`/`<`/`>` injection in `src/csp.ts`.
+  - Added 5 MB decompression stream limit for `#codelab=` URL snapshots, 100 MB / 10,000-entry ZIP bomb caps in `src/zip.ts`, and prototype-pollution path filtering across `src/zip.ts`, `src/search.ts`, `src/scm.ts`, and `src/workbench.ts`.
+  - Hardened Python (`src/extensions/python.ts`) and C++ (`src/extensions/cpp.ts`) extensions with singleton Pyodide loading locks, `json.dumps` safe path injection, `sys.stdin` restoration in `finally`, bounded AST regex checks, and `IndexedDB` connection closing on transaction completion.
+  - Added `src/workbench/*.ts` modular controllers to `tsconfig.strict.json` (12 strict TypeScript modules).
+
 ## [0.3.1] - 2026-10-26
 
 ### Added

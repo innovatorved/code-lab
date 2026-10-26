@@ -35,7 +35,8 @@ export const WORKBENCH_STYLES = `
   padding: 4px 0;
   display: none;
 }
-.codelab-split-menu.open {
+.codelab-split-menu.open,
+.codelab-split-menu.active {
   display: block;
 }
 .codelab-split-menu__item {

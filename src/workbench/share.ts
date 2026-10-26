@@ -61,6 +61,8 @@ export async function compressWorkspaceSnapshot(payload: WorkspaceSharePayload):
   return bufferToBase64Url(rawBytes);
 }
 
+const MAX_DECOMPRESSED_SNAPSHOT_BYTES = 5 * 1024 * 1024; // 5 MB
+
 /**
  * Decompresses a Base64url string into workspace snapshot payload.
  */
@@ -68,28 +70,55 @@ export async function decompressWorkspaceSnapshot(encoded: string): Promise<Work
   if (!encoded || typeof encoded !== 'string') return null;
   try {
     const bytes = base64UrlToBuffer(encoded);
+    if (bytes.byteLength > MAX_DECOMPRESSED_SNAPSHOT_BYTES) {
+      throw new Error('Snapshot payload exceeds maximum allowed size');
+    }
 
     if (typeof DecompressionStream !== 'undefined') {
       try {
         const ds = new DecompressionStream('deflate-raw');
         const writer = ds.writable.getWriter();
-        writer.write(bytes as any);
-        writer.close();
+        const writeInput = new Uint8Array(bytes.byteLength);
+        writeInput.set(bytes);
+        writer.write(writeInput).catch(() => {});
+        writer.close().catch(() => {});
 
-        const response = new Response(ds.readable);
-        const decompressed = await response.arrayBuffer();
+        const reader = ds.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        let totalLength = 0;
+        while (true) {
+          const step = await reader.read();
+          if (step.done) break;
+          const chunk = step.value;
+          if (chunk) {
+            totalLength += chunk.byteLength;
+            if (totalLength > MAX_DECOMPRESSED_SNAPSHOT_BYTES) {
+              await reader.cancel().catch(() => {});
+              throw new Error('Decompressed snapshot exceeds 5 MB safety limit');
+            }
+            chunks.push(chunk);
+          }
+        }
+        const decompressed = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+          decompressed.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
         const text = new TextDecoder().decode(decompressed);
-        return JSON.parse(text);
+        return JSON.parse(text) as WorkspaceSharePayload;
       } catch (err) {
+        if (err instanceof Error && err.message.includes('safety limit')) {
+          throw err;
+        }
         // Fallback for uncompressed raw JSON payload
-        void err;
         const rawText = new TextDecoder().decode(bytes);
-        return JSON.parse(rawText);
+        return JSON.parse(rawText) as WorkspaceSharePayload;
       }
     }
 
     const rawText = new TextDecoder().decode(bytes);
-    return JSON.parse(rawText);
+    return JSON.parse(rawText) as WorkspaceSharePayload;
   } catch (err) {
     if (typeof console !== 'undefined' && console.warn) {
       console.warn('[CodeLab Share Snapshot Restore Error]:', err);

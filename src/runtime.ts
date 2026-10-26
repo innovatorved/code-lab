@@ -1015,14 +1015,30 @@ function __initVirtualRuntime(rootScope) {
   // =========================================================================
   // 5. VIRTUAL IN-MEMORY POSIX FILESYSTEM (node:fs)
   // =========================================================================
-  function createVirtualFs(initialFiles = {}) {
+  function createVirtualFs(initialFiles = {}, vfsOptions = {}) {
     const dirs = new Set(['/', '/tmp', '/workspace', '/home', '/home/user']);
     const files = new Map();       // normalizedPath -> { data: Uint8Array, mtimeMs, ctimeMs, ino }
     const deletedInspectorCache = new Map(); // normalizedPath -> { data: Uint8Array, mtimeMs, deletedAtMs }
+    const MAX_DELETED_CACHE_ENTRIES = 50;
+    const MAX_DELETED_CACHE_FILE_BYTES = 65536;
+    const customCwdGetter = typeof vfsOptions === 'function'
+      ? vfsOptions
+      : (vfsOptions && typeof vfsOptions.cwdGetter === 'function' ? vfsOptions.cwdGetter : null);
     const fdTable = new Map();     // fd -> { inode, path, flags, pos, isDirectory }
     let nextFd = 10;
     let nextIno = 100;
     let mkdtempCounter = 1;
+
+    function recordDeletedForInspector(p, data, mtimeMs) {
+      if (!data || data.byteLength <= 0 || data.byteLength > MAX_DELETED_CACHE_FILE_BYTES) return;
+      if (deletedInspectorCache.has(p)) {
+        deletedInspectorCache.delete(p);
+      } else if (deletedInspectorCache.size >= MAX_DELETED_CACHE_ENTRIES) {
+        const oldestKey = deletedInspectorCache.keys().next().value;
+        if (oldestKey !== undefined) deletedInspectorCache.delete(oldestKey);
+      }
+      deletedInspectorCache.set(p, { data: data.slice(), mtimeMs, deletedAtMs: Date.now() });
+    }
 
     function normPath(p) {
       if (typeof p !== 'string' || !p) {
@@ -1030,7 +1046,9 @@ function __initVirtualRuntime(rootScope) {
         err.code = 'ERR_INVALID_ARG_TYPE';
         throw err;
       }
-      const baseCwd = typeof _activeCwdGetter === 'function' ? _activeCwdGetter() : '/workspace';
+      const baseCwd = typeof customCwdGetter === 'function'
+        ? customCwdGetter()
+        : (typeof _activeCwdGetter === 'function' ? _activeCwdGetter() : '/workspace');
       const abs = p.startsWith('/') ? VirtualPath.normalize(p) : VirtualPath.resolve(baseCwd, p);
       return abs.length > 1 && abs.endsWith('/') ? abs.slice(0, -1) : abs;
     }
@@ -1081,9 +1099,13 @@ function __initVirtualRuntime(rootScope) {
     for (const [relPath, content] of Object.entries(initialFiles)) {
       const cleanRel = relPath.startsWith('/') ? relPath.slice(1) : relPath;
       const isSystemPath = /^\/(workspace|usr|tmp|lib|include|etc|bin|dev)(\/|$)/.test(relPath);
-      const fullPath = isSystemPath
+      let fullPath = isSystemPath
         ? normPath(relPath)
         : normPath(`/workspace/${cleanRel}`);
+      if (!isSystemPath && fullPath !== '/workspace' && !fullPath.startsWith('/workspace/')) {
+        const safeSub = cleanRel.split('/').filter((seg) => seg && seg !== '.' && seg !== '..').join('/');
+        fullPath = normPath(`/workspace/${safeSub || 'file'}`);
+      }
       ensureParentDirs(fullPath);
       const bytes = typeof content === 'string' ? utf8Encode(content) : new Uint8Array(content);
       files.set(fullPath, {
@@ -1263,13 +1285,6 @@ function __initVirtualRuntime(rootScope) {
       fsyncSync(fd) {
         const entry = fdTable.get(fd);
         if (!entry) throw fsError('EBADF', 'fsync', String(fd), 'bad file descriptor');
-        if (!entry.isDirectory && entry.inode) {
-          deletedInspectorCache.set(entry.path, {
-            data: entry.inode.data.slice(),
-            mtimeMs: entry.inode.mtimeMs,
-            deletedAtMs: null
-          });
-        }
       },
 
       fdatasyncSync(fd) {
@@ -1309,12 +1324,6 @@ function __initVirtualRuntime(rootScope) {
         inode.data.set(chunk, writePos);
         inode.mtimeMs = Date.now();
         entry.pos = writePos + chunk.byteLength;
-
-        deletedInspectorCache.set(entry.path, {
-          data: inode.data.slice(),
-          mtimeMs: inode.mtimeMs,
-          deletedAtMs: null
-        });
 
         return chunk.byteLength;
       },
@@ -1367,7 +1376,7 @@ function __initVirtualRuntime(rootScope) {
             inode.mode = 0o100000 | (Number(opts.mode) & 0o777);
           }
         }
-        deletedInspectorCache.set(np, { data: bytes.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: null });
+        deletedInspectorCache.delete(np);
       },
 
       chmodSync(p, mode) {
@@ -1396,7 +1405,7 @@ function __initVirtualRuntime(rootScope) {
         combined.set(chunk, inode.data.byteLength);
         inode.data = combined;
         inode.mtimeMs = Date.now();
-        deletedInspectorCache.set(np, { data: combined.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: null });
+        deletedInspectorCache.delete(np);
       },
 
       truncateSync(p, len = 0) {
@@ -1412,7 +1421,6 @@ function __initVirtualRuntime(rootScope) {
           inode.data = grown;
         }
         inode.mtimeMs = Date.now();
-        deletedInspectorCache.set(np, { data: inode.data.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: null });
       },
 
       renameSync(oldP, newP) {
@@ -1473,16 +1481,14 @@ function __initVirtualRuntime(rootScope) {
           if (fdEntry.path === src) fdEntry.path = dst;
         }
         deletedInspectorCache.delete(src);
-        deletedInspectorCache.set(dst, { data: inode.data.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: null });
+        deletedInspectorCache.delete(dst);
       },
 
       unlinkSync(p) {
         const np = normPath(p);
         const inode = files.get(np);
         if (!inode) throw fsError('ENOENT', 'unlink', p, 'no such file or directory');
-        if (inode.data.byteLength > 0) {
-          deletedInspectorCache.set(np, { data: inode.data.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: Date.now() });
-        }
+        recordDeletedForInspector(np, inode.data, inode.mtimeMs);
         files.delete(np);
       },
 
@@ -1499,9 +1505,7 @@ function __initVirtualRuntime(rootScope) {
           for (const [fPath, inode] of Array.from(files.entries())) {
             if (fPath.startsWith(prefix)) {
               if (!recursive) throw fsError('ENOTEMPTY', 'rm', p, 'directory not empty');
-              if (inode.data.byteLength > 0) {
-                deletedInspectorCache.set(fPath, { data: inode.data.slice(), mtimeMs: inode.mtimeMs, deletedAtMs: Date.now() });
-              }
+              recordDeletedForInspector(fPath, inode.data, inode.mtimeMs);
               files.delete(fPath);
             }
           }
@@ -3075,6 +3079,7 @@ function __initVirtualRuntime(rootScope) {
           responseHeaders: {},
           _t0: performance.now()
         };
+        if (httpTrace.length >= 500) httpTrace.shift();
         httpTrace.push(traceEntry);
         this._traceEntry = traceEntry;
 
@@ -4066,6 +4071,7 @@ function __initVirtualRuntime(rootScope) {
           this._peer = serverSocket;
           this.connecting = false;
 
+          if (sharedTrace.length >= 500) sharedTrace.shift();
           sharedTrace.push({
             protocol: 'TCP',
             event: 'connect',
@@ -6358,7 +6364,10 @@ function __initVirtualRuntime(rootScope) {
     const activePortTable = optPortTable || portTable || _defaultPortTable;
     resourceTracker.pid = pid;
 
-    const vfs = optVfs || createVirtualFs(files);
+    let currentCwd = '/workspace';
+    _activeCwdGetter = () => currentCwd;
+
+    const vfs = optVfs || createVirtualFs(files, { cwdGetter: () => currentCwd });
     if (optVfs && files && typeof files === 'object') {
       for (const [fPath, content] of Object.entries(files)) {
         const abs = fPath.startsWith('/') ? fPath : '/workspace/' + fPath;
@@ -6752,8 +6761,6 @@ function __initVirtualRuntime(rootScope) {
     hrtimeFn.bigint = () => BigInt(Math.round(performance.now() * 1e6));
 
     let syncExecDepth = 0;
-    let currentCwd = '/workspace';
-    _activeCwdGetter = () => currentCwd;
 
     const sandboxProcess = Object.assign(new EventEmitter(), {
       env: { NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/user' },

@@ -4,6 +4,15 @@
 
 import { CL_ICONS } from './icons';
 
+function escapeHtml(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export interface GuidedStepData {
   id: string;
   title: string;
@@ -21,10 +30,11 @@ export function renderStepPillsHtml(steps: GuidedStepData[], activeIndex: number
         const isPassed = completedStepIds.has(step.id);
         const isActive = idx === activeIndex;
         const cls = `codelab-step-pill ${isActive ? 'active' : ''} ${isPassed ? 'passed' : ''}`;
+        const safeTitle = escapeHtml(step.title);
         return `
-          <button type="button" role="tab" aria-selected="${isActive}" class="${cls}" data-cl-step="${idx}" title="Step ${idx + 1}: ${step.title}">
+          <button type="button" role="tab" aria-selected="${isActive}" class="${cls}" data-cl-step="${idx}" title="Step ${idx + 1}: ${safeTitle}">
             <span class="codelab-step-pill__num">${isPassed ? CL_ICONS.check : idx + 1}</span>
-            <span class="codelab-step-pill__label">${step.title}</span>
+            <span class="codelab-step-pill__label">${safeTitle}</span>
           </button>
         `;
       }).join('')}

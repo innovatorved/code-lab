@@ -1,4 +1,4 @@
-# `@innovatorved/code-lab` Architecture (v0.3.1)
+# `@innovatorved/code-lab` Architecture (v0.3.2)
 
 `@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 + WASI C++20 + Python 3.12 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`; modular extensions under `@innovatorved/code-lab/extensions/{guided-lab,javascript,typescript,cpp,python}`).
 
@@ -81,8 +81,10 @@ It is designed around two strictly decoupled layers that can be used together (`
 ## 3. PTY Terminal Engine (`src/terminal.ts`)
 
 `PTYTerminalEngine` provides an interactive terminal UI and ANSI/VT100 escape sequence parser:
+- **Foreground Command Execution Lock**: Tracks `isBusy` / `isCommandRunning()` across synchronous and asynchronous `onCommand` promises plus external `isRunning()` callbacks. While a foreground command is running, the active prompt line (`#cl-pty-active-line`) is hidden (`data-busy="true"`), the submitted command is echoed immediately before output streams, and new keystrokes/submissions are blocked until completion (while `Ctrl+C` remains active to dispatch `SIGINT`).
+- **Background Job Isolation (`&`)**: Background jobs spawned via `cmd &` in `PosixShell` receive an independent per-job `AbortController` linked to the job table (`jobs`, `fg`, `bg`, `kill %1`), ensuring foreground `Ctrl+C` interrupts only the foreground pipeline without killing background servers or jobs.
 - Supports SGR 16-color, 256-color (`38;5;n`), and 24-bit TrueColor (`38;2;r;g;b`) foreground/background attributes, bold, dim, italic, underline, and partial SGR resets (`22`, `23`, `24`, `39`, `49`).
-- Supports readline shortcuts (`Ctrl+A`, `Ctrl+E`, `Ctrl+U`, `Ctrl+K`, `Ctrl+L`, `Ctrl+C`, `Ctrl+D`, `Ctrl+R` reverse-i-search), command history (`ArrowUp`/`ArrowDown`), interactive `readLine()` stdin prompts, and context-aware `Tab` autocompletion for commands and VFS file paths.
+- Supports readline shortcuts (`Ctrl+A`, `Ctrl+E`, `Ctrl+U`, `Ctrl+K`, `Ctrl+L`, `Ctrl+C`, `Ctrl+D`, `Ctrl+R` reverse-i-search), cursor movement (`ArrowLeft`, `ArrowRight`, `Home`, `End`), command history (`ArrowUp`/`ArrowDown`), interactive `readLine()` stdin prompts, and context-aware `Tab` autocompletion for commands and VFS file paths.
 
 ---
 

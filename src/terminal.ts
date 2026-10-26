@@ -303,6 +303,14 @@
 
   const parseAnsiToHtml = ansiToHtml;
 
+  const MAX_SCROLLBACK = 2000;
+  const VALID_LOG_TYPES = new Set(['stdout', 'stderr', 'system', 'info', 'warn', 'error', 'success']);
+
+  function sanitizeLogType(type) {
+    const t = String(type || 'stdout').trim();
+    return VALID_LOG_TYPES.has(t) ? t : 'stdout';
+  }
+
   class PTYTerminalEngine {
     constructor(container, options = {}) {
       if (
@@ -317,6 +325,9 @@
       }
       this.container = container || null;
       this.options = options || {};
+      this.maxScrollback = typeof this.options.maxScrollback === 'number' && this.options.maxScrollback > 0
+        ? this.options.maxScrollback
+        : MAX_SCROLLBACK;
       this.logs = Array.isArray(this.options.logs) ? this.options.logs : [];
       this.cwd = this.options.cwd || '/workspace';
       this.replMode = Boolean(this.options.replMode);
@@ -330,6 +341,7 @@
       this.searchQuery = '';
       this.searchMatchIdx = -1;
       this._readLineQueue = [];
+      this.isBusy = false;
       this.onCommand = typeof this.options.onCommand === 'function' ? this.options.onCommand : null;
       this.getCompletions = typeof this.options.getCompletions === 'function' ? this.options.getCompletions : null;
       this.onKey = typeof this.options.onKey === 'function' ? this.options.onKey : null;
@@ -480,13 +492,40 @@
       this.writeStreamChunk(String(data) + '\n', type);
     }
 
+    isCommandRunning() {
+      return Boolean(this.isBusy && (!this._readLineQueue || this._readLineQueue.length === 0));
+    }
+
+    _pushLog(entry) {
+      const normalized = {
+        type: sanitizeLogType(entry && entry.type),
+        text: String(entry && entry.text != null ? entry.text : '')
+      };
+      this.logs.push(normalized);
+      if (this.logs.length > this.maxScrollback) {
+        const excess = this.logs.length - this.maxScrollback;
+        this.logs.splice(0, excess);
+        if (this._targetLineIdx >= 0) {
+          this._targetLineIdx = Math.max(0, this._targetLineIdx - excess);
+        }
+        if (this.container && typeof this.container.querySelector === 'function') {
+          const logEl = this.container.querySelector('#cl-terminal-log');
+          if (logEl && logEl.children && logEl.children.length > this.maxScrollback) {
+            while (logEl.children.length > this.maxScrollback && typeof logEl.removeChild === 'function' && logEl.firstChild) {
+              logEl.removeChild(logEl.firstChild);
+            }
+          }
+        }
+      }
+      return normalized;
+    }
+
     _getActiveLine(type) {
       if (this._targetLineIdx >= 0 && this._targetLineIdx < this.logs.length) {
         return this.logs[this._targetLineIdx];
       }
       if (this._activeLineCommitted || this.logs.length === 0) {
-        const newLine = { text: '', type };
-        this.logs.push(newLine);
+        const newLine = this._pushLog({ text: '', type });
         this._activeLineCommitted = false;
         this._cursorCol = 0;
         this._targetLineIdx = this.logs.length - 1;
@@ -503,7 +542,7 @@
       const logEl = this.container.querySelector('#cl-terminal-log');
       if (!logEl) return;
       const lineEl = document.createElement('div');
-      lineEl.className = 'codelab-log-line ' + (line.type || 'stdout');
+      lineEl.className = 'codelab-log-line ' + sanitizeLogType(line.type);
       lineEl.innerHTML = ansiToHtml(line.text);
       logEl.appendChild(lineEl);
       this._activeLineEl = lineEl;
@@ -526,7 +565,7 @@
         }
       }
       if (lineEl) {
-        lineEl.className = 'codelab-log-line ' + (line.type || 'stdout');
+        lineEl.className = 'codelab-log-line ' + sanitizeLogType(line.type);
         lineEl.innerHTML = ansiToHtml(line.text);
       }
     }
@@ -565,17 +604,29 @@
       return [...this.history];
     }
 
-    readLine(promptText = '') {
-      const prevPrompt = this.promptOverride;
-      if (promptText) {
-        this.setPrompt(promptText);
+    _activateNextReadLine() {
+      if (!this._readLineQueue || this._readLineQueue.length === 0) return;
+      const head = this._readLineQueue[0];
+      if (head && typeof head === 'object' && !head._activated) {
+        head._activated = true;
+        head.prevPrompt = this.promptOverride;
+        if (head.promptText) {
+          this.promptOverride = head.promptText;
+        }
       }
+    }
+
+    readLine(promptText = '') {
       return new Promise((resolve) => {
-        this._readLineQueue.push((line) => {
-          this.promptOverride = prevPrompt;
-          this.updateActiveLine();
-          resolve(line);
-        });
+        const item = {
+          promptText: String(promptText || ''),
+          prevPrompt: null,
+          _activated: false,
+          resolve
+        };
+        this._readLineQueue.push(item);
+        this._activateNextReadLine();
+        this.updateActiveLine();
       });
     }
 
@@ -645,6 +696,10 @@
       if (input) {
         this._addListener(input, 'keydown', (e) => this.handleKeyDown(e));
         this._addListener(input, 'input', () => {
+          if (this.isCommandRunning()) {
+            input.value = '';
+            return;
+          }
           if (input.value !== this.buffer) {
             this.buffer = input.value;
             this.cursor = typeof input.selectionStart === 'number' ? input.selectionStart : this.buffer.length;
@@ -685,6 +740,35 @@
 
       const key = e.key;
       const isCtrl = Boolean(e.ctrlKey || e.metaKey);
+
+      if (isCtrl && (key === 'l' || key === 'L')) {
+        if (e.preventDefault) e.preventDefault();
+        this.clear();
+        return;
+      }
+
+      if (isCtrl && (key === 'c' || key === 'C')) {
+        if (e.preventDefault) e.preventDefault();
+        const wasBusy = this.isBusy;
+        this.isBusy = false;
+        this._pushLog({ type: 'system', text: wasBusy ? '^C' : `${this.getPrompt()}${this.buffer}^C` });
+        this.buffer = '';
+        this.cursor = 0;
+        this.historyIdx = -1;
+        if (this.replMode) {
+          this.replMode = false;
+        }
+        if (this.onInterrupt) {
+          try { this.onInterrupt(); } catch (err) { _terminalLogger.warn('Terminal onInterrupt callback threw.', err); }
+        }
+        this.render();
+        return;
+      }
+
+      if (this.isCommandRunning()) {
+        if (e.preventDefault) e.preventDefault();
+        return;
+      }
 
       if (isCtrl && (key === 'r' || key === 'R')) {
         if (e.preventDefault) e.preventDefault();
@@ -817,33 +901,11 @@
         return;
       }
 
-      if (isCtrl && (key === 'l' || key === 'L')) {
-        if (e.preventDefault) e.preventDefault();
-        this.clear();
-        return;
-      }
-
-      if (isCtrl && (key === 'c' || key === 'C')) {
-        if (e.preventDefault) e.preventDefault();
-        this.logs.push({ type: 'system', text: `${this.getPrompt()}${this.buffer}^C` });
-        this.buffer = '';
-        this.cursor = 0;
-        this.historyIdx = -1;
-        if (this.replMode) {
-          this.replMode = false;
-        }
-        if (this.onInterrupt) {
-          try { this.onInterrupt(); } catch (err) { _terminalLogger.warn('Terminal onInterrupt callback threw.', err); }
-        }
-        this.render();
-        return;
-      }
-
       if (isCtrl && (key === 'd' || key === 'D')) {
         if (this.buffer === '') {
           if (e.preventDefault) e.preventDefault();
           if (this.replMode) {
-            this.logs.push({ type: 'system', text: `${this.getPrompt()}.exit` });
+            this._pushLog({ type: 'system', text: `${this.getPrompt()}.exit` });
             this.replMode = false;
             this.render();
             return;
@@ -937,14 +999,41 @@
         }
 
         // Print candidate matches
-        this.logs.push({ type: 'system', text: `${this.getPrompt()}${this.buffer}` });
-        this.logs.push({ type: 'stdout', text: matches.join('  ') });
+        this._pushLog({ type: 'system', text: `${this.getPrompt()}${this.buffer}` });
+        this._pushLog({ type: 'stdout', text: matches.join('  ') });
         this.render();
       }
     }
 
     submitLine() {
+      if (this._readLineQueue && this._readLineQueue.length > 0) {
+        const line = this.buffer;
+        this.buffer = '';
+        this.cursor = 0;
+        this.historyIdx = -1;
+        this.searchMode = false;
+        this.searchQuery = '';
+        this.searchMatchIdx = -1;
+
+        const entry = this._readLineQueue.shift();
+        if (typeof entry === 'function') {
+          this.updateActiveLine();
+          entry(line);
+        } else if (entry && typeof entry.resolve === 'function') {
+          this.promptOverride = entry.prevPrompt;
+          this._activateNextReadLine();
+          this.updateActiveLine();
+          entry.resolve(line);
+        }
+        return;
+      }
+
+      if (this.isBusy) {
+        return;
+      }
+
       const line = this.buffer;
+      const promptSnap = this.getPrompt();
       this.buffer = '';
       this.cursor = 0;
       this.historyIdx = -1;
@@ -952,22 +1041,49 @@
       this.searchQuery = '';
       this.searchMatchIdx = -1;
 
+      const echoed = this._pushLog({ type: 'system', text: `${promptSnap}${line}` });
+      this._activeLineCommitted = true;
+      this._cursorCol = 0;
+      this._targetLineIdx = -1;
+      this._needsRewrite = false;
+      this._appendDomLine(echoed);
+      this._activeLineEl = null;
+
       if (line.trim()) {
         if (this.history[this.history.length - 1] !== line.trim()) {
           this.history.push(line.trim());
         }
       }
 
-      if (this._readLineQueue && this._readLineQueue.length > 0) {
-        const resolver = this._readLineQueue.shift();
+      if (!this.onCommand) {
         this.updateActiveLine();
-        resolver(line);
         return;
       }
 
+      this.isBusy = true;
       this.updateActiveLine();
-      if (this.onCommand) {
-        this.onCommand(line);
+
+      let cmdResult;
+      try {
+        cmdResult = this.onCommand(line);
+      } catch (err) {
+        this.isBusy = false;
+        this.updateActiveLine();
+        throw err;
+      }
+
+      if (cmdResult && typeof cmdResult.then === 'function') {
+        Promise.resolve(cmdResult)
+          .catch((err) => {
+            _terminalLogger.debug('Terminal onCommand promise rejected.', err);
+          })
+          .finally(() => {
+            this.isBusy = false;
+            this.updateActiveLine();
+          });
+      } else {
+        this.isBusy = false;
+        this.updateActiveLine();
       }
     }
 
@@ -979,6 +1095,16 @@
       }
       const lineEl = this.container.querySelector('#cl-pty-active-line');
       if (!lineEl) return;
+
+      if (this.isCommandRunning()) {
+        if (typeof lineEl.setAttribute === 'function') lineEl.setAttribute('data-busy', 'true');
+        if (lineEl.style) lineEl.style.display = 'none';
+        lineEl.innerHTML = `<span class="codelab-pty__prompt"></span><span class="codelab-pty__before"></span><span class="codelab-pty__cursor"></span><span class="codelab-pty__after"></span>`;
+        return;
+      }
+
+      if (typeof lineEl.removeAttribute === 'function') lineEl.removeAttribute('data-busy');
+      if (lineEl.style) lineEl.style.display = '';
 
       const prompt = this.searchMode
         ? `(reverse-i-search)\`${this.searchQuery}\`: `
@@ -1000,21 +1126,24 @@
       );
 
       const logsHtml = this.logs
-        .map(item => `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${ansiToHtml(item.text)}</div>`)
+        .map(item => `<div class="codelab-log-line ${sanitizeLogType(item.type)}">${ansiToHtml(item.text)}</div>`)
         .join('');
 
-      const prompt = this.searchMode
-        ? `(reverse-i-search)\`${this.searchQuery}\`: `
-        : this.getPrompt();
-      const before = this.buffer.slice(0, this.cursor);
-      const cursorChar = this.cursor < this.buffer.length ? this.buffer[this.cursor] : ' ';
-      const after = this.cursor < this.buffer.length ? this.buffer.slice(this.cursor + 1) : '';
+      const busy = this.isCommandRunning();
+      const prompt = busy
+        ? ''
+        : (this.searchMode ? `(reverse-i-search)\`${this.searchQuery}\`: ` : this.getPrompt());
+      const before = busy ? '' : this.buffer.slice(0, this.cursor);
+      const cursorChar = busy ? '' : (this.cursor < this.buffer.length ? this.buffer[this.cursor] : ' ');
+      const after = busy ? '' : (this.cursor < this.buffer.length ? this.buffer.slice(this.cursor + 1) : '');
+      const busyAttr = busy ? ' data-busy="true" style="display:none;"' : '';
+      const cursorClass = busy ? 'codelab-pty__cursor' : 'codelab-pty__cursor blink';
 
       this.container.innerHTML = `
         <div class="codelab-terminal" id="cl-terminal-surface" tabindex="0">
           <div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div>
-          <div class="codelab-pty__active-line" id="cl-pty-active-line">
-            <span class="codelab-pty__prompt">${escapeHtml(prompt)}</span><span class="codelab-pty__before">${escapeHtml(before)}</span><span class="codelab-pty__cursor blink">${escapeHtml(cursorChar)}</span><span class="codelab-pty__after">${escapeHtml(after)}</span>
+          <div class="codelab-pty__active-line" id="cl-pty-active-line"${busyAttr}>
+            <span class="codelab-pty__prompt">${escapeHtml(prompt)}</span><span class="codelab-pty__before">${escapeHtml(before)}</span><span class="${cursorClass}">${escapeHtml(cursorChar)}</span><span class="codelab-pty__after">${escapeHtml(after)}</span>
           </div>
           <form class="codelab-repl" id="cl-repl-form" style="position:absolute;opacity:0;pointer-events:none;height:0;overflow:hidden;">
             <input type="text" class="codelab-repl__input" id="cl-repl-input" autocomplete="off" spellcheck="false" aria-label="Terminal command input" value="${escapeHtml(this.buffer)}">

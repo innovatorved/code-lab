@@ -2902,6 +2902,13 @@
     return out;
   }
 
+  function quoteShellArg(arg) {
+    const s = String(arg ?? '');
+    if (s.length === 0) return "''";
+    if (!/[\s"'\\$&|;<>()`!*?~#]/.test(s)) return s;
+    return "'" + s.replace(/'/g, "'\\''") + "'";
+  }
+
   async function runPackageScript(scriptName, scriptArgs, ctx) {
     const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
     if (!pkgData.scripts || !pkgData.scripts[scriptName]) {
@@ -2909,7 +2916,7 @@
     }
     let cmd = pkgData.scripts[scriptName];
     if (scriptArgs && scriptArgs.length > 0) {
-      cmd += ' ' + scriptArgs.join(' ');
+      cmd += ' ' + scriptArgs.map(quoteShellArg).join(' ');
     }
     const fallback = tryDevScriptFallback(scriptName, cmd, ctx);
     if (fallback) return fallback;
@@ -3162,6 +3169,11 @@
     const isFile = (p) => exists(p) && !isDir(p);
     const readText = (p) => { try { return ctx.vfs.readFileSync(p, 'utf8'); } catch (_) { return null; } };
 
+    const isWithinRoot = (p) => {
+      const rootPrefix = rootDir === '/' ? '/' : rootDir + '/';
+      return p === rootDir || p.startsWith(rootPrefix);
+    };
+
     const resolveLocalTarget = (baseDir, rawSpec) => {
       if (!rawSpec || typeof rawSpec !== 'string') return null;
       const clean = rawSpec.split(/[?#]/)[0].trim();
@@ -3169,6 +3181,7 @@
       const candidateBase = clean.startsWith('/')
         ? PosixPath.join(rootDir, clean.replace(/^\/+/, ''))
         : PosixPath.join(baseDir, clean);
+      if (!isWithinRoot(candidateBase)) return null;
       if (isFile(candidateBase)) return candidateBase;
       const cands = [
         candidateBase + '.tsx', candidateBase + '.ts', candidateBase + '.jsx', candidateBase + '.js',
@@ -3177,7 +3190,7 @@
         PosixPath.join(candidateBase, 'index.jsx'), PosixPath.join(candidateBase, 'index.js')
       ];
       for (const c of cands) {
-        if (isFile(c)) return c;
+        if (isWithinRoot(c) && isFile(c)) return c;
       }
       return null;
     };
@@ -3306,7 +3319,7 @@
         if (/@import\s+['"]tailwindcss['"]/i.test(cssContent)) {
           needsTailwindBrowser = true;
         }
-        const resolvedCss = inlineLocalCssImports(cssContent, PosixPath.dirname(cssTarget));
+        const resolvedCss = inlineLocalCssImports(cssContent, PosixPath.dirname(cssTarget)).replace(/<\/style/gi, '<\\/style');
         return `<style data-codelab-href="${hrefMatch[1].replace(/"/g, '&quot;')}">\n${resolvedCss}\n</style>`;
       });
 
@@ -3318,7 +3331,7 @@
         if (!scriptTarget || !isPreviewScriptPath(scriptTarget)) return fullTag;
         const rawScript = readText(scriptTarget);
         if (rawScript === null) return fullTag;
-        const compiled = transpileAndRewriteLocalImports(rawScript, scriptTarget);
+        const compiled = transpileAndRewriteLocalImports(rawScript, scriptTarget).replace(/<\/script/gi, '<\\/script');
         const isMod = /\btype\s*=\s*["']module["']/i.test(attrs) || /\.(?:tsx|ts|jsx|mjs)$/i.test(scriptTarget) || /^\s*(?:import|export)\b/m.test(rawScript);
         const typeAttr = isMod ? ' type="module"' : '';
         return `<script${typeAttr} data-codelab-src="${srcMatch[1].replace(/"/g, '&quot;')}">\n${compiled}\n</script>`;
@@ -3341,6 +3354,12 @@
       try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (err) { _shellLogger.debug('Preview URL decode failed.', err); }
       const rel = pathname.replace(/^\/+/, '');
       let target = PosixPath.join(rootDir, rel);
+      if (!isWithinRoot(target)) {
+        return new Response(
+          '<!doctype html><meta charset="utf-8"><title>403</title><h1>403 Forbidden</h1>',
+          { status: 403, headers: { 'content-type': 'text/html; charset=utf-8' } }
+        );
+      }
       const hasExt = /\.[A-Za-z0-9]+$/.test(rel);
 
       if (!rel || pathname.endsWith('/') || isDir(target)) {
@@ -3365,8 +3384,13 @@
         target = (!exists(rootIdx) && exists(pubIdx)) ? pubIdx : rootIdx; // SPA fallback
       }
       if (!exists(target)) {
+        const safePath = String(pathname)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
         return new Response(
-          `<!doctype html><meta charset="utf-8"><title>404</title><h1>404 Not Found</h1><p>${pathname}</p>`,
+          `<!doctype html><meta charset="utf-8"><title>404</title><h1>404 Not Found</h1><p>${safePath}</p>`,
           { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } }
         );
       }
@@ -5517,13 +5541,17 @@
 
           const count = Math.max(1, result.filesWritten);
           const kb = Math.max(0.1, result.totalBytes / 1024).toFixed(1);
+          if (!enumeratedEmitted) {
+            streamLine(`remote: Enumerating objects: ${count}, done.\n`);
+            streamLine(`remote: Counting objects: 100% (${count}/${count}), done.\n`);
+          }
           streamLine(`Receiving objects: 100% (${count}/${count}), ${kb} KiB, done.\n`);
           const stdout =
             `Cloning into '${dirDisplayName}'...\n` +
             `remote: Enumerating objects: ${count}, done.\n` +
             `remote: Counting objects: 100% (${count}/${count}), done.\n` +
             `Receiving objects: 100% (${count}/${count}), ${kb} KiB, done.\n`;
-          return { code: 0, stdout, stderr: '' };
+          return { code: 0, stdout, stderr: '', alreadyStreamed: canStream };
         } catch (err) {
           if (ctx.signal && ctx.signal.aborted) {
             return { code: 130, stdout: '', stderr: '', aborted: true };
@@ -6586,7 +6614,8 @@
       if (ctx.vfs.existsSync(binPath)) {
         return await ctx.commands.node([binPath, ...cmdArgs], ctx);
       }
-      return await ctx.shell.execute(cmd + (cmdArgs.length ? ' ' + cmdArgs.join(' ') : ''));
+      const cmdStr = [cmd, ...cmdArgs].map(quoteShellArg).join(' ');
+      return await ctx.shell.execute(cmdStr, { cwd: ctx.cwd, env: ctx.env, signal: ctx.signal });
     },
 
     async bunx(args, ctx) {
@@ -6657,7 +6686,8 @@
         if (!cmd) return { code: 1, stdout: '', stderr: 'pnpm: exec requires a command\n' };
         const binPath = PosixPath.join('/workspace/node_modules/.bin', cmd);
         if (ctx.vfs.existsSync(binPath)) return await ctx.commands.node([binPath, ...args.slice(2)], ctx);
-        return await ctx.shell.execute([cmd, ...args.slice(2)].join(' '));
+        const cmdStr = [cmd, ...args.slice(2)].map(quoteShellArg).join(' ');
+        return await ctx.shell.execute(cmdStr, { cwd: ctx.cwd, env: ctx.env, signal: ctx.signal });
       }
 
       if (sub === 'dlx') {
@@ -7840,18 +7870,27 @@
         if (item.background) {
           const pid = this.nextPid++;
           const jobId = this.nextJobId++;
+          const jobAbortCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
           const job = {
             id: jobId,
             pid,
             command: trimmed,
             status: 'Running',
-            startTime: Date.now()
+            startTime: Date.now(),
+            abort: () => { if (jobAbortCtrl) jobAbortCtrl.abort(); }
           };
           this.jobs.set(jobId, job);
           if (typeof this.options.onJobStart === 'function') this.options.onJobStart(job);
 
-          // Run in background promise
-          this._executeAstNode(item.node, { ...execOptions, env: Object.assign({}, this.env, currentEnv), cwd: this.cwd, pid, isBackground: true })
+          // Run in background promise with its own independent AbortSignal
+          this._executeAstNode(item.node, {
+            ...execOptions,
+            signal: jobAbortCtrl ? jobAbortCtrl.signal : undefined,
+            env: Object.assign({}, this.env, currentEnv),
+            cwd: this.cwd,
+            pid,
+            isBackground: true
+          })
             .then(res => {
               if (job.status !== 'Terminated') {
                 job.status = 'Done';
@@ -8005,17 +8044,24 @@
           if (item.background) {
             const pid = this.nextPid++;
             const jobId = this.nextJobId++;
+            const jobAbortCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
             const job = {
               id: jobId,
               pid,
               command: 'background',
               status: 'Running',
-              startTime: Date.now()
+              startTime: Date.now(),
+              abort: () => { if (jobAbortCtrl) jobAbortCtrl.abort(); }
             };
             this.jobs.set(jobId, job);
             if (typeof this.options.onJobStart === 'function') this.options.onJobStart(job);
 
-            this._executeAstNode(item.node, { ...context, pid, isBackground: true })
+            this._executeAstNode(item.node, {
+              ...context,
+              signal: jobAbortCtrl ? jobAbortCtrl.signal : undefined,
+              pid,
+              isBackground: true
+            })
               .then(res => {
                 if (job.status !== 'Terminated') {
                   job.status = 'Done';
@@ -8131,7 +8177,11 @@
             wordItems.push(...(innerCtx.positionalArgs || []));
           }
 
+          let loopIter = 0;
           for (const val of wordItems) {
+            if (++loopIter % 250 === 0 && typeof setTimeout === 'function') {
+              await new Promise((r) => setTimeout(r, 0));
+            }
             if (innerCtx.signal && innerCtx.signal.aborted) {
               return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
             }
@@ -8176,7 +8226,11 @@
           let combinedStderr = '';
           let lastCode = 0;
 
+          let loopIter = 0;
           while (true) {
+            if (++loopIter % 250 === 0 && typeof setTimeout === 'function') {
+              await new Promise((r) => setTimeout(r, 0));
+            }
             if (innerCtx.signal && innerCtx.signal.aborted) {
               return { code: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
             }
@@ -8643,7 +8697,9 @@
 
       // Route any remaining unstreamed output
       if (res.stdout) {
-        if (streamedStdoutBytes > 0) {
+        if (res.alreadyStreamed) {
+          stdoutOut = res.stdout;
+        } else if (streamedStdoutBytes > 0) {
           if (res.stdout.length > streamedStdoutBytes) {
             routeOutput(fd1, res.stdout.slice(streamedStdoutBytes), true);
           }

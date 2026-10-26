@@ -11,7 +11,7 @@ Browser-native code IDE workbench, modular guided challenge engine (`@innovatorv
 
 ## Features
 
-- **Modular Architecture (`v0.3.1`)**: Pure, general-purpose browser IDE (`code-lab`) by default with File Explorer, Monaco Editor, PTY Terminal, and zero-dependency **JavaScript + Node.js/Bun** execution out of the box. Additional languages (`@innovatorved/code-lab/extensions/typescript`, `@innovatorved/code-lab/extensions/cpp`, and `@innovatorved/code-lab/extensions/python`) and curriculum features (`@innovatorved/code-lab/extensions/guided-lab`) are opt-in modular extensions.
+- **Modular Architecture (`v0.3.2`)**: Pure, general-purpose browser IDE (`code-lab`) by default with File Explorer, Monaco Editor, PTY Terminal, and zero-dependency **JavaScript + Node.js/Bun** execution out of the box. Additional languages (`@innovatorved/code-lab/extensions/typescript`, `@innovatorved/code-lab/extensions/cpp`, and `@innovatorved/code-lab/extensions/python`) and curriculum features (`@innovatorved/code-lab/extensions/guided-lab`) are opt-in modular extensions.
 - **Real C++20 in WebAssembly (`@innovatorved/code-lab/extensions/cpp`)**: Compile and run real C++17/C++20/C++23 code natively in the browser via a WebAssembly Clang/LLVM + LLD (`wasm-ld`) + WASI `libc++` sysroot toolchain (~35 MB downloaded on demand only when the C++ extension is used and cached in `IndexedDB`). Features rich VS Code-style Monaco IntelliSense with auto-completions, header hovers, debounced static AST linting (`analyzeCppSource`), and live Clang compiler stderr error-squiggles (`applyClangStderrDiagnostics`). Includes `<bits/stdc++.h>`, `<codelab/dsa.hpp>` (`ListNode`, `TreeNode`, `buildLinkedList`, `buildBinaryTree`), and `<codelab/test.hpp>` (`DESCRIBE`, `TEST`, `ASSERT_EQ`) wired directly into the Test Suite drawer and Guided Lab step verification.
 - **Python 3.12 WebAssembly Extension (`@innovatorved/code-lab/extensions/python`)**: Run pure CPython 3.12 WebAssembly via Pyodide with lazy-loaded CDN binaries and IndexedDB caching. Features bidirectional VFS sync, pre-seeded `/usr/lib/python/` standard DSA helpers (`codelab_dsa.py` with `ListNode`, `TreeNode`, `MinHeap`, `MaxHeap`) and structured test framework (`codelab_test.py` with `describe`, `it`, `assert_equal`), Monaco completion/hover intelligence, traceback-to-squiggle mapping (`applyPythonTracebackDiagnostics`), static linting (`analyzePythonSource`), and formatting (`formatPythonSource`).
 - **Contextual Execution UI & Smooth Workbench**: Guided Challenge mode features a prominent primary `[✓ Verify Step (⌘↵)]` button with the `Test Suite` drawer tab visible by default. Normal/Sandbox mode provides a clean VS Code-style split button `[▶ Run Code (⌘↵) | ▾]` with dropdown options (`Run Entry`, `Run Active File`, `Run Tests`, `Configure Stdin`), with the drawer defaulting to `Terminal & REPL`. The topbar `Web Preview` globe button and bottom `Web Preview` drawer tab are contextual and stay neatly hidden unless the project contains web files or an active HTTP server.
@@ -25,7 +25,11 @@ Browser-native code IDE workbench, modular guided challenge engine (`@innovatorv
 - **End-to-End TypeScript & Zod Type Safety**: Written in TypeScript with strict runtime schemas and inferred types (`z.infer<typeof ...>`) for workbench options, guided labs, C++ toolchain options, runtime execution, and git cloning.
 - **Public GitHub Repository Cloning (`git clone`)**: Clone any public GitHub repository (`git clone https://github.com/owner/repo` or `git clone owner/repo --branch main` in the terminal, or `await lab.cloneRepo('owner/repo')` via the SDK) directly into `/workspace` with zero authentication required (automatic GitHub Trees API + jsDelivr unlimited fallback). Clone progress (`remote: Enumerating objects…`, `Receiving objects: n%…`) streams into the terminal in real time as it downloads.
 - **Interactive IDE Workbench**: Multi-file Monaco editor, collapsible hierarchical file tree with drag-and-drop, a workspace **folder switcher** (breadcrumb dropdown that scopes the explorer to any subfolder), decoupled editor tabs, Command Palette (`Cmd+Shift+P`), Quick Open (`Cmd+P`), breadcrumbs, and line-by-line solution diff viewer.
-- **Interactive PTY Terminal**: Inline prompt (`codelab:/workspace$ `), cursor navigation, history (`Up`/`Down`), `Ctrl+R` reverse-i-search, `Tab` auto-completion, `Ctrl+C` interrupt, `Ctrl+L` clear, and 256-color / TrueColor ANSI support.
+- **Interactive PTY Terminal & Multi-Session Tabs**: Real-time streaming stdout/stderr with **foreground command locking** (hiding the active prompt and blocking concurrent input until the running foreground command finishes or is interrupted via `Ctrl+C`), isolated background jobs (`cmd &`) that survive foreground `SIGINT`, multi-session terminal tabs (`createTerminalSession`, `switchTerminalSession`, `closeTerminalSession`), inline prompt (`codelab:/workspace$ `), cursor navigation (`ArrowLeft`/`ArrowRight`/`Home`/`End`), history (`Up`/`Down`), `Ctrl+R` reverse-i-search, `Tab` auto-completion, `Ctrl+L` clear, and 256-color / TrueColor ANSI support.
+- **Interactive Workspace Search, Git SCM & ZIP Export/Import**:
+  - **Workspace Search & Replace Modal (`Cmd+Shift+F`)**: Live regex/literal search across all workspace files with 1-click **Replace All** (`replaceInWorkspace`) and instant line/column navigation.
+  - **Interactive Git Source Control Modal**: View modified/staged/untracked files (`getGitStatus`), stage/unstage individual files or **Stage All** (`stageGitFile`, `unstageGitFile`, `stageAllGitFiles`), and create commits (`commitGitChanges`) directly from the UI or POSIX `git` CLI.
+  - **ZIP Archive & IndexedDB Persistence**: Export and import full workspaces as standard `.zip` archives (`exportZip`, `importZip`) with ZIP-bomb guards, and persist projects in `IndexedDB` (`saveProjectToStorage`, `loadProjectFromStorage`).
 - **POSIX Shell & 71 Coreutils**: Full pure-JS AST interpreter supporting pipelines (`|`), redirects (`>`, `>>`, `<`, `2>&1`, `<<<`, `<<EOF`), control flow (`if`/`for`/`while`/`case`), functions, arithmetic `$((...))`, brace expansion `{1..5}`, and 71 UNIX commands (`g++`, `clang++`, `c++`, `python`, `python3`, `pytest`, `pip`, `git`, `ls`, `cat`, `grep`, `find`, `sed`, `awk`, `jq`, `tar`, `curl`, `hey`, `ab`, `wrk`, `chaos`, `sqlite3`, `redis-cli`, `nc`, `lsof`, `tsc`, etc.) plus direct `./a.out` WASI binary execution.
 - **Dual Runtime Engines (Node.js v22 & Bun v1.1)**:
   - **Node.js**: 50 built-in modules (`fs`, `fs/promises`, `http`, `https`, `net`, `stream`, `events`, `crypto`, `zlib`, `vm`, `worker_threads`, `readline`, `module`, `node:test`, `assert`, etc.) with full Node.js built-ins support.
@@ -123,23 +127,25 @@ const res = await executeInWorker({
 console.log(res.ok, res.testResults);
 ```
 
-### 4. Modular Language Extensions (TypeScript & Real C++20 in WebAssembly)
+### 4. Modular Language Extensions (TypeScript, Real C++20 & Python 3.12 in WebAssembly)
 
-JavaScript (`node` and `bun` zero-dependency browser runtime) is enabled out of the box. You can opt into TypeScript (`@innovatorved/code-lab/extensions/typescript`) and/or Real C++20 in WebAssembly (`@innovatorved/code-lab/extensions/cpp`):
+JavaScript (`node` and `bun` zero-dependency browser runtime) is enabled out of the box. You can opt into TypeScript (`@innovatorved/code-lab/extensions/typescript`), Real C++20 in WebAssembly (`@innovatorved/code-lab/extensions/cpp`), and/or Python 3.12 in WebAssembly (`@innovatorved/code-lab/extensions/python`):
 
 ```js
 import CodeLab from '@innovatorved/code-lab';
 import { typescriptExtension } from '@innovatorved/code-lab/extensions/typescript';
 import { cppExtension } from '@innovatorved/code-lab/extensions/cpp';
+import { pythonExtension } from '@innovatorved/code-lab/extensions/python';
 import { guidedLabExtension } from '@innovatorved/code-lab/extensions/guided-lab';
 
 const lab = CodeLab.mount('#editor', {
   id: 'dsa-binary-search',
-  title: 'Binary Search (JS / TS / C++20)',
+  title: 'Binary Search (JS / TS / C++20 / Python 3.12)',
   language: 'cpp'
 })
   .use(typescriptExtension)
   .use((wb) => cppExtension(wb, { std: 'c++20', cacheInIndexedDB: true }))
+  .use((wb) => pythonExtension(wb, { cacheInIndexedDB: true }))
   .use((wb) =>
     guidedLabExtension(wb, {
       starterFiles: { 'src/solution.js': 'module.exports = { search: () => -1 };\n' },
@@ -147,6 +153,10 @@ const lab = CodeLab.mount('#editor', {
       cppStarterFiles: {
         'src/solution.hpp': '#pragma once\n#include <bits/stdc++.h>\nint search(const std::vector<int>& nums, int target) { return -1; }\n',
         'src/test.cpp': '#include <codelab/test.hpp>\n#include "solution.hpp"\nint main() {\n  DESCRIBE("Binary Search", {\n    TEST("finds target", {\n      ASSERT_EQ(search({-1, 0, 3, 5, 9, 12}, 9), 4);\n    });\n  });\n  return CODELAB_TEST_EXIT_CODE();\n}\n'
+      },
+      pyStarterFiles: {
+        'src/solution.py': 'def search(nums: list[int], target: int) -> int:\n    return -1\n',
+        'src/test_solution.py': 'from codelab_test import describe, it, assert_equal\nfrom solution import search\n\nwith describe("Binary Search"):\n    with it("finds target"):\n        assert_equal(search([-1, 0, 3, 5, 9, 12], 9), 4)\n'
       },
       steps: [
         {

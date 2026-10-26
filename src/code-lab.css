@@ -3027,6 +3027,10 @@ code-lab,
   padding: 2px 0;
 }
 
+.codelab-pty__active-line[data-busy="true"] {
+  display: none !important;
+}
+
 .codelab-pty__prompt {
   color: var(--cl-green);
   font-weight: 600;
@@ -5357,7 +5361,8 @@ code-lab,
   padding: 4px 0;
   display: none;
 }
-.codelab-split-menu.open {
+.codelab-split-menu.open,
+.codelab-split-menu.active {
   display: block;
 }
 .codelab-split-menu__item {
@@ -5490,10 +5495,55 @@ code-lab,
 .codelab-problem-item--info {
   color: #3794ff;
 }
-.codelab-problem-item__location {
+.codelab-problem-item__location,
+.codelab-problem-item__loc {
   color: var(--cl-fg-muted, #858585);
   font-size: 11px;
   margin-left: auto;
+}
+
+/* ── Search, SCM & Terminal Session UI Polish ── */
+.codelab-modal-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--cl-input-bg, #252526);
+  color: var(--cl-fg, #cccccc);
+  border: 1px solid var(--cl-border, #3c3c3c);
+  border-radius: var(--cl-radius, 4px);
+  font-family: var(--cl-font-mono, monospace);
+  font-size: 12px;
+  outline: none;
+}
+.codelab-modal-input:focus {
+  border-color: var(--cl-accent, #007acc);
+}
+.codelab-search-match:hover,
+.codelab-problem-entry:hover,
+.codelab-scm-entry:hover {
+  background: var(--cl-tree-hover, rgba(255, 255, 255, 0.06));
+}
+.codelab-terminal-sessions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.codelab-session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-family: var(--cl-font-mono, monospace);
+  border-radius: 4px;
+  border: 1px solid var(--cl-border, #3c3c3c);
+  background: transparent;
+  color: var(--cl-fg-muted, #858585);
+  cursor: pointer;
+}
+.codelab-session-pill.active {
+  background: var(--cl-hud-bg, rgba(0, 122, 204, 0.18));
+  border-color: var(--cl-accent, #007acc);
+  color: var(--cl-fg, #ffffff);
 }
 
 /* ── Monaco Side-by-Side Diff Editor ── */

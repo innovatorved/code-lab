@@ -4,6 +4,15 @@
 
 import { CL_ICONS } from './icons';
 
+function escapeHtml(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export interface DrawerTabOptions {
   workbench: any;
   drawerTab: string;
@@ -118,11 +127,15 @@ export function renderProblemsPanelHtml(workbench: any): string {
       ${items.map((item: any) => {
         const icon = item.severity === 'error' ? '✗' : (item.severity === 'warning' ? '⚠' : 'ℹ');
         const cls = item.severity === 'error' ? 'codelab-problem-item--error' : (item.severity === 'warning' ? 'codelab-problem-item--warning' : 'codelab-problem-item--info');
+        const safeFile = escapeHtml(item.file);
+        const safeMsg = escapeHtml(item.message);
+        const safeLine = Number(item.line) || 1;
+        const safeCol = Number(item.col) || 1;
         return `
-          <div class="codelab-problem-item ${cls}" data-cl-problem-file="${item.file}" data-cl-problem-line="${item.line}" data-cl-problem-col="${item.col || 1}">
+          <div class="codelab-problem-item ${cls}" data-cl-problem-file="${safeFile}" data-cl-problem-line="${safeLine}" data-cl-problem-col="${safeCol}">
             <span style="font-weight:bold;">${icon}</span>
-            <span>${item.message}</span>
-            <span class="codelab-problem-item__location">${item.file}:${item.line}:${item.col || 1}</span>
+            <span>${safeMsg}</span>
+            <span class="codelab-problem-item__location">${safeFile}:${safeLine}:${safeCol}</span>
           </div>
         `;
       }).join('')}
@@ -131,7 +144,7 @@ export function renderProblemsPanelHtml(workbench: any): string {
 }
 
 export function renderStdinPanelHtml(workbench: any): string {
-  const val = workbench.customStdin || '';
+  const val = escapeHtml(workbench.customStdin || '');
   return `
     <div class="codelab-stdin-panel">
       <div class="codelab-stdin-panel__header">

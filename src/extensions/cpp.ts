@@ -341,12 +341,16 @@ async function getCachedAsset(key: string): Promise<Uint8Array | null> {
   const db = await openToolchainIdb();
   if (!db) return null;
   return new Promise((resolve) => {
+    const closeDb = () => {
+      try { db.close(); } catch (err) { void err; }
+    };
     try {
       const tx = db.transaction(IDB_STORE, 'readonly');
       const store = tx.objectStore(IDB_STORE);
       const req = store.get(key);
       req.onsuccess = () => {
         const val = req.result;
+        closeDb();
         if (val instanceof Uint8Array) {
           memoryAssetCache.set(key, val);
           resolve(val);
@@ -358,8 +362,12 @@ async function getCachedAsset(key: string): Promise<Uint8Array | null> {
           resolve(null);
         }
       };
-      req.onerror = () => resolve(null);
+      req.onerror = () => {
+        closeDb();
+        resolve(null);
+      };
     } catch (err) {
+      closeDb();
       if (err) resolve(null);
     }
   });
@@ -370,13 +378,23 @@ async function setCachedAsset(key: string, data: Uint8Array): Promise<void> {
   const db = await openToolchainIdb();
   if (!db) return;
   return new Promise((resolve) => {
+    const closeDb = () => {
+      try { db.close(); } catch (err) { void err; }
+    };
     try {
       const tx = db.transaction(IDB_STORE, 'readwrite');
       const store = tx.objectStore(IDB_STORE);
       store.put(data, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
+      tx.oncomplete = () => {
+        closeDb();
+        resolve();
+      };
+      tx.onerror = () => {
+        closeDb();
+        resolve();
+      };
     } catch (err) {
+      closeDb();
       if (err) resolve();
     }
   });
@@ -404,17 +422,21 @@ export function extractTarToVfs(tarBytes: Uint8Array, vfs: any, baseDir = '/'): 
       continue;
     }
     const sizeOctal = readString(offset + 124, 12);
-    const size = parseInt(sizeOctal || '0', 8) || 0;
+    const size = Math.max(0, parseInt(sizeOctal || '0', 8) || 0);
     const typeFlag = tarBytes[offset + 156];
     const prefix = readString(offset + 345, 155);
     const fullName = prefix ? `${prefix}/${name}` : name;
-    const cleanRel = fullName.replace(/^\.?\/+/, '');
-    const targetPath = baseDir === '/' ? `/${cleanRel}` : `${baseDir.replace(/\/+$/, '')}/${cleanRel}`;
+    const rawRel = fullName.replace(/^\.?\/+/, '');
+    const rawSegments = rawRel.split('/').filter(Boolean);
+    const hasDotDot = rawSegments.some((seg) => seg === '..');
+    const cleanRel = hasDotDot ? '' : rawSegments.filter((seg) => seg !== '.').join('/');
+    const cleanBase = baseDir === '/' ? '' : baseDir.replace(/\/+$/, '');
+    const targetPath = `${cleanBase}/${cleanRel}`;
 
     const dataStart = offset + 512;
-    const dataEnd = dataStart + size;
+    const dataEnd = Math.min(tarBytes.length, dataStart + size);
 
-    if (cleanRel) {
+    if (cleanRel && !hasDotDot) {
       if (typeFlag === 53 || fullName.endsWith('/')) {
         // Directory ('5')
         if (!vfs.existsSync(targetPath)) {
@@ -951,10 +973,24 @@ export class CppToolchainManager {
       message: `Compiling ${sourceFiles.map((s) => s.split('/').pop()).join(', ')} with Clang (${std}, ${optLevel})...`
     });
 
+    const buildDir = `/tmp/build_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    if (!vfs.existsSync(buildDir)) {
+      vfs.mkdirSync(buildDir, { recursive: true });
+    }
+    const cleanupBuildDir = () => {
+      try {
+        if (typeof vfs.rmSync === 'function') {
+          vfs.rmSync(buildDir, { recursive: true, force: true });
+        }
+      } catch (err) {
+        void err;
+      }
+    };
+
     const objectFiles: string[] = [];
     for (let i = 0; i < sourceFiles.length; i++) {
       const srcPath = sourceFiles[i];
-      const objPath = `/tmp/obj_${i}.o`;
+      const objPath = `${buildDir}/obj_${i}.o`;
       objectFiles.push(objPath);
 
       const clangArgs = [
@@ -992,6 +1028,7 @@ export class CppToolchainManager {
       });
 
       if (compileStep.exitCode !== 0) {
+        cleanupBuildDir();
         return {
           ok: false,
           exitCode: compileStep.exitCode,
@@ -1034,6 +1071,7 @@ export class CppToolchainManager {
       onStdout: handleOut,
       onStderr: handleErr
     });
+    cleanupBuildDir();
 
     if (linkStep.exitCode !== 0 || !vfs.existsSync(outputPath)) {
       return {

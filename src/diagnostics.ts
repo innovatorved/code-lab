@@ -31,10 +31,12 @@ export type DiagnosticListener = (items: DiagnosticItem[]) => void;
 export class DiagnosticsStore {
   private readonly items: Map<string, DiagnosticItem> = new Map();
   private readonly listeners: Set<DiagnosticListener> = new Set();
+  private batchDepth = 0;
+  private batchDirty = false;
 
-  public add(item: DiagnosticItem): void {
-    if (!item || typeof item.id !== 'string' || !item.id) return;
-    const normalized: DiagnosticItem = {
+  private normalizeItem(item: DiagnosticItem): DiagnosticItem | null {
+    if (!item || typeof item.id !== 'string' || !item.id) return null;
+    return {
       ...item,
       file: String(item.file || ''),
       line: typeof item.line === 'number' && item.line > 0 ? Math.floor(item.line) : 1,
@@ -44,8 +46,41 @@ export class DiagnosticsStore {
       message: String(item.message || ''),
       severity: item.severity || 'error'
     };
+  }
+
+  public add(item: DiagnosticItem): void {
+    const normalized = this.normalizeItem(item);
+    if (!normalized) return;
     this.items.set(normalized.id, normalized);
     this.notify();
+  }
+
+  public setMany(items: ReadonlyArray<DiagnosticItem>, clearSource?: string): void {
+    this.batch(() => {
+      if (clearSource !== undefined) {
+        this.clear(clearSource);
+      }
+      for (const item of items) {
+        const normalized = this.normalizeItem(item);
+        if (normalized) {
+          this.items.set(normalized.id, normalized);
+          this.batchDirty = true;
+        }
+      }
+    });
+  }
+
+  public batch(fn: () => void): void {
+    this.batchDepth++;
+    try {
+      fn();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.batchDirty) {
+        this.batchDirty = false;
+        this.notify();
+      }
+    }
   }
 
   public remove(id: string): void {
@@ -94,6 +129,10 @@ export class DiagnosticsStore {
   }
 
   private notify(): void {
+    if (this.batchDepth > 0) {
+      this.batchDirty = true;
+      return;
+    }
     if (this.listeners.size === 0) return;
     const snapshot = this.getAll();
     for (const listener of this.listeners) {

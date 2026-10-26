@@ -10,6 +10,7 @@
 
 export interface SearchOptions {
   query?: string;
+  replacement?: string;
   caseSensitive?: boolean;
   wholeWord?: boolean;
   regex?: boolean;
@@ -55,8 +56,10 @@ export interface SearchResult extends Array<SearchMatchGroup> {
 
 export interface ReplaceResult {
   updatedFiles: Record<string, string>;
+  files: Record<string, string>;
   replacedCount: number;
   filesAffected: string[];
+  filesModified: number;
 }
 
 /**
@@ -82,11 +85,22 @@ export function normalizeSearchPath(filePath: string): string {
 
 /**
  * Matches a file path against a glob or literal substring filter.
+ * Supports comma-separated patterns (e.g. `*.ts, *.js`).
  */
 export function matchesGlob(filePath: string, pattern: string): boolean {
   if (!pattern || pattern === '*' || pattern === '**') return true;
+  if (pattern.includes(',')) {
+    const subPatterns = pattern
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (subPatterns.length > 1) {
+      return subPatterns.some((sub) => matchesGlob(filePath, sub));
+    }
+  }
+
   const normPath = normalizeSearchPath(filePath);
-  const normPattern = normalizeSearchPath(pattern);
+  const normPattern = normalizeSearchPath(pattern.trim());
 
   if (normPattern === normPath) return true;
 
@@ -102,10 +116,13 @@ export function matchesGlob(filePath: string, pattern: string): boolean {
     const c = normPattern[i];
     if (c === '*') {
       if (normPattern[i + 1] === '*') {
-        regexStr += '.*';
         i += 2;
         if (normPattern[i] === '/') {
+          // `/**/` or leading `**/` matches zero or more directory segments
+          regexStr += '(?:.*/)?';
           i++;
+        } else {
+          regexStr += '.*';
         }
         continue;
       } else {
@@ -130,7 +147,13 @@ export function matchesGlob(filePath: string, pattern: string): boolean {
 
   try {
     const re = new RegExp(regexStr);
-    return re.test(normPath);
+    if (re.test(normPath)) return true;
+    // Also allow basename match when pattern has no directory separator (e.g. `*.ts` matching `src/app.ts`)
+    if (!normPattern.includes('/')) {
+      const baseName = normPath.split('/').pop() || normPath;
+      if (re.test(baseName)) return true;
+    }
+    return false;
   } catch (err) {
     void err;
     return normPath.includes(normPattern.replace(/[*?]/g, ''));
@@ -286,11 +309,11 @@ export function searchInFiles(
 export function replaceInFiles(
   files: Record<string, string>,
   arg2: string | SearchOptions,
-  arg3: string,
+  arg3?: string,
   arg4?: SearchOptions | string[]
 ): ReplaceResult {
   let query = '';
-  const replacement = typeof arg3 === 'string' ? arg3 : '';
+  let replacement = typeof arg3 === 'string' ? arg3 : '';
   let opts: SearchOptions = {};
   let targetFiles: string[] | undefined = undefined;
 
@@ -305,6 +328,9 @@ export function replaceInFiles(
   } else if (arg2 && typeof arg2 === 'object') {
     opts = arg2;
     query = opts.query || '';
+    if (typeof arg3 !== 'string' && typeof opts.replacement === 'string') {
+      replacement = opts.replacement;
+    }
     if (Array.isArray(arg4)) {
       targetFiles = arg4;
     } else {
@@ -313,10 +339,13 @@ export function replaceInFiles(
   }
 
   if (!query) {
+    const copy = { ...files };
     return {
-      updatedFiles: { ...files },
+      updatedFiles: copy,
+      files: copy,
       replacedCount: 0,
-      filesAffected: []
+      filesAffected: [],
+      filesModified: 0
     };
   }
 
@@ -337,10 +366,13 @@ export function replaceInFiles(
     regex = new RegExp(patternStr, isCaseSensitive ? 'g' : 'gi');
   } catch (err) {
     void err;
+    const copy = { ...files };
     return {
-      updatedFiles: { ...files },
+      updatedFiles: copy,
+      files: copy,
       replacedCount: 0,
-      filesAffected: []
+      filesAffected: [],
+      filesModified: 0
     };
   }
 
@@ -353,29 +385,39 @@ export function replaceInFiles(
     if (includeFilter && !checkFilter(filePath, includeFilter)) continue;
     if (excludeFilter && checkFilter(filePath, excludeFilter)) continue;
 
-    // Count matches safely
-    regex.lastIndex = 0;
+    const lines = content.split('\n');
     let countInFile = 0;
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(content)) !== null) {
-      countInFile++;
-      if (m[0].length === 0) {
-        regex.lastIndex++;
-        if (regex.lastIndex > content.length) {
-          break;
+    const newLines: string[] = [];
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const lineText = lines[lineIdx];
+      regex.lastIndex = 0;
+      let lineMatches = 0;
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(lineText)) !== null) {
+        lineMatches++;
+        if (m[0].length === 0) {
+          regex.lastIndex++;
+          if (regex.lastIndex > lineText.length) {
+            break;
+          }
         }
+      }
+      if (lineMatches > 0) {
+        countInFile += lineMatches;
+        regex.lastIndex = 0;
+        if (isRegex) {
+          newLines.push(lineText.replace(regex, replacement));
+        } else {
+          newLines.push(lineText.replace(regex, () => replacement));
+        }
+      } else {
+        newLines.push(lineText);
       }
     }
 
     if (countInFile > 0) {
-      regex.lastIndex = 0;
-      let newContent: string;
-      if (isRegex) {
-        newContent = content.replace(regex, replacement);
-      } else {
-        newContent = content.replace(regex, () => replacement);
-      }
-      updatedFiles[filePath] = newContent;
+      updatedFiles[filePath] = newLines.join('\n');
       filesAffected.push(filePath);
       replacedCount += countInFile;
     }
@@ -383,7 +425,9 @@ export function replaceInFiles(
 
   return {
     updatedFiles,
+    files: updatedFiles,
     replacedCount,
-    filesAffected
+    filesAffected,
+    filesModified: filesAffected.length
   };
 }

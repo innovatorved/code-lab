@@ -57,8 +57,18 @@ export function computeCrc32(data: string | Uint8Array | ArrayBuffer): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
+const DANGEROUS_PATH_SEGMENTS: ReadonlySet<string> = new Set([
+  '__proto__',
+  'constructor',
+  'prototype'
+]);
+
+const MAX_ZIP_ENTRIES = 10000;
+const MAX_ZIP_UNCOMPRESSED_BYTES = 100 * 1024 * 1024; // 100 MB
+
 /**
- * Sanitizes an archive entry path to prevent Zip-Slip directory traversal attacks.
+ * Sanitizes an archive entry path to prevent Zip-Slip directory traversal attacks
+ * and prototype-pollution key injection.
  * Normalizes backslashes, strips drive prefixes and leading slashes, and collapses
  * or removes `..` and `.` segments so the resulting path is strictly relative.
  */
@@ -71,6 +81,9 @@ export function sanitizeZipPath(rawPath: string): string {
   for (const part of parts) {
     const trimmed = part.trim();
     if (!trimmed || trimmed === '.') continue;
+    if (DANGEROUS_PATH_SEGMENTS.has(trimmed)) {
+      return '';
+    }
     if (trimmed === '..') {
       if (safeParts.length > 0) {
         safeParts.pop();
@@ -117,9 +130,9 @@ interface ZipEntryInternal {
 /**
  * Creates a standard PKZip v2.0 archive from a map of file paths to contents.
  */
-export async function createZip(
+export function createZip(
   files: Record<string, string | Uint8Array>
-): Promise<Uint8Array> {
+): Uint8Array {
   const entries: ZipEntryInternal[] = [];
   let localSectionSize = 0;
   let centralDirSize = 0;
@@ -215,9 +228,9 @@ export async function createZip(
  * Extracts a PKZip v2.0 archive into a UTF-8 file dictionary (`Record<string, string>`).
  * Validates magic headers, checks boundaries, and sanitizes paths against Zip-Slip.
  */
-export async function extractZip(
+export function extractZip(
   data: Uint8Array | ArrayBuffer
-): Promise<Record<string, string>> {
+): Record<string, string> {
   const bytes = toUint8Array(data);
   if (bytes.length < 22) {
     throw new Error('Invalid or truncated ZIP archive: buffer shorter than minimum 22-byte EOCD record');
@@ -238,6 +251,9 @@ export async function extractZip(
   }
 
   const totalEntries = readUInt16LE(bytes, eocdOffset + 10);
+  if (totalEntries > MAX_ZIP_ENTRIES) {
+    throw new Error(`ZIP archive exceeds maximum allowed entry count (${MAX_ZIP_ENTRIES})`);
+  }
   const centralDirSize = readUInt32LE(bytes, eocdOffset + 12);
   const centralDirOffset = readUInt32LE(bytes, eocdOffset + 16);
 
@@ -245,8 +261,9 @@ export async function extractZip(
     throw new Error('Corrupted ZIP archive: Central Directory extends past end of buffer');
   }
 
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null) as Record<string, string>;
   let cdCursor = centralDirOffset;
+  let totalExtractedBytes = 0;
 
   for (let i = 0; i < totalEntries; i++) {
     if (cdCursor + 46 > bytes.length) {
@@ -299,6 +316,11 @@ export async function extractZip(
       throw new Error(`Corrupted ZIP archive: file data truncated for ${safeName}`);
     }
 
+    totalExtractedBytes += compressedSize;
+    if (totalExtractedBytes > MAX_ZIP_UNCOMPRESSED_BYTES) {
+      throw new Error(`ZIP archive exceeds maximum uncompressed size limit (${MAX_ZIP_UNCOMPRESSED_BYTES} bytes)`);
+    }
+
     const rawFileBytes = bytes.subarray(dataStart, dataEnd);
     if (compressionMethod !== 0) {
       throw new Error(`Unsupported ZIP compression method ${compressionMethod} for ${safeName} (only Store=0 is supported)`);
@@ -314,7 +336,7 @@ export async function extractZip(
     result[safeName] = textDecoder.decode(rawFileBytes);
   }
 
-  return result;
+  return { ...result };
 }
 
 export default {

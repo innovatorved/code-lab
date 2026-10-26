@@ -561,6 +561,207 @@ async function runTestSuite() {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
+  // Tier 6: Foreground Command Locking & Background Job Isolation
+  // ───────────────────────────────────────────────────────────────────────────
+  console.log('\n=== Tier 6: Foreground Command Locking & Background Job Isolation ===');
+
+  await test('[T6.1] PTYTerminalEngine locks input while async command is running and echoes command immediately', async () => {
+    let resolveCmd;
+    const executed = [];
+    const engine = terminal.createPTYTerminalEngine(null, {
+      onCommand: (cmd) => {
+        executed.push(cmd);
+        return new Promise((resolve) => {
+          resolveCmd = resolve;
+        });
+      }
+    });
+
+    engine.buffer = 'sleep 5';
+    engine.cursor = engine.buffer.length;
+    engine.submitLine();
+
+    // Immediately after submitLine, command should be echoed and engine should be busy
+    assert.equal(engine.isBusy, true, 'Engine must be marked busy while async onCommand is pending');
+    assert.equal(engine.isCommandRunning(), true, 'isCommandRunning() must return true while command is running');
+    assert.equal(executed.length, 1);
+    assert.equal(executed[0], 'sleep 5');
+    assert.equal(engine.logs.some(l => l.type === 'system' && l.text.includes('sleep 5')), true, 'Command must be echoed to logs immediately');
+
+    // Attempt to type and submit another command while busy
+    engine.handleKeyDown({ key: 'l', preventDefault: () => {}, ctrlKey: false, metaKey: false, altKey: false });
+    engine.handleKeyDown({ key: 's', preventDefault: () => {}, ctrlKey: false, metaKey: false, altKey: false });
+    engine.handleKeyDown({ key: 'Enter', preventDefault: () => {}, ctrlKey: false, metaKey: false, altKey: false });
+
+    assert.equal(engine.buffer, '', 'Typing must be blocked while foreground command is running');
+    assert.equal(executed.length, 1, 'Concurrent command submission must be blocked while busy');
+
+    // Resolve the running command
+    resolveCmd();
+    await new Promise(r => setTimeout(r, 10));
+
+    assert.equal(engine.isBusy, false, 'Engine must clear isBusy after command resolves');
+    assert.equal(engine.isCommandRunning(), false, 'isCommandRunning() must return false after command resolves');
+  });
+
+  await test('[T6.2] Workbench _handleReplCommand hides prompt while busy and rejects concurrent commands', async () => {
+    const activeLine = {
+      style: { display: '' },
+      innerHTML: '',
+      setAttribute(k, v) { this[k] = v; },
+      removeAttribute(k) { delete this[k]; }
+    };
+    const promptEl = { textContent: 'codelab:~$ ' };
+    const logDiv = {
+      children: [],
+      appendChild(el) { el.parentNode = this; this.children.push(el); },
+      scrollTop: 0,
+      scrollHeight: 100
+    };
+    const mockContainer = {
+      innerHTML: '',
+      querySelector: (sel) => {
+        if (sel === '#cl-pty-active-line') return activeLine;
+        if (sel === '.codelab-pty__prompt') return promptEl;
+        if (sel === '#cl-terminal-log') return logDiv;
+        return null;
+      },
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    };
+
+    const wb = new workbench.CodeLabWorkbench(mockContainer, {
+      id: 'busy-lock-lab',
+      files: { 'index.js': 'console.log("hi");' }
+    });
+
+    let resolveShell;
+    const executedCmds = [];
+    wb.shell.execute = (cmd) => {
+      executedCmds.push(cmd);
+      return new Promise((resolve) => {
+        resolveShell = () => resolve({ stdout: 'done\n', stderr: '', exitCode: 0 });
+      });
+    };
+
+    const p1 = wb._handleReplCommand('node index.js');
+
+    // While p1 is pending:
+    assert.equal(wb.isRunning, true, 'Workbench must be in running state');
+    assert.equal(activeLine['data-busy'], 'true', 'Active prompt line must have data-busy="true"');
+    assert.equal(promptEl.textContent, '', 'Active prompt label must be cleared while command runs');
+    assert.equal(wb.terminalLogs.some(l => l.type === 'system' && l.text.includes('node index.js')), true, 'Command must be echoed before shell.execute finishes');
+
+    // Try running a second command concurrently
+    await wb._handleReplCommand('echo second');
+    assert.equal(executedCmds.length, 1, 'Second command must not execute while first command is still running');
+
+    // Finish first command
+    resolveShell();
+    await p1;
+
+    assert.equal(wb.isRunning, false, 'Workbench must clear isRunning after command completes');
+    assert.equal(activeLine['data-busy'], undefined, 'data-busy attribute must be removed after command completes');
+    assert.equal(promptEl.textContent.includes('codelab:'), true, 'Active prompt label must be restored after command completes');
+  });
+
+  await test('[T6.3] Background jobs (&) survive foreground Ctrl+C abort and can be killed individually', async () => {
+    const posix = shell.createPosixShell();
+    const bgRes = await posix.execute('sleep 5 &');
+    assert.equal(bgRes.exitCode, 0);
+
+    // Foreground command aborted via Ctrl+C
+    const fgAbort = new AbortController();
+    setTimeout(() => fgAbort.abort('SIGINT'), 30);
+    const fgRes = await posix.execute('sleep 5', { signal: fgAbort.signal });
+    assert.equal(fgRes.exitCode, 130);
+
+    // Background job must still be running
+    const jobsRes = await posix.execute('jobs');
+    assert.equal(jobsRes.stdout.includes('Running'), true, `Expected background job to still be Running, got: ${jobsRes.stdout}`);
+
+    // Kill background job #1
+    const killRes = await posix.execute('kill %1');
+    assert.equal(killRes.exitCode, 0);
+  });
+
+  await test('[T6.4] Terminal session clear preserves session log array across session switches', async () => {
+    const mockContainer = {
+      innerHTML: '',
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    };
+    const wb = new workbench.CodeLabWorkbench(mockContainer, {
+      id: 'session-clear-lab',
+      files: { 'index.js': 'console.log("hi");' }
+    });
+
+    wb._ensureTerminalSessions();
+    wb.terminalLogs.push({ type: 'stdout', text: 'session 1 output' });
+    assert.equal(wb.listTerminalSessions()[0].logCount > 1, true);
+
+    // Clear terminal logs in session-1
+    wb._clearTerminalLogs();
+    assert.equal(wb.terminalLogs.length, 0, 'Session 1 logs must be empty after clear');
+
+    // Create session 2 and switch back to session 1
+    const s2 = wb.createTerminalSession('bash-2');
+    wb.terminalLogs.push({ type: 'stdout', text: 'session 2 output' });
+    wb.switchTerminalSession('session-1');
+
+    assert.equal(wb.terminalLogs.length, 0, 'Session 1 logs must remain cleared after switching back from session 2');
+    wb.switchTerminalSession(s2);
+    assert.equal(wb.terminalLogs.length, 1, 'Session 2 logs must remain intact');
+  });
+
+  await test('[T6.5] Interactive SCM stage/unstage/commit & _refreshDrawerTabs dynamic tab insertion', async () => {
+    const termTabEl = {
+      insertAdjacentHTML: () => {}
+    };
+    const drawerTabsEl = {
+      querySelector: (sel) => (sel === '[data-cl-drawertab="terminal"]' ? termTabEl : null)
+    };
+    const mockContainer = {
+      innerHTML: '',
+      querySelector: (sel) => (sel === '.codelab-drawer__tabs' ? drawerTabsEl : null),
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    };
+    const wb = new workbench.CodeLabWorkbench(mockContainer, {
+      id: 'scm-ui-lab',
+      files: { 'index.js': 'const a = 1;\n' }
+    });
+
+    // Ensure _refreshDrawerTabs does not throw ReferenceError when stdin/tests tabs are absent
+    assert.doesNotThrow(() => wb._refreshDrawerTabs());
+
+    // Modify file and test stage / unstage / commit
+    wb.files['index.js'] = 'const a = 2;\n';
+    wb.files['new.js'] = 'export const b = 3;\n';
+
+    let status = wb.getGitStatus();
+    assert.equal(status.length >= 2, true, 'Expected modified and untracked files in status');
+
+    wb.stageGitFile('index.js');
+    status = wb.getGitStatus();
+    const stagedIdx = status.find((s) => s.path === 'index.js' && s.staged);
+    assert.equal(Boolean(stagedIdx), true, 'index.js should be staged');
+
+    wb.unstageGitFile('index.js');
+    status = wb.getGitStatus();
+    assert.equal(status.some((s) => s.path === 'index.js' && s.staged), false, 'index.js should be unstaged');
+
+    wb.stageAllGitFiles();
+    status = wb.getGitStatus();
+    assert.equal(status.every((s) => s.staged), true, 'All changed files should be staged after stageAllGitFiles()');
+
+    const commitHash = wb.commitGitChanges('feat: update index and add new.js');
+    assert.equal(typeof commitHash === 'string' && commitHash.length > 0, true, 'commitGitChanges must return commit hash');
+    assert.equal(wb.getGitStatus().length, 0, 'Working tree must be clean after commit');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Summary
   // ───────────────────────────────────────────────────────────────────────────
   console.log('\n════════════════════════════════════════════════════════════════════════════');

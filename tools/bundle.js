@@ -204,7 +204,7 @@ const BANNER = `/**
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 55+ UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
+ *   - Full POSIX Shell AST & 71 UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
  *   - Modular VS Code Workbench: File Tree, Tabs, Command Palette, Diff Viewer
@@ -1461,6 +1461,7 @@ try {
   console.log('✓ Built dist/extensions/{guided-lab,javascript,typescript,cpp,python}.{js,esm.js}');
 } catch (e) {
   console.error('Failed to bundle extensions:', e.message);
+  process.exit(1);
 }
 
 // 3b. Bundle Zod schemas (the `./schemas` subpath export)
@@ -1470,6 +1471,7 @@ try {
   console.log('✓ Built dist/schemas.js & schemas.esm.js');
 } catch (e) {
   console.error('Failed to bundle schemas:', e.message);
+  process.exit(1);
 }
 
 // 4. Emit TypeScript Declarations (.d.ts)
@@ -1477,7 +1479,8 @@ try {
   execFileSync(localBin('tsc'), ['--emitDeclarationOnly'], { stdio: 'inherit', cwd: PKG_DIR });
   console.log('✓ Generated TypeScript declaration files in dist/');
 } catch (e) {
-  console.warn('tsc warning:', e.message);
+  console.error('tsc declaration emit failed:', e.message);
+  process.exit(1);
 }
 
 // 5. Sync dist/ to examples/cloud-ide/public/dist
