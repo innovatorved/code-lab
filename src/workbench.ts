@@ -2388,10 +2388,6 @@ int main() {
         if (countSpan) countSpan.textContent = String(problemsCount);
       }
 
-      let testTab = drawerTabs.querySelector('[data-cl-drawertab="tests"]');
-      if (testTab) {
-        testTab.style.display = showTests ? 'inline-flex' : 'none';
-      }
 
       let stdinTab = drawerTabs.querySelector('[data-cl-drawertab="stdin"]');
       if (!stdinTab) {
@@ -2406,10 +2402,6 @@ int main() {
         }
       }
 
-      let previewTab = drawerTabs.querySelector('[data-cl-drawertab="preview"]');
-      if (previewTab) {
-        previewTab.style.display = hasWeb ? 'inline-flex' : 'none';
-      }
     }
 
     // ── Render Workbench DOM ───────────────────────────────────────────────
@@ -2616,13 +2608,11 @@ int main() {
                       <span>Problems</span>
                       <span class="codelab-badge" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:rgba(255,255,255,0.1);color:#fff;">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
                     </button>
-                    ${((this.hasGuidedLab && this.mode === 'guided') || this.testSuiteVisible || this.drawerTab === 'tests') ? `
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests">
                       ${CL_ICONS.check}
                       <span>Test Suite</span>
                       <span class="codelab-drawer__pill" id="cl-test-pill">Ready</span>
                     </button>
-                    ` : ''}
                     <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input">
                       ${CL_ICONS.keyboard}
                       <span>Stdin</span>
@@ -2632,7 +2622,7 @@ int main() {
                       <span>Ports</span>
                       <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview" style="display: ${this._hasWebContent() ? 'inline-flex' : 'none'}">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview">
                       ${CL_ICONS.globe}
                       <span>Web Preview</span>
                     </button>
@@ -8332,7 +8322,7 @@ int main() {
           } else {
             window.location.hash = `codelab=${token}`;
           }
-          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
             await navigator.clipboard.writeText(newUrl);
             this._showToast('Snapshot link copied to clipboard! (#codelab=...)', 'success');
           } else {

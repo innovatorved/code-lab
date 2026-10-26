@@ -58,12 +58,10 @@ export function renderDrawerTabsHtml(opts: DrawerTabOptions): string {
           <span class="codelab-badge ${problemsCount > 0 ? 'codelab-badge--warn' : ''}" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:${problemsCount > 0 ? '#cca700' : 'rgba(255,255,255,0.1)'};color:#fff;">${problemsCount}</span>
         </button>
 
-        ${showTests ? `
         <button type="button" role="tab" aria-selected="${drawerTab === 'tests'}" class="codelab-drawer__tab ${drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests">
           ${CL_ICONS.check}
           <span>Test Suite</span>
         </button>
-        ` : ''}
 
         <button type="button" role="tab" aria-selected="${drawerTab === 'stdin'}" class="codelab-drawer__tab ${drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input / Competitive Programming Custom Input">
           ${CL_ICONS.keyboard}
@@ -75,12 +73,10 @@ export function renderDrawerTabsHtml(opts: DrawerTabOptions): string {
           <span>Ports</span>
         </button>
 
-        ${hasWebContent ? `
         <button type="button" role="tab" aria-selected="${drawerTab === 'preview'}" class="codelab-drawer__tab ${drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview">
           ${CL_ICONS.externalLink || CL_ICONS.globe}
           <span>Web Preview</span>
         </button>
-        ` : ''}
 
         <button type="button" role="tab" aria-selected="${drawerTab === 'network'}" class="codelab-drawer__tab ${drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network">
           ${CL_ICONS.activity}
