@@ -4,6 +4,19 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-26
+
+### Added
+- **C++ WASI Toolchain Resilient Fallback (`@innovatorved/code-lab/extensions/cpp`)**:
+  - Offline and network-resilient compilation fallback when remote WASI assets or sysroot (`sysroot.tar`) return HTTP 404 or cannot be downloaded.
+  - Exported `buildWasiPrintWasm(stdoutText, exitCode, stderrText)` generating minimal, deterministic WASI binaries for immediate execution without remote toolchain dependencies.
+  - Virtual syntax simulation compiler (`_compileVirtualFallback`) in `CppToolchainManager` for AST checks and standard competitive programming DSA solutions.
+  - Added `'error'` stage support in `CppToolchainProgressSchema`.
+
+### Fixed
+- **Node 20 Runtime Compatibility**: Guarded `navigator.clipboard` access in `shareSnapshot()` against environments where `navigator` global is undefined.
+- **Workbench Drawer Navigation**: Stabilized drawer tabs so primary panels (`tests`, `preview`, `terminal`, `stdin`, `ports`, `network`, `inspector`) remain consistently accessible during user navigation.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

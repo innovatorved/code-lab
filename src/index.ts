@@ -1,5 +1,5 @@
 /**
- * @innovatorved/code-lab v0.3.0
+ * @innovatorved/code-lab v0.3.1
  * Browser-native IDE, POSIX Shell, Web Worker Node.js/Bun Runtime, WASI C++20 Toolchain, Python 3.12 WebAssembly, and Git Engine.
  */
 
