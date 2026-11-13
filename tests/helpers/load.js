@@ -23,6 +23,8 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..', '..');
 const DIST = path.join(ROOT, 'dist');
 const SRC = path.join(ROOT, 'src');
+const PACKAGES = path.join(ROOT, 'packages');
+const APPS = path.join(ROOT, 'apps');
 const BUNDLE = path.join(DIST, 'code-lab.js');
 
 function walk(dir, out = []) {
@@ -33,6 +35,7 @@ function walk(dir, out = []) {
     return out;
   }
   for (const entry of entries) {
+    if (entry.name === 'node_modules' || entry.name === 'dist') continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (/\.(?:ts|js|css)$/.test(entry.name)) out.push(full);
@@ -42,7 +45,8 @@ function walk(dir, out = []) {
 
 function newestSource() {
   let newest = null;
-  for (const file of walk(SRC)) {
+  const sourceFiles = walk(SRC).concat(walk(PACKAGES), walk(APPS));
+  for (const file of sourceFiles) {
     const st = fs.statSync(file);
     if (!newest || st.mtimeMs > newest.mtimeMs) newest = { file, mtimeMs: st.mtimeMs };
   }
@@ -102,6 +106,15 @@ module.exports = {
   get workbench() { return loadCodeLab(); },
   /** Shared Web Preview CSP builder (`src/csp.ts`). */
   get csp() { return requireModule('CodeLabCsp'); },
+  /** Modular workspace packages (`@code-lab/*` + `apps/web`). */
+  get modular() { return requireModule('CodeLabModular'); },
+  /** SQL language & editor pack (`@code-lab/sql` via umbrella). */
+  get sql() { return requireModule('CodeLabSql'); },
+  /** Standalone lightweight SQL bundle (`dist/code-lab-sql.umd.js`). */
+  get sqlStandalone() {
+    assertFresh();
+    return require(path.join(DIST, 'code-lab-sql.umd.js'));
+  },
   /** Zod-backed schema bundle (`dist/schemas.js`). */
   get schemas() {
     assertFresh();

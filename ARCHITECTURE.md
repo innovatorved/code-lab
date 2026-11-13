@@ -1,6 +1,8 @@
-# `@innovatorved/code-lab` Architecture (v0.3.2)
+# `@innovatorved/code-lab` Architecture (v0.4.0)
 
-`@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 + WASI C++20 + Python 3.12 IDE, POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`; modular extensions under `@innovatorved/code-lab/extensions/{guided-lab,javascript,typescript,cpp,python}`).
+`@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 + WASI C++20 + Python 3.12 IDE, first-class SQL playground (`@innovatorved/code-lab/sql`), POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`; modular extensions under `@innovatorved/code-lab/extensions/{guided-lab,javascript,typescript,cpp,python}`).
+
+> **Deep-Dive Monorepo Guide**: See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the 4-layer workspace DAG (`@code-lab/core` → `@code-lab/{fs,settings,commands}` → `@code-lab/{sql,editor,runtime,terminal,preview}` → `@code-lab/ui` → `apps/web`), DI container, `.codelab/*` configuration cascade, and [`docs/PLUGINS.md`](./docs/PLUGINS.md) for the declarative plugin system.
 
 It is designed around two strictly decoupled layers that can be used together (`dist/code-lab.js`) or independently (`dist/runtime.js`, `dist/shell.js`, `dist/terminal.js` for headless or modular execution):
 

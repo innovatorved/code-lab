@@ -17,12 +17,14 @@ bun install
 # 2. Build all distribution bundles into dist/
 bun run build
 
-# 3. Run static analysis gates
+# 3. Run static analysis, boundary & bundle size gates
 bun run lint
+bun run check:boundaries
+bun run check:size
 bun run typecheck
 bun run typecheck:strict
 
-# 4. Run the 43 automated test suites under Bun and Node
+# 4. Run the 47 automated test suites under Bun and Node
 bun run tests/run-all.js
 node tests/run-all.js
 
@@ -46,8 +48,8 @@ bun run test:browser
 
 ## Pull Request Checklist
 
-- [ ] `bun run build` succeeds and `bun run pack:check` passes.
-- [ ] `bun run lint`, `bun run typecheck`, and `bun run typecheck:strict` pass with zero errors.
-- [ ] `bun run tests/run-all.js` and `node tests/run-all.js` pass all 43 suites.
+- [ ] `bun run build` succeeds, `bun run check:size` passes, and `bun run pack:check` passes.
+- [ ] `bun run lint`, `bun run check:boundaries`, `bun run typecheck`, and `bun run typecheck:strict` pass with zero errors.
+- [ ] `bun run tests/run-all.js` and `node tests/run-all.js` pass all 47 suites.
 - [ ] `bun run test:browser` passes all Playwright Chromium specs.
 - [ ] New features or bug fixes include regression tests in `tests/`.

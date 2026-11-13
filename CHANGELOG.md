@@ -4,6 +4,26 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-13
+
+### Added
+- **4-Layer Modular Workspace Monorepo (`packages/*`, `apps/web`, `tools/check-boundaries.js`)**:
+  - Split core capabilities into 11 strict-TypeScript Bun workspaces: `@code-lab/core` (DI `ServiceContainer` with cycle detection, `DisposableStore`, `Emitter`, typed `CodeLabError`, structured `Logger`), `@code-lab/fs` (pluggable `MemoryBackend`, `IndexedDbBackend`, `OpfsBackend`), `@code-lab/settings` (JSONC parser, JSON Schema validator, 4-scope `ConfigurationService`), `@code-lab/commands` (`ContextKeyService` `when`-expression evaluator, `CommandRegistry`, `KeybindingService` with `-command` unbinding), `@code-lab/sql`, `@code-lab/editor`, `@code-lab/runtime`, `@code-lab/terminal`, `@code-lab/preview`, `@code-lab/ui`, and `apps/web` (`createCodeLabKernel`).
+  - Added `tools/check-boundaries.js` (`bun run check:boundaries`) enforcing one-way layer imports, public `src/index.ts` encapsulation, zero circular dependencies (Tarjan SCC), and zero DOM globals in `@code-lab/core`.
+- **First-Class SQL Playground & Inline Editor (`@innovatorved/code-lab/sql`)**:
+  - New lightweight standalone entrypoint (`dist/code-lab-sql.{umd.js,esm.js,css,d.ts}`) at **`~16.5 KB` gzipped** (JS + CSS combined, `< 35 KB` budget enforced by `bun run check:size`) with zero WASM boot of its own.
+  - Full `PostgreSQL 18` (`::type`, `$1`, `$$` dollar strings, `ILIKE`, `LATERAL`, `RETURNING`, `FILTER (WHERE ...)`, JSONB `->`/`->>`/`@>`) and `SQLite 3` (`PRAGMA`, `WITHOUT ROWID`, `ON CONFLICT DO UPDATE`, `GLOB`, backtick/`[bracket]` identifiers) tokenizer and syntax highlighter.
+  - Zero-dependency SQL formatter (`formatSql`), schema-aware table-alias & CTE autocomplete (`completeSql`, resolving `SELECT o.` to `orders` columns with `PK`/`FK` badges), engine error parser (`parseSqlEngineError`), WCAG 2.1 AA keyboard escape (`Esc` → `Tab`), and 3 mount modes (`inline`, `playground`, and Guided Lab `workbench` with pluggable `sqlRunner` + built-in SQLite fallback).
+- **VS Code-Style Settings UI, `.codelab/*` Workspace Protocol, Themes & Plugins (`src/workbench.ts`, `@code-lab/ui`)**:
+  - Searchable native `<dialog closedby="any">` Settings modal (`openSettings()` / `Cmd+,`) with category navigation, Reset to Default, Profile Export/Import, URL `?settings=` sharing, and live bidirectional sync with `.codelab/{settings,keybindings,tasks,extensions}.json`.
+  - Built-in Dark, Light, and High-Contrast themes plus custom JSON theme registration (`ThemeService`).
+  - Declarative `PluginRegistry` (`CodeLab.use(manifest)`, `workbench.registerPlugin(manifest)`) supporting lazy `activationEvents` and `contributes.{commands,settings,keybindings,themes,panels,languages}`, plus a live **Observability** drawer tab and `WorkbenchErrorBoundary`.
+
+### Fixed
+- **All 26 Phase 1 Self-Audit Findings (`6 P0`, `14 P1`, `6 P2`)**:
+  - Patched all root and `examples/cloud-ide` dependency CVEs (`zod@4.6.7`, `esbuild@0.28.2`, `astro@7.4.11` — `bun audit` 0 vulnerabilities).
+  - Hardened `preview-sw.js` CSP/nosniff/302-navigate isolation, removed `allow-same-origin` from HTTP client response previews, fixed Worker VFS binary sync & timeout stream preservation, fixed inline Explorer create/rename (`F2`), and added comprehensive unit, regression, and Playwright Chromium E2E suites (47 Node/Bun suites + 30 Playwright Chromium tests).
+
 ## [0.3.2] - 2026-10-26
 
 ### Added

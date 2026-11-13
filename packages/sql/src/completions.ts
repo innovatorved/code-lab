@@ -128,8 +128,9 @@ function formatRowCount(rowCount: number | undefined): string | undefined {
 
 function columnSecondaryBadge(col: SqlColumnSchema): string | undefined {
   const parts: string[] = [];
-  if (col.pk) parts.push('PK');
-  if (col.fk) parts.push(`FK→${col.fk}`);
+  if (col.pk || col.primaryKey) parts.push('PK');
+  const fkTarget = col.fk ?? col.references;
+  if (fkTarget) parts.push(`FK→${fkTarget}`);
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 

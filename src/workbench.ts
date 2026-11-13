@@ -59,7 +59,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.3.2';
+  const CODELAB_VERSION = '0.4.0';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -1456,7 +1456,21 @@ int main() {
       const implData = root.IMPLEMENTATIONS_DATA?.[this.labId];
       const guidedData = root.GUIDED_LABS_DATA?.[this.labId];
 
-      const rawRefFiles = options.solutionFiles || options.files || implData?.files || {};
+      const initLang = options.language || options.lang || 'js';
+      const codeShorthandFile = typeof options.code === 'string'
+        ? {
+            [initLang === 'sql'
+              ? 'query.sql'
+              : initLang === 'py'
+                ? 'main.py'
+                : initLang === 'cpp'
+                  ? 'main.cpp'
+                  : initLang === 'ts'
+                    ? 'index.ts'
+                    : 'index.js']: options.code
+          }
+        : null;
+      const rawRefFiles = options.solutionFiles || options.files || codeShorthandFile || implData?.files || {};
       this.referenceFiles = Object.keys(rawRefFiles).length > 0 ? { ...rawRefFiles } : { ...DEFAULT_STANDALONE_FILES };
 
       this.guidedConfig = {
@@ -2129,7 +2143,7 @@ int main() {
       if (this.themeOption === 'light' || this.themeOption === 'dark' || this.themeOption === 'high-contrast') {
         return this.themeOption;
       }
-      if (typeof document !== 'undefined') {
+      if (typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.getAttribute === 'function') {
         const docTheme = document.documentElement.getAttribute('data-theme');
         if (docTheme === 'light' || docTheme === 'high-contrast') return docTheme;
         if (docTheme === 'dark') return 'dark';

@@ -215,6 +215,7 @@ export function createSqlEditor(
   const applyResolvedTheme = (): void => {
     const resolved = resolveEffectiveTheme();
     rootEl.setAttribute('data-cl-sql-theme', resolved);
+    rootEl.setAttribute('data-theme', resolved);
   };
 
   // Watch host `<html data-theme="...">` and system `prefers-color-scheme`

@@ -8,7 +8,9 @@ export interface SqlColumnSchema {
   readonly name: string;
   readonly type: string;
   readonly pk?: boolean;
+  readonly primaryKey?: boolean;
   readonly fk?: string;
+  readonly references?: string;
   readonly nullable?: boolean;
   readonly comment?: string;
 }

@@ -46,8 +46,17 @@ jobs:
       - name: Lint (no empty catch, strict modules, @ts-nocheck allowlist)
         run: bun run lint
 
+      - name: Verify architecture boundaries (DAG & 0 cycles)
+        run: bun run check:boundaries
+
+      - name: Security audit (0 dependency CVEs)
+        run: bun audit
+
       - name: Build
         run: bun run build
+
+      - name: Verify bundle size budgets (@innovatorved/code-lab/sql < 35 KB gzip)
+        run: bun run check:size
 
       - name: Test (all suites)
         run: bun run tests/run-all.js

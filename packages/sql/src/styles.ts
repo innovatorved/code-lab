@@ -487,7 +487,13 @@ const STYLE_TAG_ID = 'codelab-sql-inline-styles';
 export function ensureSqlStylesInjected(doc?: Document): void {
   const targetDoc = doc ?? (typeof document !== 'undefined' ? document : undefined);
   if (!targetDoc || !targetDoc.head) return;
-  if (targetDoc.getElementById(STYLE_TAG_ID)) return;
+  const existing =
+    typeof targetDoc.getElementById === 'function'
+      ? targetDoc.getElementById(STYLE_TAG_ID)
+      : typeof targetDoc.head.querySelector === 'function'
+        ? targetDoc.head.querySelector(`#${STYLE_TAG_ID}`)
+        : null;
+  if (existing) return;
   const styleEl = targetDoc.createElement('style');
   styleEl.id = STYLE_TAG_ID;
   styleEl.textContent = SQL_EDITOR_CSS;

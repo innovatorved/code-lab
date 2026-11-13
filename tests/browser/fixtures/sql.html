@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>code-lab standalone SQL playground test</title>
+    <link rel="stylesheet" href="/dist/code-lab-sql.css" />
+    <style>
+      body { margin: 20px; font-family: system-ui, sans-serif; background: #0d1117; color: #f0f6fc; }
+      .schema-pills { display: flex; gap: 8px; margin-bottom: 10px; }
+      .after-controls { margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="schema-pills">
+      <button id="pill-total-cents" type="button">orders.total_cents</button>
+    </div>
+    <div id="sql-playground"></div>
+    <div class="after-controls">
+      <button id="next-focusable-btn" type="button">Export CSV</button>
+    </div>
+    <pre id="run-log"></pre>
+
+    <script src="/dist/code-lab-sql.umd.js"></script>
+    <script>
+      window.__sqlRuns = [];
+      const schema = {
+        dialect: 'postgres',
+        tables: [
+          {
+            name: 'customers',
+            rowCount: 500,
+            columns: [
+              { name: 'id', type: 'bigint', pk: true },
+              { name: 'email', type: 'text' }
+            ]
+          },
+          {
+            name: 'orders',
+            rowCount: 2400,
+            columns: [
+              { name: 'id', type: 'bigint', pk: true },
+              { name: 'customer_id', type: 'bigint', fk: 'customers.id' },
+              { name: 'total_cents', type: 'integer' }
+            ]
+          }
+        ]
+      };
+
+      const editor = window.CodeLabSql.createSqlEditor(
+        document.getElementById('sql-playground'),
+        {
+          mode: 'playground',
+          dialect: 'postgres',
+          schema,
+          value: 'SELECT id FROM customers;\nSELECT count(*) FROM orders;',
+          onRun(payload) {
+            window.__sqlRuns.push(payload);
+            document.getElementById('run-log').textContent = payload.effectiveSql;
+          }
+        }
+      );
+
+      document.getElementById('pill-total-cents').addEventListener('click', () => {
+        editor.insertAtCursor('total_cents');
+      });
+
+      window.__sqlEditor = editor;
+    </script>
+  </body>
+</html>

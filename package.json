@@ -1,6 +1,6 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Modular browser-native IDE Workbench, Lightweight SQL Playground & Inline Editor (@innovatorved/code-lab/sql), POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, C++20 WASI, and Python 3.12 Extension.",
   "workspaces": [
     "packages/*",
@@ -114,6 +114,7 @@
     "build": "bun run tools/bundle.js",
     "lint": "node tools/lint.js",
     "check:boundaries": "node tools/check-boundaries.js",
+    "check:size": "node tools/check-bundle-size.js",
     "typecheck": "bun x tsc --noEmit",
     "typecheck:strict": "bun x tsc -p tsconfig.strict.json",
     "test": "bun run tools/bundle.js && bun run tests/run-all.js",
@@ -124,6 +125,12 @@
     "test:browser:all": "bunx playwright test",
     "test:browser:install": "bunx playwright install --with-deps chromium firefox webkit",
     "pack:check": "bun pm pack --dry-run"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "node tools/lint.js",
+      "node tools/check-boundaries.js"
+    ]
   },
   "dependencies": {
     "zod": "^4.6.7"

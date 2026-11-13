@@ -166,8 +166,13 @@ export function parseJsonc<T = unknown>(raw: string): JsoncParseResult<T> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const posMatch = /position\s+(\d+)/i.exec(msg);
+    const lineColMatch = /line\s+(\d+)\s+column\s+(\d+)/i.exec(msg);
     const offset = posMatch ? Number(posMatch[1]) : 0;
-    const lc = offsetToLineCol(raw, offset);
+    const lc = posMatch
+      ? offsetToLineCol(raw, offset)
+      : lineColMatch
+        ? { line: Number(lineColMatch[1]), column: Number(lineColMatch[2]) }
+        : offsetToLineCol(raw, raw.length);
     return {
       value: undefined,
       errors: [

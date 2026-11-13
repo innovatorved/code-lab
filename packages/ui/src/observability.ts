@@ -149,7 +149,11 @@ export class WorkbenchErrorBoundary {
       this.bannerEl.setAttribute('role', 'alert');
       this.bannerEl.style.cssText =
         'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;background:rgba(239,68,68,0.15);border-bottom:1px solid #ef4444;color:var(--cl-fg,#f5f5f5);font-size:12px;';
-      this.host.prepend(this.bannerEl);
+      if (typeof this.host.prepend === 'function') {
+        this.host.prepend(this.bannerEl);
+      } else {
+        this.host.appendChild(this.bannerEl);
+      }
     }
     this.bannerEl.innerHTML =
       `<span><strong>${escapeHtml(contextLabel)}:</strong> ${escapeHtml(msg)}</span>` +
