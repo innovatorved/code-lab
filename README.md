@@ -2,9 +2,6 @@
 
 Modular browser-native IDE workbench (`v0.4.0`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 71 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
 
-**Live Cloud IDE:** [code-lab.vedgupta.in](https://code-lab.vedgupta.in/) · **Documentation Wiki:** [github.com/innovatorved/code-lab/wiki](https://github.com/innovatorved/code-lab/wiki)
-
----
 
 ## Highlights
 
@@ -14,7 +11,6 @@ Modular browser-native IDE workbench (`v0.4.0`), Web Worker runtime for Node.js,
 - **POSIX Shell & 71 Coreutils**: Multi-session terminal with pipelines, stream redirection, background servers, public GitHub repository cloning, package installation, HTTP load testing, and 71 UNIX commands.
 - **Guided Labs & Headless Grading**: Step-by-step coding and SQL challenges with progressive hints, side-by-side solution diffs, and zero-UI headless worker execution.
 
----
 
 ## Install
 
@@ -72,7 +68,6 @@ const sql = createSqlEditor(document.getElementById('sql')!, {
 });
 ```
 
----
 
 ## Package Entrypoints
 
@@ -89,26 +84,9 @@ const sql = createSqlEditor(document.getElementById('sql')!, {
 | `@innovatorved/code-lab/extensions/*` | Opt-in extensions for Guided Labs, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly |
 | `@innovatorved/code-lab/preview-sw.js` | Virtual loopback Service Worker for standalone browser preview tabs |
 
----
 
-## Documentation (GitHub Wiki)
+Full guides and API references live on the **[GitHub Wiki](https://github.com/innovatorved/code-lab/wiki)**.
 
-Full guides and API references live on the **[GitHub Wiki](https://github.com/innovatorved/code-lab/wiki)**:
-
-- **[Home](https://github.com/innovatorved/code-lab/wiki)** — Overview and architecture diagram
-- **[Quick Start](https://github.com/innovatorved/code-lab/wiki/Quick-Start)** — Package installation, custom HTML element, and CDN setup
-- **[SQL Playground & Inline Editor](https://github.com/innovatorved/code-lab/wiki/SQL-Playground-and-Inline-Editor)** — Inline blocks, playgrounds, PostgreSQL and SQLite dialects, and autocomplete
-- **[Integration Guide](https://github.com/innovatorved/code-lab/wiki/Integration-Guide)** — React, Next.js App Router, and Vite integration recipes
-- **[Workbench Configuration](https://github.com/innovatorved/code-lab/wiki/Workbench-Configuration)** — Mount options, workspace settings, methods, and keyboard shortcuts
-- **[Runtime APIs](https://github.com/innovatorved/code-lab/wiki/Runtime-APIs)** — Node.js v22, Bun v1.1, C++20 WebAssembly, and Python 3.12 WebAssembly
-- **[POSIX Shell & Coreutils](https://github.com/innovatorved/code-lab/wiki/POSIX-Shell-and-Coreutils)** — Shell syntax and all 71 built-in UNIX commands
-- **[HTTP Servers & Networking](https://github.com/innovatorved/code-lab/wiki/HTTP-Servers-and-Networking)** — Loopback port table, background servers, load testing, and Web Preview
-- **[Headless Runtime](https://github.com/innovatorved/code-lab/wiki/Headless-Runtime)** — Zero-UI grading and programmatic test execution
-- **[Authoring Guided Labs](https://github.com/innovatorved/code-lab/wiki/Authoring-Guided-Labs)** — Step-by-step challenges across JavaScript, TypeScript, C++20, Python 3.12, and SQL
-- **[Plugin System](https://github.com/innovatorved/code-lab/wiki/Plugin-System)** — Declarative plugins, language packs, and lifecycle hooks
-- **[Architecture & Monorepo](https://github.com/innovatorved/code-lab/wiki/Architecture-and-Monorepo)** — Workspace layers, dependency injection, and virtual filesystem backends
-
----
 
 ## Development
 
@@ -122,8 +100,6 @@ node tests/run-all.js          # Run the same 47 suites under Node 20, 22, and 2
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.
-
----
 
 ## License
 
