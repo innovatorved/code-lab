@@ -20,24 +20,20 @@
 - [x] **Phase 1 — Honest Self-Audit**
   - [x] Audited codebase across Architecture, Correctness, Robustness, Security, Performance, DX, and Competitor Gaps (`6 P0`, `14 P1`, `6 P2` findings with exact `file:line` evidence) → [audit.md](file:///Users/vedgupta/Desktop/code-lab/docs/research/audit.md)
   - [x] Recorded core architectural trade-offs → [DECISIONS.md](file:///Users/vedgupta/Desktop/code-lab/docs/DECISIONS.md)
+- [x] **Milestone 1 — Fix All P0 Critical Bugs, Security Issues & Dependency CVEs (with Regression Tests)**
+  - [x] `P0-6`: Upgraded `zod@4.6.7`, `esbuild@0.28.2`, and `examples/cloud-ide` (`astro@7.4.11`, removed unused `puppeteer`) — `bun audit` passes with **0 vulnerabilities** across both root and `examples/cloud-ide`
+  - [x] `P0-1`: Implemented `startInlineCreate` and `startInlineRename` (both signatures + `Enter`/`Escape`/`blur` + `F2`) on `CodeLabWorkbench`
+  - [x] `P0-2`: Fixed double-escaped `\n` in `DEFAULT_STANDALONE_PYTHON_FILES` and `.py`/`.md` templates
+  - [x] `P0-3`: Implemented all missing public methods on `CodeLabWorkbench`, `CodeLabElement`, and `dist/code-lab.d.ts` (`setTheme`, `getTheme`, `switchDrawerTab`, `exportZip`, `importZip`, `runProject`, `stopExecution`, `cancelExecution`, `movePath`, `toggleWebPreview`, `runSelectedCode`, `promptNewFile`, `promptNewFolder`, `closeCommandPalette`)
+  - [x] `P0-4`: Fixed `executeInWorker` to preserve streamed `stdout`/`stderr`/`testResults` on timeout/cancel/error, sync dirty VFS mutations (`Uint8Array`-safe) back to `options.vfs` and workbench, and guard against re-executing crashed worker code on the main thread
+  - [x] `P0-5`: Hardened `preview-sw.js` with `X-Content-Type-Options: nosniff` on all responses, `Content-Security-Policy` on all HTML/XHTML/SVG/XML/untyped responses, 302 navigate isolation into `/__preview/:port/...`, sender/CRLF validation on `codelab:config`, and `MessageChannel` port cleanup
+  - [x] Added regression suite [test-p0-audit-regressions.js](file:///Users/vedgupta/Desktop/code-lab/tests/test-p0-audit-regressions.js) (44/44 suites green)
 
 ---
 
 ## In Progress
 
-- [ ] **Milestone 1 — Fix All P0 Critical Bugs, Security Issues & Dependency CVEs (with Regression Tests)**
-  - [ ] `P0-6`: Upgrade `zod`, `esbuild`, and `examples/cloud-ide` (`astro` stack) so `bun audit` passes with **0 vulnerabilities**
-  - [ ] `P0-1`: Implement `startInlineCreate` and `startInlineRename` on `CodeLabWorkbench` (fixes context-menu & command-palette crash)
-  - [ ] `P0-2`: Fix double-escaped `\\n` in `DEFAULT_STANDALONE_PYTHON_FILES` (`workbench.ts:1204-1207`)
-  - [ ] `P0-3`: Implement missing public methods advertised by `.d.ts`, `examples/cloud-ide`, and `sample.html` (`setTheme`, `switchDrawerTab`, `exportZip`, `importZip`, `runProject`, `stopExecution`, `cancelExecution`, `movePath`, `toggleWebPreview`, `runSelectedCode`, `promptNewFile`, `promptNewFolder`)
-  - [ ] `P0-4`: Fix `executeInWorker` to preserve streamed `stdout`/`stderr`/`testResults` on timeout/cancel/error, sync dirty VFS mutations back to `options.vfs`, and stop re-executing crashed worker code on the UI thread
-  - [ ] `P0-5`: Harden `preview-sw.js` to enforce `Content-Security-Policy` + `X-Content-Type-Options: nosniff` on **every** response (closing SVG/XHTML/binary host-origin XSS) and authenticate `codelab:config`
-
----
-
-## Remaining
-
-- [ ] **Milestone 2 — Fix All P1 Audit Findings (with Regression Tests)**
+- [ ] **Milestone 2 — Fix All P1 (& P2) Audit Findings (with Regression Tests)**
   - [ ] `P1-2`: Inline diff editor state/VFS/model sync & theme fix
   - [ ] `P1-3`: Remove `allow-same-origin` from `.codelab-response-iframe` & `JSON.stringify` URLs in `loadMonaco` worker shim
   - [ ] `P1-4`: Multi-instance isolation (`instanceId`-scoped Monaco URIs & SW client routing, full `destroy()` disposable/model/timer/port/Blob cleanup, per-execution `cwd` & FD cleanup)

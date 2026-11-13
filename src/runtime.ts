@@ -1856,6 +1856,13 @@ function __initVirtualRuntime(rootScope) {
     };
 
     fsShim.promises = fsPromises;
+    fsShim._exportRawState = () => {
+      const clonedFiles = new Map();
+      for (const [k, v] of files.entries()) {
+        clonedFiles.set(k, v.data instanceof Uint8Array ? v.data.slice() : new Uint8Array(v.data || 0));
+      }
+      return { files: clonedFiles, dirs: new Set(dirs) };
+    };
 
     return fsShim;
   }
@@ -6402,6 +6409,10 @@ function __initVirtualRuntime(rootScope) {
       }
     }
 
+    const initialVfsState = (options && options._captureVfsDiff && typeof vfs._exportRawState === 'function')
+      ? vfs._exportRawState()
+      : null;
+
     // Custom timer wrappers supporting .unref() / .ref() and active handle tracking
     function makeTimerHandle(rawId, isInterval) {
       const handle = {
@@ -8780,6 +8791,42 @@ function __initVirtualRuntime(rootScope) {
     const failedTests = testResults.filter((t) => !t.passed).length;
     if (failedTests > 0 && exitCode === 0) exitCode = 1;
 
+    let vfsChanges = undefined;
+    if (initialVfsState && typeof vfs._exportRawState === 'function') {
+      const finalVfsState = vfs._exportRawState();
+      const modifiedFiles = {};
+      const deletedFiles = [];
+      const createdDirs = [];
+      const isNodeModulesPath = (p) => p === '/workspace/node_modules' || p.startsWith('/workspace/node_modules/');
+      const bytesEqual = (a, b) => {
+        if (!a || !b || a.byteLength !== b.byteLength) return false;
+        for (let i = 0; i < a.byteLength; i++) {
+          if (a[i] !== b[i]) return false;
+        }
+        return true;
+      };
+
+      for (const d of finalVfsState.dirs) {
+        if (!initialVfsState.dirs.has(d) && !isNodeModulesPath(d)) {
+          createdDirs.push(d);
+        }
+      }
+      for (const [fPath, data] of finalVfsState.files.entries()) {
+        if (isNodeModulesPath(fPath)) continue;
+        const prev = initialVfsState.files.get(fPath);
+        if (!prev || !bytesEqual(prev, data)) {
+          modifiedFiles[fPath] = data;
+        }
+      }
+      for (const fPath of initialVfsState.files.keys()) {
+        if (isNodeModulesPath(fPath)) continue;
+        if (!finalVfsState.files.has(fPath)) {
+          deletedFiles.push(fPath);
+        }
+      }
+      vfsChanges = { modifiedFiles, deletedFiles, createdDirs };
+    }
+
     return {
       ok: exitCode === 0,
       exitCode,
@@ -8795,6 +8842,7 @@ function __initVirtualRuntime(rootScope) {
         failed: failedTests
       },
       fsSnapshot: typeof vfs.getSnapshot === 'function' ? vfs.getSnapshot() : [],
+      ...(vfsChanges ? { vfsChanges } : {}),
       httpTrace: [...vhttp.getTrace(), ...vnet.getTrace()],
       replValue: replValue !== undefined ? formatConsoleArg(replValue) : undefined
     };
@@ -9479,9 +9527,11 @@ function __workerMessageLoop(workerScope) {
     const msg = event.data || {};
     const { requestId, type, payload = {} } = msg;
     if (type !== 'execute') return;
+    workerScope.postMessage({ requestId, type: 'started' });
     try {
       const result = await runtime.executeInVirtualRuntime({
         ...payload,
+        _captureVfsDiff: true,
         onStdout(text) {
           workerScope.postMessage({ requestId, type: 'stdout', text });
         },
@@ -9533,7 +9583,10 @@ function _ensureWorkerUrl() {
 }
 
 function _ensureWarmWorker() {
-  if (_warmWorker) return _warmWorker;
+  if (_warmWorker && typeof Worker === 'function' && _warmWorker instanceof Worker) {
+    return _warmWorker;
+  }
+  if (_warmWorker) _destroyWarmWorker();
   _warmWorker = new Worker(_ensureWorkerUrl());
   return _warmWorker;
 }
@@ -9545,6 +9598,14 @@ function _destroyWarmWorker() {
   }
   _warmWorkerBusy = false;
 }
+
+_hostRuntime.destroyWorkerPool = function destroyWorkerPool() {
+  _destroyWarmWorker();
+  if (_cachedWorkerUrl && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+    try { URL.revokeObjectURL(_cachedWorkerUrl); } catch (err) { _hostLogger.debug('revokeObjectURL failed', err); }
+  }
+  _cachedWorkerUrl = null;
+};
 
 _hostRuntime.cancelWorkerExecution = function cancelWorkerExecution(reason = 'Execution cancelled', instanceId) {
   let cancelledAny = false;
@@ -9558,11 +9619,118 @@ _hostRuntime.cancelWorkerExecution = function cancelWorkerExecution(reason = 'Ex
   return cancelledAny;
 };
 
+function _extractWorkerFilesFromVfs(vfs) {
+  const extracted = {};
+  if (!vfs || typeof vfs !== 'object') return extracted;
+  try {
+    if (typeof vfs._exportRawState === 'function') {
+      const st = vfs._exportRawState();
+      for (const [absPath, bytes] of st.files.entries()) {
+        extracted[absPath] = bytes;
+      }
+      return extracted;
+    }
+    if (vfs.files instanceof Map) {
+      for (const [absPath, entry] of vfs.files.entries()) {
+        if (!entry) continue;
+        const data = entry.data !== undefined ? entry.data : entry;
+        if (typeof data === 'string') {
+          extracted[absPath] = data;
+        } else if (data instanceof Uint8Array) {
+          extracted[absPath] = data.slice();
+        } else if (ArrayBuffer.isView(data)) {
+          extracted[absPath] = new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice();
+        }
+      }
+      return extracted;
+    }
+    if (typeof vfs.readdirSync === 'function' && typeof vfs.readFileSync === 'function') {
+      const walk = (dir) => {
+        let entries = [];
+        try { entries = vfs.readdirSync(dir); } catch (_) { return; }
+        for (const name of entries) {
+          const full = dir === '/' ? '/' + name : dir + '/' + name;
+          let isDir = false;
+          try { isDir = vfs.statSync(full).isDirectory(); } catch (_) { isDir = false; }
+          if (isDir) walk(full);
+          else {
+            try {
+              const raw = vfs.readFileSync(full);
+              extracted[full] = raw instanceof Uint8Array
+                ? raw.slice()
+                : (typeof raw === 'string' ? raw : String(raw ?? ''));
+            } catch (err) {
+              _hostLogger.debug('_extractWorkerFilesFromVfs: skip unreadable entry', full, err);
+            }
+          }
+        }
+      };
+      walk('/workspace');
+      walk('/tmp');
+    }
+  } catch (err) {
+    _hostLogger.debug('_extractWorkerFilesFromVfs failed', err);
+  }
+  return extracted;
+}
+
+function _applyWorkerVfsChanges(vfs, vfsChanges) {
+  if (!vfs || !vfsChanges || typeof vfsChanges !== 'object') return;
+  const { createdDirs = [], modifiedFiles = {}, deletedFiles = [] } = vfsChanges;
+  try {
+    if (Array.isArray(createdDirs) && typeof vfs.mkdirSync === 'function') {
+      for (const dir of createdDirs) {
+        try {
+          vfs.mkdirSync(dir, { recursive: true });
+        } catch (err) {
+          _hostLogger.debug('_applyWorkerVfsChanges: mkdirSync failed', dir, err);
+        }
+      }
+    }
+    if (modifiedFiles && typeof modifiedFiles === 'object') {
+      for (const [absPath, rawBytes] of Object.entries(modifiedFiles)) {
+        const slashIdx = absPath.lastIndexOf('/');
+        if (slashIdx > 0 && typeof vfs.mkdirSync === 'function') {
+          try {
+            vfs.mkdirSync(absPath.slice(0, slashIdx), { recursive: true });
+          } catch (err) {
+            _hostLogger.debug('_applyWorkerVfsChanges: parent mkdirSync failed', absPath, err);
+          }
+        }
+        const payload = rawBytes instanceof Uint8Array
+          ? rawBytes
+          : (ArrayBuffer.isView(rawBytes)
+            ? new Uint8Array(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+            : rawBytes);
+        if (typeof vfs.writeFileSync === 'function') {
+          vfs.writeFileSync(absPath, payload);
+        } else if (typeof vfs.writeFile === 'function') {
+          vfs.writeFile(absPath, payload);
+        }
+      }
+    }
+    if (Array.isArray(deletedFiles)) {
+      for (const absPath of deletedFiles) {
+        try {
+          if (typeof vfs.unlinkSync === 'function') vfs.unlinkSync(absPath);
+          else if (typeof vfs.rmSync === 'function') vfs.rmSync(absPath, { force: true });
+        } catch (err) {
+          _hostLogger.debug('_applyWorkerVfsChanges: delete failed', absPath, err);
+        }
+      }
+    }
+  } catch (err) {
+    _hostLogger.debug('_applyWorkerVfsChanges failed', err);
+  }
+}
+
 _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
   const isNonJs =
     Boolean(options.wasmBinary) ||
     Boolean(options.cppCompiler) ||
     Boolean(options.pythonCompiler) ||
+    Boolean(options.activePortTable) ||
+    Boolean(options.portTable) ||
     (typeof options.entry === 'string' && /\.(cpp|cc|cxx|wasm|py)$/i.test(options.entry));
   if (
     isNonJs ||
@@ -9582,6 +9750,10 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
     _hostRuntime.cancelWorkerExecution('Execution cancelled by new run', instanceId);
   }
 
+  const mergedFiles = options.vfs
+    ? Object.assign(_extractWorkerFilesFromVfs(options.vfs), options.files || {})
+    : options.files;
+
   return new Promise((resolve) => {
     let worker;
     let isWarmWorker = false;
@@ -9600,9 +9772,23 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
       return;
     }
 
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const timeoutMs = options.timeoutMs || 15000;
     let settled = false;
+    let userCodeStarted = false;
     let abortListener = null;
+    const streamedStdoutChunks = [];
+    const streamedStderrChunks = [];
+    const streamedTestResults = [];
+
+    const buildTestSummary = () => {
+      const failed = streamedTestResults.filter((t) => !t.passed).length;
+      return {
+        total: streamedTestResults.length,
+        passed: streamedTestResults.length - failed,
+        failed
+      };
+    };
 
     function releaseWorker(terminateWorker) {
       if (options.signal && abortListener) {
@@ -9629,14 +9815,16 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
       if (settled) return;
       settled = true;
       releaseWorker(true);
+      const timeoutMsg = `Execution timed out after ${timeoutMs}ms (infinite loop or hung timer terminated).\n`;
       resolve({
         ok: false,
         timedOut: true,
         exitCode: 124,
         durationMs: timeoutMs,
-        stdout: '',
-        stderr: `Execution timed out after ${timeoutMs}ms (infinite loop or hung timer terminated).\n`,
-        testResults: [],
+        stdout: streamedStdoutChunks.join(''),
+        stderr: streamedStderrChunks.join('') + timeoutMsg,
+        testResults: streamedTestResults.slice(),
+        testSummary: buildTestSummary(),
         fsSnapshot: [],
         httpTrace: [],
         error: { message: `Execution timed out after ${timeoutMs}ms` }
@@ -9651,14 +9839,16 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         settled = true;
         clearTimeout(timer);
         releaseWorker(true);
+        const elapsed = Math.max(0, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime);
         resolve({
           ok: false,
           cancelled: true,
           exitCode: 130,
-          durationMs: 0,
-          stdout: '',
-          stderr: `${reason}\n`,
-          testResults: [],
+          durationMs: elapsed,
+          stdout: streamedStdoutChunks.join(''),
+          stderr: streamedStderrChunks.join('') + `${reason}\n`,
+          testResults: streamedTestResults.slice(),
+          testSummary: buildTestSummary(),
           fsSnapshot: [],
           httpTrace: [],
           error: { message: reason }
@@ -9682,16 +9872,27 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
     worker.onmessage = (event) => {
       const msg = event.data || {};
       if (msg.requestId !== requestId) return;
-      if (msg.type === 'stdout' && typeof options.onStdout === 'function') {
-        options.onStdout(msg.text);
-      } else if (msg.type === 'stderr' && typeof options.onStderr === 'function') {
-        options.onStderr(msg.text);
-      } else if (msg.type === 'test-result' && typeof options.onTestResult === 'function') {
-        options.onTestResult(msg.testResult);
+      if (msg.type === 'started') {
+        userCodeStarted = true;
+      } else if (msg.type === 'stdout') {
+        userCodeStarted = true;
+        if (typeof msg.text === 'string') streamedStdoutChunks.push(msg.text);
+        if (typeof options.onStdout === 'function') options.onStdout(msg.text);
+      } else if (msg.type === 'stderr') {
+        userCodeStarted = true;
+        if (typeof msg.text === 'string') streamedStderrChunks.push(msg.text);
+        if (typeof options.onStderr === 'function') options.onStderr(msg.text);
+      } else if (msg.type === 'test-result') {
+        userCodeStarted = true;
+        if (msg.testResult) streamedTestResults.push(msg.testResult);
+        if (typeof options.onTestResult === 'function') options.onTestResult(msg.testResult);
       } else if (msg.type === 'complete') {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (options.vfs && msg.result && msg.result.vfsChanges) {
+          _applyWorkerVfsChanges(options.vfs, msg.result.vfsChanges);
+        }
         // Release `_warmWorker` for instant reuse, or terminate ephemeral concurrent worker
         releaseWorker(false);
         resolve(msg.result);
@@ -9700,13 +9901,16 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         settled = true;
         clearTimeout(timer);
         releaseWorker(false);
+        const elapsed = Math.max(0, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime);
+        const errLine = (msg.error?.stack || msg.error?.message || 'Worker execution error') + '\n';
         resolve({
           ok: false,
           exitCode: 1,
-          durationMs: 0,
-          stdout: '',
-          stderr: (msg.error?.stack || msg.error?.message || 'Worker execution error') + '\n',
-          testResults: [],
+          durationMs: elapsed,
+          stdout: streamedStdoutChunks.join(''),
+          stderr: streamedStderrChunks.join('') + errLine,
+          testResults: streamedTestResults.slice(),
+          testSummary: buildTestSummary(),
           fsSnapshot: [],
           httpTrace: [],
           error: { message: msg.error?.message || 'Worker execution error', stack: msg.error?.stack }
@@ -9714,19 +9918,40 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
       }
     };
 
-    worker.onerror = () => {
+    worker.onerror = (errEvent) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       releaseWorker(true);
-      resolve(_hostRuntime.executeInVirtualRuntime(options));
+      // Only fall back to in-process execution if the host blocked Blob Worker startup
+      // BEFORE user code ever started. Never re-run crashed user code on the main thread.
+      if (!userCodeStarted && options.allowMainThreadFallback !== false) {
+        resolve(_hostRuntime.executeInVirtualRuntime(options));
+        return;
+      }
+      const elapsed = Math.max(0, (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startTime);
+      const errMsg = (errEvent && errEvent.message)
+        ? String(errEvent.message)
+        : 'Uncaught fatal error in Web Worker execution';
+      resolve({
+        ok: false,
+        exitCode: 1,
+        durationMs: elapsed,
+        stdout: streamedStdoutChunks.join(''),
+        stderr: streamedStderrChunks.join('') + errMsg + '\n',
+        testResults: streamedTestResults.slice(),
+        testSummary: buildTestSummary(),
+        fsSnapshot: [],
+        httpTrace: [],
+        error: { message: errMsg }
+      });
     };
 
     worker.postMessage({
       requestId,
       type: 'execute',
       payload: {
-        files: options.files,
+        files: mergedFiles,
         entry: options.entry,
         mode: options.mode,
         replCode: options.replCode,

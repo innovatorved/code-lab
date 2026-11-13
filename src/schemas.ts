@@ -28,9 +28,9 @@ export const LanguageEnum = LanguageIdSchema;
 
 export const LanguageBundleSchema = z.object({
   language: LanguageIdSchema.default('js'),
-  files: z.record(z.string()).default({}),
-  starterFiles: z.record(z.string()).optional(),
-  solutionFiles: z.record(z.string()).optional(),
+  files: z.record(z.string(), z.string()).default({}),
+  starterFiles: z.record(z.string(), z.string()).optional(),
+  solutionFiles: z.record(z.string(), z.string()).optional(),
   entry: z.string().optional(),
   testEntry: z.string().optional()
 });
@@ -45,26 +45,26 @@ export const GuidedLabExtensionOptionsSchema = z.object({
   mode: z.enum(['guided', 'sandbox']).default('guided'),
   language: LanguageIdSchema.optional(),
   lang: LanguageIdSchema.optional(),
-  starterFiles: z.record(z.string()).optional(),
-  solutionFiles: z.record(z.string()).optional(),
-  tsStarterFiles: z.record(z.string()).optional(),
-  tsSolutionFiles: z.record(z.string()).optional(),
-  tsFiles: z.record(z.string()).optional(),
-  cppStarterFiles: z.record(z.string()).optional(),
-  cppSolutionFiles: z.record(z.string()).optional(),
-  cppFiles: z.record(z.string()).optional(),
-  pyStarterFiles: z.record(z.string()).optional(),
-  pySolutionFiles: z.record(z.string()).optional(),
-  pyFiles: z.record(z.string()).optional(),
+  starterFiles: z.record(z.string(), z.string()).optional(),
+  solutionFiles: z.record(z.string(), z.string()).optional(),
+  tsStarterFiles: z.record(z.string(), z.string()).optional(),
+  tsSolutionFiles: z.record(z.string(), z.string()).optional(),
+  tsFiles: z.record(z.string(), z.string()).optional(),
+  cppStarterFiles: z.record(z.string(), z.string()).optional(),
+  cppSolutionFiles: z.record(z.string(), z.string()).optional(),
+  cppFiles: z.record(z.string(), z.string()).optional(),
+  pyStarterFiles: z.record(z.string(), z.string()).optional(),
+  pySolutionFiles: z.record(z.string(), z.string()).optional(),
+  pyFiles: z.record(z.string(), z.string()).optional(),
   pyEntry: z.string().optional(),
   pyTestEntry: z.string().optional(),
   pyTestCode: z.string().optional(),
   summary: z.string().optional(),
-  onStepComplete: z.function().args(GuidedStepSchema, z.number()).returns(z.void()).optional(),
-  onLabComplete: z.function().args(z.string()).returns(z.void()).optional()
+  onStepComplete: z.function({ input: [GuidedStepSchema, z.number()], output: z.void() }).optional(),
+  onLabComplete: z.function({ input: [z.string()], output: z.void() }).optional()
 });
 
-export type GuidedLabExtensionOptions = z.infer<typeof GuidedLabExtensionOptionsSchema>;
+export type GuidedLabExtensionOptions = z.input<typeof GuidedLabExtensionOptionsSchema>;
 
 export const CppToolchainProgressSchema = z.object({
   stage: z.enum(['downloading', 'caching', 'extracting', 'compiling', 'linking', 'ready', 'error']),
@@ -89,15 +89,15 @@ export const CppExtensionOptionsSchema = z.object({
   std: z.enum(['c++17', 'c++20', 'c++23']).default('c++20'),
   optLevel: z.enum(['-O0', '-O1', '-O2', '-O3']).default('-O2'),
   flags: z.array(z.string()).default(['-O2', '-Wall', '-Wextra']),
-  headers: z.record(z.string()).optional(),
-  extraHeaders: z.record(z.string()).optional(),
-  files: z.record(z.string()).optional(),
-  starterFiles: z.record(z.string()).optional(),
-  solutionFiles: z.record(z.string()).optional(),
-  onProgress: z.function().args(z.any()).returns(z.void()).optional()
+  headers: z.record(z.string(), z.string()).optional(),
+  extraHeaders: z.record(z.string(), z.string()).optional(),
+  files: z.record(z.string(), z.string()).optional(),
+  starterFiles: z.record(z.string(), z.string()).optional(),
+  solutionFiles: z.record(z.string(), z.string()).optional(),
+  onProgress: z.function({ input: [z.any()], output: z.void() }).optional()
 });
 
-export type CppExtensionOptions = z.infer<typeof CppExtensionOptionsSchema>;
+export type CppExtensionOptions = z.input<typeof CppExtensionOptionsSchema>;
 
 export const PythonToolchainProgressSchema = z.object({
   stage: z.enum(['downloading', 'caching', 'extracting', 'initializing', 'ready']),
@@ -121,13 +121,13 @@ export const PythonExtensionOptionsSchema = z.object({
   packages: z.array(z.string()).optional(),
   preloadPackages: z.array(z.string()).optional(),
   compilerMemoryLimitMb: z.number().optional(),
-  files: z.record(z.string()).optional(),
-  starterFiles: z.record(z.string()).optional(),
-  solutionFiles: z.record(z.string()).optional(),
-  onProgress: z.function().args(z.any()).returns(z.void()).optional()
+  files: z.record(z.string(), z.string()).optional(),
+  starterFiles: z.record(z.string(), z.string()).optional(),
+  solutionFiles: z.record(z.string(), z.string()).optional(),
+  onProgress: z.function({ input: [z.any()], output: z.void() }).optional()
 });
 
-export type PythonExtensionOptions = z.infer<typeof PythonExtensionOptionsSchema>;
+export type PythonExtensionOptions = z.input<typeof PythonExtensionOptionsSchema>;
 
 // ── 4. GitHub Clone Options & Progress ──────────────────────────────────────
 
@@ -160,16 +160,16 @@ export const GitHubCloneOptionsSchema = z.object({
   maxFileSize: z.number().int().positive().default(5 * 1024 * 1024),
   concurrency: z.number().int().positive().default(8),
   clearExisting: z.boolean().default(false),
-  onProgress: z.function().args(z.any()).returns(z.void()).optional(),
+  onProgress: z.function({ input: [z.any()], output: z.void() }).optional(),
   fetchImpl: z.any().optional()
 });
 
-export type GitHubCloneOptions = z.infer<typeof GitHubCloneOptionsSchema>;
+export type GitHubCloneOptions = z.input<typeof GitHubCloneOptionsSchema>;
 
 // ── 5. Runtime Execution Options ────────────────────────────────────────────
 
 export const RuntimeExecuteOptionsSchema = z.object({
-  files: z.record(z.string()).optional(),
+  files: z.record(z.string(), z.string()).optional(),
   entry: z.string().optional(),
   mode: z.enum(['run', 'test', 'repl']).default('run'),
   replCode: z.string().optional(),
@@ -185,21 +185,21 @@ export const RuntimeExecuteOptionsSchema = z.object({
   isBackground: z.boolean().optional(),
   vfs: z.any().optional(),
   activePortTable: z.any().optional(),
-  packages: z.record(z.any()).optional(),
-  npmModules: z.record(z.any()).optional(),
-  onStdout: z.function().args(z.string()).returns(z.void()).optional(),
-  onStderr: z.function().args(z.string()).returns(z.void()).optional(),
-  onTestResult: z.function().args(z.any()).returns(z.void()).optional()
+  packages: z.record(z.string(), z.any()).optional(),
+  npmModules: z.record(z.string(), z.any()).optional(),
+  onStdout: z.function({ input: [z.string()], output: z.void() }).optional(),
+  onStderr: z.function({ input: [z.string()], output: z.void() }).optional(),
+  onTestResult: z.function({ input: [z.any()], output: z.void() }).optional()
 });
 
-export type RuntimeExecuteOptions = z.infer<typeof RuntimeExecuteOptionsSchema>;
+export type RuntimeExecuteOptions = z.input<typeof RuntimeExecuteOptionsSchema>;
 
 // ── 6. Workspace Snapshot ───────────────────────────────────────────────────
 
 export const WorkspaceSnapshotSchema = z.object({
   version: z.number().default(1),
   timestamp: z.number().optional(),
-  files: z.record(z.string()),
+  files: z.record(z.string(), z.string()),
   openTabs: z.array(z.string()).default([]),
   activeFile: z.string().nullable().optional(),
   mode: z.enum(['guided', 'sandbox']).optional(),
@@ -217,12 +217,12 @@ export const WorkbenchOptionsSchema = z.object({
   buildId: z.string().optional(),
   title: z.string().default('code-lab'),
   summary: z.string().optional(),
-  theme: z.enum(['dark', 'light', 'auto']).default('auto'),
+  theme: z.enum(['dark', 'light', 'high-contrast', 'auto']).default('auto'),
   persistState: z.boolean().default(true),
   repo: z.string().optional(),
   githubRepo: z.string().optional(),
   branch: z.string().optional(),
-  files: z.record(z.string()).default({}),
+  files: z.record(z.string(), z.string()).default({}),
   entry: z.string().default('demo.js'),
   testEntry: z.string().default('test.js'),
   testFile: z.string().optional(),
@@ -231,25 +231,25 @@ export const WorkbenchOptionsSchema = z.object({
   previewOrigin: z.string().optional(),
   logger: z.any().optional(),
   debug: z.boolean().optional(),
-  onClose: z.function().returns(z.void()).optional(),
-  onRun: z.function().args(z.any()).returns(z.void()).optional(),
-  onTestResult: z.function().args(z.any()).returns(z.void()).optional(),
-  onCodeChange: z.function().args(z.string(), z.string()).returns(z.void()).optional(),
+  onClose: z.function({ input: [], output: z.void() }).optional(),
+  onRun: z.function({ input: [z.any()], output: z.void() }).optional(),
+  onTestResult: z.function({ input: [z.any()], output: z.void() }).optional(),
+  onCodeChange: z.function({ input: [z.string(), z.string()], output: z.void() }).optional(),
   plugins: z.array(z.any()).optional(),
   extensions: z.array(z.any()).optional(),
   // Backward-compatible guided lab properties:
   steps: z.array(GuidedStepSchema).optional(),
-  starterFiles: z.record(z.string()).optional(),
-  solutionFiles: z.record(z.string()).optional(),
-  tsFiles: z.record(z.string()).optional(),
-  tsStarterFiles: z.record(z.string()).optional(),
-  tsSolutionFiles: z.record(z.string()).optional(),
-  cppFiles: z.record(z.string()).optional(),
-  cppStarterFiles: z.record(z.string()).optional(),
-  cppSolutionFiles: z.record(z.string()).optional(),
-  pyFiles: z.record(z.string()).optional(),
-  pyStarterFiles: z.record(z.string()).optional(),
-  pySolutionFiles: z.record(z.string()).optional(),
+  starterFiles: z.record(z.string(), z.string()).optional(),
+  solutionFiles: z.record(z.string(), z.string()).optional(),
+  tsFiles: z.record(z.string(), z.string()).optional(),
+  tsStarterFiles: z.record(z.string(), z.string()).optional(),
+  tsSolutionFiles: z.record(z.string(), z.string()).optional(),
+  cppFiles: z.record(z.string(), z.string()).optional(),
+  cppStarterFiles: z.record(z.string(), z.string()).optional(),
+  cppSolutionFiles: z.record(z.string(), z.string()).optional(),
+  pyFiles: z.record(z.string(), z.string()).optional(),
+  pyStarterFiles: z.record(z.string(), z.string()).optional(),
+  pySolutionFiles: z.record(z.string(), z.string()).optional(),
   pyEntry: z.string().optional().default('main.py'),
   pyTestEntry: z.string().optional().default('test.py'),
   pyTestCode: z.string().optional(),
@@ -260,11 +260,11 @@ export const WorkbenchOptionsSchema = z.object({
   language: LanguageIdSchema.optional(),
   lang: LanguageIdSchema.optional(),
   stepIndex: z.number().int().optional(),
-  onStepComplete: z.function().args(z.any(), z.number()).returns(z.void()).optional(),
-  onLabComplete: z.function().args(z.string()).returns(z.void()).optional()
+  onStepComplete: z.function({ input: [z.any(), z.number()], output: z.void() }).optional(),
+  onLabComplete: z.function({ input: [z.string()], output: z.void() }).optional()
 });
 
-export type WorkbenchOptions = z.infer<typeof WorkbenchOptionsSchema>;
+export type WorkbenchOptions = z.input<typeof WorkbenchOptionsSchema>;
 
 // ── 8. Search Options & Match Results ────────────────────────────────────────
 
@@ -284,7 +284,7 @@ export const SearchOptionsSchema = z.object({
   maxMatchesPerFile: z.number().int().positive().optional()
 });
 
-export type SearchOptions = z.infer<typeof SearchOptionsSchema>;
+export type SearchOptions = z.input<typeof SearchOptionsSchema>;
 
 // ── 9. Diagnostic Item & Problems ───────────────────────────────────────────
 
@@ -314,7 +314,7 @@ export type DiagnosticItem = z.infer<typeof DiagnosticItemSchema>;
 export const StoredProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  files: z.record(z.string()),
+  files: z.record(z.string(), z.string()),
   updatedAt: z.number(),
   createdAt: z.number().optional(),
   entry: z.string().optional(),

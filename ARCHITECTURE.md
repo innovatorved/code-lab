@@ -135,6 +135,6 @@ Running `bun run build` (`bun run tools/bundle.js`) produces:
 | **Visual Source Control (SCM)** | Staging, unstaging, diffing, and commit history | `src/scm.ts` (`createGitState`, `computeGitStatus`, `stageFile`, `unstageFile`, `commitChanges`, `computeShortCommitHash`) — Pure TypeScript SCM state machine synced with the POSIX shell `git` command |
 | **Live Preview & Error Overlay** | Hot/debounced reload, console bridge, runtime error overlay | `src/csp.ts` (`buildPreviewShims`) + `src/workbench.ts` — 300ms debounced VFS-synced auto-reload, `codelab:preview-console` forwarding to terminal logs, and `codelab:preview-error` in-frame overlay |
 
-All 43 test suites (`bun run test:all` and `node tests/run-all.js`) and the Playwright Chromium E2E suite (`bun run test:browser`) verify these modules and end-to-end workbench flows against the built `dist/*` artifacts.
+All 44 test suites (`bun run test:all` and `node tests/run-all.js`) and the Playwright Chromium E2E suite (`bun run test:browser`) verify these modules and end-to-end workbench flows against the built `dist/*` artifacts.
 
 

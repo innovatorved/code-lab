@@ -1202,8 +1202,8 @@ int main() {
   }
 
   const DEFAULT_STANDALONE_PYTHON_FILES = {
-    'main.py': `"""\\nStandalone Python 3.12 Sandbox with CPython WebAssembly.\\n"""\\nfrom codelab_test import describe, it, assert_equal\\n\\ndef solve(x):\\n    return x\\n\\nif __name__ == '__main__':\\n    print("Hello from Python 3.12 in CodeLab!")\\n    print("Output:", solve({"status": "ok"}))\\n`,
-    'test.py': `from codelab_test import describe, it, assert_equal\\nfrom main import solve\\n\\nwith describe("Python Sandbox Test Suite"):\\n    with it("returns input value"):\\n        assert_equal(solve(42), 42)\\n`
+    'main.py': `"""\nStandalone Python 3.12 Sandbox with CPython WebAssembly.\n"""\nfrom codelab_test import describe, it, assert_equal\n\ndef solve(x):\n    return x\n\nif __name__ == '__main__':\n    print("Hello from Python 3.12 in CodeLab!")\n    print("Output:", solve({"status": "ok"}))\n`,
+    'test.py': `from codelab_test import describe, it, assert_equal\nfrom main import solve\n\nwith describe("Python Sandbox Test Suite"):\n    with it("returns input value"):\n        assert_equal(solve(42), 42)\n`
   };
 
   const DEFAULT_STANDALONE_FILES = {
@@ -1867,14 +1867,67 @@ int main() {
     }
 
     _resolvedTheme() {
-      if (this.themeOption === 'light' || this.themeOption === 'dark') {
+      if (this.themeOption === 'light' || this.themeOption === 'dark' || this.themeOption === 'high-contrast') {
         return this.themeOption;
       }
       if (typeof document !== 'undefined') {
         const docTheme = document.documentElement.getAttribute('data-theme');
-        if (docTheme === 'light') return 'light';
+        if (docTheme === 'light' || docTheme === 'high-contrast') return docTheme;
+        if (docTheme === 'dark') return 'dark';
+      }
+      if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        try {
+          if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+        } catch (err) {
+          _bootDebug('matchMedia color-scheme check failed', err);
+        }
       }
       return 'dark';
+    }
+
+    setTheme(nextTheme) {
+      const normalized = (nextTheme === 'light' || nextTheme === 'dark' || nextTheme === 'high-contrast' || nextTheme === 'auto')
+        ? nextTheme
+        : 'dark';
+      this.themeOption = normalized;
+      this.theme = normalized;
+      const resolved = this._resolvedTheme();
+      if (this.container) {
+        this.container.classList.remove('codelab-workbench--dark', 'codelab-workbench--light', 'codelab-workbench--high-contrast');
+        if (normalized === 'auto') {
+          if (typeof this.container.removeAttribute === 'function') this.container.removeAttribute('data-theme');
+        } else {
+          this.container.setAttribute('data-theme', normalized);
+          this.container.classList.add(`codelab-workbench--${normalized}`);
+        }
+        const shellEl = this.container.querySelector('.codelab');
+        if (shellEl) {
+          shellEl.setAttribute('data-cl-theme', resolved);
+          if (normalized === 'auto') {
+            if (typeof shellEl.removeAttribute === 'function') shellEl.removeAttribute('data-theme');
+          } else {
+            shellEl.setAttribute('data-theme', normalized);
+          }
+        }
+      }
+      if (this.monaco && this.monaco.editor && typeof this.monaco.editor.setTheme === 'function') {
+        const monacoTheme = resolved === 'light'
+          ? 'codelab-light'
+          : resolved === 'high-contrast'
+            ? 'hc-black'
+            : 'codelab-dark';
+        try {
+          this.monaco.editor.setTheme(monacoTheme);
+        } catch (err) {
+          this.logger.debug('monaco.editor.setTheme failed.', err);
+        }
+      }
+      this._emitEvent('theme-change', { theme: normalized, resolvedTheme: resolved });
+      return this;
+    }
+
+    getTheme() {
+      return this.themeOption || 'auto';
     }
 
     _storageKey() {
@@ -3129,20 +3182,34 @@ int main() {
         for (const fNode of sortedFolders) {
           const isCollapsed = this.collapsedFolders.has(fNode.fullPath);
           const indent = depth * 14 + 10;
-          treeHtml += `
-            <div class="codelab-folder-item ${isCollapsed ? 'collapsed' : 'expanded'}" data-cl-folder="${escapeHtml(fNode.fullPath)}" data-folder="${escapeHtml(fNode.fullPath)}" data-cl-drop-folder="${escapeHtml(fNode.fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
-              <button type="button" class="codelab-chevron" data-cl-action="toggle-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}" aria-label="${isCollapsed ? 'Expand folder' : 'Collapse folder'}">
-                ${isCollapsed ? CL_ICONS.chevronRight : CL_ICONS.chevronDown}
-              </button>
-              <span class="codelab-folder-icon">${CL_ICONS.folder}</span>
-              <span class="codelab-folder-name" title="${escapeHtml(fNode.name)}">${escapeHtml(fNode.name)}</span>
-              <div class="codelab-node-actions">
-                <button type="button" class="codelab-node-action" data-cl-action="new-file-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="New File in ${escapeHtml(fNode.name)}">${CL_ICONS.plus}</button>
-                <button type="button" class="codelab-node-action" data-cl-action="new-folder-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="New Folder in ${escapeHtml(fNode.name)}">${CL_ICONS.folder}</button>
-                <button type="button" class="codelab-node-action" data-cl-action="delete-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="Delete Folder">${CL_ICONS.trash}</button>
+          const isRenamingFolder = Boolean(
+            this.renamingItem &&
+            this.renamingItem.type === 'folder' &&
+            this.renamingItem.targetPath === fNode.fullPath
+          );
+          if (isRenamingFolder) {
+            treeHtml += `
+              <div class="codelab-tree-create-row codelab-tree-rename-row" style="padding-left: ${indent}px;">
+                <span class="codelab-tree-create-icon">${CL_ICONS.folder}</span>
+                <input type="text" id="cl-tree-rename-input" class="codelab-tree-input" value="${escapeHtml(fNode.name)}" aria-label="Rename folder ${escapeHtml(fNode.name)}" autocomplete="off" spellcheck="false" />
               </div>
-            </div>
-          `;
+            `;
+          } else {
+            treeHtml += `
+              <div class="codelab-folder-item ${isCollapsed ? 'collapsed' : 'expanded'}" data-cl-folder="${escapeHtml(fNode.fullPath)}" data-folder="${escapeHtml(fNode.fullPath)}" data-cl-drop-folder="${escapeHtml(fNode.fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
+                <button type="button" class="codelab-chevron" data-cl-action="toggle-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}" aria-label="${isCollapsed ? 'Expand folder' : 'Collapse folder'}">
+                  ${isCollapsed ? CL_ICONS.chevronRight : CL_ICONS.chevronDown}
+                </button>
+                <span class="codelab-folder-icon">${CL_ICONS.folder}</span>
+                <span class="codelab-folder-name" title="${escapeHtml(fNode.name)}">${escapeHtml(fNode.name)}</span>
+                <div class="codelab-node-actions">
+                  <button type="button" class="codelab-node-action" data-cl-action="new-file-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="New File in ${escapeHtml(fNode.name)}">${CL_ICONS.plus}</button>
+                  <button type="button" class="codelab-node-action" data-cl-action="new-folder-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="New Folder in ${escapeHtml(fNode.name)}">${CL_ICONS.folder}</button>
+                  <button type="button" class="codelab-node-action" data-cl-action="delete-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="Delete Folder">${CL_ICONS.trash}</button>
+                </div>
+              </div>
+            `;
+          }
 
           if (this.creatingItem && this.creatingItem.parentFolder === fNode.fullPath && !isCollapsed) {
             const createIndent = (depth + 1) * 14 + 10;
@@ -3163,16 +3230,30 @@ int main() {
         for (const [baseName, fullPath] of sortedFiles) {
           const isActive = fullPath === this.activeFile;
           const badge = fullPath.endsWith('.md') ? 'DOC' : fullPath.endsWith('.json') ? 'PKG' : /(^|\/)test\./i.test(fullPath) ? 'TEST' : /(^|\/)(demo|main)\./i.test(fullPath) ? 'DEMO' : /\.(hpp|h)$/i.test(fullPath) ? 'HDR' : 'SRC';
-          const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(fullPath) ? 'cpp' : fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
+          const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(fullPath) ? 'cpp' : fullPath.endsWith('.py') ? 'py' : fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
           const fileIcon = ext === 'json' ? CL_ICONS.database : ext === 'md' ? CL_ICONS.book : CL_ICONS.file;
           const indent = depth * 14 + 10;
-          treeHtml += `
-            <button type="button" class="codelab-file-item ${isActive ? 'active' : ''}" draggable="true" data-cl-file="${escapeHtml(fullPath)}" data-file="${escapeHtml(fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
-              <span class="codelab-file-icon">${fileIcon}</span>
-              <span class="codelab-file-name" title="${escapeHtml(baseName)}">${escapeHtml(baseName)}</span>
-              <span class="codelab-file-badge">${badge}</span>
-            </button>
-          `;
+          const isRenamingFile = Boolean(
+            this.renamingItem &&
+            this.renamingItem.type === 'file' &&
+            this.renamingItem.targetPath === fullPath
+          );
+          if (isRenamingFile) {
+            treeHtml += `
+              <div class="codelab-tree-create-row codelab-tree-rename-row" style="padding-left: ${indent}px;">
+                <span class="codelab-tree-create-icon">${fileIcon}</span>
+                <input type="text" id="cl-tree-rename-input" class="codelab-tree-input" value="${escapeHtml(baseName)}" aria-label="Rename file ${escapeHtml(baseName)}" autocomplete="off" spellcheck="false" />
+              </div>
+            `;
+          } else {
+            treeHtml += `
+              <button type="button" class="codelab-file-item ${isActive ? 'active' : ''}" draggable="true" data-cl-file="${escapeHtml(fullPath)}" data-file="${escapeHtml(fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
+                <span class="codelab-file-icon">${fileIcon}</span>
+                <span class="codelab-file-name" title="${escapeHtml(baseName)}">${escapeHtml(baseName)}</span>
+                <span class="codelab-file-badge">${badge}</span>
+              </button>
+            `;
+          }
         }
       };
 
@@ -3252,14 +3333,18 @@ int main() {
       // Tree inline creation input listeners
       const treeInput = explorerEl.querySelector('#cl-tree-create-input');
       if (treeInput) {
+        let createSettled = false;
         treeInput.focus();
         treeInput.addEventListener('keydown', e => {
           if (e.key === 'Escape') {
             e.stopPropagation();
+            createSettled = true;
             this.creatingItem = null;
             this._renderFileLists();
           } else if (e.key === 'Enter') {
             e.preventDefault();
+            if (createSettled) return;
+            createSettled = true;
             const val = (treeInput.value || '').trim();
             const item = this.creatingItem;
             this.creatingItem = null;
@@ -3276,10 +3361,79 @@ int main() {
           }
         });
         treeInput.addEventListener('blur', () => {
+          if (createSettled) return;
+          createSettled = true;
           if (this.creatingItem) {
+            const val = (treeInput.value || '').trim();
+            const item = this.creatingItem;
             this.creatingItem = null;
+            if (val && item) {
+              const full = item.parentFolder ? `${item.parentFolder}/${val}` : val;
+              if (item.type === 'folder') {
+                this.createFolder(full);
+              } else {
+                this.createFile(full);
+              }
+            } else {
+              this._renderFileLists();
+            }
+          }
+        });
+      }
+
+      // Tree inline rename input listeners
+      const renameInput = explorerEl.querySelector('#cl-tree-rename-input');
+      if (renameInput) {
+        let renameSettled = false;
+        renameInput.focus();
+        if (typeof renameInput.setSelectionRange === 'function') {
+          try {
+            const val = renameInput.value || '';
+            const dotIdx = this.renamingItem && this.renamingItem.type === 'file' ? val.lastIndexOf('.') : -1;
+            renameInput.setSelectionRange(0, dotIdx > 0 ? dotIdx : val.length);
+          } catch (err) {
+            _bootDebug('renameInput.setSelectionRange failed', err);
+          }
+        }
+        const commitRename = () => {
+          if (renameSettled) return;
+          renameSettled = true;
+          const rawVal = (renameInput.value || '').trim().replace(/^\/+|\/+$/g, '');
+          const item = this.renamingItem;
+          this.renamingItem = null;
+          if (!rawVal || !item) {
+            this._renderFileLists();
+            return;
+          }
+          const lastSlash = item.targetPath.lastIndexOf('/');
+          const parentDir = lastSlash > 0 ? item.targetPath.slice(0, lastSlash) : '';
+          const nextPath = rawVal.includes('/')
+            ? rawVal
+            : (parentDir ? `${parentDir}/${rawVal}` : rawVal);
+          if (nextPath === item.targetPath) {
+            this._renderFileLists();
+            return;
+          }
+          const ok = item.type === 'folder'
+            ? this.renameFolder(item.targetPath, nextPath)
+            : this.renameFile(item.targetPath, nextPath);
+          if (!ok) {
             this._renderFileLists();
           }
+        };
+        renameInput.addEventListener('keydown', e => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            renameSettled = true;
+            this.renamingItem = null;
+            this._renderFileLists();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            commitRename();
+          }
+        });
+        renameInput.addEventListener('blur', () => {
+          commitRename();
         });
       }
 
@@ -3427,7 +3581,97 @@ int main() {
     }
 
     renameFile(oldPath, newPath) {
-      return this.moveFile(oldPath, newPath);
+      const ok = this.moveFile(oldPath, newPath);
+      if (ok) {
+        this._syncFilesToShellVfs();
+        this._emitEvent('codelab:file-rename', { labId: this.labId, oldPath, newPath });
+      }
+      return ok;
+    }
+
+    movePath(sourcePath, targetFolder = '') {
+      const cleanSrc = String(sourcePath || '').trim().replace(/^\/+|\/+$/g, '');
+      const cleanDest = String(targetFolder || '').trim().replace(/^\/+|\/+$/g, '');
+      if (!cleanSrc) return false;
+      const allFolders = this._listWorkspaceFolders();
+      if (allFolders.includes(cleanSrc)) {
+        const baseName = cleanSrc.split('/').pop();
+        const nextFolder = cleanDest ? `${cleanDest}/${baseName}` : baseName;
+        if (nextFolder === cleanSrc || nextFolder.startsWith(cleanSrc + '/')) return false;
+        return this.renameFolder(cleanSrc, nextFolder);
+      }
+      return this.moveFile(cleanSrc, cleanDest);
+    }
+
+    startInlineCreate(type = 'file', folderPrefix = '') {
+      const kind = type === 'folder' ? 'folder' : 'file';
+      const cleanFolder = String(folderPrefix || '').trim().replace(/^\/+|\/+$/g, '');
+      if (cleanFolder) {
+        const parts = cleanFolder.split('/');
+        let cur = '';
+        for (const p of parts) {
+          cur = cur ? `${cur}/${p}` : p;
+          this.folders.add(cur);
+          this.collapsedFolders.delete(cur);
+        }
+        if (this.explorerFolder && cleanFolder !== this.explorerFolder && !cleanFolder.startsWith(this.explorerFolder + '/')) {
+          this.explorerFolder = '';
+        }
+      }
+      this.renamingItem = null;
+      this.isCreatingFile = false;
+      this.creatingItem = {
+        type: kind,
+        parentFolder: cleanFolder || (this.explorerFolder || '')
+      };
+      this._renderFileLists();
+    }
+
+    startInlineRename(typeOrPath, maybeTargetOrIsFolder) {
+      let kind = 'file';
+      let rawTarget = '';
+      if ((typeOrPath === 'file' || typeOrPath === 'folder') && typeof maybeTargetOrIsFolder === 'string') {
+        kind = typeOrPath;
+        rawTarget = maybeTargetOrIsFolder;
+      } else {
+        rawTarget = String(typeOrPath || '');
+        const normalizedProbe = rawTarget.trim().replace(/^\/+|\/+$/g, '');
+        if (typeof maybeTargetOrIsFolder === 'boolean') {
+          kind = maybeTargetOrIsFolder ? 'folder' : 'file';
+        } else if (this._listWorkspaceFolders().includes(normalizedProbe) && this.files[normalizedProbe] === undefined) {
+          kind = 'folder';
+        } else {
+          kind = 'file';
+        }
+      }
+
+      const cleanTarget = String(rawTarget || '').trim().replace(/^\/+|\/+$/g, '');
+      if (!cleanTarget) return;
+      if (kind === 'file' && this.files[cleanTarget] === undefined) return;
+      if (kind === 'folder' && !this._listWorkspaceFolders().includes(cleanTarget)) return;
+
+      const parts = cleanTarget.split('/');
+      let cur = '';
+      for (let i = 0; i < parts.length - 1; i++) {
+        cur = cur ? `${cur}/${parts[i]}` : parts[i];
+        this.collapsedFolders.delete(cur);
+      }
+      if (this.explorerFolder && cleanTarget !== this.explorerFolder && !cleanTarget.startsWith(this.explorerFolder + '/')) {
+        this.explorerFolder = '';
+      }
+
+      this.creatingItem = null;
+      this.isCreatingFile = false;
+      this.renamingItem = { type: kind, targetPath: cleanTarget };
+      this._renderFileLists();
+    }
+
+    promptNewFile(folderPrefix = '') {
+      this.startInlineCreate('file', folderPrefix);
+    }
+
+    promptNewFolder(folderPrefix = '') {
+      this.startInlineCreate('folder', folderPrefix);
     }
 
     renameFolder(oldFolder, newFolder) {
@@ -3544,13 +3788,13 @@ int main() {
 
     createFile(rawName, initialContent = null) {
       let clean = String(rawName).trim().replace(/^\/+/, '');
-      if (!clean) return;
-      if (!/\.(js|ts|cpp|cc|cxx|hpp|h|json|md|txt)$/i.test(clean) && !clean.includes('.')) {
+      if (!clean) return null;
+      if (!/\.(js|ts|jsx|tsx|mjs|cjs|py|cpp|cc|cxx|hpp|h|html|css|json|md|txt|sh|sql|yaml|yml)$/i.test(clean) && !clean.includes('.')) {
         clean += `.${this.lang}`;
       }
       if (this.files[clean] !== undefined) {
         this.openFile(clean);
-        return;
+        return clean;
       }
       const parts = clean.split('/');
       let cur = '';
@@ -3563,16 +3807,22 @@ int main() {
       } else {
         this.files[clean] = clean.endsWith('.json')
           ? '{\n  "name": "' + this.labId + '",\n  "dependencies": {}\n}\n'
-          : /\.(hpp|h)$/i.test(clean)
-            ? `#pragma once\n#include <bits/stdc++.h>\n\n// ${clean}\n`
-            : /\.(cpp|cc|cxx)$/i.test(clean)
-              ? `#include <bits/stdc++.h>\nusing namespace std;\n\n// ${clean}\nint main() {\n    return 0;\n}\n`
-              : `'use strict';\n\n// ${clean}\n`;
+          : clean.endsWith('.py')
+            ? `# ${clean}\n`
+            : clean.endsWith('.md')
+              ? `# ${clean}\n`
+              : /\.(hpp|h)$/i.test(clean)
+                ? `#pragma once\n#include <bits/stdc++.h>\n\n// ${clean}\n`
+                : /\.(cpp|cc|cxx)$/i.test(clean)
+                  ? `#include <bits/stdc++.h>\nusing namespace std;\n\n// ${clean}\nint main() {\n    return 0;\n}\n`
+                  : `'use strict';\n\n// ${clean}\n`;
       }
       this._saveState();
       this._getOrCreateModel(clean);
+      this._syncFilesToShellVfs();
       this._emitEvent('codelab:file-create', { labId: this.labId, filename: clean, content: this.files[clean] });
       this.openFile(clean);
+      return clean;
     }
 
     duplicateFile(filename) {
@@ -6539,6 +6789,15 @@ int main() {
           this.openCommandPalette('commands');
           return;
         }
+        if (e.key === 'F2' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          const activeTag = e.target && e.target.tagName ? String(e.target.tagName).toUpperCase() : '';
+          const inMonaco = e.target && typeof e.target.closest === 'function' && Boolean(e.target.closest('.monaco-editor'));
+          if (!inMonaco && activeTag !== 'INPUT' && activeTag !== 'TEXTAREA' && this.activeFile) {
+            e.preventDefault();
+            this.startInlineRename('file', this.activeFile);
+            return;
+          }
+        }
         if ((e.metaKey || e.ctrlKey) && keyLower === 'k') {
           e.preventDefault();
           this.openCommandPalette('commands');
@@ -7989,6 +8248,32 @@ int main() {
       this._handleInterrupt();
     }
 
+    cancelExecution() {
+      this.stopExecution();
+    }
+
+    toggleWebPreview() {
+      if (this.previewState && this.previewState.dockMode === 'split') {
+        this._togglePreviewDock();
+        if (this.drawerTab === 'preview') {
+          this.switchDrawerTab('terminal');
+        }
+        return;
+      }
+      if (this.drawerTab === 'preview') {
+        this.switchDrawerTab('terminal');
+        return;
+      }
+      const existingPort = (this.previewState && this.previewState.port) || this._firstListeningPort();
+      if (existingPort) {
+        this._openWebPreview(existingPort);
+      } else if (this._hasWebContent()) {
+        this.previewApp();
+      } else {
+        this._openWebPreview(3000);
+      }
+    }
+
     resetLab() {
       this.completedSteps = new Set();
       this.folders = new Set();
@@ -8165,6 +8450,10 @@ int main() {
       if (slot) slot.innerHTML = '';
     }
 
+    closeCommandPalette() {
+      this.closeModal();
+    }
+
     applyReferenceSolution() {
       const refFiles = this._getBaseFilesForModeAndLang('sandbox', this.lang);
       const targetFile = refFiles[this.activeFile] ? this.activeFile : this._pickDefaultFile();
@@ -8244,6 +8533,9 @@ int main() {
         this.lastRunDurationMs = res && typeof res.durationMs === 'number' ? res.durationMs : elapsed;
         this.lastDurationMs = this.lastRunDurationMs;
         this.lastPeakMemoryBytes = res && typeof res.peakMemoryBytes === 'number' ? res.peakMemoryBytes : null;
+        if (res && res.vfsChanges) {
+          this._applyWorkerVfsDiffToWorkspace(res.vfsChanges);
+        }
         this._updateTelemetryHud();
         this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
         return res;
@@ -8257,6 +8549,123 @@ int main() {
       }
     }
 
+    _applyWorkerVfsDiffToWorkspace(vfsChanges) {
+      if (!vfsChanges || typeof vfsChanges !== 'object') return;
+      const { createdDirs = [], modifiedFiles = {}, deletedFiles = [] } = vfsChanges;
+      let changed = false;
+
+      if (Array.isArray(createdDirs)) {
+        for (const dir of createdDirs) {
+          if (typeof dir === 'string' && dir.startsWith('/workspace/')) {
+            const relDir = dir.slice('/workspace/'.length);
+            if (relDir && !relDir.startsWith('.git') && !relDir.startsWith('node_modules')) {
+              if (!this.folders.has(relDir)) {
+                this.folders.add(relDir);
+                changed = true;
+              }
+            }
+          }
+          if (this.shell && this.shell.vfs && typeof this.shell.vfs.mkdirSync === 'function') {
+            try {
+              this.shell.vfs.mkdirSync(dir, { recursive: true });
+            } catch (err) {
+              _bootDebug('_applyWorkerVfsDiffToWorkspace mkdirSync failed', dir, err);
+            }
+          }
+        }
+      }
+
+      if (modifiedFiles && typeof modifiedFiles === 'object') {
+        const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8', { fatal: false }) : null;
+        for (const [absPath, rawData] of Object.entries(modifiedFiles)) {
+          if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+            try {
+              const slashIdx = absPath.lastIndexOf('/');
+              if (slashIdx > 0 && typeof this.shell.vfs.mkdirSync === 'function') {
+                this.shell.vfs.mkdirSync(absPath.slice(0, slashIdx), { recursive: true });
+              }
+              this.shell.vfs.writeFileSync(absPath, rawData);
+            } catch (err) {
+              _bootDebug('_applyWorkerVfsDiffToWorkspace writeFileSync failed', absPath, err);
+            }
+          }
+          if (absPath.startsWith('/workspace/')) {
+            const rel = absPath.slice('/workspace/'.length);
+            if (!rel || rel.startsWith('.git/') || rel.startsWith('node_modules/')) continue;
+            let textVal = '';
+            let isLikelyBinary = false;
+            if (typeof rawData === 'string') {
+              textVal = rawData;
+            } else if (rawData instanceof Uint8Array || ArrayBuffer.isView(rawData)) {
+              const bytes = rawData instanceof Uint8Array
+                ? rawData
+                : new Uint8Array(rawData.buffer, rawData.byteOffset, rawData.byteLength);
+              const probeLen = Math.min(bytes.length, 512);
+              for (let i = 0; i < probeLen; i++) {
+                if (bytes[i] === 0) {
+                  isLikelyBinary = true;
+                  break;
+                }
+              }
+              if (!isLikelyBinary) {
+                textVal = decoder ? decoder.decode(bytes) : String.fromCharCode(...bytes);
+              }
+            }
+            if (!isLikelyBinary && this.files[rel] !== textVal) {
+              this.files[rel] = textVal;
+              const parts = rel.split('/');
+              let cur = '';
+              for (let i = 0; i < parts.length - 1; i++) {
+                cur = cur ? `${cur}/${parts[i]}` : parts[i];
+                this.folders.add(cur);
+              }
+              const model = this.models.get(rel);
+              if (model && typeof model.getValue === 'function' && model.getValue() !== textVal) {
+                model.setValue(textVal);
+              }
+              changed = true;
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(deletedFiles)) {
+        for (const absPath of deletedFiles) {
+          if (this.shell && this.shell.vfs && typeof this.shell.vfs.unlinkSync === 'function') {
+            try {
+              this.shell.vfs.unlinkSync(absPath);
+            } catch (err) {
+              _bootDebug('_applyWorkerVfsDiffToWorkspace unlinkSync failed', absPath, err);
+            }
+          }
+          if (absPath.startsWith('/workspace/')) {
+            const rel = absPath.slice('/workspace/'.length);
+            if (rel && Object.prototype.hasOwnProperty.call(this.files, rel)) {
+              delete this.files[rel];
+              const model = this.models.get(rel);
+              if (model) {
+                model.dispose();
+                this.models.delete(rel);
+              }
+              if (Array.isArray(this.openTabs)) {
+                const idx = this.openTabs.indexOf(rel);
+                if (idx !== -1) this.openTabs.splice(idx, 1);
+              }
+              if (this.activeFile === rel) {
+                this.activeFile = (this.openTabs && this.openTabs[0]) || null;
+              }
+              changed = true;
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        this._saveState();
+        this._renderFileLists();
+      }
+    }
+
     async runCode() {
       const entry = this._findEntryFile('demo') || this.activeFile || this._pickDefaultFile();
       if (!entry) {
@@ -8266,6 +8675,76 @@ int main() {
         return;
       }
       return this._executeEntryFile(entry);
+    }
+
+    async runProject() {
+      const entry = this._findEntryFile('demo');
+      if (!entry && this._hasWebContent() && typeof this.previewApp === 'function') {
+        return this.previewApp();
+      }
+      return this.runCode();
+    }
+
+    async runSelectedCode() {
+      if (this.isRunning) return null;
+      let selectedText = '';
+      if (this.editor && typeof this.editor.getSelection === 'function' && typeof this.editor.getModel === 'function') {
+        const sel = this.editor.getSelection();
+        const model = this.editor.getModel();
+        if (sel && model && typeof model.getValueInRange === 'function') {
+          selectedText = model.getValueInRange(sel) || '';
+        }
+      }
+      if (!selectedText && this.container) {
+        const fallback = this.container.querySelector('#cl-fallback-editor');
+        if (fallback && typeof fallback.selectionStart === 'number' && typeof fallback.selectionEnd === 'number') {
+          selectedText = String(fallback.value || '').slice(fallback.selectionStart, fallback.selectionEnd);
+        }
+      }
+      if (!selectedText && this.activeFile && typeof this.files[this.activeFile] === 'string') {
+        selectedText = this.files[this.activeFile];
+      }
+      const trimmed = String(selectedText || '').trim();
+      if (!trimmed) return null;
+
+      this.isRunning = true;
+      this._updateRunStateUI();
+      this.drawerTab = 'terminal';
+      this.terminalLogs.push({ type: 'system', text: '\n$ node -e "<selection>"' });
+      this._renderDrawerBody();
+
+      const abortCtrl = new AbortController();
+      this._activeCommandAbortController = abortCtrl;
+      let streamedStdout = false;
+      let streamedStderr = false;
+      try {
+        const res = await this._executeRuntime({
+          files: { ...this.files },
+          mode: 'repl',
+          replCode: trimmed,
+          signal: abortCtrl.signal,
+          onStdout: (c) => { streamedStdout = true; this._appendTerminalStream('stdout', c); },
+          onStderr: (c) => { streamedStderr = true; this._appendTerminalStream('stderr', c); }
+        });
+        this._flushTerminalStream();
+        if (!streamedStdout && res && res.stdout) {
+          this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+        }
+        if (!streamedStderr && res && res.stderr) {
+          this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+        }
+        if (res && res.replValue !== undefined) {
+          this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
+        }
+        this._renderDrawerBody();
+        return res;
+      } finally {
+        if (this._activeCommandAbortController === abortCtrl) {
+          this._activeCommandAbortController = null;
+        }
+        this.isRunning = false;
+        this._updateRunStateUI();
+      }
     }
 
     async runEntry() {
@@ -9066,20 +9545,28 @@ int main() {
       return this.exportProjectZip(options);
     }
 
-    importProjectZip(zipBytes) {
+    importProjectZip(zipBytes, options = {}) {
       const zipMod = root.CodeLabZip;
       if (!zipMod || typeof zipMod.extractZip !== 'function') {
         throw new Error('CodeLabZip engine is not loaded');
       }
       const extracted = zipMod.extractZip(zipBytes);
       if (!extracted || typeof extracted !== 'object') return false;
-      this.setFiles(extracted);
+      this.setFiles(extracted, options);
       this._syncFilesToShellVfs();
       return true;
     }
 
-    importZip(zipBytes) {
-      return this.importProjectZip(zipBytes);
+    importZip(zipBytes, options = {}) {
+      const zipMod = root.CodeLabZip;
+      if (!zipMod || typeof zipMod.extractZip !== 'function') {
+        throw new Error('CodeLabZip engine is not loaded');
+      }
+      const extracted = zipMod.extractZip(zipBytes);
+      if (!extracted || typeof extracted !== 'object') return 0;
+      this.setFiles(extracted, options);
+      this._syncFilesToShellVfs();
+      return Object.keys(extracted).length;
     }
 
     async saveProjectToStorage(id) {
@@ -9861,12 +10348,10 @@ int main() {
       attributeChangedCallback(name, oldVal, newVal) {
         if (!this._instance || oldVal === newVal) return;
         if (name === 'theme') {
-          this._instance.theme = newVal || 'auto';
-          const rootEl = this.querySelector('.codelab');
-          if (rootEl) rootEl.setAttribute('data-cl-theme', this._instance._resolvedTheme());
+          this._instance.setTheme(newVal || 'auto');
         } else if (name === 'mode' && (newVal === 'guided' || newVal === 'sandbox')) {
           this._instance.switchMode(newVal);
-        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts' || newVal === 'cpp')) {
+        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts' || newVal === 'cpp' || newVal === 'py')) {
           this._instance.switchLang(newVal);
         } else if (name === 'title' && newVal) {
           this._instance.title = newVal;
@@ -9923,35 +10408,51 @@ int main() {
       }
 
       getFiles() { return this._instance ? this._instance.getFiles() : {}; }
-      setFiles(filesMap) { if (this._instance) this._instance.setFiles(filesMap); }
-      getFile(path) { return this._instance ? this._instance.getFile(path) : undefined; }
-      setFile(path, content, opts) { if (this._instance) this._instance.setFile(path, content, opts); }
-      createFile(path, content) { if (this._instance) this._instance.createFile(path, content); }
+      setFiles(filesMap, opts) { return this._instance ? this._instance.setFiles(filesMap, opts) : undefined; }
+      getFile(path) { return this._instance ? this._instance.getFile(path) : null; }
+      setFile(path, content, opts) { return this._instance ? this._instance.setFile(path, content, opts) : undefined; }
+      createFile(path, content) { return this._instance ? this._instance.createFile(path, content) : null; }
       deleteFile(path) { return this._instance ? this._instance.deleteFile(path) : false; }
       renameFile(oldPath, newPath) { return this._instance ? this._instance.renameFile(oldPath, newPath) : false; }
       createFolder(path) { return this._instance ? this._instance.createFolder(path) : false; }
       deleteFolder(path) { return this._instance ? this._instance.deleteFolder(path) : false; }
       renameFolder(oldPath, newPath) { return this._instance ? this._instance.renameFolder(oldPath, newPath) : false; }
+      moveFile(oldPath, newPath) { return this._instance ? this._instance.moveFile(oldPath, newPath) : false; }
+      movePath(sourcePath, targetFolder) { return this._instance ? this._instance.movePath(sourcePath, targetFolder) : false; }
+      startInlineCreate(type, folderPrefix) { if (this._instance) this._instance.startInlineCreate(type, folderPrefix); }
+      startInlineRename(typeOrPath, maybeTarget) { if (this._instance) this._instance.startInlineRename(typeOrPath, maybeTarget); }
+      promptNewFile(folderPrefix) { if (this._instance) this._instance.promptNewFile(folderPrefix); }
+      promptNewFolder(folderPrefix) { if (this._instance) this._instance.promptNewFolder(folderPrefix); }
       openFile(path, sym) { if (this._instance) this._instance.openFile(path, sym); }
       closeTab(path) { if (this._instance) this._instance.closeTab(path); }
       getOpenTabs() { return this._instance ? this._instance.getOpenTabs() : []; }
+      setTheme(theme) { return this._instance ? this._instance.setTheme(theme) : undefined; }
+      getTheme() { return this._instance ? this._instance.getTheme() : 'auto'; }
+      switchDrawerTab(tab) { if (this._instance) this._instance.switchDrawerTab(tab); }
+      toggleWebPreview() { if (this._instance) this._instance.toggleWebPreview(); }
       openCommandPalette(mode) { if (this._instance) this._instance.openCommandPalette(mode); }
+      closeCommandPalette() { if (this._instance) this._instance.closeCommandPalette(); }
       showDiffModal(file, target) { if (this._instance) this._instance.showDiffModal(file, target); }
       cloneRepo(repoInput, opts) { return this._instance ? this._instance.cloneRepo(repoInput, opts) : Promise.reject(new Error('Workbench not mounted')); }
       runCode() { return this._instance ? this._instance.runCode() : Promise.resolve(); }
+      runProject() { return this._instance ? this._instance.runProject() : Promise.resolve(); }
       runEntry() { return this._instance ? this._instance.runEntry() : Promise.resolve(); }
       runActiveFile() { return this._instance ? this._instance.runActiveFile() : Promise.resolve(); }
+      runSelectedCode() { return this._instance ? this._instance.runSelectedCode() : Promise.resolve(null); }
       runDemo() { return this._instance ? this._instance.runDemo() : Promise.resolve(); }
       runTests(filter) { return this._instance ? this._instance.runTests(filter) : Promise.resolve(); }
       formatActiveDocument() { return this._instance ? this._instance.formatActiveDocument() : Promise.resolve(); }
       shareSnapshot() { return this._instance ? this._instance.shareSnapshot() : Promise.resolve(); }
       previewApp() { return this._instance ? this._instance.previewApp() : Promise.resolve(null); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
-      reset() { if (this._instance) this._instance.reset(); }
+      cancelExecution() { if (this._instance) this._instance.cancelExecution(); }
+      reset() { return this._instance ? this._instance.reset() : undefined; }
       exportWorkspace(opts) { return this._instance ? this._instance.exportWorkspace(opts) : null; }
       importWorkspace(snap) { return this._instance ? this._instance.importWorkspace(snap) : false; }
       exportProjectZip(opts) { return this._instance ? this._instance.exportProjectZip(opts) : null; }
-      importProjectZip(bytes) { return this._instance ? this._instance.importProjectZip(bytes) : false; }
+      importProjectZip(bytes, opts) { return this._instance ? this._instance.importProjectZip(bytes, opts) : false; }
+      exportZip(opts) { return this._instance ? this._instance.exportZip(opts) : null; }
+      importZip(bytes, opts) { return this._instance ? this._instance.importZip(bytes, opts) : 0; }
       searchWorkspace(opts) { return this._instance ? this._instance.searchWorkspace(opts) : null; }
       replaceInWorkspace(opts) { return this._instance ? this._instance.replaceInWorkspace(opts) : null; }
       getGitStatus() { return this._instance ? this._instance.getGitStatus() : []; }

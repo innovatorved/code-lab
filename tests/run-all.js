@@ -62,6 +62,7 @@ const SUITES = [
   'tests/test-cpp-extension.js',
   'tests/test-python-extension.js',
   'tests/test-ide-power-features.js',
+  'tests/test-p0-audit-regressions.js',
   'tests/test-version-sync.js',
   'tests/test-typescript-consolidation.js',
   'tests/test-untracked-dist.js',
