@@ -12,14 +12,19 @@
     </style>
   </head>
   <body>
-    <div class="schema-pills">
-      <button id="pill-total-cents" type="button">orders.total_cents</button>
-    </div>
-    <div id="sql-playground"></div>
-    <div class="after-controls">
-      <button id="next-focusable-btn" type="button">Export CSV</button>
-    </div>
-    <pre id="run-log"></pre>
+    <main>
+      <h1>SQL Playground Fixture</h1>
+      <div class="schema-pills">
+        <button id="pill-total-cents" type="button">orders.total_cents</button>
+      </div>
+      <div id="sql-playground"></div>
+      <div class="after-controls">
+        <label for="next-focusable-input">Filter results</label>
+        <input id="next-focusable-input" type="text" />
+        <button id="next-focusable-btn" type="button">Export CSV</button>
+      </div>
+      <pre id="run-log"></pre>
+    </main>
 
     <script src="/dist/code-lab-sql.umd.js"></script>
     <script>

@@ -124,7 +124,8 @@
     "test:browser": "bunx playwright test --project=chromium",
     "test:browser:all": "bunx playwright test",
     "test:browser:install": "bunx playwright install --with-deps chromium firefox webkit",
-    "pack:check": "bun pm pack --dry-run"
+    "pack:check": "bun pm pack --dry-run",
+    "prepublishOnly": "bun run build && node tests/test-esm-exports.js && node tests/test-version-sync.js"
   },
   "lint-staged": {
     "*.{ts,js}": [

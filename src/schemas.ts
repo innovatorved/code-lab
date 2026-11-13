@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Zod Schemas and Inferred TypeScript Types for code-lab v0.3.2
+ * Zod Schemas and Inferred TypeScript Types for code-lab v0.4.0
  */
 
 // ── 1. Guided Step ──────────────────────────────────────────────────────────

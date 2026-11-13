@@ -1755,6 +1755,7 @@ try {
   throw new Error(`Failed to extract SQL_EDITOR_CSS: ${err.message}`);
 }
 
+fs.rmSync(DIST_DIR, { recursive: true, force: true });
 fs.mkdirSync(DIST_DIR, { recursive: true });
 
 // 1. Write to dist/*
@@ -1846,6 +1847,37 @@ try {
 // 4. Emit TypeScript Declarations (.d.ts)
 try {
   execFileSync(localBin('tsc'), ['--emitDeclarationOnly'], { stdio: 'inherit', cwd: PKG_DIR });
+  // Because `src/modular-kernel.ts` imports workspace `packages/*/src`, `tsc`
+  // infers common rootDir `.` and emits `src/*` declarations into `dist/src/*`.
+  // Hoist `dist/src/**` up to `dist/**` so every `package.json#exports` `.d.ts`
+  // target (`dist/runtime.d.ts`, `dist/extensions/*.d.ts`, etc.) resolves cleanly.
+  const emittedSrcDir = path.join(DIST_DIR, 'src');
+  if (fs.existsSync(emittedSrcDir)) {
+    const hoistDir = (fromDir, toDir, depth) => {
+      fs.mkdirSync(toDir, { recursive: true });
+      for (const entry of fs.readdirSync(fromDir, { withFileTypes: true })) {
+        const srcEntry = path.join(fromDir, entry.name);
+        const dstEntry = path.join(toDir, entry.name);
+        if (entry.isDirectory()) {
+          hoistDir(srcEntry, dstEntry, depth + 1);
+        } else if (entry.name.endsWith('.d.ts')) {
+          let content = fs.readFileSync(srcEntry, 'utf8');
+          const oldPrefix = '../'.repeat(depth + 1);
+          const newPrefix = depth === 0 ? './' : '../'.repeat(depth);
+          content = content
+            .split(`'${oldPrefix}packages/`).join(`'${newPrefix}packages/`)
+            .split(`"${oldPrefix}packages/`).join(`"${newPrefix}packages/`)
+            .split(`'${oldPrefix}apps/`).join(`'${newPrefix}apps/`)
+            .split(`"${oldPrefix}apps/`).join(`"${newPrefix}apps/`);
+          fs.writeFileSync(dstEntry, content, 'utf8');
+        } else {
+          fs.copyFileSync(srcEntry, dstEntry);
+        }
+      }
+    };
+    hoistDir(emittedSrcDir, DIST_DIR, 0);
+    fs.rmSync(emittedSrcDir, { recursive: true, force: true });
+  }
   console.log('✓ Generated TypeScript declaration files in dist/');
 } catch (e) {
   console.error('tsc declaration emit failed:', e.message);
@@ -1856,6 +1888,7 @@ try {
 const CLOUD_IDE_PUBLIC_ROOT = path.join(PKG_DIR, 'examples/cloud-ide/public');
 const CLOUD_IDE_PUBLIC_DIST = path.join(CLOUD_IDE_PUBLIC_ROOT, 'dist');
 if (fs.existsSync(CLOUD_IDE_PUBLIC_ROOT)) {
+  fs.rmSync(CLOUD_IDE_PUBLIC_DIST, { recursive: true, force: true });
   fs.mkdirSync(CLOUD_IDE_PUBLIC_DIST, { recursive: true });
   fs.cpSync(DIST_DIR, CLOUD_IDE_PUBLIC_DIST, { recursive: true });
   console.log('✓ Synced dist/ into examples/cloud-ide/public/dist/');

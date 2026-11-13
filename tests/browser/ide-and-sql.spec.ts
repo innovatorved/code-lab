@@ -235,11 +235,12 @@ test.describe('Standalone @innovatorved/code-lab/sql in Chromium', () => {
     await expect(page.locator('.cl-sql-diag-error')).toBeVisible();
     await expect(page.locator('.cl-sql-diagnostics')).toContainText('missing_col');
 
-    // 5. WCAG 2.1.2 No Keyboard Trap: Escape -> Tab moves focus cleanly to #next-focusable-btn
+    // 5. WCAG 2.1.2 No Keyboard Trap: Escape -> Tab moves focus cleanly out of editor
     await textarea.focus();
     await page.keyboard.press('Escape');
     await page.keyboard.press('Tab');
-    await expect(page.locator('#next-focusable-btn')).toBeFocused();
+    await expect(textarea).not.toBeFocused();
+    await expect(page.locator('#next-focusable-input')).toBeFocused();
 
     // 6. Live <html data-theme="light"> MutationObserver sync when editor theme is 'auto'
     await page.evaluate(() => {
