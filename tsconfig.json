@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "declaration": true,
     "declarationDir": "./dist",
@@ -13,7 +13,20 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowJs": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@code-lab/core": ["packages/core/src/index.ts"],
+      "@code-lab/fs": ["packages/fs/src/index.ts"],
+      "@code-lab/settings": ["packages/settings/src/index.ts"],
+      "@code-lab/commands": ["packages/commands/src/index.ts"],
+      "@code-lab/sql": ["packages/sql/src/index.ts"],
+      "@code-lab/editor": ["packages/editor/src/index.ts"],
+      "@code-lab/runtime": ["packages/runtime/src/index.ts"],
+      "@code-lab/terminal": ["packages/terminal/src/index.ts"],
+      "@code-lab/preview": ["packages/preview/src/index.ts"],
+      "@code-lab/ui": ["packages/ui/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

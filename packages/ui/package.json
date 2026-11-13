@@ -1,0 +1,18 @@
+{
+  "name": "@code-lab/ui",
+  "version": "0.4.0",
+  "description": "Workbench UI services and components for CodeLab: ThemeService (dark/light/high-contrast/custom), Searchable Settings Dialog, Quick Open, PluginRegistry, ErrorBoundary, and Dev Observability Inspector.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@code-lab/core": "workspace:*",
+    "@code-lab/settings": "workspace:*",
+    "@code-lab/commands": "workspace:*"
+  },
+  "sideEffects": false,
+  "license": "MIT"
+}

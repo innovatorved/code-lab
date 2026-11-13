@@ -1,0 +1,17 @@
+{
+  "name": "@code-lab/runtime",
+  "version": "0.4.0",
+  "description": "Typed sandbox execution service & worker host supervisor for CodeLab.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@code-lab/core": "workspace:*",
+    "@code-lab/fs": "workspace:*"
+  },
+  "sideEffects": false,
+  "license": "MIT"
+}

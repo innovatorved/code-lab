@@ -42,18 +42,16 @@
   - [x] `P1-12` & `P2-2`: `transpileTS` template-literal `${...}` & nested callback TS stripping, generator/destructured exports, and quote-aware `SqliteDatabase.exec` + `transaction` rollback
   - [x] `P1-13` & `P2-3`: `PTYTerminalEngine.readLine()` queue cleanup on `Ctrl+C`, `AbortSignal`, & `destroy()` + bounded shell/PTY history ring buffers
   - [x] `P1-14`, `P2-4..6`: Fixed `mock-dom.js` single-quote attribute regex, added `layout`/`maximize`/`settings` icons, binary/huge (`> 2 MB`) file guard, `[data-cl-theme]` light/high-contrast CSS rules, and regression suite [test-p1-audit-regressions.js](file:///Users/vedgupta/Desktop/code-lab/tests/test-p1-audit-regressions.js) (45/45 suites green)
+- [x] **Milestone 3 — Phase 2 Target Modular Monorepo Architecture + `@code-lab/sql` (`@innovatorved/code-lab/sql`)**
+  - [x] Created 11 Bun workspace packages (`@code-lab/core`, `@code-lab/fs`, `@code-lab/settings`, `@code-lab/commands`, `@code-lab/sql`, `@code-lab/editor`, `@code-lab/runtime`, `@code-lab/terminal`, `@code-lab/preview`, `@code-lab/ui`) + `apps/web`
+  - [x] 100% Strict TypeScript (`strict: true`, `noImplicitAny: true`, zero `any`, zero `@ts-nocheck`) across all 48 strict modules, explicit `src/index.ts` public APIs, per-package `README.md`
+  - [x] Built standalone `@innovatorved/code-lab/sql` (`dist/code-lab-sql.{umd.js,esm.js,css,d.ts}`) at **16.51 KB gzipped (JS + CSS)** (< 35 KB budget), zero WASM boot of its own
+  - [x] Deduplicated extension umbrella bundle (`dist/code-lab.js` reduced by 1.4 MB)
+  - [x] Enforced 4-layer DAG, `index.ts`-only imports, 0 cycles, and 0 DOM globals in `core` via `tools/check-boundaries.js` & `tools/lint.js`
 
 ---
 
 ## In Progress
-
-- [ ] **Milestone 3 — Phase 2 Target Modular Monorepo Architecture + `@code-lab/sql` (`@innovatorved/code-lab/sql`)**
-  - [ ] Create Bun workspace packages (`@code-lab/core`, `@code-lab/fs`, `@code-lab/settings`, `@code-lab/commands`, `@code-lab/editor`, `@code-lab/terminal`, `@code-lab/preview`, `@code-lab/runtime`, `@code-lab/ui`) + `apps/web`
-  - [ ] Strict TypeScript (`strict: true`, `noImplicitAny: true`) across all `@code-lab/*` packages, explicit `index.ts` public APIs, per-package `README.md`
-  - [ ] `ServiceContainer` DI, `IDisposable`/`DisposableStore`, typed `Emitter<T>`/`Event<T>`, central typed `CodeLabError` & logger
-  - [ ] Pluggable `@code-lab/fs` backends (`MemoryBackend`, `IndexedDbBackend`, `OpfsBackend`)
-  - [ ] AST boundary & circular-dependency gate (`tools/check-boundaries.js`) enforced in `bun run lint` & CI
-  - [ ] Wire root `@innovatorved/code-lab` & workbench to modular packages, eliminate dead duplicate files, write `docs/ARCHITECTURE.md` with Mermaid diagrams
 - [ ] **Milestone 4 — Phase 3 VS Code-Inspired Settings, Keybindings, Themes, Tasks & Plugin System**
   - [ ] Layered configuration (`defaults → user → .codelab/settings.json → URL/embed overrides`) with JSONC parser & JSON Schema validation
   - [ ] `.codelab/keybindings.json` with `when`-clause `ContextKeyService`

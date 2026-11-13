@@ -16,6 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { execFileSync } = require('child_process');
 
 const PKG_DIR = path.resolve(__dirname, '..');
@@ -162,39 +163,27 @@ try {
   throw new Error(`Failed to bundle src/workbench/index.ts: ${err.message}`);
 }
 
-let guidedLabExtCode;
-let javascriptExtCode;
-let typescriptExtCode;
-let cppExtCode;
-let pythonExtCode;
+let umbrellaExtCode;
+let modularKernelCode;
+let sqlIifeMinCode;
 try {
-  guidedLabExtCode = execFileSync(
+  umbrellaExtCode = execFileSync(
     localBin('esbuild'),
-    ['src/extensions/guided-lab.ts', '--bundle', '--format=iife', '--global-name=CodeLabGuidedLab'],
+    ['src/extensions/umbrella.ts', '--bundle', '--format=iife', '--global-name=CodeLabUmbrellaExt'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
-  javascriptExtCode = execFileSync(
+  modularKernelCode = execFileSync(
     localBin('esbuild'),
-    ['src/extensions/javascript.ts', '--bundle', '--format=iife', '--global-name=CodeLabJavaScript'],
+    ['src/modular-kernel.ts', '--bundle', '--format=iife', '--global-name=CodeLabModular'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
-  typescriptExtCode = execFileSync(
+  sqlIifeMinCode = execFileSync(
     localBin('esbuild'),
-    ['src/extensions/typescript.ts', '--bundle', '--format=iife', '--global-name=CodeLabTypeScript'],
-    { cwd: PKG_DIR, encoding: 'utf8' }
-  );
-  cppExtCode = execFileSync(
-    localBin('esbuild'),
-    ['src/extensions/cpp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCpp'],
-    { cwd: PKG_DIR, encoding: 'utf8' }
-  );
-  pythonExtCode = execFileSync(
-    localBin('esbuild'),
-    ['src/extensions/python.ts', '--bundle', '--format=iife', '--global-name=CodeLabPython'],
+    ['packages/sql/src/index.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabSqlCore'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
-  throw new Error(`Failed to bundle extensions for umbrella bundle: ${err.message}`);
+  throw new Error(`Failed to bundle extensions/modular kernel: ${err.message}`);
 }
 
 const BANNER = `/**
@@ -261,22 +250,54 @@ ${terminalCode}
 ${workbenchCode}
   })();
 
-  // --- Module 5: Modular Language & Guided Lab Extensions ---
-${guidedLabExtCode}
-${javascriptExtCode}
-${typescriptExtCode}
-${cppExtCode}
-${pythonExtCode}
+  // --- Module 5: Modular Packages (@code-lab/*), SQL Pack & Language Extensions ---
+${modularKernelCode}
+${umbrellaExtCode}
+  const CodeLabSql = {
+    createSqlEditor: CodeLabModular.createSqlEditor,
+    formatSql: CodeLabModular.formatSql,
+    tokenizeSql: CodeLabModular.tokenizeSql,
+    highlightSql: CodeLabModular.highlightSql,
+    escapeSqlHtml: CodeLabModular.escapeSqlHtml,
+    getDialectKeywords: CodeLabModular.getDialectKeywords,
+    getSqlBuiltinFunctions: CodeLabModular.getSqlBuiltinFunctions,
+    extractTableAliases: CodeLabModular.extractTableAliases,
+    completeSql: CodeLabModular.completeSql,
+    parseSqlEngineError: CodeLabModular.parseSqlEngineError,
+    SQL_EDITOR_CSS: CodeLabModular.SQL_EDITOR_CSS,
+    ensureSqlStylesInjected: CodeLabModular.ensureSqlStylesInjected
+  };
+  root.CodeLabModular = CodeLabModular;
+  root.CodeLabSql = CodeLabSql;
 
   const CodeLab = root.CodeLab;
   const CodeLabWorkbench = root.CodeLabWorkbench;
   const CodeLabElement = root.CodeLabElement;
   if (CodeLab && CodeLab.extensions) {
-    CodeLab.extensions.guidedLab = CodeLabGuidedLab.guidedLabExtension;
-    CodeLab.extensions.javascript = CodeLabJavaScript.javascriptExtension;
-    CodeLab.extensions.typescript = CodeLabTypeScript.typescriptExtension;
-    CodeLab.extensions.cpp = CodeLabCpp.cppExtension;
-    CodeLab.extensions.python = CodeLabPython.pythonExtension;
+    CodeLab.extensions.guidedLab = CodeLabUmbrellaExt.guidedLabExtension;
+    CodeLab.extensions.javascript = CodeLabUmbrellaExt.javascriptExtension;
+    CodeLab.extensions.typescript = CodeLabUmbrellaExt.typescriptExtension;
+    CodeLab.extensions.cpp = CodeLabUmbrellaExt.cppExtension;
+    CodeLab.extensions.python = CodeLabUmbrellaExt.pythonExtension;
+  }
+  if (CodeLab) {
+    CodeLab.sql = CodeLabSql;
+    CodeLab.CodeLabSql = CodeLabSql;
+    CodeLab.createSqlEditor = CodeLabSql.createSqlEditor;
+    CodeLab.formatSql = CodeLabSql.formatSql;
+    CodeLab.parseSqlEngineError = CodeLabSql.parseSqlEngineError;
+    CodeLab.modular = CodeLabModular;
+    CodeLab.createCodeLabKernel = CodeLabModular.createCodeLabKernel;
+    CodeLab.ServiceContainer = CodeLabModular.ServiceContainer;
+    CodeLab.ConfigurationService = CodeLabModular.ConfigurationService;
+    CodeLab.CommandRegistry = CodeLabModular.CommandRegistry;
+    CodeLab.ContextKeyService = CodeLabModular.ContextKeyService;
+    CodeLab.KeybindingService = CodeLabModular.KeybindingService;
+    CodeLab.ThemeService = CodeLabModular.ThemeService;
+    CodeLab.PluginRegistry = CodeLabModular.PluginRegistry;
+    CodeLab.FileSystemService = CodeLabModular.FileSystemService;
+    CodeLab.parseJsonc = CodeLabModular.parseJsonc;
+    CodeLab.validateJsonSchema = CodeLabModular.validateJsonSchema;
   }
 
   // Support CommonJS / Node.js / Bundlers
@@ -288,6 +309,34 @@ ${pythonExtCode}
       CodeLabRuntime: CodeLabRuntime,
       CodeLabShell: CodeLabShell,
       CodeLabTerminal: CodeLabTerminal,
+      CodeLabSql: CodeLabSql,
+      CodeLabModular: CodeLabModular,
+      sql: CodeLabSql,
+      modular: CodeLabModular,
+      createSqlEditor: CodeLabSql.createSqlEditor,
+      formatSql: CodeLabSql.formatSql,
+      tokenizeSql: CodeLabSql.tokenizeSql,
+      highlightSql: CodeLabSql.highlightSql,
+      completeSql: CodeLabSql.completeSql,
+      extractTableAliases: CodeLabSql.extractTableAliases,
+      parseSqlEngineError: CodeLabSql.parseSqlEngineError,
+      createCodeLabKernel: CodeLabModular.createCodeLabKernel,
+      ServiceContainer: CodeLabModular.ServiceContainer,
+      createServiceId: CodeLabModular.createServiceId,
+      DisposableStore: CodeLabModular.DisposableStore,
+      Emitter: CodeLabModular.Emitter,
+      ConfigurationService: CodeLabModular.ConfigurationService,
+      CommandRegistry: CodeLabModular.CommandRegistry,
+      ContextKeyService: CodeLabModular.ContextKeyService,
+      KeybindingService: CodeLabModular.KeybindingService,
+      ThemeService: CodeLabModular.ThemeService,
+      PluginRegistry: CodeLabModular.PluginRegistry,
+      FileSystemService: CodeLabModular.FileSystemService,
+      MemoryBackend: CodeLabModular.MemoryBackend,
+      IndexedDbBackend: CodeLabModular.IndexedDbBackend,
+      OpfsBackend: CodeLabModular.OpfsBackend,
+      parseJsonc: CodeLabModular.parseJsonc,
+      validateJsonSchema: CodeLabModular.validateJsonSchema,
       createPosixShell: CodeLabShell ? CodeLabShell.createPosixShell : null,
       cloneGitHubRepository: CodeLabShell ? CodeLabShell.cloneGitHubRepository : null,
       parseGitHubRepoUrl: CodeLabShell ? CodeLabShell.parseGitHubRepoUrl : null,
@@ -397,12 +446,26 @@ ${terminalCode}
 ${workbenchCode}
 })();
 
-// --- Module 5: Modular Language & Guided Lab Extensions ---
-${guidedLabExtCode}
-${javascriptExtCode}
-${typescriptExtCode}
-${cppExtCode}
-${pythonExtCode}
+// --- Module 5: Modular Packages (@code-lab/*), SQL Pack & Language Extensions ---
+${modularKernelCode}
+${umbrellaExtCode}
+
+const CodeLabSql = {
+  createSqlEditor: CodeLabModular.createSqlEditor,
+  formatSql: CodeLabModular.formatSql,
+  tokenizeSql: CodeLabModular.tokenizeSql,
+  highlightSql: CodeLabModular.highlightSql,
+  escapeSqlHtml: CodeLabModular.escapeSqlHtml,
+  getDialectKeywords: CodeLabModular.getDialectKeywords,
+  getSqlBuiltinFunctions: CodeLabModular.getSqlBuiltinFunctions,
+  extractTableAliases: CodeLabModular.extractTableAliases,
+  completeSql: CodeLabModular.completeSql,
+  parseSqlEngineError: CodeLabModular.parseSqlEngineError,
+  SQL_EDITOR_CSS: CodeLabModular.SQL_EDITOR_CSS,
+  ensureSqlStylesInjected: CodeLabModular.ensureSqlStylesInjected
+};
+_root.CodeLabModular = CodeLabModular;
+_root.CodeLabSql = CodeLabSql;
 
 const CodeLabRuntime = _root.CodeLabRuntime;
 const CodeLabShell = _root.CodeLabShell;
@@ -411,12 +474,57 @@ const CodeLabWorkbench = _root.CodeLabWorkbench;
 const CodeLabElement = _root.CodeLabElement;
 const CodeLab = _root.CodeLab;
 if (CodeLab && CodeLab.extensions) {
-  CodeLab.extensions.guidedLab = CodeLabGuidedLab.guidedLabExtension;
-  CodeLab.extensions.javascript = CodeLabJavaScript.javascriptExtension;
-  CodeLab.extensions.typescript = CodeLabTypeScript.typescriptExtension;
-  CodeLab.extensions.cpp = CodeLabCpp.cppExtension;
-  CodeLab.extensions.python = CodeLabPython.pythonExtension;
+  CodeLab.extensions.guidedLab = CodeLabUmbrellaExt.guidedLabExtension;
+  CodeLab.extensions.javascript = CodeLabUmbrellaExt.javascriptExtension;
+  CodeLab.extensions.typescript = CodeLabUmbrellaExt.typescriptExtension;
+  CodeLab.extensions.cpp = CodeLabUmbrellaExt.cppExtension;
+  CodeLab.extensions.python = CodeLabUmbrellaExt.pythonExtension;
 }
+if (CodeLab) {
+  CodeLab.sql = CodeLabSql;
+  CodeLab.CodeLabSql = CodeLabSql;
+  CodeLab.createSqlEditor = CodeLabSql.createSqlEditor;
+  CodeLab.formatSql = CodeLabSql.formatSql;
+  CodeLab.parseSqlEngineError = CodeLabSql.parseSqlEngineError;
+  CodeLab.modular = CodeLabModular;
+  CodeLab.createCodeLabKernel = CodeLabModular.createCodeLabKernel;
+  CodeLab.ServiceContainer = CodeLabModular.ServiceContainer;
+  CodeLab.ConfigurationService = CodeLabModular.ConfigurationService;
+  CodeLab.CommandRegistry = CodeLabModular.CommandRegistry;
+  CodeLab.ContextKeyService = CodeLabModular.ContextKeyService;
+  CodeLab.KeybindingService = CodeLabModular.KeybindingService;
+  CodeLab.ThemeService = CodeLabModular.ThemeService;
+  CodeLab.PluginRegistry = CodeLabModular.PluginRegistry;
+  CodeLab.FileSystemService = CodeLabModular.FileSystemService;
+  CodeLab.parseJsonc = CodeLabModular.parseJsonc;
+  CodeLab.validateJsonSchema = CodeLabModular.validateJsonSchema;
+}
+const sql = CodeLabSql;
+const modular = CodeLabModular;
+const createSqlEditor = CodeLabSql.createSqlEditor;
+const formatSql = CodeLabSql.formatSql;
+const tokenizeSql = CodeLabSql.tokenizeSql;
+const highlightSql = CodeLabSql.highlightSql;
+const completeSql = CodeLabSql.completeSql;
+const extractTableAliases = CodeLabSql.extractTableAliases;
+const parseSqlEngineError = CodeLabSql.parseSqlEngineError;
+const createCodeLabKernel = CodeLabModular.createCodeLabKernel;
+const ServiceContainer = CodeLabModular.ServiceContainer;
+const createServiceId = CodeLabModular.createServiceId;
+const DisposableStore = CodeLabModular.DisposableStore;
+const Emitter = CodeLabModular.Emitter;
+const ConfigurationService = CodeLabModular.ConfigurationService;
+const CommandRegistry = CodeLabModular.CommandRegistry;
+const ContextKeyService = CodeLabModular.ContextKeyService;
+const KeybindingService = CodeLabModular.KeybindingService;
+const ThemeService = CodeLabModular.ThemeService;
+const PluginRegistry = CodeLabModular.PluginRegistry;
+const FileSystemService = CodeLabModular.FileSystemService;
+const MemoryBackend = CodeLabModular.MemoryBackend;
+const IndexedDbBackend = CodeLabModular.IndexedDbBackend;
+const OpfsBackend = CodeLabModular.OpfsBackend;
+const parseJsonc = CodeLabModular.parseJsonc;
+const validateJsonSchema = CodeLabModular.validateJsonSchema;
 
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const executeInWorker = CodeLabRuntime.executeInWorker;
@@ -569,7 +677,35 @@ export {
   WasiExitSignal,
   createSqliteDatabase,
   createWorkerRuntimeSource,
-  CodeLabWorkbenchComponents
+  CodeLabWorkbenchComponents,
+  CodeLabSql,
+  CodeLabModular,
+  sql,
+  modular,
+  createSqlEditor,
+  formatSql,
+  tokenizeSql,
+  highlightSql,
+  completeSql,
+  extractTableAliases,
+  parseSqlEngineError,
+  createCodeLabKernel,
+  ServiceContainer,
+  createServiceId,
+  DisposableStore,
+  Emitter,
+  ConfigurationService,
+  CommandRegistry,
+  ContextKeyService,
+  KeybindingService,
+  ThemeService,
+  PluginRegistry,
+  FileSystemService,
+  MemoryBackend,
+  IndexedDbBackend,
+  OpfsBackend,
+  parseJsonc,
+  validateJsonSchema
 };
 export default CodeLab;
 `;
@@ -1405,18 +1541,184 @@ export interface CodeLabStatic {
     isSafeHtml: typeof isSafeHtml;
     escapeHtml: typeof escapeHtml;
   };
+  sql: typeof CodeLabSql;
+  CodeLabSql: typeof CodeLabSql;
+  createSqlEditor: typeof createSqlEditor;
+  formatSql: typeof formatSql;
+  parseSqlEngineError: typeof parseSqlEngineError;
+  modular: any;
+  createCodeLabKernel: (options?: any) => any;
 }
+
+export declare function createSqlEditor(containerEl: HTMLElement, options?: Record<string, any>): any;
+export declare function formatSql(sql: string, options?: { dialect?: 'postgres' | 'sqlite'; indent?: number; keywordCase?: 'upper' | 'lower' | 'preserve' }): string;
+export declare function tokenizeSql(sql: string, dialect?: 'postgres' | 'sqlite'): any[];
+export declare function highlightSql(sql: string, dialect?: 'postgres' | 'sqlite', diagnostics?: readonly any[]): string;
+export declare function completeSql(sql: string, cursorOffset: number, schema?: any, dialect?: 'postgres' | 'sqlite', maxItems?: number): any[];
+export declare function extractTableAliases(sql: string, dialect?: 'postgres' | 'sqlite'): any;
+export declare function parseSqlEngineError(error: unknown, sql: string, dialect?: 'postgres' | 'sqlite'): any;
+export declare const CodeLabSql: {
+  createSqlEditor: typeof createSqlEditor;
+  formatSql: typeof formatSql;
+  tokenizeSql: typeof tokenizeSql;
+  highlightSql: typeof highlightSql;
+  completeSql: typeof completeSql;
+  extractTableAliases: typeof extractTableAliases;
+  parseSqlEngineError: typeof parseSqlEngineError;
+  SQL_EDITOR_CSS: string;
+  ensureSqlStylesInjected: (doc?: Document) => void;
+};
+export declare const CodeLabModular: any;
+export declare const sql: typeof CodeLabSql;
+export declare const modular: any;
+export declare function createCodeLabKernel(options?: Record<string, any>): any;
+export declare const ServiceContainer: any;
+export declare const createServiceId: <T>(id: string) => { readonly id: string };
+export declare const DisposableStore: any;
+export declare const Emitter: any;
+export declare const ConfigurationService: any;
+export declare const CommandRegistry: any;
+export declare const ContextKeyService: any;
+export declare const KeybindingService: any;
+export declare const ThemeService: any;
+export declare const PluginRegistry: any;
+export declare const FileSystemService: any;
+export declare const MemoryBackend: any;
+export declare const IndexedDbBackend: any;
+export declare const OpfsBackend: any;
+export declare const parseJsonc: <T = unknown>(raw: string) => { value: T | undefined; errors: readonly any[] };
+export declare const validateJsonSchema: (value: unknown, schema: any, path?: string) => any[];
 
 export declare const CodeLabWorkbenchComponents: any;
 export declare const CodeLab: CodeLabStatic;
 export default CodeLab;
 `;
 
+const SQL_UMD_BUNDLE = `/* @innovatorved/code-lab/sql v${PKG_VERSION} — Zero-WASM SQL Playground & Inline Editor */
+(function (root) {
+  'use strict';
+${sqlIifeMinCode}
+  var api = Object.assign({}, CodeLabSqlCore, { CodeLabSql: CodeLabSqlCore, default: CodeLabSqlCore });
+  root.CodeLabSql = api;
+  if (!root.CodeLab) {
+    root.CodeLab = { version: '${PKG_VERSION}', createSqlEditor: api.createSqlEditor, sql: api, CodeLabSql: api };
+  } else {
+    root.CodeLab.createSqlEditor = api.createSqlEditor;
+    root.CodeLab.sql = api;
+    root.CodeLab.CodeLabSql = api;
+  }
+  if (typeof window !== 'undefined') {
+    window.CodeLabSql = api;
+    if (!window.CodeLab) {
+      window.CodeLab = root.CodeLab;
+    } else {
+      window.CodeLab.createSqlEditor = api.createSqlEditor;
+      window.CodeLab.sql = api;
+      window.CodeLab.CodeLabSql = api;
+    }
+  }
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this);
+`;
+
+const SQL_ESM_BUNDLE = `/* @innovatorved/code-lab/sql v${PKG_VERSION} (ESM) */
+${sqlIifeMinCode}
+const CodeLabSql = CodeLabSqlCore;
+const createSqlEditor = CodeLabSqlCore.createSqlEditor;
+const formatSql = CodeLabSqlCore.formatSql;
+const tokenizeSql = CodeLabSqlCore.tokenizeSql;
+const highlightSql = CodeLabSqlCore.highlightSql;
+const escapeSqlHtml = CodeLabSqlCore.escapeSqlHtml;
+const getDialectKeywords = CodeLabSqlCore.getDialectKeywords;
+const getSqlBuiltinFunctions = CodeLabSqlCore.getSqlBuiltinFunctions;
+const extractTableAliases = CodeLabSqlCore.extractTableAliases;
+const completeSql = CodeLabSqlCore.completeSql;
+const parseSqlEngineError = CodeLabSqlCore.parseSqlEngineError;
+const SQL_EDITOR_CSS = CodeLabSqlCore.SQL_EDITOR_CSS;
+const ensureSqlStylesInjected = CodeLabSqlCore.ensureSqlStylesInjected;
+if (typeof globalThis !== 'undefined') {
+  globalThis.CodeLabSql = CodeLabSql;
+  if (globalThis.CodeLab) {
+    globalThis.CodeLab.createSqlEditor = createSqlEditor;
+    globalThis.CodeLab.sql = CodeLabSql;
+  }
+}
+export {
+  CodeLabSql,
+  createSqlEditor,
+  formatSql,
+  tokenizeSql,
+  highlightSql,
+  escapeSqlHtml,
+  getDialectKeywords,
+  getSqlBuiltinFunctions,
+  extractTableAliases,
+  completeSql,
+  parseSqlEngineError,
+  SQL_EDITOR_CSS,
+  ensureSqlStylesInjected
+};
+export default CodeLabSql;
+`;
+
+const SQL_DTS_CONTENT = [
+  fs.readFileSync(path.join(PKG_DIR, 'packages/sql/src/types.ts'), 'utf8'),
+  `export type SqlTokenType = 'keyword' | 'function' | 'type' | 'string' | 'number' | 'operator' | 'cast' | 'param' | 'identifier' | 'quoted-ident' | 'comment' | 'punctuation' | 'whitespace';`,
+  `export interface SqlToken { readonly type: SqlTokenType; readonly value: string; readonly start: number; readonly end: number; }`,
+  `export interface ParsedSqlContext { readonly aliases: ReadonlyMap<string, string>; readonly referencedTables: ReadonlySet<string>; readonly cteNames: ReadonlySet<string>; }`,
+  `export declare function getDialectKeywords(dialect: SqlDialect): ReadonlySet<string>;`,
+  `export declare function getSqlBuiltinFunctions(): ReadonlySet<string>;`,
+  `export declare function tokenizeSql(sql: string, dialect?: SqlDialect): SqlToken[];`,
+  `export declare function escapeSqlHtml(raw: string): string;`,
+  `export declare function highlightSql(sql: string, dialect?: SqlDialect, diagnostics?: readonly SqlDiagnostic[]): string;`,
+  `export declare function formatSql(sql: string, options?: SqlFormatOptions): string;`,
+  `export declare function extractTableAliases(sql: string, dialect?: SqlDialect): ParsedSqlContext;`,
+  `export declare function completeSql(sql: string, cursorOffset: number, schema?: SqlSchema | null, dialectOverride?: SqlDialect, maxItems?: number): SqlCompletionItem[];`,
+  `export declare function parseSqlEngineError(error: unknown, sql: string, dialect?: SqlDialect): SqlDiagnostic;`,
+  `export declare const SQL_EDITOR_CSS: string;`,
+  `export declare function ensureSqlStylesInjected(doc?: Document): void;`,
+  `export declare function createSqlEditor(containerEl: HTMLElement, options?: SqlEditorOptions): SqlEditorInstance;`,
+  `export declare const CodeLabSql: {`,
+  `  createSqlEditor: typeof createSqlEditor;`,
+  `  formatSql: typeof formatSql;`,
+  `  tokenizeSql: typeof tokenizeSql;`,
+  `  highlightSql: typeof highlightSql;`,
+  `  escapeSqlHtml: typeof escapeSqlHtml;`,
+  `  getDialectKeywords: typeof getDialectKeywords;`,
+  `  getSqlBuiltinFunctions: typeof getSqlBuiltinFunctions;`,
+  `  extractTableAliases: typeof extractTableAliases;`,
+  `  completeSql: typeof completeSql;`,
+  `  parseSqlEngineError: typeof parseSqlEngineError;`,
+  `  SQL_EDITOR_CSS: string;`,
+  `  ensureSqlStylesInjected: typeof ensureSqlStylesInjected;`,
+  `};`,
+  `export default CodeLabSql;`
+].join('\n');
+
+// Extract raw SQL CSS directly from compiled module
+let sqlCssContent = '';
+try {
+  const modEval = {};
+  const fn = new Function('module', 'exports', `${SQL_UMD_BUNDLE}`);
+  const m = { exports: modEval };
+  fn(m, modEval);
+  sqlCssContent = (m.exports && m.exports.SQL_EDITOR_CSS) || '';
+} catch (err) {
+  throw new Error(`Failed to extract SQL_EDITOR_CSS: ${err.message}`);
+}
+
 fs.mkdirSync(DIST_DIR, { recursive: true });
 
 // 1. Write to dist/*
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.js'), IIFE_BUNDLE, 'utf8');
+fs.writeFileSync(path.join(DIST_DIR, 'code-lab.umd.js'), IIFE_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.esm.js'), ESM_BUNDLE, 'utf8');
+fs.writeFileSync(path.join(DIST_DIR, 'code-lab-sql.umd.js'), SQL_UMD_BUNDLE, 'utf8');
+fs.writeFileSync(path.join(DIST_DIR, 'code-lab-sql.esm.js'), SQL_ESM_BUNDLE, 'utf8');
+fs.writeFileSync(path.join(DIST_DIR, 'code-lab-sql.css'), sqlCssContent, 'utf8');
+fs.writeFileSync(path.join(DIST_DIR, 'code-lab-sql.d.ts'), SQL_DTS_CONTENT, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'runtime.js'), RUNTIME_IIFE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'runtime.esm.js'), RUNTIME_ESM, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'shell.js'), SHELL_IIFE, 'utf8');
@@ -1424,6 +1726,15 @@ fs.writeFileSync(path.join(DIST_DIR, 'shell.esm.js'), SHELL_ESM, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'terminal.js'), TERMINAL_IIFE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'terminal.esm.js'), TERMINAL_ESM, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.d.ts'), DTS_CONTENT, 'utf8');
+
+const sqlJsGzipBytes = zlib.gzipSync(Buffer.from(SQL_UMD_BUNDLE, 'utf8')).byteLength;
+const sqlCssGzipBytes = zlib.gzipSync(Buffer.from(sqlCssContent, 'utf8')).byteLength;
+const sqlCombinedGzipKb = (sqlJsGzipBytes + sqlCssGzipBytes) / 1024;
+if (sqlJsGzipBytes + sqlCssGzipBytes > 35 * 1024) {
+  throw new Error(
+    `SQL bundle exceeded 35 KB gzip budget: ${sqlCombinedGzipKb.toFixed(2)} KB (JS ${(sqlJsGzipBytes / 1024).toFixed(2)} KB + CSS ${(sqlCssGzipBytes / 1024).toFixed(2)} KB)`
+  );
+}
 
 // 2. Copy CSS to dist/code-lab.css
 if (fs.existsSync(cssPath)) {
@@ -1504,7 +1815,8 @@ if (fs.existsSync(CLOUD_IDE_PUBLIC_ROOT)) {
   console.log('✓ Synced dist/ into examples/cloud-ide/public/dist/');
 }
 
-console.log('✓ Built dist/code-lab.js (UMD/IIFE, ' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
+console.log('✓ Built dist/code-lab.js & dist/code-lab.umd.js (UMD/IIFE, ' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');
+console.log('✓ Built dist/code-lab-sql.{umd.js,esm.js,css,d.ts} (' + sqlCombinedGzipKb.toFixed(2) + ' KB gzipped JS+CSS — budget < 35 KB)');
 console.log('✓ Built dist/code-lab.esm.js (ESM)');
 console.log('✓ Built dist/runtime.js & runtime.esm.js');
 console.log('✓ Built dist/shell.js & shell.esm.js');

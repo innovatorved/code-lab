@@ -1,6 +1,9 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
@@ -23,8 +26,11 @@
     "src/diagnostics.ts",
     "src/scm.ts",
     "src/schemas.ts",
+    "src/modular-kernel.ts",
     "src/workbench/share.ts",
     "src/workbench/guided-pane.ts",
-    "src/workbench/icons.ts"
+    "src/workbench/icons.ts",
+    "packages/*/src/**/*.ts",
+    "apps/web/src/**/*.ts"
   ]
 }

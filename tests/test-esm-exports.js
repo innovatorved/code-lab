@@ -31,6 +31,7 @@ const pkg = require(path.join(PKG_DIR, 'package.json'));
 // CJS entry  ->  ESM entry for every dual-channel subpath.
 const BUNDLES = [
   { name: 'code-lab', cjs: 'dist/code-lab.js', esm: 'dist/code-lab.esm.js', dts: 'dist/code-lab.d.ts' },
+  { name: 'code-lab-sql', cjs: 'dist/code-lab-sql.umd.js', esm: 'dist/code-lab-sql.esm.js', dts: 'dist/code-lab-sql.d.ts' },
   { name: 'runtime', cjs: 'dist/runtime.js', esm: 'dist/runtime.esm.js', dts: 'dist/runtime.d.ts' },
   { name: 'shell', cjs: 'dist/shell.js', esm: 'dist/shell.esm.js', dts: 'dist/shell.d.ts' },
   { name: 'terminal', cjs: 'dist/terminal.js', esm: 'dist/terminal.esm.js', dts: 'dist/terminal.d.ts' }

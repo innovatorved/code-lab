@@ -3,9 +3,10 @@
  * Zero-dependency architectural & quality linter for @innovatorved/code-lab.
  *
  * Uses the already-installed TypeScript compiler AST + source checks to enforce:
- *   1. Zero empty or comment-only `catch` blocks across `src/`.
- *   2. `@ts-nocheck` is restricted to the legacy allowlist (can only shrink).
- *   3. Strict leaf modules (`tsconfig.strict.json`) must not use `any`.
+ *   1. Zero empty or comment-only `catch` blocks across `src/`, `packages/`, and `apps/`.
+ *   2. `@ts-nocheck` is restricted to the legacy allowlist (forbidden in all `packages/*` & `apps/*`).
+ *   3. Strict modules (`tsconfig.strict.json`, `packages/*`, `apps/*`) must not use `any`.
+ *   4. 4-layer one-way package DAG, `index.ts` encapsulation, 0 cycles, and 0 DOM globals in `core`.
  */
 
 'use strict';
@@ -13,22 +14,29 @@
 const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
+const { checkBoundaries } = require('./check-boundaries');
 
 const ROOT = path.resolve(__dirname, '..');
-const SRC_DIR = path.join(ROOT, 'src');
+const SCAN_DIRS = [
+  path.join(ROOT, 'src'),
+  path.join(ROOT, 'packages'),
+  path.join(ROOT, 'apps')
+];
 
 const TS_NOCHECK_ALLOWLIST = new Set([
   'src/runtime.ts',
   'src/shell.ts',
   'src/terminal.ts',
-  'src/workbench.ts',
+  'src/workbench.ts'
 ]);
 
 const EMPTY_CATCH_RE =
   /\bcatch\s*(?:\([^)]*\))?\s*\{\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*\n\s*)*\}/g;
 
 function walk(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist') continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       walk(full, out);
@@ -47,10 +55,18 @@ function lineAndCol(sourceFile, pos) {
 const strictConfig = JSON.parse(
   fs.readFileSync(path.join(ROOT, 'tsconfig.strict.json'), 'utf8')
 );
-const strictFiles = new Set(Array.isArray(strictConfig.include) ? strictConfig.include : []);
+const strictExplicit = new Set(
+  (Array.isArray(strictConfig.include) ? strictConfig.include : []).filter((p) => !p.includes('*'))
+);
 
 const violations = [];
-const files = walk(SRC_DIR).sort();
+const files = [];
+for (const dir of SCAN_DIRS) {
+  walk(dir, files);
+}
+files.sort();
+
+let strictCheckedCount = 0;
 
 for (const absPath of files) {
   const rel = path.relative(ROOT, absPath).replace(/\\/g, '/');
@@ -61,7 +77,7 @@ for (const absPath of files) {
     violations.push(`${rel}:1:1: [no-ts-nocheck] @ts-nocheck is forbidden outside the legacy allowlist`);
   }
 
-  // 2. Regex check for empty or comment-only catch blocks (catches embedded worker template strings too)
+  // 2. Regex check for empty or comment-only catch blocks
   EMPTY_CATCH_RE.lastIndex = 0;
   let match;
   while ((match = EMPTY_CATCH_RE.exec(source)) !== null) {
@@ -79,7 +95,11 @@ for (const absPath of files) {
     rel.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS
   );
 
-  const isStrictModule = strictFiles.has(rel);
+  const isStrictModule =
+    strictExplicit.has(rel) ||
+    rel.startsWith('packages/') ||
+    rel.startsWith('apps/');
+  if (isStrictModule) strictCheckedCount++;
 
   function visit(node) {
     if (ts.isCatchClause(node) && node.block.statements.length === 0) {
@@ -98,6 +118,11 @@ for (const absPath of files) {
   visit(sf);
 }
 
+const boundaryResult = checkBoundaries(ROOT);
+if (!boundaryResult.ok) {
+  violations.push(...boundaryResult.violations);
+}
+
 if (violations.length > 0) {
   console.error(`✗ Lint failed with ${violations.length} violation(s):`);
   for (const v of violations) {
@@ -107,5 +132,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `✓ Lint passed (${files.length} source files checked, 0 empty catches, ${strictFiles.size} strict modules verified)`
+  `✓ Lint passed (${files.length} source files checked, 0 empty catches, ${strictCheckedCount} strict modules verified, ${boundaryResult.packageCount} workspace boundaries clean)`
 );

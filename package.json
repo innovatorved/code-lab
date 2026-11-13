@@ -1,9 +1,14 @@
 {
   "name": "@innovatorved/code-lab",
   "version": "0.3.2",
-  "description": "Standalone browser-native IDE Workbench, POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, Real WebAssembly C++20 (Clang/WASI) Extension, and Python 3.12 (Pyodide WebAssembly) Extension.",
+  "description": "Modular browser-native IDE Workbench, Lightweight SQL Playground & Inline Editor (@innovatorved/code-lab/sql), POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, C++20 WASI, and Python 3.12 Extension.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "main": "./dist/code-lab.js",
   "module": "./dist/code-lab.esm.js",
+  "umd": "./dist/code-lab.umd.js",
   "types": "./dist/code-lab.d.ts",
   "style": "./dist/code-lab.css",
   "exports": {
@@ -13,6 +18,16 @@
       "require": "./dist/code-lab.js",
       "default": "./dist/code-lab.js"
     },
+    "./umd": "./dist/code-lab.umd.js",
+    "./sql": {
+      "types": "./dist/code-lab-sql.d.ts",
+      "import": "./dist/code-lab-sql.esm.js",
+      "require": "./dist/code-lab-sql.umd.js",
+      "default": "./dist/code-lab-sql.umd.js"
+    },
+    "./sql.css": "./dist/code-lab-sql.css",
+    "./code-lab-sql.css": "./dist/code-lab-sql.css",
+    "./dist/code-lab-sql.css": "./dist/code-lab-sql.css",
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.esm.js",
@@ -80,6 +95,7 @@
   "files": [
     "dist",
     "src",
+    "packages",
     "README.md",
     "ARCHITECTURE.md",
     "CHANGELOG.md",
@@ -97,6 +113,7 @@
   "scripts": {
     "build": "bun run tools/bundle.js",
     "lint": "node tools/lint.js",
+    "check:boundaries": "node tools/check-boundaries.js",
     "typecheck": "bun x tsc --noEmit",
     "typecheck:strict": "bun x tsc -p tsconfig.strict.json",
     "test": "bun run tools/bundle.js && bun run tests/run-all.js",
@@ -123,6 +140,10 @@
   },
   "keywords": [
     "ide",
+    "sql-editor",
+    "sql-playground",
+    "postgres",
+    "sqlite",
     "code-playground",
     "monaco-editor",
     "virtual-runtime",
