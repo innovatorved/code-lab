@@ -406,7 +406,7 @@ suite.test('F5.B4', 'Landing page Blank Workspace action launches pure IDE with 
 });
 
 suite.test('F5.B5', 'Query string with empty repo ?repo= does not crash and shows landing screen', async () => {
-  const url = new URL('https://code-lab-3dr.pages.dev/?repo=');
+  const url = new URL('https://code-lab.vedgupta.in/?repo=');
   const repoParam = url.searchParams.get('repo');
   assert.equal(repoParam, '', 'Empty repo param returns empty string');
   // In Cloud IDE, empty repo param must not trigger auto-clone

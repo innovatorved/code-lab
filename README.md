@@ -2,7 +2,7 @@
 
 Modular browser-native IDE workbench (`v0.4.0`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 71 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
 
-**Live Cloud IDE:** [code-lab-3dr.pages.dev](https://code-lab-3dr.pages.dev) · **Documentation Wiki:** [github.com/innovatorved/code-lab/wiki](https://github.com/innovatorved/code-lab/wiki)
+**Live Cloud IDE:** [code-lab.vedgupta.in](https://code-lab.vedgupta.in/) · **Documentation Wiki:** [github.com/innovatorved/code-lab/wiki](https://github.com/innovatorved/code-lab/wiki)
 
 ---
 

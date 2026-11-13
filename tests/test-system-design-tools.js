@@ -117,7 +117,7 @@ async function runSuite() {
     const db1 = new SqliteDatabase('cluster.db');
     db1.exec('CREATE TABLE urls (code TEXT PRIMARY KEY, target TEXT, hits INTEGER DEFAULT 0)');
     db1.exec('CREATE INDEX idx_urls_target ON urls (target)');
-    db1.exec("INSERT INTO urls (code, target, hits) VALUES ('sd', 'https://system-design-in-depth.vedgupta.in', 42), ('cl', 'https://code-lab-3dr.pages.dev', 7)");
+    db1.exec("INSERT INTO urls (code, target, hits) VALUES ('sd', 'https://system-design-in-depth.vedgupta.in', 42), ('cl', 'https://code-lab.vedgupta.in/', 7)");
 
     // Verify file exists in VFS
     assert.ok(vfs.existsSync('/workspace/cluster.db'));
@@ -129,7 +129,7 @@ async function runSuite() {
     assert.equal(row.hits, 42);
 
     // Verify EXPLAIN QUERY PLAN reports the secondary index
-    const plan = db2.query("EXPLAIN QUERY PLAN SELECT * FROM urls WHERE target = 'https://code-lab-3dr.pages.dev'").all();
+    const plan = db2.query("EXPLAIN QUERY PLAN SELECT * FROM urls WHERE target = 'https://code-lab.vedgupta.in/'").all();
     assert.ok(plan.length > 0);
     assert.match(plan[0].detail, /idx_urls_target/);
 
