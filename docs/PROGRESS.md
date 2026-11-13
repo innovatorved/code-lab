@@ -1,0 +1,82 @@
+# Refactor Progress & Milestone Tracker (`PROGRESS.md`)
+
+## Baseline Snapshot (Before Refactor — `v0.3.2`)
+
+- **Architecture**: Single-package monolith with 4 `@ts-nocheck` god files (`workbench.ts` 10,088 LOC, `runtime.ts` 9,805 LOC, `shell.ts` 8,767 LOC, `terminal.ts` 1,206 LOC), raw uncompiled string concatenation in `tools/bundle.js`, 9 dead/disconnected duplicate files, no DI container, and no layer boundary checks.
+- **Bundle Size (`dist/code-lab.js`)**: `1.8 MB` unminified (embeds C++, Python, Guided Lab, and Zod inline).
+- **Strict TypeScript Coverage**: 12 leaf files in `tsconfig.strict.json`; 0 workspace packages.
+- **Dependency Vulnerabilities (`bun audit`)**: 2 in root (`1 high` in `zod`, `1 moderate` in `esbuild`), 32 in `examples/cloud-ide` (`1 critical`, `8 high`, `18 moderate`, `5 low` in `astro`/`sharp`/`vite`/`esbuild`/`zod`).
+- **Configuration System**: None (no `.codelab/settings.json`, `keybindings.json`, `tasks.json`, JSON Schema validation, Settings UI, High-Contrast theme, or declarative contribution registry).
+- **Test Baseline**: 43/43 Node/Bun suites passing (`41.11s`).
+
+---
+
+## Completed
+
+- [x] **Phase 0 — Research & Codebase Mapping**
+  - [x] Studied VS Code, Monaco, CodeMirror 6, WebContainers, Sandpack, Theia, Zed, JupyterLab/Lumino, OpenVSCode Server, Eclipse Che, and browser runtime primitives → [architecture-lessons.md](file:///Users/vedgupta/Desktop/code-lab/docs/research/architecture-lessons.md)
+  - [x] Recorded clean-room attribution & permissive license policy → [licenses.md](file:///Users/vedgupta/Desktop/code-lab/docs/licenses.md)
+  - [x] Read all of `code-lab` and mapped folder tree, line ranges, data flows, globals, and hidden couplings → [codebase-map.md](file:///Users/vedgupta/Desktop/code-lab/docs/research/codebase-map.md)
+- [x] **Phase 1 — Honest Self-Audit**
+  - [x] Audited codebase across Architecture, Correctness, Robustness, Security, Performance, DX, and Competitor Gaps (`6 P0`, `14 P1`, `6 P2` findings with exact `file:line` evidence) → [audit.md](file:///Users/vedgupta/Desktop/code-lab/docs/research/audit.md)
+  - [x] Recorded core architectural trade-offs → [DECISIONS.md](file:///Users/vedgupta/Desktop/code-lab/docs/DECISIONS.md)
+
+---
+
+## In Progress
+
+- [ ] **Milestone 1 — Fix All P0 Critical Bugs, Security Issues & Dependency CVEs (with Regression Tests)**
+  - [ ] `P0-6`: Upgrade `zod`, `esbuild`, and `examples/cloud-ide` (`astro` stack) so `bun audit` passes with **0 vulnerabilities**
+  - [ ] `P0-1`: Implement `startInlineCreate` and `startInlineRename` on `CodeLabWorkbench` (fixes context-menu & command-palette crash)
+  - [ ] `P0-2`: Fix double-escaped `\\n` in `DEFAULT_STANDALONE_PYTHON_FILES` (`workbench.ts:1204-1207`)
+  - [ ] `P0-3`: Implement missing public methods advertised by `.d.ts`, `examples/cloud-ide`, and `sample.html` (`setTheme`, `switchDrawerTab`, `exportZip`, `importZip`, `runProject`, `stopExecution`, `cancelExecution`, `movePath`, `toggleWebPreview`, `runSelectedCode`, `promptNewFile`, `promptNewFolder`)
+  - [ ] `P0-4`: Fix `executeInWorker` to preserve streamed `stdout`/`stderr`/`testResults` on timeout/cancel/error, sync dirty VFS mutations back to `options.vfs`, and stop re-executing crashed worker code on the UI thread
+  - [ ] `P0-5`: Harden `preview-sw.js` to enforce `Content-Security-Policy` + `X-Content-Type-Options: nosniff` on **every** response (closing SVG/XHTML/binary host-origin XSS) and authenticate `codelab:config`
+
+---
+
+## Remaining
+
+- [ ] **Milestone 2 — Fix All P1 Audit Findings (with Regression Tests)**
+  - [ ] `P1-2`: Inline diff editor state/VFS/model sync & theme fix
+  - [ ] `P1-3`: Remove `allow-same-origin` from `.codelab-response-iframe` & `JSON.stringify` URLs in `loadMonaco` worker shim
+  - [ ] `P1-4`: Multi-instance isolation (`instanceId`-scoped Monaco URIs & SW client routing, full `destroy()` disposable/model/timer/port/Blob cleanup, per-execution `cwd` & FD cleanup)
+  - [ ] `P1-5`: Debounced serialized persistence + IndexedDB read hydration on reload + rAF breadcrumb throttling
+  - [ ] `P1-6`: Preserve focus/input in `#cl-net-search` filter input
+  - [ ] `P1-7`: Binary-safe `Uint8Array` asset serving & escaped `</script>` import maps in `serve`
+  - [ ] `P1-8`: Binary-safe Python VFS sync, bidirectional deletion reconciliation, per-run `codelab_test` reset, honest `pip` error when toolchain absent
+  - [ ] `P1-9`: C++ retryable `loadPromise`, diagnostic warning on offline fallback, string/comment-aware brace check
+  - [ ] `P1-10`: Shell `<<`/`<<-`/`<<<` heredocs & here-strings, `[[ ... ]]`, `exit`, `:`, and `stdin`/`env`/`cwd` forwarding to `node`/`bun`/`python3`
+  - [ ] `P1-11`: Shell `curl` & `hey` external URL routing vs loopback `portTable`
+  - [ ] `P1-12`: `transpileTS` template-literal `${...}` TS stripping & destructured/generator exports
+  - [ ] `P1-13`: `PTYTerminalEngine.readLine()` queue cleanup on `Ctrl+C` & `destroy()`
+  - [ ] `P1-14`: Fix `mock-dom.js` single-quote attribute regex
+- [ ] **Milestone 3 — Phase 2 Target Modular Monorepo Architecture**
+  - [ ] Create Bun workspace packages (`@code-lab/core`, `@code-lab/fs`, `@code-lab/settings`, `@code-lab/commands`, `@code-lab/editor`, `@code-lab/terminal`, `@code-lab/preview`, `@code-lab/runtime`, `@code-lab/ui`) + `apps/web`
+  - [ ] Strict TypeScript (`strict: true`, `noImplicitAny: true`) across all `@code-lab/*` packages, explicit `index.ts` public APIs, per-package `README.md`
+  - [ ] `ServiceContainer` DI, `IDisposable`/`DisposableStore`, typed `Emitter<T>`/`Event<T>`, central typed `CodeLabError` & logger
+  - [ ] Pluggable `@code-lab/fs` backends (`MemoryBackend`, `IndexedDbBackend`, `OpfsBackend`)
+  - [ ] AST boundary & circular-dependency gate (`tools/check-boundaries.js`) enforced in `bun run lint` & CI
+  - [ ] Wire root `@innovatorved/code-lab` & workbench to modular packages, eliminate dead duplicate files, write `docs/ARCHITECTURE.md` with Mermaid diagrams
+- [ ] **Milestone 4 — Phase 3 VS Code-Inspired Settings, Keybindings, Themes, Tasks & Plugin System**
+  - [ ] Layered configuration (`defaults → user → .codelab/settings.json → URL/embed overrides`) with JSONC parser & JSON Schema validation
+  - [ ] `.codelab/keybindings.json` with `when`-clause `ContextKeyService`
+  - [ ] `.codelab/tasks.json` (run/build/test/dev + `runOn: "folderOpen"`) & `.codelab/extensions.json`
+  - [ ] Live reload on editing `.codelab/*.json` in editor/VFS + Monaco JSON Schema autocomplete/hover/diagnostics + invalid-value fallback
+  - [ ] Searchable grouped **Settings UI** (with Reset to Default + "Open `settings.json`" toggle), enhanced **Command Palette** (`Cmd/Ctrl+Shift+P`), and **Quick Open** (`Cmd/Ctrl+P`)
+  - [ ] Token-based **Theme System** (`dark`, `light`, `high-contrast` built-in + custom JSON themes)
+  - [ ] Settings export/import & URL sharing
+  - [ ] Registry-based **Contribution Points** (commands, settings, keybindings, panels, file/language handlers) + `docs/PLUGINS.md`
+  - [ ] Dev Observability Inspector panel (services, event log, settings layers, worker status)
+- [ ] **Milestone 5 — Phase 4 & 5 Quality Engineering, E2E Browser Verification & Open-Source Readiness**
+  - [ ] Unit + integration tests for all new packages & regression tests for every P0/P1 fix
+  - [ ] Real-browser Playwright E2E suite (create/edit/save/rename file, run code, terminal, preview, change setting via UI & `.codelab/settings.json`, switch theme, reload & restore state) + manual browser console check
+  - [ ] Bundle-size budget check, Prettier/ESLint/lint-staged/Changesets tooling, CI workflow (`typecheck`, `lint`, `check:boundaries`, `test`, `test:browser`, `build`, `size-budget`, `bun audit`)
+  - [ ] Open-source docs (`README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `ARCHITECTURE.md`, `docs/ROADMAP.md`, `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`)
+  - [ ] Re-run full self-audit, commit, push `refactor/modular-architecture`, merge to `main` (or open PR if branch-protected), and record final Before/After metrics.
+
+---
+
+## Known Issues
+
+See [docs/research/audit.md](file:///Users/vedgupta/Desktop/code-lab/docs/research/audit.md) for the complete prioritized list of baseline issues currently being resolved.
