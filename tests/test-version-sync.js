@@ -89,6 +89,19 @@ test('README and ARCHITECTURE document the package version', () => {
   assert.ok(read('ARCHITECTURE.md').includes(`(${tag})`), `ARCHITECTURE is missing ${tag}`);
 });
 
+test('Cloud IDE and standalone examples match package.json version', () => {
+  const cloudPkg = JSON.parse(read('examples/cloud-ide/package.json'));
+  assert.equal(cloudPkg.version, version, 'examples/cloud-ide/package.json version drifted');
+  assert.ok(
+    read('examples/cloud-ide/src/pages/index.astro').includes(tag),
+    `examples/cloud-ide/src/pages/index.astro is missing ${tag}`
+  );
+  assert.ok(
+    read('examples/index.html').includes(tag),
+    `examples/index.html is missing ${tag}`
+  );
+});
+
 test('no stale library versions remain in shipped source or docs', () => {
   const files = [
     'README.md',

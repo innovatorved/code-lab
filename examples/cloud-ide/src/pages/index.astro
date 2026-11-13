@@ -12,7 +12,9 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   
   <link rel="stylesheet" href="/dist/code-lab.css">
+  <link rel="stylesheet" href="/dist/code-lab-sql.css">
   <script is:inline src="/dist/code-lab.js"></script>
+  <script is:inline src="/dist/code-lab-sql.umd.js"></script>
   <script is:inline src="/dist/extensions/typescript.js"></script>
   <script is:inline src="/dist/extensions/python.js"></script>
   <script is:inline src="/dist/extensions/cpp.js"></script>
@@ -153,15 +155,41 @@
       gap: 12px;
     }
 
+    .visually-hidden:where(:not(:focus-within, :active)) {
+      position: absolute !important;
+      clip-path: inset(50%) !important;
+      overflow: hidden !important;
+      width: 1px !important;
+      height: 1px !important;
+      margin: -1px !important;
+      padding: 0 !important;
+      border: 0 !important;
+      white-space: nowrap !important;
+    }
+
+    :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+      outline: 2px solid var(--fg);
+      outline-offset: 2px;
+    }
+
+    :where(button):active:not(:disabled) {
+      scale: 0.98;
+    }
+
     .app-brand {
       display: flex;
       align-items: center;
       gap: 8px;
+      font-family: var(--font-sans);
       font-weight: 600;
       font-size: 14px;
       letter-spacing: -0.03em;
       cursor: pointer;
       color: var(--fg);
+      background: transparent;
+      border: none;
+      padding: 2px 4px;
+      border-radius: var(--r-sm);
       text-decoration: none;
       user-select: none;
     }
@@ -375,13 +403,16 @@
       font-size: 13px;
       font-family: var(--font-mono);
       color: var(--fg);
-      outline: none;
       transition: border-color 140ms ease, box-shadow 140ms ease;
     }
 
     .repo-input:focus {
       border-color: var(--border-focus);
       box-shadow: 0 0 0 1px var(--border-focus);
+    }
+
+    .repo-input:focus:not(:focus-visible) {
+      outline: none;
     }
 
     .submit-btn {
@@ -502,6 +533,11 @@
     }
 
     .alt-link {
+      font: inherit;
+      background: transparent;
+      border: none;
+      padding: 2px 4px;
+      border-radius: var(--r-sm);
       color: var(--fg-muted);
       cursor: pointer;
       transition: color 120ms ease;
@@ -533,61 +569,66 @@
   <!-- Top Navigation Bar -->
   <header class="app-header">
     <div class="brand-section">
-      <div class="app-brand" id="brand-home-btn" title="code-lab">
-        <div class="brand-logo-badge">&lt;/&gt;</div>
+      <button type="button" class="app-brand" id="brand-home-btn" title="code-lab">
+        <div class="brand-logo-badge" aria-hidden="true">&lt;/&gt;</div>
         <span>code-lab</span>
-      </div>
+      </button>
       <div class="brand-status-pill">
-        <span class="status-dot"></span>
-        <span>v0.3.2 &middot; browser runtime</span>
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="version-status-label">v0.4.0 &middot; browser runtime</span>
       </div>
     </div>
 
     <div class="header-actions">
       <button type="button" class="action-btn" id="open-clone-modal-btn" title="Clone another repository">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span>Clone Repo</span>
       </button>
 
       <button type="button" class="action-btn" id="header-blank-btn" title="Open blank workspace">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         <span>Blank IDE</span>
       </button>
 
       <button type="button" class="action-btn" id="header-search-btn" title="Search & Replace Across Files">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span>Search</span>
       </button>
 
       <button type="button" class="action-btn" id="header-scm-btn" title="Source Control (Git Status, Stage, Commit)">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
         <span>Source Control</span>
       </button>
 
       <button type="button" class="action-btn" id="header-problems-btn" title="View Workspace Diagnostics & Problems">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span>Problems</span>
       </button>
 
+      <button type="button" class="action-btn" id="header-settings-btn" title="Open Settings (Cmd+,)">
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </button>
+
       <button type="button" class="action-btn" id="header-zip-btn" title="Export Project as ZIP">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span>Export ZIP</span>
       </button>
 
       <!-- Theme Button: Icon-Only (Sun / Moon) -->
       <button type="button" class="icon-btn" id="theme-btn" title="Toggle Theme" aria-label="Toggle Theme">
-        <svg id="theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        <svg id="theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg aria-hidden="true" id="theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg aria-hidden="true" id="theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
       </button>
 
       <!-- Docs Wiki Link -->
       <a class="icon-btn" href="https://github.com/innovatorved/code-lab/wiki" target="_blank" rel="noopener noreferrer" title="Documentation Wiki" aria-label="Wiki">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       </a>
 
       <!-- GitHub Repository Link -->
       <a class="icon-btn" href="https://github.com/innovatorved/code-lab" target="_blank" rel="noopener noreferrer" title="GitHub Repository" aria-label="GitHub">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
       </a>
     </div>
   </header>
@@ -599,18 +640,19 @@
       <div class="landing-card">
         <div class="landing-header">
           <div class="landing-eyebrow">
-            <span class="status-dot"></span>
+            <span class="status-dot" aria-hidden="true"></span>
             <span>zero-install client-side ide</span>
           </div>
           <h1 class="landing-title">Clone &amp; Explore GitHub Repositories</h1>
           <p class="landing-desc">
-            Enter any public GitHub repository to clone and explore directly in your browser. Powered by Node.js v22, Bun v1.1, TypeScript, Python 3.12 (Pyodide), and C++20 (Clang/WASI) virtual Web Worker runtimes with zero server dependencies.
+            Enter any public GitHub repository to clone and run directly in your browser. Powered by Node.js v22, Bun v1.1, TypeScript, SQL Studio, Python 3.12 (Pyodide), and C++20 (Clang/WASI) Web Worker runtimes with zero server dependencies.
           </p>
         </div>
 
         <form class="repo-form" id="landing-form">
           <div class="input-row">
             <div class="repo-input-wrapper">
+              <label for="landing-repo-input" class="visually-hidden">Public GitHub repository</label>
               <input
                 type="text"
                 id="landing-repo-input"
@@ -622,24 +664,25 @@
               />
             </div>
             <button type="submit" class="submit-btn" id="landing-clone-btn">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               <span>Clone &amp; Open</span>
             </button>
           </div>
 
           <!-- Suggested Repositories Chips -->
           <div class="chip-container">
-            <div class="chip-label">Featured Runnable Repositories &amp; System Design Clusters</div>
+            <div class="chip-label">Featured Runnable Repositories, SQL &amp; System Design Clusters</div>
             <div class="chip-list">
-              <span class="chip-item chip-item--demo" data-demo="sd-cluster">⚡ L7 Load Balancer &amp; Chaos Cluster</span>
-              <span class="chip-item chip-item--demo" data-demo="sd-shortener">🔗 URL Shortener · SQLite + Singleflight</span>
-              <span class="chip-item chip-item--demo" data-demo="react">⚛ React App · live preview</span>
-              <span class="chip-item chip-item--demo" data-demo="cpp">⚙ C++20 WASI · DSA Benchmark</span>
-              <span class="chip-item chip-item--demo" data-demo="python">🐍 Python 3.12 · Async &amp; VFS</span>
-              <span class="chip-item" data-repo="mdn/todo-react">mdn/todo-react</span>
-              <span class="chip-item" data-repo="ahfarmer/calculator">ahfarmer/calculator</span>
-              <span class="chip-item" data-repo="gabrielecirulli/2048">gabrielecirulli/2048</span>
-              <span class="chip-item" data-repo="innovatorved/piano-web">innovatorved/piano-web</span>
+              <button type="button" class="chip-item chip-item--demo" data-demo="sd-cluster">⚡ L7 Load Balancer &amp; Chaos Cluster</button>
+              <button type="button" class="chip-item chip-item--demo" data-demo="sd-shortener">🔗 URL Shortener &middot; SQLite + Singleflight</button>
+              <button type="button" class="chip-item chip-item--demo" data-demo="sql">🗄 SQL Studio &middot; Guided Query Lab</button>
+              <button type="button" class="chip-item chip-item--demo" data-demo="react">⚛ React App &middot; live preview</button>
+              <button type="button" class="chip-item chip-item--demo" data-demo="cpp">⚙ C++20 WASI &middot; DSA Benchmark</button>
+              <button type="button" class="chip-item chip-item--demo" data-demo="python">🐍 Python 3.12 &middot; Async &amp; VFS</button>
+              <button type="button" class="chip-item" data-repo="mdn/todo-react">mdn/todo-react</button>
+              <button type="button" class="chip-item" data-repo="ahfarmer/calculator">ahfarmer/calculator</button>
+              <button type="button" class="chip-item" data-repo="gabrielecirulli/2048">gabrielecirulli/2048</button>
+              <button type="button" class="chip-item" data-repo="innovatorved/piano-web">innovatorved/piano-web</button>
             </div>
           </div>
 
@@ -647,7 +690,7 @@
           <div class="progress-box" id="progress-box"></div>
 
           <div class="alt-actions">
-            <span class="alt-link" id="open-empty-btn">Open blank workspace &rarr;</span>
+            <button type="button" class="alt-link" id="open-empty-btn">Open blank workspace &rarr;</button>
             <span style="color:var(--fg-faint);font-size:11px;font-family:var(--font-mono);">Zero auth required</span>
           </div>
         </form>
@@ -674,6 +717,10 @@
       const iconSun = document.getElementById('theme-icon-sun');
       const iconMoon = document.getElementById('theme-icon-moon');
       const chipItems = document.querySelectorAll('.chip-item');
+      const versionStatusLabel = document.getElementById('version-status-label');
+      if (versionStatusLabel && window.CodeLab && window.CodeLab.version) {
+        versionStatusLabel.textContent = `v${window.CodeLab.version} \u00b7 browser runtime`;
+      }
 
       let ideInstance = null;
 
@@ -742,7 +789,8 @@
             theme: document.documentElement.getAttribute('data-theme') || 'dark',
             extensions: options.extensions || defaultExtensions,
             files: options.files || {
-              'README.md': '# Welcome to code-lab v0.3.2\n\nUse the interactive terminal below (click `+` in the terminal drawer header for multiple sessions) or run `git clone <owner/repo>` to explore any public repository.\n'
+              'README.md': '# Welcome to code-lab v0.4.0\n\n- **Settings UI & Workspace JSON**: Press `Cmd+,` / `Ctrl+,` (or click **Settings** in the top bar) to configure editor, terminal, and SQL dialect preferences, backed by `.codelab/settings.json`.\n- **SQL Studio & Guided Labs**: Open the **SQL Studio** demo from the home screen or run `sqlite3` directly in the POSIX terminal.\n- **Multi-Runtime Terminal**: Click `+` in the terminal drawer header for multiple sessions, or run `git clone <owner/repo>`, `node`, `bun`, `python3`, or `clang++`.\n',
+              '.codelab/settings.json': '{\n  "editor.fontSize": 13,\n  "editor.tabSize": 2,\n  "sql.dialect": "sqlite"\n}\n'
             },
             entry: 'demo.js',
             ...options
@@ -851,6 +899,10 @@
           }
           if (demoKind === 'sd-cluster' || demoKind === 'sd-shortener') {
             openSystemDesignDemo(demoKind, { forceReset: false });
+            return;
+          }
+          if (demoKind === 'sql') {
+            openSqlDemo({ forceReset: false });
             return;
           }
           if (demoKind === 'cpp' || demoKind === 'python') {
@@ -972,6 +1024,81 @@
         }, 150);
       }
 
+      const SQL_DEMO_FILES = {
+        'schema.sql': 'CREATE TABLE customers (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  tier TEXT NOT NULL\n);\n\nCREATE TABLE orders (\n  id INTEGER PRIMARY KEY,\n  customer_id INTEGER NOT NULL REFERENCES customers(id),\n  total_cents INTEGER NOT NULL,\n  status TEXT NOT NULL\n);\n\nCREATE INDEX idx_orders_customer_status ON orders(customer_id, status);\n',
+        'seed.sql': "INSERT INTO customers (id, name, tier) VALUES\n  (1, 'Ada Lovelace', 'enterprise'),\n  (2, 'Grace Hopper', 'pro'),\n  (3, 'Margaret Hamilton', 'enterprise'),\n  (4, 'Donald Knuth', 'starter');\n\nINSERT INTO orders (id, customer_id, total_cents, status) VALUES\n  (101, 1, 24000, 'paid'),\n  (102, 1, 18500, 'paid'),\n  (103, 2, 9900, 'paid'),\n  (104, 3, 42000, 'paid'),\n  (105, 3, 15000, 'refunded'),\n  (106, 4, 4900, 'paid');\n",
+        'query.sql': "-- Guided SQL Query Lab (SQLite 3 in-memory engine)\n-- Press Cmd+Enter / Ctrl+Enter or Run to execute, or Explain Plan to inspect index usage.\nSELECT\n  c.name,\n  c.tier,\n  COUNT(o.id) AS paid_orders,\n  ROUND(SUM(o.total_cents) / 100.0, 2) AS revenue_usd\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nWHERE o.status = 'paid'\nGROUP BY c.id, c.name, c.tier\nORDER BY revenue_usd DESC;\n"
+      };
+
+      const SQL_DEMO_SCHEMA = {
+        dialect: 'sqlite',
+        tables: [
+          {
+            name: 'customers',
+            columns: [
+              { name: 'id', type: 'INTEGER', primaryKey: true },
+              { name: 'name', type: 'TEXT', nullable: false },
+              { name: 'tier', type: 'TEXT', nullable: false }
+            ]
+          },
+          {
+            name: 'orders',
+            columns: [
+              { name: 'id', type: 'INTEGER', primaryKey: true },
+              { name: 'customer_id', type: 'INTEGER', nullable: false, references: 'customers.id' },
+              { name: 'total_cents', type: 'INTEGER', nullable: false },
+              { name: 'status', type: 'TEXT', nullable: false }
+            ]
+          }
+        ]
+      };
+
+      const SQL_DEMO_STEPS = [
+        {
+          id: 'paid-revenue-by-customer',
+          title: 'Paid Revenue Leaderboard',
+          instructions: 'Aggregate paid order count and total USD revenue (`SUM(total_cents) / 100.0`) per customer ordered from highest to lowest revenue.',
+          hint: "Filter `WHERE o.status = 'paid'`, group by customer, and sort `ORDER BY revenue_usd DESC`."
+        },
+        {
+          id: 'enterprise-filter',
+          title: 'Inspect Query Plan & Index Usage',
+          instructions: 'Filter or inspect how `idx_orders_customer_status` satisfies the join and status predicate using **Explain** or `EXPLAIN QUERY PLAN`.',
+          hint: 'Click Explain in the toolbar (or prefix your SELECT with `EXPLAIN QUERY PLAN`) to inspect index selection.'
+        }
+      ];
+
+      function openSqlDemo(opts = {}) {
+        const labId = 'sql-studio-demo';
+        const hadSaved = hasSavedFilesForLab(labId);
+        const ide = ensureIde({
+          labId,
+          title: 'SQL Studio \u00b7 Guided Lab',
+          language: 'sql',
+          sqlDialect: 'sqlite',
+          sqlSchema: SQL_DEMO_SCHEMA,
+          steps: SQL_DEMO_STEPS,
+          showExplorer: true,
+          files: SQL_DEMO_FILES,
+          entry: 'query.sql'
+        });
+        landingOverlay.classList.add('hidden');
+        if (opts.forceReset && ide && typeof ide.setFiles === 'function') {
+          ide.setFiles(SQL_DEMO_FILES);
+        } else if (!hadSaved && ide && typeof ide.setFiles === 'function' && (!ide.files || !ide.files['query.sql'])) {
+          ide.setFiles(SQL_DEMO_FILES);
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete('repo');
+        url.searchParams.set('demo', 'sql');
+        window.history.replaceState({}, '', url.toString());
+        saveSessionMeta({ mode: 'demo', demo: 'sql', labId });
+        setTimeout(() => {
+          if (ide && typeof ide.openFile === 'function') ide.openFile('query.sql');
+          if (ide && typeof ide.runSql === 'function') ide.runSql('run');
+        }, 120);
+      }
+
       function openBlankWorkspace() {
         const labId = 'blank-workspace';
         const ide = ensureIde({ labId });
@@ -1028,6 +1155,17 @@
         });
       }
 
+      const headerSettingsBtn = document.getElementById('header-settings-btn');
+      if (headerSettingsBtn) {
+        headerSettingsBtn.addEventListener('click', () => {
+          const ide = ensureIde();
+          landingOverlay.classList.add('hidden');
+          if (ide && typeof ide.openSettings === 'function') {
+            ide.openSettings();
+          }
+        });
+      }
+
       const headerZipBtn = document.getElementById('header-zip-btn');
       if (headerZipBtn) {
         headerZipBtn.addEventListener('click', () => {
@@ -1079,6 +1217,8 @@
       const savedSession = loadSessionMeta();
       if (urlDemo === 'react') {
         openFrameworkDemo({ forceReset: false });
+      } else if (urlDemo === 'sql') {
+        openSqlDemo({ forceReset: false });
       } else if (urlDemo === 'sd-cluster' || urlDemo === 'sd-shortener') {
         openSystemDesignDemo(urlDemo, { forceReset: false });
       } else if (urlDemo === 'cpp' || urlDemo === 'python') {
@@ -1088,6 +1228,8 @@
         executeClone(urlRepo, { forceClone: false });
       } else if (savedSession && savedSession.mode === 'demo' && savedSession.demo === 'react') {
         openFrameworkDemo({ forceReset: false });
+      } else if (savedSession && savedSession.mode === 'demo' && savedSession.demo === 'sql') {
+        openSqlDemo({ forceReset: false });
       } else if (savedSession && savedSession.mode === 'demo' && (savedSession.demo === 'sd-cluster' || savedSession.demo === 'sd-shortener')) {
         openSystemDesignDemo(savedSession.demo, { forceReset: false });
       } else if (savedSession && savedSession.mode === 'demo' && (savedSession.demo === 'cpp' || savedSession.demo === 'python')) {
