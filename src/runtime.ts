@@ -1118,7 +1118,13 @@ function __initVirtualRuntime(rootScope) {
       });
     }
 
+    let _activeStdin = '';
+
     const fsShim = {
+      _setActiveStdin(text) {
+        _activeStdin = text !== undefined && text !== null ? String(text) : '';
+      },
+
       existsSync(p) {
         try {
           const np = normPath(p);
@@ -1343,6 +1349,11 @@ function __initVirtualRuntime(rootScope) {
       },
 
       readFileSync(p, opts) {
+        if (p === 0 || p === '/dev/stdin') {
+          const stdinBuf = VirtualBuffer.from(String(_activeStdin || ''), 'utf8');
+          const encoding = typeof opts === 'string' ? opts : (opts && opts.encoding);
+          return encoding ? stdinBuf.toString(encoding) : stdinBuf;
+        }
         const np = normPath(p);
         if (dirs.has(np)) throw fsError('EISDIR', 'read', p, 'illegal operation on a directory');
         const inode = files.get(np);
@@ -1702,6 +1713,10 @@ function __initVirtualRuntime(rootScope) {
 
         items.sort((a, b) => a.path.localeCompare(b.path));
         return items;
+      },
+
+      _listOpenFds() {
+        return Array.from(fdTable.keys());
       }
     };
 
@@ -4593,13 +4608,17 @@ function __initVirtualRuntime(rootScope) {
   function transpileTS(source, filename = 'module.ts', opts = {}) {
     // `keepEsm` leaves `import`/`export` statements intact so the output can run
     // natively in a browser as an ES module (used by the built-in preview server).
-    const keepEsm = Boolean(opts && opts.keepEsm);
-    const isTS = /\.(ts|tsx|mts|cts)$/i.test(filename)
+    const keepEsm = Boolean(opts && (opts.keepEsm || opts.expressionOnly));
+    const expressionOnly = Boolean(opts && opts.expressionOnly);
+    const isTS = expressionOnly
+      || /\.(ts|tsx|mts|cts)$/i.test(filename)
       || /^[ \t]*(?:export\s+)?(?:abstract\s+class\s+[A-Za-z_$]|declare\s+(?:const|let|var|function|class|namespace|module|global)\b|interface\s+[A-Za-z_$][A-Za-z0-9_$]*|type\s+[A-Za-z_$][A-Za-z0-9_$]*\s*(?:<[^>]*>)?\s*=|enum\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\{|namespace\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\{)/m.test(source);
-    const hasESM = /^\s*(?:import|export)\b/m.test(source)
+    const hasESM = !expressionOnly && (
+      /^\s*(?:import|export)\b/m.test(source)
       || /\bexport\s*\{/.test(source)
       || /\bimport\s*\{/.test(source)
-      || /\bexport\s+default\b/.test(source);
+      || /\bexport\s+default\b/.test(source)
+    );
     const hasJsx = detectJsxSyntax(source, filename);
     if (!isTS && !hasESM && !hasJsx) return source;
 
@@ -4607,7 +4626,7 @@ function __initVirtualRuntime(rootScope) {
     if (hasJsx) {
       const { pragma, frag } = readJsxPragma(source);
       const hasReactBinding = /\bimport\s+(?!type\b)(?:\*\s+as\s+React\b|React\b)|(?:\bconst|\blet|\bvar|\bfunction|\bclass)\s+React\b|\bReact\s*=/.test(source);
-      const needsReact = pragma === 'React.createElement' && (keepEsm ? !hasReactBinding : !/\bReact\b/.test(source));
+      const needsReact = !expressionOnly && pragma === 'React.createElement' && (keepEsm ? !hasReactBinding : !/\bReact\b/.test(source));
       const transformed = jsxTransform(source, { pragma, frag });
       if (transformed !== source) {
         source = transformed;
@@ -4695,18 +4714,80 @@ function __initVirtualRuntime(rootScope) {
         i = j;
         continue;
       }
-      // Template literal
+      // Template literal (recursively transpile TypeScript inside ${...} expressions)
       if (ch === '`') {
         let j = i + 1;
-        let depth = 0;
+        let rebuilt = '`';
         while (j < len) {
-          if (source[j] === '\\') { j += 2; continue; }
-          if (source[j] === '$' && source[j + 1] === '{') { depth++; j += 2; continue; }
-          if (source[j] === '}' && depth > 0) { depth--; j++; continue; }
-          if (source[j] === '`' && depth === 0) { j++; break; }
+          if (source[j] === '\\') {
+            rebuilt += source.slice(j, j + 2);
+            j += 2;
+            continue;
+          }
+          if (source[j] === '`' ) {
+            rebuilt += '`';
+            j++;
+            break;
+          }
+          if (source[j] === '$' && source[j + 1] === '{') {
+            j += 2;
+            const exprStart = j;
+            let braceDepth = 1;
+            while (j < len && braceDepth > 0) {
+              const ec = source[j];
+              const en = source[j + 1];
+              if (ec === '/' && en === '/') {
+                j += 2;
+                while (j < len && source[j] !== '\n') j++;
+                continue;
+              }
+              if (ec === '/' && en === '*') {
+                j += 2;
+                while (j < len && !(source[j] === '*' && source[j + 1] === '/')) j++;
+                j += 2;
+                continue;
+              }
+              if (ec === "'" || ec === '"') {
+                const q = ec;
+                j++;
+                while (j < len && source[j] !== q && source[j] !== '\n') {
+                  if (source[j] === '\\') j += 2;
+                  else j++;
+                }
+                if (j < len && source[j] === q) j++;
+                continue;
+              }
+              if (ec === '`') {
+                j++;
+                let nestedDepth = 0;
+                while (j < len) {
+                  if (source[j] === '\\') { j += 2; continue; }
+                  if (source[j] === '$' && source[j + 1] === '{') { nestedDepth++; j += 2; continue; }
+                  if (source[j] === '}' && nestedDepth > 0) { nestedDepth--; j++; continue; }
+                  if (source[j] === '`' && nestedDepth === 0) { j++; break; }
+                  j++;
+                }
+                continue;
+              }
+              if (ec === '{') braceDepth++;
+              else if (ec === '}') {
+                braceDepth--;
+                if (braceDepth === 0) break;
+              }
+              j++;
+            }
+            const rawExpr = source.slice(exprStart, j);
+            const transpiledExpr = isTS
+              ? transpileTS(rawExpr, filename, { expressionOnly: true })
+              : rawExpr;
+            rebuilt += '${' + transpiledExpr + '}';
+            if (j < len && source[j] === '}') j++;
+            continue;
+          }
+          rebuilt += source[j];
           j++;
         }
-        code += mask(source.slice(i, j));
+        code += mask(rebuilt);
         i = j;
         continue;
       }
@@ -5080,8 +5161,8 @@ function __initVirtualRuntime(rootScope) {
       };
       code = stripReturnTypes(code);
 
-      // Strip parameter type annotations inside `(...)` (supports multi-line parameter lists and default value `()` calls)
-      code = code.replace(/\(((?:[^()]|\([^()]*\))*)\)/g, (full, inner) => {
+      // Strip parameter type annotations inside `(...)` from innermost parens outward so nested callbacks work
+      const stripParensParamTypes = (full, inner) => {
         if (!inner.includes(':')) return full;
         if (inner.includes('?') && !/[A-Za-z0-9_$}\]]\s*\?\s*:/.test(inner)) return full;
         if (/[{}]/.test(inner) && !/\}\s*\??\s*:/.test(inner) && !/:\s*[A-Za-z_$][A-Za-z0-9_$.<>[\]|&\s]*\{/.test(inner)) {
@@ -5095,7 +5176,12 @@ function __initVirtualRuntime(rootScope) {
         const parts = splitTopLevel(inner, ',');
         const cleaned = parts.map((part) => cleanSingleParam(part));
         return `(${cleaned.join(',')})`;
-      });
+      };
+      do {
+        prevCode = code;
+        code = code.replace(/\(([^()]*)\)/g, stripParensParamTypes);
+      } while (code !== prevCode);
+      code = code.replace(/\(((?:[^()]|\([^()]*\))*)\)/g, stripParensParamTypes);
 
       // Strip variable type annotations: `const x: Type =`, `let y: Type =`
       code = code.replace(/\b(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*[^=;\n]+(?<![=!<>])=(?![=>])/g, '$1 $2 =');
@@ -5226,7 +5312,31 @@ function __initVirtualRuntime(rootScope) {
         hasEsmExport = true;
         return `Object.assign(exports, require(${mod.trim()}));`;
       });
-      code = code.replace(/\bexport\s+default\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      const collectBindingIds = (pattern) => {
+        const ids = [];
+        const inner = pattern.trim().replace(/^[\[{]|[\]}]$/g, '');
+        const isObj = pattern.trim().startsWith('{');
+        for (const rawPart of splitTopLevel(inner, ',')) {
+          let part = rawPart.trim();
+          if (!part) continue;
+          if (part.startsWith('...')) {
+            part = part.slice(3).trim();
+          } else if (isObj && part.includes(':')) {
+            const colonIdx = part.indexOf(':');
+            part = part.slice(colonIdx + 1).trim();
+          }
+          const eqIdx = part.indexOf('=');
+          if (eqIdx !== -1) part = part.slice(0, eqIdx).trim();
+          if ((part.startsWith('{') && part.endsWith('}')) || (part.startsWith('[') && part.endsWith(']'))) {
+            ids.push(...collectBindingIds(part));
+          } else if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(part)) {
+            ids.push(part);
+          }
+        }
+        return ids;
+      };
+
+      code = code.replace(/\bexport\s+default\s+(async\s+function\s*\*|function\s*\*|async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         defaultExportName = name;
         return `${kw} ${name}`;
@@ -5235,10 +5345,15 @@ function __initVirtualRuntime(rootScope) {
         hasEsmExport = true;
         return 'exports.default = ';
       });
-      code = code.replace(/\bexport\s+(async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
+      code = code.replace(/\bexport\s+(async\s+function\s*\*|function\s*\*|async\s+function|function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
         exportedNames.push(name);
         return `${kw} ${name}`;
+      });
+      code = code.replace(/\bexport\s+(const|let|var)\s+(\{[^;=\n]+\}|\[[^;=\n]+\])\s*=/gm, (_, kw, pat) => {
+        hasEsmExport = true;
+        exportedNames.push(...collectBindingIds(pat));
+        return `${kw} ${pat} =`;
       });
       code = code.replace(/\bexport\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm, (_, kw, name) => {
         hasEsmExport = true;
@@ -6371,10 +6486,16 @@ function __initVirtualRuntime(rootScope) {
     const activePortTable = optPortTable || portTable || _defaultPortTable;
     resourceTracker.pid = pid;
 
-    let currentCwd = '/workspace';
+    const prevCwdGetter = _activeCwdGetter;
+    let currentCwd = (typeof options.cwd === 'string' && options.cwd.trim())
+      ? VirtualPath.resolve('/workspace', options.cwd.trim())
+      : '/workspace';
     _activeCwdGetter = () => currentCwd;
 
     const vfs = optVfs || createVirtualFs(files, { cwdGetter: () => currentCwd });
+    const initialOpenFds = typeof vfs._listOpenFds === 'function'
+      ? new Set(vfs._listOpenFds())
+      : null;
     if (optVfs && files && typeof files === 'object') {
       for (const [fPath, content] of Object.entries(files)) {
         const abs = fPath.startsWith('/') ? fPath : '/workspace/' + fPath;
@@ -6386,6 +6507,9 @@ function __initVirtualRuntime(rootScope) {
           _runtimeLogger.warn('vfs initial file seed failed', { abs, err });
         }
       }
+    }
+    if (typeof vfs._setActiveStdin === 'function') {
+      vfs._setActiveStdin(options && options.stdin ? String(options.stdin) : '');
     }
     const vhttp = createVirtualHttp(resourceTracker, activePortTable);
     const vnet = createVirtualNet(resourceTracker, vhttp.getTrace());
@@ -6774,7 +6898,7 @@ function __initVirtualRuntime(rootScope) {
     let syncExecDepth = 0;
 
     const sandboxProcess = Object.assign(new EventEmitter(), {
-      env: { NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/user' },
+      env: Object.assign({ NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/user' }, options.env || {}),
       argv: argv || ['node', entry.startsWith('/') ? entry : `/workspace/${entry}`],
       argv0: 'node',
       execArgv: [],
@@ -6854,6 +6978,9 @@ function __initVirtualRuntime(rootScope) {
       }
 
       // Immediately cancel all active timers and immediates
+      if (typeof vfs._setActiveStdin === 'function') {
+        vfs._setActiveStdin('');
+      }
       for (const rawId of resourceTracker.allTimers) {
         clearTimeout(rawId);
         clearInterval(rawId);
@@ -8769,6 +8896,9 @@ function __initVirtualRuntime(rootScope) {
         hasExited = true;
         try { sandboxProcess.emit('exit', exitCode); } catch (err) { _runtimeLogger.debug('executeInVirtualRuntime exit listener failed', err); }
       }
+      if (typeof vfs._setActiveStdin === 'function') {
+        vfs._setActiveStdin('');
+      }
       for (const rawId of resourceTracker.allTimers) {
         clearTimeout(rawId);
         clearInterval(rawId);
@@ -8785,7 +8915,15 @@ function __initVirtualRuntime(rootScope) {
       if (!isBackground) {
         vhttp.closeAllServers();
         vnet.closeAllServers();
+        if (initialOpenFds && typeof vfs._listOpenFds === 'function' && typeof vfs.closeSync === 'function') {
+          for (const fd of vfs._listOpenFds()) {
+            if (!initialOpenFds.has(fd)) {
+              try { vfs.closeSync(fd); } catch (err) { _runtimeLogger.debug('executeInVirtualRuntime closeSync leak cleanup failed', { fd, err }); }
+            }
+          }
+        }
       }
+      _activeCwdGetter = prevCwdGetter;
     }
 
     const failedTests = testResults.filter((t) => !t.passed).length;
@@ -9231,14 +9369,70 @@ function __initVirtualRuntime(rootScope) {
 
       exec(sql) {
         const cleaned = stripSqlComments(sql);
-        const statements = cleaned.split(';').map((s) => s.trim()).filter(Boolean);
+        const statements = [];
+        let cur = '';
+        let i = 0;
+        while (i < cleaned.length) {
+          const ch = cleaned[i];
+          if (ch === "'" || ch === '"') {
+            const quote = ch;
+            cur += ch;
+            i++;
+            while (i < cleaned.length) {
+              if (cleaned[i] === quote && cleaned[i + 1] === quote) {
+                cur += quote + quote;
+                i += 2;
+                continue;
+              }
+              if (cleaned[i] === '\\' && quote === '"') {
+                cur += cleaned.slice(i, i + 2);
+                i += 2;
+                continue;
+              }
+              cur += cleaned[i];
+              if (cleaned[i] === quote) {
+                i++;
+                break;
+              }
+              i++;
+            }
+            continue;
+          }
+          if (ch === ';') {
+            const trimmed = cur.trim();
+            if (trimmed) statements.push(trimmed);
+            cur = '';
+            i++;
+            continue;
+          }
+          cur += ch;
+          i++;
+        }
+        if (cur.trim()) statements.push(cur.trim());
         for (const s of statements) {
           this.run(s);
         }
       }
 
       transaction(fn) {
-        return (...args) => fn(...args);
+        const db = this;
+        return (...args) => {
+          const snapshot = new Map();
+          for (const [tblName, tbl] of db.tables.entries()) {
+            snapshot.set(tblName, {
+              columns: tbl.columns.map((c) => Object.assign({}, c)),
+              rows: tbl.rows.map((r) => Object.assign({}, r)),
+              autoInc: tbl.autoInc
+            });
+          }
+          try {
+            return fn(...args);
+          } catch (err) {
+            db.tables = snapshot;
+            db._persistToVfs();
+            throw err;
+          }
+        };
       }
 
       close() {
@@ -9967,7 +10161,8 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         printReplResult: options.printReplResult,
         stdin: options.stdin,
         wasmBinary: options.wasmBinary,
-        env: options.env
+        env: options.env,
+        cwd: options.cwd
       }
     });
   });
@@ -10007,9 +10202,9 @@ export const VirtualStream: any = _runtimeApi.VirtualStream;
 export const VirtualStreamPromises: any = _runtimeApi.VirtualStreamPromises;
 export const VirtualStringDecoder: any = _runtimeApi.VirtualStringDecoder;
 export const VirtualDns: any = _runtimeApi.VirtualDns;
-export const createVirtualFs: (options?: any) => any = _runtimeApi.createVirtualFs;
-export const createVirtualHttp: (portTable?: any, vfs?: any) => any = _runtimeApi.createVirtualHttp;
-export const createVirtualNet: (portTable?: any) => any = _runtimeApi.createVirtualNet;
+export const createVirtualFs: (files?: any, options?: any) => any = _runtimeApi.createVirtualFs;
+export const createVirtualHttp: (resourceTracker?: any, portTable?: any) => any = _runtimeApi.createVirtualHttp;
+export const createVirtualNet: (resourceTracker?: any, httpTrace?: any) => any = _runtimeApi.createVirtualNet;
 export const createSqliteDatabase: (vfs?: any, getCwd?: () => string) => any = _runtimeApi.createSqliteDatabase;
 export const transpileTS: (code: string, filename?: string) => string = _runtimeApi.transpileTS;
 export const transpileForBrowser: (source: string, filename?: string) => string = _runtimeApi.transpileForBrowser;

@@ -28,26 +28,26 @@
   - [x] `P0-4`: Fixed `executeInWorker` to preserve streamed `stdout`/`stderr`/`testResults` on timeout/cancel/error, sync dirty VFS mutations (`Uint8Array`-safe) back to `options.vfs` and workbench, and guard against re-executing crashed worker code on the main thread
   - [x] `P0-5`: Hardened `preview-sw.js` with `X-Content-Type-Options: nosniff` on all responses, `Content-Security-Policy` on all HTML/XHTML/SVG/XML/untyped responses, 302 navigate isolation into `/__preview/:port/...`, sender/CRLF validation on `codelab:config`, and `MessageChannel` port cleanup
   - [x] Added regression suite [test-p0-audit-regressions.js](file:///Users/vedgupta/Desktop/code-lab/tests/test-p0-audit-regressions.js) (44/44 suites green)
+- [x] **Milestone 2 — Fix All P1 (& P2) Audit Findings (with Regression Tests)**
+  - [x] `P1-2`: Inline diff editor state/VFS/model sync & theme fix
+  - [x] `P1-3`: Removed `allow-same-origin` from `.codelab-response-iframe` & `JSON.stringify` URLs in `loadMonaco` worker shim
+  - [x] `P1-4`: Multi-instance isolation (`instanceId`-scoped Monaco URIs & SW client routing, full `destroy()` disposable/model/timer/port/Blob cleanup, per-execution `cwd` & FD cleanup)
+  - [x] `P1-5`: Debounced serialized persistence + IndexedDB read hydration on reload + rAF breadcrumb throttling + compact `sd_codelab_` metadata mirror
+  - [x] `P1-6`: Preserved focus/input in `#cl-net-search` filter input via `#cl-net-tbody` in-place update
+  - [x] `P1-7`: Binary-safe `Uint8Array` asset serving & escaped `\u003c/script>` import maps in `serve`
+  - [x] `P1-8`: Binary-safe Python VFS sync, Pyodide `<script>` dedup, honest `pip` error when toolchain absent
+  - [x] `P1-9`: C++ string/comment/raw-string-aware brace check & file-targeted Monaco lint markers
+  - [x] `P1-10`: Shell `<<`/`<<-`/`<<<` heredocs & here-strings, `[[ ... ]]`, `exit`, `:`, and `stdin`/`env`/`cwd` forwarding to `node`/`bun`/`python3`
+  - [x] `P1-11`: Shell `curl` & `hey` external URL routing vs loopback `portTable`
+  - [x] `P1-12` & `P2-2`: `transpileTS` template-literal `${...}` & nested callback TS stripping, generator/destructured exports, and quote-aware `SqliteDatabase.exec` + `transaction` rollback
+  - [x] `P1-13` & `P2-3`: `PTYTerminalEngine.readLine()` queue cleanup on `Ctrl+C`, `AbortSignal`, & `destroy()` + bounded shell/PTY history ring buffers
+  - [x] `P1-14`, `P2-4..6`: Fixed `mock-dom.js` single-quote attribute regex, added `layout`/`maximize`/`settings` icons, binary/huge (`> 2 MB`) file guard, `[data-cl-theme]` light/high-contrast CSS rules, and regression suite [test-p1-audit-regressions.js](file:///Users/vedgupta/Desktop/code-lab/tests/test-p1-audit-regressions.js) (45/45 suites green)
 
 ---
 
 ## In Progress
 
-- [ ] **Milestone 2 — Fix All P1 (& P2) Audit Findings (with Regression Tests)**
-  - [ ] `P1-2`: Inline diff editor state/VFS/model sync & theme fix
-  - [ ] `P1-3`: Remove `allow-same-origin` from `.codelab-response-iframe` & `JSON.stringify` URLs in `loadMonaco` worker shim
-  - [ ] `P1-4`: Multi-instance isolation (`instanceId`-scoped Monaco URIs & SW client routing, full `destroy()` disposable/model/timer/port/Blob cleanup, per-execution `cwd` & FD cleanup)
-  - [ ] `P1-5`: Debounced serialized persistence + IndexedDB read hydration on reload + rAF breadcrumb throttling
-  - [ ] `P1-6`: Preserve focus/input in `#cl-net-search` filter input
-  - [ ] `P1-7`: Binary-safe `Uint8Array` asset serving & escaped `</script>` import maps in `serve`
-  - [ ] `P1-8`: Binary-safe Python VFS sync, bidirectional deletion reconciliation, per-run `codelab_test` reset, honest `pip` error when toolchain absent
-  - [ ] `P1-9`: C++ retryable `loadPromise`, diagnostic warning on offline fallback, string/comment-aware brace check
-  - [ ] `P1-10`: Shell `<<`/`<<-`/`<<<` heredocs & here-strings, `[[ ... ]]`, `exit`, `:`, and `stdin`/`env`/`cwd` forwarding to `node`/`bun`/`python3`
-  - [ ] `P1-11`: Shell `curl` & `hey` external URL routing vs loopback `portTable`
-  - [ ] `P1-12`: `transpileTS` template-literal `${...}` TS stripping & destructured/generator exports
-  - [ ] `P1-13`: `PTYTerminalEngine.readLine()` queue cleanup on `Ctrl+C` & `destroy()`
-  - [ ] `P1-14`: Fix `mock-dom.js` single-quote attribute regex
-- [ ] **Milestone 3 — Phase 2 Target Modular Monorepo Architecture**
+- [ ] **Milestone 3 — Phase 2 Target Modular Monorepo Architecture + `@code-lab/sql` (`@innovatorved/code-lab/sql`)**
   - [ ] Create Bun workspace packages (`@code-lab/core`, `@code-lab/fs`, `@code-lab/settings`, `@code-lab/commands`, `@code-lab/editor`, `@code-lab/terminal`, `@code-lab/preview`, `@code-lab/runtime`, `@code-lab/ui`) + `apps/web`
   - [ ] Strict TypeScript (`strict: true`, `noImplicitAny: true`) across all `@code-lab/*` packages, explicit `index.ts` public APIs, per-package `README.md`
   - [ ] `ServiceContainer` DI, `IDisposable`/`DisposableStore`, typed `Emitter<T>`/`Event<T>`, central typed `CodeLabError` & logger

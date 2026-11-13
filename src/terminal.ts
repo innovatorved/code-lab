@@ -328,6 +328,9 @@
       this.maxScrollback = typeof this.options.maxScrollback === 'number' && this.options.maxScrollback > 0
         ? this.options.maxScrollback
         : MAX_SCROLLBACK;
+      this.maxHistory = typeof this.options.maxHistory === 'number' && this.options.maxHistory > 0
+        ? this.options.maxHistory
+        : 1000;
       this.logs = Array.isArray(this.options.logs) ? this.options.logs : [];
       this.cwd = this.options.cwd || '/workspace';
       this.replMode = Boolean(this.options.replMode);
@@ -616,14 +619,60 @@
       }
     }
 
-    readLine(promptText = '') {
+    _drainReadLineQueue(result = null) {
+      if (!Array.isArray(this._readLineQueue) || this._readLineQueue.length === 0) return;
+      const queued = this._readLineQueue.splice(0, this._readLineQueue.length);
+      let restoredPrompt = undefined;
+      for (const entry of queued) {
+        if (entry && typeof entry === 'object' && entry._activated && restoredPrompt === undefined) {
+          restoredPrompt = entry.prevPrompt;
+        }
+        if (entry && typeof entry.cleanup === 'function') {
+          entry.cleanup();
+        }
+      }
+      if (restoredPrompt !== undefined) {
+        this.promptOverride = restoredPrompt;
+      }
+      for (const entry of queued) {
+        if (typeof entry === 'function') {
+          try { entry(result); } catch (err) { _terminalLogger.debug('readLine callback threw during drain.', err); }
+        } else if (entry && typeof entry.resolve === 'function') {
+          try { entry.resolve(result); } catch (err) { _terminalLogger.debug('readLine resolve threw during drain.', err); }
+        }
+      }
+    }
+
+    readLine(promptText = '', options = {}) {
+      if (options && options.signal && options.signal.aborted) {
+        return Promise.resolve(null);
+      }
       return new Promise((resolve) => {
         const item = {
           promptText: String(promptText || ''),
           prevPrompt: null,
           _activated: false,
+          cleanup: null,
           resolve
         };
+        if (options && options.signal && typeof options.signal.addEventListener === 'function') {
+          const onAbort = () => {
+            const idx = this._readLineQueue.indexOf(item);
+            if (idx !== -1) {
+              this._readLineQueue.splice(idx, 1);
+              if (item._activated) {
+                this.promptOverride = item.prevPrompt;
+                this._activateNextReadLine();
+              }
+              this.updateActiveLine();
+              resolve(null);
+            }
+          };
+          options.signal.addEventListener('abort', onAbort, { once: true });
+          item.cleanup = () => {
+            try { options.signal.removeEventListener('abort', onAbort); } catch (err) { _terminalLogger.debug('readLine abort listener cleanup failed.', err); }
+          };
+        }
         this._readLineQueue.push(item);
         this._activateNextReadLine();
         this.updateActiveLine();
@@ -667,6 +716,7 @@
     }
 
     destroy() {
+      this._drainReadLineQueue(null);
       this._cleanupListeners();
       this._mounted = false;
     }
@@ -749,12 +799,13 @@
 
       if (isCtrl && (key === 'c' || key === 'C')) {
         if (e.preventDefault) e.preventDefault();
-        const wasBusy = this.isBusy;
+        const wasBusy = this.isBusy || (this._readLineQueue && this._readLineQueue.length > 0);
         this.isBusy = false;
         this._pushLog({ type: 'system', text: wasBusy ? '^C' : `${this.getPrompt()}${this.buffer}^C` });
         this.buffer = '';
         this.cursor = 0;
         this.historyIdx = -1;
+        this._drainReadLineQueue(null);
         if (this.replMode) {
           this.replMode = false;
         }
@@ -1016,6 +1067,9 @@
         this.searchMatchIdx = -1;
 
         const entry = this._readLineQueue.shift();
+        if (entry && typeof entry.cleanup === 'function') {
+          entry.cleanup();
+        }
         if (typeof entry === 'function') {
           this.updateActiveLine();
           entry(line);
@@ -1052,6 +1106,10 @@
       if (line.trim()) {
         if (this.history[this.history.length - 1] !== line.trim()) {
           this.history.push(line.trim());
+          const maxHist = typeof this.maxHistory === 'number' && this.maxHistory > 0 ? this.maxHistory : 1000;
+          if (this.history.length > maxHist) {
+            this.history.splice(0, this.history.length - maxHist);
+          }
         }
       }
 

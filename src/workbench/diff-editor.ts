@@ -158,10 +158,16 @@ export class CodeLabDiffEditorManager {
     `;
 
     const slot = diffContainer.querySelector('#cl-diff-editor-slot');
+    const resolvedTheme = typeof this.workbench._resolvedTheme === 'function'
+      ? this.workbench._resolvedTheme()
+      : this.workbench.theme;
+    const monacoTheme = resolvedTheme === 'light'
+      ? 'vs'
+      : (resolvedTheme === 'high-contrast' ? 'hc-black' : 'vs-dark');
     this.diffEditor = monaco.editor.createDiffEditor(slot, {
       readOnly: false,
       originalEditable: false,
-      theme: this.workbench.theme === 'light' ? 'vs' : 'vs-dark',
+      theme: monacoTheme,
       renderSideBySide: true,
       automaticLayout: true,
       minimap: { enabled: false }
@@ -176,13 +182,32 @@ export class CodeLabDiffEditorManager {
       modified: this.modifiedModel
     });
 
-    // Wire modified model edits back to workbench
-    this.modifiedModel.onDidChangeContent(() => {
-      const val = this.modifiedModel.getValue();
+    const syncFileToWorkbench = (val: string): void => {
       this.workbench.files[file] = val;
+      const mainModel = this.workbench.models && typeof this.workbench.models.get === 'function'
+        ? this.workbench.models.get(file)
+        : null;
+      if (mainModel && typeof mainModel.getValue === 'function' && mainModel.getValue() !== val) {
+        mainModel.setValue(val);
+      }
+      if (this.workbench.activeFile === file && fallbackTextarea && fallbackTextarea.value !== val) {
+        fallbackTextarea.value = val;
+      }
+      if (this.workbench.shell && this.workbench.shell.vfs && typeof this.workbench.shell.vfs.writeFileSync === 'function') {
+        const vfsPath = file.startsWith('/') ? file : `/workspace/${file}`;
+        this.workbench.shell.vfs.writeFileSync(vfsPath, val);
+      }
+      if (typeof this.workbench._saveState === 'function') {
+        this.workbench._saveState();
+      }
       if (typeof this.workbench._markDirty === 'function') {
         this.workbench._markDirty(file);
       }
+    };
+
+    // Wire modified model edits back to workbench, main Monaco model, VFS, and persistence
+    this.modifiedModel.onDidChangeContent(() => {
+      syncFileToWorkbench(this.modifiedModel.getValue());
     });
 
     // Wire buttons
@@ -195,7 +220,11 @@ export class CodeLabDiffEditorManager {
     diffContainer.querySelector('#cl-diff-revert-btn')?.addEventListener('click', () => {
       const starterMap = this.workbench.starterFiles || (typeof this.workbench._getBaseFilesForModeAndLang === 'function' ? this.workbench._getBaseFilesForModeAndLang('guided', this.workbench.lang) : {});
       const starterCode = (starterMap && starterMap[file]) || '';
-      this.workbench.files[file] = starterCode;
+      if (typeof this.workbench.setFile === 'function') {
+        this.workbench.setFile(file, starterCode);
+      } else {
+        syncFileToWorkbench(starterCode);
+      }
       this.closeInlineDiff();
       this.workbench.openFile(file);
     });
@@ -207,7 +236,11 @@ export class CodeLabDiffEditorManager {
       }
       const solutionMap = this.workbench.solutionFiles || (typeof this.workbench._getBaseFilesForModeAndLang === 'function' ? this.workbench._getBaseFilesForModeAndLang('sandbox', this.workbench.lang) : {});
       const solutionCode = (solutionMap && solutionMap[file]) || '';
-      this.workbench.files[file] = solutionCode;
+      if (typeof this.workbench.setFile === 'function') {
+        this.workbench.setFile(file, solutionCode);
+      } else {
+        syncFileToWorkbench(solutionCode);
+      }
       this.closeInlineDiff();
       this.workbench.openFile(file);
     });
@@ -216,6 +249,33 @@ export class CodeLabDiffEditorManager {
     });
 
     return true;
+  }
+
+  public syncFileToWorkbench(file: string, nextVal: string): void {
+    this.workbench.files[file] = nextVal;
+    const mainModel = this.workbench.models instanceof Map ? this.workbench.models.get(file) : null;
+    if (mainModel && typeof mainModel.getValue === 'function' && mainModel.getValue() !== nextVal) {
+      mainModel.setValue(nextVal);
+    }
+    const fallbackEl = this.workbench.container?.querySelector('#cl-fallback-editor');
+    if (fallbackEl && this.workbench.activeFile === file) {
+      fallbackEl.value = nextVal;
+    }
+    if (this.workbench.shell?.vfs && typeof this.workbench.shell.vfs.writeFileSync === 'function') {
+      try {
+        this.workbench.shell.vfs.writeFileSync('/workspace/' + String(file).replace(/^\/+/, ''), nextVal);
+      } catch (err) {
+        if (this.workbench.logger && typeof this.workbench.logger.debug === 'function') {
+          this.workbench.logger.debug('Diff VFS sync skipped.', err);
+        }
+      }
+    }
+    if (typeof this.workbench._saveState === 'function') {
+      this.workbench._saveState();
+    }
+    if (typeof this.workbench._markDirty === 'function') {
+      this.workbench._markDirty(file);
+    }
   }
 
   public closeInlineDiff(): void {

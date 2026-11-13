@@ -85,3 +85,18 @@
 - **Why**: Preserves universal embeddability while closing the SVG/XHTML/binary CSP bypass (`P0-5`) and multi-tab SW cross-talk (`P1-4`).
 - **Alternatives Rejected**:
   - *Requiring `SharedArrayBuffer` / `COOP`+`COEP`*: Breaks embeddability on static hosts and third-party sites.
+
+---
+
+## ADR-007: Zero-Dependency Lightweight SQL Editor & Language Pack (`@code-lab/sql` / `@innovatorved/code-lab/sql`)
+
+- **Context**: `sql-in-depth` mounts 1–5 runnable SQL blocks inline per lesson page, a full `/sandbox` SQL playground, and 3-step Guided Labs backed by external Web Worker `sql.js` (SQLite 3) and `PGlite` (PostgreSQL 18) engines, while targeting Lighthouse Mobile Performance >= 90 (`< 35 KB` gzipped JS + CSS combined, zero duplicate SQL WASM, zero CodeMirror/Monaco dependency).
+- **Decision**:
+  1. Build `@code-lab/sql` (`packages/sql`, Layer 2 `services`) as a 100% strict TypeScript, zero-external-dependency SQL language pack and accessible DOM editor surface, shipped both standalone (`@innovatorved/code-lab/sql` -> `dist/code-lab-sql.{umd.js,esm.js,css,d.ts}`) and integrated into `@innovatorved/code-lab` (`CodeLab.createSqlEditor`, `CodeLabSql`, and `CodeLabWorkbench` `lang: 'sql'` + `sqlRunner`).
+  2. Use a synchronized transparent `<textarea>` + syntax/diagnostic `<pre>` overlay architecture with identical font metrics, `tab-size: 2`, scroll synchronization, wavy diagnostic underlines, gutter markers, floating schema-aware completion listbox, and WCAG 2.1 AA `Esc` focus-escape mode (`role="textbox"`, `aria-multiline="true"`, `aria-describedby`, `aria-invalid`, IME-safe `Enter`, and `font-size >= 16px` on `pointer: coarse` devices).
+  3. Keep query execution completely decoupled via `onRun({ sql, selectedSql, effectiveSql, dialect })` in `inline`/`playground` modes and `sqlRunner({ sql, effectiveSql, step, mode })` in Guided Lab `workbench` mode, plus `parseSqlEngineError(err, sql, dialect)` to map Postgres (`LINE N:` / 1-based `position`) and SQLite (`near "TOKEN"`) engine errors onto exact source token offsets.
+- **Why**:
+  - Stays well under the `35 KB` gzipped budget (~12–16 KB gzipped JS + CSS), boots synchronously in `< 2 ms` even with 5+ instances on one lesson page, requires zero WASM of its own, and preserves native mobile selection, clipboard, undo/redo, and screen-reader semantics.
+- **Alternatives Rejected**:
+  - *Bundling CodeMirror 6 or Monaco inside `./sql`*: Violates the explicit zero-CodeMirror constraint and exceeds the `< 35 KB` gzipped mobile budget.
+  - *Bundling `sql.js` or `PGlite` inside `./sql`*: Would duplicate megabytes of WASM already managed in `sql-in-depth`'s Web Worker engine.

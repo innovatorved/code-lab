@@ -980,8 +980,8 @@ declare module 'bun:sqlite' {
       root.MonacoEnvironment = {
         getWorkerUrl: function () {
           const blobCode = `
-            self.MonacoEnvironment = { baseUrl: '${amdBaseUrl}' };
-            importScripts('${baseUrl}/base/worker/workerMain.js');
+            self.MonacoEnvironment = { baseUrl: ${JSON.stringify(amdBaseUrl)} };
+            importScripts(${JSON.stringify(baseUrl + '/base/worker/workerMain.js')});
           `;
           return URL.createObjectURL(new Blob([blobCode], { type: 'application/javascript' }));
         }
@@ -1252,8 +1252,11 @@ int main() {
     warning: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     memory: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v2"/><path d="M10 19v2"/><path d="M14 19v2"/><path d="M18 19v2"/><path d="M6 3v2"/><path d="M10 3v2"/><path d="M14 3v2"/><path d="M18 3v2"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>',
-    keyboard: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>',
-    share: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
+    keyboard: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>',
+    share: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
+    layout: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
+    maximize: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+    settings: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
   };
 
   let _workbenchInstanceCounter = 0;
@@ -1656,11 +1659,18 @@ int main() {
       this.monaco = null;
       this.editor = null;
       this.models = new Map();
+      this._forceOpenedLargeFiles = new Set();
+      this._saveDebounceTimer = null;
+      this._idbSaveChain = Promise.resolve();
+      this._breadcrumbRafId = null;
+      this._markerDisposable = null;
+      this._destroyed = false;
 
       this._renderShell();
       this._bindEvents();
       this._initEditor();
       this._checkUrlSnapshot();
+      this._hydrateFromAsyncStorage();
 
       const initialPlugins = [
         ...(Array.isArray(options.extensions) ? options.extensions : []),
@@ -1972,33 +1982,118 @@ int main() {
       return error;
     }
 
+    _buildSavedStateSnapshot() {
+      const key = `${this.mode}:${this.lang}`;
+      const customFiles = (this.savedState && this.savedState.customFiles) || {};
+      customFiles[key] = { ...this.files };
+      const hasSnapshot = Object.assign(
+        {},
+        (this.savedState && this.savedState.hasSnapshot) || {},
+        { [key]: true }
+      );
+      const completedArr = Array.from(this.completedSteps);
+      const state = {
+        mode: this.mode,
+        lang: this.lang,
+        activeStepIndex: this.activeStepIndex,
+        completedSteps: completedArr,
+        customFiles,
+        hasSnapshot,
+        openTabs: Array.isArray(this.openTabs) ? [...this.openTabs] : undefined,
+        activeFile: this.activeFile,
+        folders: Array.from(this.folders || []),
+        collapsedFolders: Array.from(this.collapsedFolders || []),
+        explorerFolder: this.explorerFolder || '',
+        explorerWidth: typeof this.explorerWidth === 'number' ? this.explorerWidth : undefined,
+        previewSplitWidth: this.previewSplitWidth || undefined
+      };
+      this.savedState = state;
+      return { state, completedArr };
+    }
+
+    _scheduleSaveState(delayMs = 180) {
+      this._buildSavedStateSnapshot();
+      if (this.options && this.options.persistState === false) {
+        this.saveStatusState = 'saved';
+        this.saveStatusError = null;
+        this._updateStatusBar();
+        return;
+      }
+      if (this._saveDebounceTimer) {
+        clearTimeout(this._saveDebounceTimer);
+      }
+      this._saveDebounceTimer = setTimeout(() => {
+        this._saveDebounceTimer = null;
+        if (!this._destroyed) {
+          this._saveState();
+        }
+      }, delayMs);
+    }
+
+    flushState() {
+      if (this._saveDebounceTimer) {
+        clearTimeout(this._saveDebounceTimer);
+        this._saveDebounceTimer = null;
+        this._saveState();
+      }
+    }
+
+    _hydrateFromAsyncStorage() {
+      if (this.options && this.options.persistState === false) return;
+      if (this.savedState && Object.keys(this.savedState).length > 0) return;
+      if (!root.CodeLabStorage || typeof root.CodeLabStorage.createWorkspaceStorage !== 'function') return;
+      try {
+        if (!this._idbStorage) {
+          this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
+        }
+        const loader = this._idbStorage && typeof this._idbStorage.loadProject === 'function'
+          ? this._idbStorage.loadProject(this.labId)
+          : (this._idbStorage && typeof this._idbStorage.load === 'function' ? this._idbStorage.load(this.labId) : null);
+        if (!loader || typeof loader.then !== 'function') return;
+        Promise.resolve(loader).then((project) => {
+          if (this._destroyed || !project) return;
+          const hydratedFiles = project.files && typeof project.files === 'object' ? project.files : null;
+          if (!hydratedFiles || Object.keys(hydratedFiles).length === 0) return;
+          // Only hydrate if user hasn't started typing over the fresh starter state
+          if (this._saveDebounceTimer) return;
+          this.files = { ...this.files, ...hydratedFiles };
+          for (const f of Object.keys(this.files)) {
+            const parts = f.split('/');
+            for (let i = 1; i < parts.length; i++) {
+              this.folders.add(parts.slice(0, i).join('/'));
+            }
+            if (!this.openTabs.includes(f)) this.openTabs.push(f);
+            if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+              try {
+                if (parts.length > 1 && typeof this.shell.vfs.mkdirSync === 'function') {
+                  this.shell.vfs.mkdirSync('/workspace/' + parts.slice(0, -1).join('/'), { recursive: true });
+                }
+                this.shell.vfs.writeFileSync('/workspace/' + f, String(this.files[f] ?? ''));
+              } catch (err) {
+                this.logger.debug('Async hydration VFS sync skipped.', err);
+              }
+            }
+          }
+          this._syncAllModels();
+          this._renderFileLists();
+          this._renderTabs();
+          this._syncActiveFileToView();
+          this._emitEvent('hydrated', { labId: this.labId, files: Object.keys(hydratedFiles) });
+        }).catch((err) => {
+          this.logger.debug('Async WorkspaceStorage hydration skipped.', err);
+        });
+      } catch (err) {
+        this.logger.debug('WorkspaceStorage hydration initialization skipped.', err);
+      }
+    }
+
     _saveState() {
       try {
-        const key = `${this.mode}:${this.lang}`;
-        const customFiles = (this.savedState && this.savedState.customFiles) || {};
-        customFiles[key] = { ...this.files };
-        const hasSnapshot = Object.assign(
-          {},
-          (this.savedState && this.savedState.hasSnapshot) || {},
-          { [key]: true }
-        );
-        const completedArr = Array.from(this.completedSteps);
-        const state = {
-          mode: this.mode,
-          lang: this.lang,
-          activeStepIndex: this.activeStepIndex,
-          completedSteps: completedArr,
-          customFiles,
-          hasSnapshot,
-          openTabs: Array.isArray(this.openTabs) ? [...this.openTabs] : undefined,
-          activeFile: this.activeFile,
-          folders: Array.from(this.folders || []),
-          collapsedFolders: Array.from(this.collapsedFolders || []),
-          explorerFolder: this.explorerFolder || '',
-          explorerWidth: typeof this.explorerWidth === 'number' ? this.explorerWidth : undefined,
-          previewSplitWidth: this.previewSplitWidth || undefined
-        };
-        this.savedState = state;
+        if (this._saveDebounceTimer) {
+          clearTimeout(this._saveDebounceTimer);
+          this._saveDebounceTimer = null;
+        }
+        const { state, completedArr } = this._buildSavedStateSnapshot();
         if (this.options && this.options.persistState === false) {
           this.saveStatusState = 'saved';
           this.saveStatusError = null;
@@ -2009,31 +2104,43 @@ int main() {
         const serialized = JSON.stringify(state);
         safeStorageSet._lastError = null;
         const recordErr = (err) => { safeStorageSet._lastError = err; };
+        const hostMirrorSummary = JSON.stringify({
+          mode: state.mode,
+          lang: state.lang,
+          activeStepIndex: state.activeStepIndex,
+          completedSteps: completedArr,
+          activeFile: state.activeFile,
+          updatedAt: Date.now()
+        });
         const persisted = [
           safeStorageSet(this._storageKey(), serialized, this.logger, recordErr),
-          // Sync with host app sidebar & build overview progress trackers
+          // Sync lightweight step-completion progress & compact metadata with host app sidebar trackers
           safeStorageSet('codelab_progress_' + this.labId, JSON.stringify(completedArr), this.logger, recordErr),
-          safeStorageSet('sd_codelab_' + this.labId, serialized, this.logger, recordErr)
+          safeStorageSet('sd_codelab_' + this.labId, hostMirrorSummary, this.logger, recordErr)
         ];
         if (root.CodeLabStorage && typeof root.CodeLabStorage.createWorkspaceStorage === 'function') {
           try {
             if (!this._idbStorage) {
               this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
             }
-            if (this._idbStorage && typeof this._idbStorage.saveProject === 'function') {
-              Promise.resolve(this._idbStorage.saveProject({
-                id: this.labId,
-                name: this.title || this.labId,
-                files: { ...(this.files || {}) },
-                updatedAt: Date.now()
-              })).catch((err) => {
-                this.logger.debug('Async WorkspaceStorage saveProject skipped.', err);
-              });
-            } else if (this._idbStorage && typeof this._idbStorage.save === 'function') {
-              Promise.resolve(this._idbStorage.save(this.labId, state)).catch((err) => {
-                this.logger.debug('Async WorkspaceStorage save skipped.', err);
-              });
-            }
+            const filesSnapshot = { ...(this.files || {}) };
+            const stateSnapshot = state;
+            this._idbSaveChain = Promise.resolve(this._idbSaveChain).then(() => {
+              if (this._idbStorage && typeof this._idbStorage.saveProject === 'function') {
+                return this._idbStorage.saveProject({
+                  id: this.labId,
+                  name: this.title || this.labId,
+                  files: filesSnapshot,
+                  updatedAt: Date.now()
+                });
+              }
+              if (this._idbStorage && typeof this._idbStorage.save === 'function') {
+                return this._idbStorage.save(this.labId, stateSnapshot);
+              }
+              return undefined;
+            }).catch((err) => {
+              this.logger.debug('Async WorkspaceStorage save skipped.', err);
+            });
           } catch (err) {
             this.logger.debug('WorkspaceStorage initialization skipped.', err);
           }
@@ -4734,7 +4841,7 @@ int main() {
       } else if (httpState.activeResponseTab === 'preview') {
         const isHtml = lastRes.headers && Object.entries(lastRes.headers).some(([k, v]) => k.toLowerCase() === 'content-type' && String(v).includes('text/html'));
         if (isHtml || lastRes.body.includes('<html') || lastRes.body.includes('<!DOCTYPE') || lastRes.body.includes('<div') || lastRes.body.includes('<body')) {
-          responseBodyView = `<iframe class="codelab-response-iframe" sandbox="allow-same-origin" srcdoc="${escapeHtml(lastRes.body)}"></iframe>`;
+          responseBodyView = `<iframe class="codelab-response-iframe" title="HTTP response HTML preview" sandbox="" srcdoc="${escapeHtml(lastRes.body)}"></iframe>`;
         } else {
           responseBodyView = `<pre class="codelab-response-raw"><code>${escapeHtml(lastRes.formattedBody || lastRes.body)}</code></pre>`;
         }
@@ -5095,23 +5202,23 @@ int main() {
               <option value="5xx" ${filter.status === '5xx' ? 'selected' : ''}>5xx / Network Fault</option>
             </select>
             <button type="button" class="codelab-btn" data-cl-action="clear-net-traces">Clear</button>
-            <span style="margin-left:auto;font-size:11.5px;color:var(--cl-fg-muted);">${filtered.length} of ${traces.length} requests</span>
+            <span id="cl-net-count" style="margin-left:auto;font-size:11.5px;color:var(--cl-fg-muted);">${filtered.length} of ${traces.length} requests</span>
           </div>
           <div class="codelab-net-main">
             <div class="codelab-net-table-container">
               <table class="codelab-net-table">
                 <thead>
                   <tr>
-                    <th style="width:85px;">Status</th>
-                    <th style="width:65px;">Method</th>
-                    <th>Path</th>
-                    <th style="width:95px;">Route</th>
-                    <th style="width:75px;">Time</th>
-                    <th style="width:70px;">Size</th>
-                    <th style="width:140px;">Waterfall</th>
+                    <th scope="col" style="width:85px;">Status</th>
+                    <th scope="col" style="width:65px;">Method</th>
+                    <th scope="col">Path</th>
+                    <th scope="col" style="width:95px;">Route</th>
+                    <th scope="col" style="width:75px;">Time</th>
+                    <th scope="col" style="width:70px;">Size</th>
+                    <th scope="col" style="width:140px;">Waterfall</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody id="cl-net-tbody">
                   ${rowsHtml}
                 </tbody>
               </table>
@@ -5124,13 +5231,82 @@ int main() {
       this._bindNetworkEvents(bodyEl);
     }
 
+    _updateNetworkRowsInPlace(bodyEl) {
+      if (!bodyEl) return false;
+      const tbody = bodyEl.querySelector('#cl-net-tbody');
+      const countEl = bodyEl.querySelector('#cl-net-count');
+      if (!tbody) return false;
+      const traces = this.lastHttpTrace || [];
+      const filter = this.networkFilter;
+      const filtered = traces.filter(t => {
+        if (filter.method !== 'ALL' && (t.method || 'GET').toUpperCase() !== filter.method) return false;
+        if (filter.status !== 'ALL') {
+          const s = Number(t.status || 0);
+          if (filter.status === '2xx' && (s < 200 || s >= 300)) return false;
+          if (filter.status === '3xx' && (s < 300 || s >= 400)) return false;
+          if (filter.status === '4xx' && (s < 400 || s >= 500)) return false;
+          if (filter.status === '5xx' && (s < 500 && s !== 0)) return false;
+        }
+        if (filter.search) {
+          const query = filter.search.toLowerCase();
+          const urlMatch = String(t.url || '').toLowerCase().includes(query);
+          const methodMatch = String(t.method || '').toLowerCase().includes(query);
+          const portMatch = String(t.port || '').includes(query);
+          if (!urlMatch && !methodMatch && !portMatch) return false;
+        }
+        return true;
+      });
+      const selectedTrace = traces.find(t => String(t.id) === String(filter.selectedTraceId)) || null;
+      if (countEl) {
+        countEl.textContent = `${filtered.length} of ${traces.length} requests`;
+      }
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align:center;padding:32px;color:var(--cl-fg-muted);">
+              ${traces.length === 0 ? 'No network requests recorded yet. Run a demo, click "⚡ Load Test", or run `hey -n 50 http://localhost:3000` in the terminal.' : 'No network requests match the active filters.'}
+            </td>
+          </tr>
+        `;
+      } else {
+        const maxDuration = Math.max(1, ...filtered.map(t => t.durationMs || 1));
+        tbody.innerHTML = filtered.map(t => {
+          const status = Number(t.status || 0);
+          const statusLabel = status === 0 ? (t.statusText || 'ERR') : String(status);
+          const statusClass = status === 0 ? 'status-5xx' : (status < 300 ? 'status-2xx' : (status < 400 ? 'status-3xx' : (status < 500 ? 'status-4xx' : 'status-5xx')));
+          const widthPct = Math.min(100, Math.max(8, Math.round(((t.durationMs || 1) / maxDuration) * 100)));
+          const isSelected = selectedTrace && String(selectedTrace.id) === String(t.id);
+          const hopLabel = t.fromPort ? `:${t.fromPort}→:${t.port || 3000}` : `:${t.port || 3000}`;
+          const chaosChip = t.chaosEffect ? `<span class="codelab-chaos-badge codelab-chaos-badge--warn" style="margin-left:4px;">${escapeHtml(String(t.chaosEffect))}</span>` : '';
+          return `
+            <tr class="codelab-net-row ${isSelected ? 'selected' : ''}" data-cl-action="select-net-trace" data-trace-id="${escapeHtml(t.id || '')}" data-cl-trace-id="${escapeHtml(t.id || '')}">
+              <td><span class="codelab-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>${chaosChip}</td>
+              <td><span class="codelab-method-badge codelab-method-${(t.method || 'GET').toLowerCase()}">${escapeHtml(t.method || 'GET')}</span></td>
+              <td class="codelab-net-path" title="${escapeHtml(t.url || '/')}">${escapeHtml(t.url || '/')}</td>
+              <td><code>${escapeHtml(hopLabel)}</code></td>
+              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${(t.durationMs || 0).toFixed(1)} ms</td>
+              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${t.size != null ? t.size : 0} B</td>
+              <td class="codelab-waterfall-cell">
+                <div class="codelab-waterfall-track">
+                  <div class="codelab-waterfall-bar" style="width:${widthPct}%;"></div>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+      return true;
+    }
+
     _bindNetworkEvents(bodyEl) {
       if (!bodyEl) return;
       const searchInput = bodyEl.querySelector('#cl-net-search');
       if (searchInput) {
         searchInput.addEventListener('input', e => {
           this.networkFilter.search = e.target.value;
-          this._renderDrawerBody();
+          if (!this._updateNetworkRowsInPlace(bodyEl)) {
+            this._renderDrawerBody();
+          }
         });
       }
       const methodSelect = bodyEl.querySelector('#cl-net-method');
@@ -6408,7 +6584,7 @@ int main() {
             this.files[this.activeFile] = fallbackEl.value;
             this._updateFallbackGutter();
             updateFallbackCursor();
-            this._saveState();
+            this._scheduleSaveState();
             this._notifyCodeChange(this.activeFile, fallbackEl.value);
           }
         });
@@ -6517,8 +6693,14 @@ int main() {
                 col: e.position.column
               };
               this._updateStatusBar();
-              this._renderBreadcrumbs();
+              this._scheduleBreadcrumbs();
             }
+          });
+        }
+
+        if (m.editor && typeof m.editor.onDidChangeMarkers === 'function') {
+          this._markerDisposable = m.editor.onDidChangeMarkers(() => {
+            this._syncMonacoMarkersToDiagnostics();
           });
         }
 
@@ -6577,6 +6759,61 @@ int main() {
       this._renderBreadcrumbs();
     }
 
+    _scheduleBreadcrumbs() {
+      if (typeof requestAnimationFrame !== 'function') {
+        this._renderBreadcrumbs();
+        return;
+      }
+      if (this._breadcrumbRafId) return;
+      this._breadcrumbRafId = requestAnimationFrame(() => {
+        this._breadcrumbRafId = null;
+        if (!this._destroyed) {
+          this._renderBreadcrumbs();
+        }
+      });
+    }
+
+    _syncMonacoMarkersToDiagnostics() {
+      if (!this.monaco || !this.monaco.editor || typeof this.monaco.editor.getModelMarkers !== 'function') return;
+      const diagMod = root.CodeLabDiagnostics;
+      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
+        this._diagnosticsStore = diagMod.createDiagnosticsStore();
+      }
+      if (!this._diagnosticsStore || typeof this._diagnosticsStore.setFileDiagnostics !== 'function') return;
+      const prefix = `file:///${encodeURIComponent(this.instanceId)}/`;
+      for (const [filename, model] of this.models.entries()) {
+        const uri = model && model.uri ? model.uri : null;
+        let markers = [];
+        try {
+          markers = uri
+            ? this.monaco.editor.getModelMarkers({ resource: uri })
+            : this.monaco.editor.getModelMarkers({}).filter(mk => String(mk.resource || '').startsWith(prefix) && String(mk.resource || '').endsWith('/' + filename));
+        } catch (err) {
+          this.logger.debug('getModelMarkers failed during diagnostics sync.', err);
+        }
+        const mapped = (markers || []).map(mk => ({
+          file: filename,
+          line: mk.startLineNumber || 1,
+          column: mk.startColumn || 1,
+          endLine: mk.endLineNumber || mk.startLineNumber || 1,
+          endColumn: mk.endColumn || mk.startColumn || 1,
+          severity: mk.severity === 8 ? 'error' : mk.severity === 4 ? 'warning' : 'info',
+          message: String(mk.message || ''),
+          source: String(mk.source || 'monaco')
+        }));
+        this._diagnosticsStore.setFileDiagnostics(filename, mapped, 'monaco');
+      }
+      const badgeEl = this.container ? this.container.querySelector('#cl-problems-count') : null;
+      if (badgeEl && typeof this._diagnosticsStore.getAll === 'function') {
+        const total = this._diagnosticsStore.getAll().length;
+        badgeEl.textContent = String(total);
+        badgeEl.style.display = total > 0 ? 'inline-block' : 'none';
+      }
+      if (this.drawerTab === 'problems') {
+        this._renderDrawerBody();
+      }
+    }
+
     _getOrCreateModel(filename) {
       if (!filename || !this.monaco || !this.monaco.editor) return null;
       const uriParser = (this.monaco.Uri && typeof this.monaco.Uri.parse === 'function')
@@ -6584,31 +6821,33 @@ int main() {
         : (this.monaco.editor.Uri && typeof this.monaco.editor.Uri.parse === 'function')
           ? this.monaco.editor.Uri
           : null;
-      const rawUri = `file:///${this.labId}/${filename}`;
+      const rawUri = `file:///${encodeURIComponent(this.instanceId)}/${filename}`;
       const uri = uriParser ? uriParser.parse(rawUri) : { toString: () => rawUri };
       let model = typeof this.monaco.editor.getModel === 'function' ? this.monaco.editor.getModel(uri) : null;
       const lang = /\.(cpp|cc|cxx|hpp|h)$/i.test(filename)
         ? 'cpp'
         : /\.py$/i.test(filename)
           ? 'python'
-          : filename.endsWith('.ts')
-            ? 'typescript'
-            : filename.endsWith('.json')
-              ? 'json'
-              : filename.endsWith('.html')
-                ? 'html'
-                : filename.endsWith('.css')
-                  ? 'css'
-                  : filename.endsWith('.md')
-                    ? 'markdown'
-                    : 'javascript';
+          : /\.sql$/i.test(filename)
+            ? 'sql'
+            : filename.endsWith('.ts')
+              ? 'typescript'
+              : filename.endsWith('.json')
+                ? 'json'
+                : filename.endsWith('.html')
+                  ? 'html'
+                  : filename.endsWith('.css')
+                    ? 'css'
+                    : filename.endsWith('.md')
+                      ? 'markdown'
+                      : 'javascript';
       if (!model) {
         model = this.monaco.editor.createModel(this.files[filename] || '', lang, uri);
         if (model && typeof model.onDidChangeContent === 'function') {
           model.onDidChangeContent(() => {
             const val = model.getValue();
             this.files[filename] = val;
-            this._saveState();
+            this._scheduleSaveState();
             this._notifyCodeChange(filename, val);
             if (this.lang === 'py' && typeof this._pyLintHandler === 'function') {
               this._pyLintHandler(filename, val);
@@ -6627,8 +6866,20 @@ int main() {
 
     _syncAllModels() {
       if (!this.monaco) return;
-      for (const filename of Object.keys(this.files)) {
-        this._getOrCreateModel(filename);
+      const activeSet = new Set(Object.keys(this.files || {}));
+      for (const [filename, model] of Array.from(this.models.entries())) {
+        if (!activeSet.has(filename)) {
+          if (model && typeof model.dispose === 'function') {
+            try { model.dispose(); } catch (err) { this.logger.debug('Stale model dispose skipped.', err); }
+          }
+          this.models.delete(filename);
+        }
+      }
+      for (const filename of activeSet) {
+        const content = String(this.files[filename] || '');
+        if (content.length <= 2 * 1024 * 1024 && !content.includes('\x00')) {
+          this._getOrCreateModel(filename);
+        }
       }
     }
 
@@ -6649,6 +6900,37 @@ int main() {
         if (emptyEl) {
           emptyEl.style.display = 'flex';
           this._renderEmptyEditorContent(emptyEl);
+        }
+        this._renderFileLists();
+        this._renderBreadcrumbs();
+        this._updateStatusBar();
+        return;
+      }
+
+      const activeContent = String(this.files[this.activeFile] ?? '');
+      const isBinaryContent = activeContent.includes('\x00') || /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|wasm|pdf|zip)$/i.test(this.activeFile);
+      const isHugeContent = activeContent.length > 2 * 1024 * 1024;
+      if ((isBinaryContent || isHugeContent) && !(this._forceOpenedLargeFiles && this._forceOpenedLargeFiles.has(this.activeFile))) {
+        if (monacoHost) monacoHost.style.display = 'none';
+        if (fallbackWrap) fallbackWrap.style.display = 'none';
+        if (mdPreview) mdPreview.style.display = 'none';
+        if (this.editor) {
+          try { this.editor.setModel(null); } catch (err) { this.logger.debug('editor.setModel(null) failed.', err); }
+        }
+        if (emptyEl) {
+          emptyEl.style.display = 'flex';
+          const sizeKb = (activeContent.length / 1024).toFixed(1);
+          emptyEl.innerHTML = `
+            <div class="codelab-file-guard" role="status">
+              <strong>${escapeHtml(this.activeFile)}</strong>
+              <span>${isBinaryContent
+                ? `Binary file (${sizeKb} KB) cannot be displayed as plain text.`
+                : `Large file (${sizeKb} KB) paused before rendering to keep the editor responsive.`}</span>
+              ${!isBinaryContent
+                ? `<button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="open-large-file-anyway" data-cl-file="${escapeHtml(this.activeFile)}">Open File Anyway</button>`
+                : ''}
+            </div>
+          `;
         }
         this._renderFileLists();
         this._renderBreadcrumbs();
@@ -7436,6 +7718,12 @@ int main() {
               }).catch((err) => {
                 this.logger.debug('Quick load test failed.', err);
               });
+            }
+          } else if (action === 'open-large-file-anyway') {
+            const targetFile = actionEl.dataset.clFile || this.activeFile;
+            if (targetFile) {
+              this._forceOpenedLargeFiles.add(targetFile);
+              this._syncActiveFileToView();
             }
           }
           return;
@@ -10056,9 +10344,13 @@ int main() {
         if (fallbackEl && this.activeFile === clean) {
           fallbackEl.value = updated;
         }
-        if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFile === 'function') {
+        if (this.shell && this.shell.vfs && (typeof this.shell.vfs.writeFileSync === 'function' || typeof this.shell.vfs.writeFile === 'function')) {
           try {
-            this.shell.vfs.writeFile('/workspace/' + clean, updated);
+            if (typeof this.shell.vfs.writeFileSync === 'function') {
+              this.shell.vfs.writeFileSync('/workspace/' + clean, updated);
+            } else {
+              this.shell.vfs.writeFile('/workspace/' + clean, updated);
+            }
           } catch (err) {
             this.logger.warn(`Failed to sync markdown task toggle for "${clean}" to VFS.`, err);
           }
@@ -10288,10 +10580,40 @@ int main() {
     }
 
     destroy() {
+      this._destroyed = true;
+      this.flushState();
       this.stopExecution();
+      if (this._saveDebounceTimer) {
+        clearTimeout(this._saveDebounceTimer);
+        this._saveDebounceTimer = null;
+      }
+      if (this._breadcrumbRafId && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(this._breadcrumbRafId);
+        this._breadcrumbRafId = null;
+      }
       if (this._previewReloadTimer) {
         clearTimeout(this._previewReloadTimer);
         this._previewReloadTimer = null;
+      }
+      if (Array.isArray(this._portListenerUnsubs)) {
+        for (const unsub of this._portListenerUnsubs) {
+          if (typeof unsub === 'function') {
+            try { unsub(); } catch (err) { this.logger.debug('portTable listener unsubscribe skipped.', err); }
+          }
+        }
+        this._portListenerUnsubs = [];
+        this._portListenersBound = false;
+      }
+      if (this._portToasts instanceof Map) {
+        for (const entry of this._portToasts.values()) {
+          if (entry && entry.timer) clearTimeout(entry.timer);
+          if (entry && entry.el && typeof entry.el.remove === 'function') entry.el.remove();
+        }
+        this._portToasts.clear();
+      }
+      if (this._markerDisposable && typeof this._markerDisposable.dispose === 'function') {
+        try { this._markerDisposable.dispose(); } catch (err) { this.logger.debug('markerDisposable dispose skipped.', err); }
+        this._markerDisposable = null;
       }
       if (this._escHandler && typeof document !== 'undefined') {
         document.removeEventListener('keydown', this._escHandler);

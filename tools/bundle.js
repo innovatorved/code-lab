@@ -297,6 +297,7 @@ ${pythonExtCode}
       executeInVirtualRuntime: CodeLabRuntime.executeInVirtualRuntime,
       executeInWorker: CodeLabRuntime.executeInWorker,
       cancelWorkerExecution: CodeLabRuntime.cancelWorkerExecution,
+      destroyWorkerPool: CodeLabRuntime.destroyWorkerPool,
       preloadNpmPackages: CodeLabRuntime.preloadNpmPackages,
       transpileTS: CodeLabRuntime.transpileTS,
       transpileForBrowser: CodeLabRuntime.transpileForBrowser,
@@ -420,6 +421,7 @@ if (CodeLab && CodeLab.extensions) {
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const executeInWorker = CodeLabRuntime.executeInWorker;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
+const destroyWorkerPool = CodeLabRuntime.destroyWorkerPool;
 const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const transpileTS = CodeLabRuntime.transpileTS;
 const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
@@ -554,6 +556,7 @@ export {
   executeInVirtualRuntime,
   executeInWorker,
   cancelWorkerExecution,
+  destroyWorkerPool,
   preloadNpmPackages,
   transpileTS,
   transpileForBrowser,
@@ -619,6 +622,7 @@ const createSqliteDatabase = CodeLabRuntime.createSqliteDatabase;
 const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
+const destroyWorkerPool = CodeLabRuntime.destroyWorkerPool;
 const executeInWorker = CodeLabRuntime.executeInWorker;
 
 export {
@@ -651,6 +655,7 @@ export {
   executeInVirtualRuntime,
   createWorkerRuntimeSource,
   cancelWorkerExecution,
+  destroyWorkerPool,
   executeInWorker
 };
 export default CodeLabRuntime;
@@ -1305,6 +1310,7 @@ export interface CodeLabRuntimeAPI {
   executeInVirtualRuntime(options?: CodeLabExecutionOptions): Promise<CodeLabExecutionResult>;
   executeInWorker(options?: CodeLabExecutionOptions): Promise<CodeLabExecutionResult>;
   cancelWorkerExecution(reason?: string, instanceId?: string): boolean;
+  destroyWorkerPool(): void;
   preloadNpmPackages(files?: Record<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   preloadNpmPackages(files: Record<string, string> | undefined, existingCache: Map<string, string>, onProgress?: (pkg: string) => void): Promise<Record<string, string>>;
   transpileTS(source: string, filename?: string): string;
@@ -1319,6 +1325,7 @@ export declare const CodeLabRuntime: CodeLabRuntimeAPI;
 export declare const executeInVirtualRuntime: CodeLabRuntimeAPI['executeInVirtualRuntime'];
 export declare const executeInWorker: CodeLabRuntimeAPI['executeInWorker'];
 export declare const cancelWorkerExecution: CodeLabRuntimeAPI['cancelWorkerExecution'];
+export declare const destroyWorkerPool: CodeLabRuntimeAPI['destroyWorkerPool'];
 export declare const preloadNpmPackages: CodeLabRuntimeAPI['preloadNpmPackages'];
 export declare const transpileTS: CodeLabRuntimeAPI['transpileTS'];
 export declare const transpileForBrowser: CodeLabRuntimeAPI['transpileForBrowser'];

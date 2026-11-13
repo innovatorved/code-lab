@@ -6,8 +6,10 @@
 
 :root,
 [data-theme="dark"],
+[data-cl-theme="dark"],
 .codelab-workbench--dark,
 .codelab[data-theme="dark"] {
+  color-scheme: dark;
   /* Ved Gupta Monochrome Neutral Design System — Dark (matches css/variables.css) */
   --cl-bg: var(--bg, #000000);
   --cl-bg-elevated: var(--surface, #0a0a0a);
@@ -90,8 +92,10 @@ code-lab,
 
 [data-theme="light"],
 [data-theme="light"] .codelab,
+[data-cl-theme="light"],
 .codelab[data-theme="light"],
 .codelab-workbench--light {
+  color-scheme: light;
   /* Ved Gupta Monochrome Neutral Design System — Light (matches css/variables.css) */
   --cl-bg: var(--bg, #ffffff);
   --cl-bg-elevated: var(--bg-alt, #fafafa);
@@ -5569,4 +5573,103 @@ code-lab,
   height: calc(100% - 36px);
   position: relative;
 }
+
+/* ── High-Contrast Theme Tokens ─────────────────────────────────────────── */
+[data-theme="high-contrast"],
+[data-cl-theme="high-contrast"],
+.codelab[data-theme="high-contrast"],
+.codelab-workbench--high-contrast {
+  color-scheme: dark;
+  --cl-bg: #000000;
+  --cl-bg-elevated: #000000;
+  --cl-bg-panel: #0a0a0a;
+  --cl-bg-hover: #1a1a1a;
+  --cl-bg-active: #262626;
+  --cl-border-subtle: #6fc3df;
+  --cl-border: #6fc3df;
+  --cl-border-strong: #ffffff;
+  --cl-fg: #ffffff;
+  --cl-fg-muted: #e5e5e5;
+  --cl-fg-faint: #d4d4d4;
+  --cl-accent: #f38518;
+  --cl-accent-fg: #000000;
+  --cl-blue: #75beff;
+  --cl-green: #89d185;
+  --cl-amber: #ffd370;
+  --cl-red: #f48771;
+  --cl-tok-comment: #7ca668;
+  --cl-tok-keyword: #569cd6;
+  --cl-tok-string: #ce9178;
+  --cl-tok-number: #b5cea8;
+  --cl-tok-type: #4ec9b0;
+  --cl-tok-function: #dcdcaa;
+  --cl-tok-punctuation: #ffffff;
+  color: var(--cl-fg);
+  background-color: var(--cl-bg);
+  accent-color: var(--cl-accent);
+}
+
+[data-cl-theme="light"],
+[data-cl-theme="dark"] {
+  color: var(--cl-fg);
+  background-color: var(--cl-bg);
+  accent-color: var(--cl-accent);
+}
+
+/* ── Preview Console Bar & Binary/Large File Guard ──────────────────────── */
+.codelab-preview-console__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--cl-bg-panel);
+  border-bottom: 1px solid var(--cl-border);
+  font-size: 11.5px;
+  color: var(--cl-fg-muted);
+}
+
+.codelab-file-guard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--cl-fg-muted);
+  background: var(--cl-bg);
+}
+
+/* ── Native Modal Dialog & Accessibility Focus / Reduced Motion ─────────── */
+dialog.codelab-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.codelab-dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.codelab-workbench :where(button, a[href], select, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--cl-blue, #54a2ff);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codelab *,
+  .codelab *::before,
+  .codelab *::after,
+  .codelab-workbench *,
+  .codelab-workbench *::before,
+  .codelab-workbench *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 

@@ -194,6 +194,13 @@ def ASSERT_NE(actual: Any, expected: Any, msg: str = None):
 def CODELAB_TEST_EXIT_CODE() -> int:
     return 0 if _FAILED_COUNT == 0 else 1
 
+def _reset_codelab_test() -> None:
+    global _SUITE_NAME, _PASSED_COUNT, _FAILED_COUNT, _TOTAL_COUNT
+    _SUITE_NAME = "Default Test Suite"
+    _PASSED_COUNT = 0
+    _FAILED_COUNT = 0
+    _TOTAL_COUNT = 0
+
 from contextlib import contextmanager
 
 @contextmanager
@@ -786,6 +793,8 @@ export class PythonToolchainManager {
     }
   }
 
+  private static _scriptPromises = new Map<string, Promise<void>>();
+
   public async ensureLoaded(): Promise<any> {
     if (this.pyodide) return this.pyodide;
     if (this._loadingPromise) return this._loadingPromise;
@@ -798,17 +807,34 @@ export class PythonToolchainManager {
           message: 'Initializing CPython 3.12 WebAssembly (Pyodide)...'
         });
 
-        // Browser environment: load pyodide.js from CDN
-        if (typeof window !== 'undefined') {
+        // Browser environment: load pyodide.js from CDN (deduplicated across concurrent instances)
+        if (typeof window !== 'undefined' && typeof document !== 'undefined' && !(this.options as any).headlessMock) {
           const cdn = this.options.cdnBaseUrl || DEFAULT_PYTHON_CDN_BASE_URL;
+          const scriptUrl = `${cdn.replace(/\/+$/, '')}/pyodide.js`;
           if (!(window as any).loadPyodide) {
-            await new Promise<void>((resolve, reject) => {
-              const script = document.createElement('script');
-              script.src = `${cdn.replace(/\/+$/, '')}/pyodide.js`;
-              script.onload = () => resolve();
-              script.onerror = () => reject(new Error(`Failed to load pyodide.js from ${script.src}`));
-              document.head.appendChild(script);
-            });
+            let scriptPromise = PythonToolchainManager._scriptPromises.get(scriptUrl);
+            if (!scriptPromise) {
+              scriptPromise = new Promise<void>((resolve, reject) => {
+                const existing = typeof document.querySelector === 'function'
+                  ? document.querySelector(`script[data-codelab-pyodide="${scriptUrl}"]`) as HTMLScriptElement | null
+                  : null;
+                if (existing && (window as any).loadPyodide) {
+                  resolve();
+                  return;
+                }
+                const script = document.createElement('script');
+                script.src = scriptUrl;
+                script.setAttribute('data-codelab-pyodide', scriptUrl);
+                script.onload = () => resolve();
+                script.onerror = () => {
+                  PythonToolchainManager._scriptPromises.delete(scriptUrl);
+                  reject(new Error(`Failed to load pyodide.js from ${scriptUrl}`));
+                };
+                document.head.appendChild(script);
+              });
+              PythonToolchainManager._scriptPromises.set(scriptUrl, scriptPromise);
+            }
+            await scriptPromise;
           }
 
           this._emitProgress({
@@ -822,20 +848,73 @@ export class PythonToolchainManager {
             indexURL: cdn
           });
         } else {
-          // Node / Bun headless mock toolchain for hermetic offline test runs
+          // Node / Bun headless mock toolchain for hermetic offline test runs (binary-safe)
+          const dirs = new Set<string>(['/', '/workspace', '/usr', '/usr/lib', '/usr/lib/python']);
+          const files = new Map<string, Uint8Array>();
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder('utf-8', { fatal: false });
+          const ensureDirs = (p: string) => {
+            const parts = p.split('/').filter(Boolean);
+            let cur = '';
+            for (const seg of parts) {
+              cur += '/' + seg;
+              dirs.add(cur);
+            }
+          };
           this.pyodide = {
             FS: {
-              files: new Map<string, string>(),
+              files,
+              dirs,
+              mkdirTree(p: string) {
+                ensureDirs(p);
+              },
               writeFile(p: string, content: any) {
-                this.files.set(p, typeof content === 'string' ? content : String(content));
+                const slashIdx = p.lastIndexOf('/');
+                if (slashIdx > 0) ensureDirs(p.slice(0, slashIdx));
+                if (content instanceof Uint8Array) {
+                  files.set(p, content.slice());
+                } else if (ArrayBuffer.isView(content)) {
+                  files.set(p, new Uint8Array(content.buffer, content.byteOffset, content.byteLength).slice());
+                } else {
+                  files.set(p, encoder.encode(typeof content === 'string' ? content : String(content ?? '')));
+                }
               },
               readFile(p: string, opts?: any) {
-                return this.files.get(p) || '';
+                const raw = files.get(p);
+                if (!raw) return opts && opts.encoding === 'utf8' ? '' : new Uint8Array(0);
+                if (opts && opts.encoding === 'utf8') {
+                  return decoder.decode(raw);
+                }
+                return raw.slice();
               },
               unlink(p: string) {
-                this.files.delete(p);
+                files.delete(p);
               },
-              mkdirTree(_p: string) {}
+              readdir(dirPath: string) {
+                const prefix = dirPath === '/' ? '/' : dirPath.replace(/\/+$/, '') + '/';
+                const children = new Set<string>(['.', '..']);
+                for (const d of dirs) {
+                  if (d.startsWith(prefix)) {
+                    const rest = d.slice(prefix.length);
+                    if (rest && !rest.includes('/')) children.add(rest);
+                  }
+                }
+                for (const f of files.keys()) {
+                  if (f.startsWith(prefix)) {
+                    const rest = f.slice(prefix.length);
+                    if (rest && !rest.includes('/')) children.add(rest);
+                  }
+                }
+                return Array.from(children);
+              },
+              stat(p: string) {
+                if (dirs.has(p)) return { mode: 0o040755 };
+                if (files.has(p)) return { mode: 0o100644 };
+                throw new Error(`ENOENT: ${p}`);
+              },
+              isDir(mode: number) {
+                return (mode & 0o170000) === 0o040000;
+              }
             },
             runPythonAsync: async (code: string) => {
               return `Execution mock: ${code.slice(0, 30)}`;
@@ -924,7 +1003,8 @@ export class PythonToolchainManager {
 
     const pyodide = await this.ensureLoaded();
 
-    // 1. Sync VFS files into Pyodide FS (recursively traversing subdirectories)
+    // 1. Sync VFS files into Pyodide FS (binary-safe + prune files deleted in VFS)
+    const vfsSnapshotFiles = new Set<string>();
     if (req.vfs && pyodide.FS) {
       const syncVfsDir = (dirPath: string) => {
         try {
@@ -944,8 +1024,9 @@ export class PythonToolchainManager {
                 if (typeof pyodide.FS.mkdirTree === 'function') {
                   pyodide.FS.mkdirTree(parentDir);
                 }
-                const content = req.vfs.readFileSync(fullPath, 'utf8');
-                pyodide.FS.writeFile(fullPath, content);
+                const rawContent = req.vfs.readFileSync(fullPath);
+                pyodide.FS.writeFile(fullPath, rawContent);
+                vfsSnapshotFiles.add(fullPath);
               }
             } catch (err) {
               void err;
@@ -956,6 +1037,39 @@ export class PythonToolchainManager {
         }
       };
       syncVfsDir('/workspace');
+
+      // Prune stale files in Pyodide FS that no longer exist in VFS before execution
+      if (typeof pyodide.FS.readdir === 'function' && typeof pyodide.FS.unlink === 'function') {
+        const pruneStalePyodideFiles = (dirPath: string) => {
+          try {
+            const pyEntries = pyodide.FS.readdir(dirPath);
+            for (const f of pyEntries) {
+              if (!f || f === '.' || f === '..') continue;
+              const p = `${dirPath}/${f}`;
+              let isDir = false;
+              if (typeof pyodide.FS.stat === 'function' && typeof pyodide.FS.isDir === 'function') {
+                try {
+                  isDir = Boolean(pyodide.FS.isDir(pyodide.FS.stat(p).mode));
+                } catch (err) {
+                  void err;
+                }
+              }
+              if (isDir) {
+                pruneStalePyodideFiles(p);
+              } else if (!vfsSnapshotFiles.has(p)) {
+                try {
+                  pyodide.FS.unlink(p);
+                } catch (err) {
+                  void err;
+                }
+              }
+            }
+          } catch (err) {
+            void err;
+          }
+        };
+        pruneStalePyodideFiles('/workspace');
+      }
     }
 
     // Seed builtin /usr/lib/python modules
@@ -1016,11 +1130,14 @@ if '/usr/lib/python' not in sys.path:
     sys.path.insert(0, '/usr/lib/python')
 if '/workspace' not in sys.path:
     sys.path.insert(0, '/workspace')
+if 'codelab_test' in sys.modules and hasattr(sys.modules['codelab_test'], '_reset_codelab_test'):
+    sys.modules['codelab_test']._reset_codelab_test()
 
 _cl_user_code = ${encodedCode}
+_cl_ns = {'__name__': '__main__', '__file__': ${fileLabel}, '__builtins__': __builtins__}
 tracemalloc.start()
 try:
-    exec(compile(_cl_user_code, ${fileLabel}, 'exec'), globals())
+    exec(compile(_cl_user_code, ${fileLabel}, 'exec'), _cl_ns)
 finally:
     _, _peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -1063,8 +1180,9 @@ finally:
       }
     }
 
-    // 2. Sync back files from Pyodide FS into VFS (recursively traversing subdirectories)
+    // 2. Sync back files from Pyodide FS into VFS (binary-safe + propagate Python deletions)
     if (req.vfs && pyodide.FS && typeof pyodide.FS.readdir === 'function') {
+      const pyFilesAfter = new Set<string>();
       const syncBackPyodideDir = (dirPath: string) => {
         try {
           const entries = pyodide.FS.readdir(dirPath);
@@ -1087,8 +1205,9 @@ finally:
                 if (typeof req.vfs.mkdirSync === 'function' && !req.vfs.existsSync(parentDir)) {
                   req.vfs.mkdirSync(parentDir, { recursive: true });
                 }
-                const content = pyodide.FS.readFile(p, { encoding: 'utf8' });
-                req.vfs.writeFileSync(p, content);
+                const rawBytes = pyodide.FS.readFile(p);
+                req.vfs.writeFileSync(p, rawBytes);
+                pyFilesAfter.add(p);
               }
             } catch (err) {
               void err;
@@ -1099,6 +1218,18 @@ finally:
         }
       };
       syncBackPyodideDir('/workspace');
+
+      if (typeof req.vfs.unlinkSync === 'function') {
+        for (const existedBefore of vfsSnapshotFiles) {
+          if (!pyFilesAfter.has(existedBefore)) {
+            try {
+              req.vfs.unlinkSync(existedBefore);
+            } catch (err) {
+              void err;
+            }
+          }
+        }
+      }
     }
 
     const durationMs = performance.now() - start;
@@ -1229,8 +1360,9 @@ function installPythonExtension(workbench: any, options: ExtendedPythonExtension
         for (const d of diags) {
           workbench._diagnosticsStore.add(d);
         }
-        if (typeof window !== 'undefined' && (window as any).monaco && workbench.editor) {
-          const model = workbench.editor.getModel();
+        if (typeof window !== 'undefined' && (window as any).monaco) {
+          const model = (workbench.models && typeof workbench.models.get === 'function' && workbench.models.get(file))
+            || (workbench.activeFile === file && workbench.editor ? workbench.editor.getModel() : null);
           if (model) {
             const markers = diags.map((d) => ({
               startLineNumber: d.line,

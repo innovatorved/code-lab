@@ -452,7 +452,7 @@ function parseHTMLTo(html, parent, ownerDoc) {
       const lowerTag = tagName.toLowerCase();
       const el = new DOMElement(lowerTag, ownerDoc);
       if (attrStr) {
-        const attrRegex = /([a-zA-Z0-9_:-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)|([^\s>]+)))?/g;
+        const attrRegex = /([a-zA-Z0-9_:-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
         let attrMatch;
         while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
           const attrName = attrMatch[1];

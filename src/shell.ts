@@ -1593,9 +1593,11 @@
   function createFallbackVfs() {
     const files = new Map();
     const dirs = new Set(['/', '/tmp', '/workspace', '/etc', '/home', '/home/user']);
+    let _activeStdin = '';
 
     function norm(p) {
-      return PosixPath.normalize(p.startsWith('/') ? p : '/workspace/' + p);
+      const s = String(p);
+      return PosixPath.normalize(s.startsWith('/') ? s : '/workspace/' + s);
     }
 
     const emitter = {
@@ -1683,6 +1685,12 @@
         return Array.from(children).sort();
       },
       readFileSync(p, encoding) {
+        if (p === 0 || p === '/dev/stdin') {
+          if (!encoding || encoding === 'buffer') {
+            return new TextEncoder().encode(_activeStdin);
+          }
+          return _activeStdin;
+        }
         const np = norm(p);
         const f = files.get(np);
         if (!f) {
@@ -1694,6 +1702,9 @@
           return f.rawBytes;
         }
         return f.data;
+      },
+      _setActiveStdin(text) {
+        _activeStdin = text === null || text === undefined ? '' : String(text);
       },
       writeFileSync(p, data) {
         const np = norm(p);
@@ -2953,8 +2964,30 @@
     '.gif': 'image/gif',
     '.webp': 'image/webp',
     '.ico': 'image/x-icon',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
+    '.wasm': 'application/wasm',
+    '.pdf': 'application/pdf',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
     '.txt': 'text/plain; charset=utf-8'
   };
+
+  function isBinaryPreviewMime(mime) {
+    const clean = String(mime || '').toLowerCase().split(';')[0].trim();
+    if (!clean) return false;
+    return !(
+      clean.startsWith('text/') ||
+      clean === 'application/javascript' ||
+      clean === 'application/json' ||
+      clean === 'application/xml' ||
+      clean === 'application/xhtml+xml' ||
+      clean === 'image/svg+xml'
+    );
+  }
 
   function previewMimeFor(p) {
     const lower = String(p).toLowerCase();
@@ -3139,7 +3172,8 @@
 
   function injectPreviewExtras(html, importMap) {
     let out = html;
-    const importMapTag = `<script type="importmap">\n${JSON.stringify({ imports: importMap }, null, 2)}\n</script>`;
+    const safeImportMapJson = JSON.stringify({ imports: importMap }, null, 2).replace(/</g, '\\u003c');
+    const importMapTag = `<script type="importmap">\n${safeImportMapJson}\n</script>`;
     if (/<head[^>]*>/i.test(out)) {
       out = out.replace(/<head[^>]*>/i, (m) => `${m}\n    ${importMapTag}`);
     } else {
@@ -3395,6 +3429,20 @@
         );
       }
 
+      const mimeType = previewMimeFor(target);
+      if (isBinaryPreviewMime(mimeType)) {
+        let rawBytes = null;
+        try {
+          rawBytes = ctx.vfs.readFileSync(target);
+        } catch (err) {
+          _shellLogger.debug('Binary preview asset read failed.', target, err);
+        }
+        const binaryBody = rawBytes instanceof Uint8Array
+          ? rawBytes
+          : (typeof rawBytes === 'string' ? new TextEncoder().encode(rawBytes) : new Uint8Array(0));
+        return new Response(binaryBody, { status: 200, headers: { 'content-type': mimeType } });
+      }
+
       let body = readText(target);
       if (body === null) body = '';
       if (/\.html?$/i.test(target)) {
@@ -3410,7 +3458,7 @@
         }
       }
 
-      return new Response(body, { status: 200, headers: { 'content-type': previewMimeFor(target) } });
+      return new Response(body, { status: 200, headers: { 'content-type': mimeType } });
     };
 
     const pid = (ctx.shell && typeof ctx.shell.nextPid === 'number') ? ctx.shell.nextPid++ : (ctx.pid || 1000);
@@ -5992,6 +6040,9 @@
           mode: 'repl',
           replCode: code,
           printReplResult: false,
+          stdin: ctx.stdin || '',
+          env: ctx.env,
+          cwd: ctx.cwd,
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
@@ -6009,6 +6060,9 @@
           mode: 'repl',
           replCode: code,
           printReplResult: true,
+          stdin: ctx.stdin || '',
+          env: ctx.env,
+          cwd: ctx.cwd,
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
@@ -6048,6 +6102,9 @@
           const res = await executeInVirtualRuntime({
             mode: 'test',
             entry: f,
+            stdin: ctx.stdin || '',
+            env: ctx.env,
+            cwd: ctx.cwd,
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
@@ -6073,6 +6130,9 @@
         mode: 'run',
         entry: scriptFile,
         argv: ['node', scriptFile, ...scriptArgs],
+        stdin: ctx.stdin || '',
+        env: ctx.env,
+        cwd: ctx.cwd,
         vfs: ctx.vfs,
         activePortTable: ctx.shell.portTable,
         pid: ctx.pid,
@@ -6240,6 +6300,9 @@
       const res = await pyCompiler({
         entry: entryFile,
         source: codeToRun,
+        stdin: ctx.stdin || '',
+        env: ctx.env,
+        cwd: ctx.cwd,
         vfs: ctx.vfs,
         onStdout: (t) => {
           outText += t;
@@ -6306,9 +6369,9 @@
           };
         }
         return {
-          code: 0,
-          stdout: `Successfully installed ${pkgs.join(', ') || 'packages'}\n`,
-          stderr: ''
+          code: 1,
+          stdout: '',
+          stderr: 'pip: Python WebAssembly toolchain is not enabled. Enable pythonExtension from "@innovatorved/code-lab/extensions/python".\n'
         };
       }
       return { code: 0, stdout: 'pip 24.0 (Pyodide micropip)\n', stderr: '' };
@@ -6426,6 +6489,9 @@
           mode: 'repl',
           replCode: code,
           printReplResult: false,
+          stdin: ctx.stdin || '',
+          env: ctx.env,
+          cwd: ctx.cwd,
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
@@ -6465,6 +6531,9 @@
           const res = await executeInVirtualRuntime({
             mode: 'test',
             entry: f,
+            stdin: ctx.stdin || '',
+            env: ctx.env,
+            cwd: ctx.cwd,
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
@@ -6492,6 +6561,9 @@
             mode: 'run',
             entry: resolved,
             argv: ['bun', resolved, ...scriptArgs],
+            stdin: ctx.stdin || '',
+            env: ctx.env,
+            cwd: ctx.cwd,
             vfs: ctx.vfs,
             activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
@@ -6516,6 +6588,9 @@
           mode: 'run',
           entry: resolved,
           argv: ['bun', resolved, ...scriptArgs],
+          stdin: ctx.stdin || '',
+          env: ctx.env,
+          cwd: ctx.cwd,
           vfs: ctx.vfs,
           activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
@@ -6797,12 +6872,24 @@
       if (!method) method = 'GET';
 
       const portTable = (ctx.shell && ctx.shell.portTable) || null;
+      const fetchImpl = (ctx.shell && ctx.shell.options && typeof (ctx.shell.options.fetch || ctx.shell.options.fetchImpl) === 'function')
+        ? (ctx.shell.options.fetch || ctx.shell.options.fetchImpl)
+        : fetch;
+      let isLoopback = false;
+      try {
+        const parsedUrl = new URL(url);
+        const host = parsedUrl.hostname.toLowerCase();
+        isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host === '[::1]';
+      } catch (err) {
+        _shellLogger.debug('curl URL parse fallback', url, err);
+      }
       let resp = null;
       let lastErr = null;
+      const maxAttempts = portTable && isLoopback ? 25 : 1;
 
-      for (let attempt = 0; attempt < 25; attempt++) {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          if (portTable) {
+          if (portTable && isLoopback) {
             resp = await portTable.dispatchRequest(url, {
               method,
               headers,
@@ -6811,7 +6898,7 @@
             lastErr = null;
             break;
           } else {
-            resp = await fetch(url, {
+            resp = await fetchImpl(url, {
               method,
               headers,
               body: data
@@ -6822,7 +6909,9 @@
         } catch (err) {
           lastErr = err;
           if (err && err.chaosEffect) break;
-          await new Promise(r => setTimeout(r, 15));
+          if (attempt + 1 < maxAttempts) {
+            await new Promise(r => setTimeout(r, 15));
+          }
         }
       }
 
@@ -6901,6 +6990,17 @@
       concurrency = Math.min(concurrency, totalRequests);
 
       const portTable = (ctx.shell && ctx.shell.portTable) || null;
+      const fetchImpl = (ctx.shell && ctx.shell.options && typeof (ctx.shell.options.fetch || ctx.shell.options.fetchImpl) === 'function')
+        ? (ctx.shell.options.fetch || ctx.shell.options.fetchImpl)
+        : fetch;
+      let isLoopback = false;
+      try {
+        const parsedUrl = new URL(url);
+        const host = parsedUrl.hostname.toLowerCase();
+        isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host === '[::1]';
+      } catch (err) {
+        _shellLogger.debug('hey URL parse fallback', url, err);
+      }
       const latencies = [];
       const statusCounts = {};
       const errorCounts = {};
@@ -6916,10 +7016,10 @@
           const reqStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
           try {
             let resp;
-            if (portTable) {
+            if (portTable && isLoopback) {
               resp = await portTable.dispatchRequest(url, { method, headers: { ...headers }, body });
             } else {
-              resp = await fetch(url, { method, headers: { ...headers }, body });
+              resp = await fetchImpl(url, { method, headers: { ...headers }, body });
             }
             const reqEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
             const dur = Math.max(0.05, reqEnd - reqStart);
@@ -7852,6 +7952,15 @@
       }
 
       this.history.push(trimmed);
+      if (this.history.length > 1000) {
+        this.history.splice(0, this.history.length - 1000);
+      }
+      if (this.jobs.size > 256) {
+        for (const [jid, j] of this.jobs.entries()) {
+          if (this.jobs.size <= 256) break;
+          if (j && j.status !== 'Running') this.jobs.delete(jid);
+        }
+      }
 
       const cwd = execOptions.cwd ? this.resolvePath(execOptions.cwd) : this.cwd;
       this.cwd = cwd;
@@ -7921,6 +8030,10 @@
           if (res.aborted || (execOptions.signal && execOptions.signal.aborted)) {
             return { code: 130, exitCode: 130, stdout: combinedStdout, stderr: combinedStderr, aborted: true };
           }
+          if (res.controlFlow && res.controlFlow.type === 'exit') {
+            lastCode = res.controlFlow.code !== undefined ? res.controlFlow.code : lastCode;
+            break;
+          }
         }
       }
 
@@ -7929,6 +8042,218 @@
 
     async executeCommand(commandLine, execOptions = {}) {
       return this.execute(commandLine, execOptions);
+    }
+
+    async _expandHeredocBody(rawBody, cmdEnv) {
+      const src = String(rawBody || '');
+      let out = '';
+      let i = 0;
+      while (i < src.length) {
+        const ch = src[i];
+        if (ch === '\\' && i + 1 < src.length && '$`\\\n'.includes(src[i + 1])) {
+          if (src[i + 1] === '\n') {
+            i += 2;
+            continue;
+          }
+          out += src[i + 1];
+          i += 2;
+          continue;
+        }
+        if (ch === '$' && src[i + 1] === '(' && src[i + 2] === '(') {
+          i += 3;
+          let depth = 2;
+          let expr = '';
+          while (i < src.length && depth > 0) {
+            if (src[i] === '(') { depth++; expr += '('; i++; }
+            else if (src[i] === ')') {
+              if (depth === 2 && src[i + 1] === ')') { depth = 0; i += 2; break; }
+              depth--;
+              if (depth > 0) expr += ')';
+              i++;
+            } else {
+              expr += src[i++];
+            }
+          }
+          out += evaluateArithmetic(expr, cmdEnv, this.env);
+          continue;
+        }
+        if (ch === '$' && src[i + 1] === '(') {
+          i += 2;
+          let depth = 1;
+          let sub = '';
+          while (i < src.length && depth > 0) {
+            if (src[i] === '(') depth++;
+            else if (src[i] === ')') depth--;
+            if (depth > 0) sub += src[i];
+            i++;
+          }
+          out += await this._executeSubshell(sub, cmdEnv);
+          continue;
+        }
+        if (ch === '`') {
+          i++;
+          let sub = '';
+          while (i < src.length && src[i] !== '`') sub += src[i++];
+          if (i < src.length && src[i] === '`') i++;
+          out += await this._executeSubshell(sub, cmdEnv);
+          continue;
+        }
+        if (ch === '$') {
+          i++;
+          if (src[i] === '{') {
+            i++;
+            let varName = '';
+            let bDepth = 1;
+            while (i < src.length && bDepth > 0) {
+              if (src[i] === '{') bDepth++;
+              else if (src[i] === '}') bDepth--;
+              if (bDepth > 0) varName += src[i];
+              i++;
+            }
+            out += this._expandVariable(varName, cmdEnv);
+          } else if (i < src.length && /[0-9?!$#@*]/.test(src[i])) {
+            out += this._expandVariable(src[i++], cmdEnv);
+          } else if (i < src.length && /[a-zA-Z_]/.test(src[i])) {
+            let varName = '';
+            while (i < src.length && /[a-zA-Z0-9_]/.test(src[i])) varName += src[i++];
+            out += this._expandVariable(varName, cmdEnv);
+          } else {
+            out += '$';
+          }
+          continue;
+        }
+        out += ch;
+        i++;
+      }
+      return out;
+    }
+
+    async _resolveInputRedirect(red, cmdEnv) {
+      if (red.type === '<') {
+        const target = await this.evaluateWord(red.target, cmdEnv);
+        const absTarget = this.resolvePath(target);
+        if (!this.vfs.existsSync(absTarget)) {
+          return { ok: false, error: { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` } };
+        }
+        try {
+          return { ok: true, stdin: this.vfs.readFileSync(absTarget, 'utf8') };
+        } catch (err) {
+          return { ok: false, error: { code: 1, stdout: '', stderr: `shell: ${target}: ${err.message}\n` } };
+        }
+      }
+      if (red.type === '<<<') {
+        const val = await this.evaluateWord(red.target, cmdEnv);
+        return { ok: true, stdin: val + '\n' };
+      }
+      if (red.type === '<<') {
+        let body = String(red.body || '');
+        if (red.stripTabs) {
+          body = body.replace(/^\t+/gm, '');
+        }
+        if (!red.quoted) {
+          body = await this._expandHeredocBody(body, cmdEnv);
+        }
+        return { ok: true, stdin: body };
+      }
+      return null;
+    }
+
+    _evaluateDoubleBracket(rawArgs) {
+      const closeIdx = rawArgs.lastIndexOf(']]');
+      if (closeIdx === -1) {
+        return { code: 2, stdout: '', stderr: 'shell: [[: missing `]]`\n' };
+      }
+      const tokens = rawArgs.slice(0, closeIdx);
+      let idx = 0;
+
+      const globToRegExp = (pat) => {
+        let re = '^';
+        for (let i = 0; i < pat.length; i++) {
+          const c = pat[i];
+          if (c === '*') re += '.*';
+          else if (c === '?') re += '.';
+          else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+        }
+        return new RegExp(re + '$');
+      };
+
+      const parseOr = () => {
+        let left = parseAnd();
+        while (tokens[idx] === '||') {
+          idx++;
+          const right = parseAnd();
+          left = left || right;
+        }
+        return left;
+      };
+
+      const parseAnd = () => {
+        let left = parseNot();
+        while (tokens[idx] === '&&') {
+          idx++;
+          const right = parseNot();
+          left = left && right;
+        }
+        return left;
+      };
+
+      const parseNot = () => {
+        if (tokens[idx] === '!') {
+          idx++;
+          return !parseNot();
+        }
+        return parsePrimary();
+      };
+
+      const parsePrimary = () => {
+        if (idx >= tokens.length) return false;
+        if (tokens[idx] === '(') {
+          idx++;
+          const val = parseOr();
+          if (tokens[idx] === ')') idx++;
+          return val;
+        }
+        const unary = tokens[idx];
+        if (/^-(?:z|n|e|f|d|s)$/.test(unary) && idx + 1 < tokens.length) {
+          idx++;
+          const operand = String(tokens[idx++] ?? '');
+          if (unary === '-z') return operand.length === 0;
+          if (unary === '-n') return operand.length > 0;
+          const abs = this.resolvePath(operand);
+          const exists = this.vfs.existsSync(abs);
+          if (unary === '-e') return exists;
+          if (!exists) return false;
+          const st = this.vfs.statSync(abs);
+          if (unary === '-d') return Boolean(st && st.isDirectory());
+          if (unary === '-f') return Boolean(st && !st.isDirectory());
+          if (unary === '-s') return Boolean(st && !st.isDirectory() && st.size > 0);
+        }
+        const left = String(tokens[idx++] ?? '');
+        const op = tokens[idx];
+        if (op && /^(?:==|=|!=|=~|<|>|-eq|-ne|-lt|-le|-gt|-ge)$/.test(op) && idx + 1 < tokens.length) {
+          idx++;
+          const right = String(tokens[idx++] ?? '');
+          if (op === '==' || op === '=') return globToRegExp(right).test(left);
+          if (op === '!=') return !globToRegExp(right).test(left);
+          if (op === '=~') {
+            try { return new RegExp(right).test(left); } catch (err) { _shellLogger.debug('[[ =~ invalid regex', right, err); return false; }
+          }
+          if (op === '<') return left < right;
+          if (op === '>') return left > right;
+          const ln = Number(left) || 0;
+          const rn = Number(right) || 0;
+          if (op === '-eq') return ln === rn;
+          if (op === '-ne') return ln !== rn;
+          if (op === '-lt') return ln < rn;
+          if (op === '-le') return ln <= rn;
+          if (op === '-gt') return ln > rn;
+          if (op === '-ge') return ln >= rn;
+        }
+        return left.length > 0;
+      };
+
+      const ok = parseOr();
+      return { code: ok ? 0 : 1, stdout: '', stderr: '' };
     }
 
     async _executeWithRedirects(redirects, context, execFn) {
@@ -7942,22 +8267,15 @@
       let effectiveStdin = context.stdin || '';
 
       for (const red of redirects) {
-        if (red.type === '<') {
-          const target = await this.evaluateWord(red.target, cmdEnv);
-          const absTarget = this.resolvePath(target);
-          if (!this.vfs.existsSync(absTarget)) {
-            return { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` };
-          }
-          try {
-            effectiveStdin = this.vfs.readFileSync(absTarget, 'utf8');
-          } catch (err) {
-            return { code: 1, stdout: '', stderr: `shell: ${target}: ${err.message}\n` };
-          }
+        if (red.type === '<' || red.type === '<<' || red.type === '<<<') {
+          const inRes = await this._resolveInputRedirect(red, cmdEnv);
+          if (inRes && !inRes.ok) return inRes.error;
+          if (inRes && inRes.ok) effectiveStdin = inRes.stdin;
         }
       }
 
       for (const red of redirects) {
-        if (red.type === '<') continue;
+        if (red.type === '<' || red.type === '<<' || red.type === '<<<') continue;
         if (red.type === '>' || red.type === '>>' || red.type === '&>') {
           const target = await this.evaluateWord(red.target, cmdEnv);
           const abs = this.resolvePath(target);
@@ -8466,7 +8784,20 @@
         args.push(...expanded);
       }
 
-      // 3. Built-in flow control
+      // 3. Built-in flow control & POSIX special builtins
+      if (cmdName === ':') {
+        Object.assign(this.env, cmdEnv);
+        Object.assign(context.env, cmdEnv);
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      if (cmdName === 'exit') {
+        const rawCode = args.length > 0 ? parseInt(args[0], 10) : parseInt(this.env['?'] || '0', 10);
+        const code = Number.isNaN(rawCode) ? 2 : ((rawCode % 256) + 256) % 256;
+        return { code, stdout: '', stderr: '', controlFlow: { type: 'exit', code } };
+      }
+      if (cmdName === '[[') {
+        return this._evaluateDoubleBracket(args);
+      }
       if (cmdName === 'break') {
         const count = parseInt(args[0], 10) || 1;
         return { code: 0, stdout: '', stderr: '', controlFlow: { type: 'break', count } };
@@ -8484,20 +8815,13 @@
         return { code: 130, stdout: '', stderr: '', aborted: true };
       }
 
-      // 4. Process input redirection (<, 0<)
+      // 4. Process input redirection (<, 0<, <<, <<-, <<<)
       let effectiveStdin = context.stdin || '';
       for (const red of cmdNode.redirects) {
-        if (red.type === '<') {
-          const target = await this.evaluateWord(red.target, cmdEnv);
-          const absTarget = this.resolvePath(target);
-          if (!this.vfs.existsSync(absTarget)) {
-            return { code: 1, stdout: '', stderr: `shell: ${target}: No such file or directory\n` };
-          }
-          try {
-            effectiveStdin = this.vfs.readFileSync(absTarget, 'utf8');
-          } catch (err) {
-            return { code: 1, stdout: '', stderr: `shell: ${target}: ${err.message}\n` };
-          }
+        if (red.type === '<' || red.type === '<<' || red.type === '<<<') {
+          const inRes = await this._resolveInputRedirect(red, cmdEnv);
+          if (inRes && !inRes.ok) return inRes.error;
+          if (inRes && inRes.ok) effectiveStdin = inRes.stdin;
         }
       }
 
@@ -8506,7 +8830,7 @@
       let fd2 = { type: 'stderr' };
 
       for (const red of cmdNode.redirects) {
-        if (red.type === '<') continue;
+        if (red.type === '<' || red.type === '<<' || red.type === '<<<') continue;
         if (red.type === '>' || red.type === '>>' || red.type === '&>') {
           const target = await this.evaluateWord(red.target, cmdEnv);
           const abs = this.resolvePath(target);
@@ -8758,7 +9082,7 @@ export const tokenizeShell: (input: string) => any[] = _hostShell.tokenizeShell;
 export const PosixShell: any = _hostShell.PosixShell;
 export const COREUTILS: Record<string, any> = _hostShell.COREUTILS;
 export const PosixPath: any = _hostShell.PosixPath;
-export const expandGlob: (pattern: string, vfs: any, cwd?: string) => string[] = _hostShell.expandGlob;
+export const expandGlob: (pattern: string, cwd: string, vfs: any) => string[] = _hostShell.expandGlob;
 export const createVirtualPortTable: () => any = _hostShell.createVirtualPortTable;
 export const parseGitHubRepoUrl: (input: string) => any = _hostShell.parseGitHubRepoUrl;
 export const cloneGitHubRepository: (repoInput: string, vfs: any, options?: any) => Promise<any> = _hostShell.cloneGitHubRepository;

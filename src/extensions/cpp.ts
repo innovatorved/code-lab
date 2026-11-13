@@ -860,6 +860,8 @@ export class CppToolchainManager {
           );
         }
 
+        this.nativeToolchainUnavailable = false;
+        this.loadError = null;
         this._emitProgress({
           stage: 'ready',
           loadedBytes:
@@ -1125,23 +1127,63 @@ export class CppToolchainManager {
       if (req.onStderr) req.onStderr(t);
     };
 
+    const fallbackReason = this.loadError && this.loadError.message
+      ? this.loadError.message
+      : 'WASI Clang/LLD binaries not loaded';
+    handleErr(`clang++: warning: native WASI toolchain unavailable (${fallbackReason}); using limited offline C++ fallback.\n`);
+
+    const scanBalancedDelimiters = (code: string): { braceCount: number; parenCount: number } => {
+      let braceCount = 0;
+      let parenCount = 0;
+      let i = 0;
+      const len = code.length;
+      while (i < len) {
+        const ch = code[i];
+        const next = code[i + 1];
+        if (ch === '/' && next === '/') {
+          i += 2;
+          while (i < len && code[i] !== '\n') i++;
+          continue;
+        }
+        if (ch === '/' && next === '*') {
+          i += 2;
+          while (i < len && !(code[i] === '*' && code[i + 1] === '/')) i++;
+          i += 2;
+          continue;
+        }
+        if (ch === 'R' && next === '"') {
+          const openParen = code.indexOf('(', i + 2);
+          if (openParen !== -1) {
+            const delim = code.slice(i + 2, openParen);
+            const closeSeq = `)${delim}"`;
+            const closeIdx = code.indexOf(closeSeq, openParen + 1);
+            i = closeIdx !== -1 ? closeIdx + closeSeq.length : len;
+            continue;
+          }
+        }
+        if (ch === '"' || ch === "'") {
+          const quote = ch;
+          i++;
+          while (i < len && code[i] !== quote) {
+            if (code[i] === '\\') i += 2;
+            else i++;
+          }
+          i++;
+          continue;
+        }
+        if (ch === '{') braceCount++;
+        else if (ch === '}') braceCount--;
+        else if (ch === '(') parenCount++;
+        else if (ch === ')') parenCount--;
+        i++;
+      }
+      return { braceCount, parenCount };
+    };
+
     let allValid = true;
     for (const src of sourceFiles) {
       const code = vfs.readFileSync(src, 'utf8');
-      const lines = code.split(/\r?\n/);
-      let braceCount = 0;
-      let parenCount = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmed = line.trim();
-        if (trimmed.startsWith('//') || trimmed.startsWith('/*')) continue;
-        for (const ch of line) {
-          if (ch === '{') braceCount++;
-          else if (ch === '}') braceCount--;
-          else if (ch === '(') parenCount++;
-          else if (ch === ')') parenCount--;
-        }
-      }
+      const { braceCount, parenCount } = scanBalancedDelimiters(code);
       if (braceCount !== 0 || parenCount !== 0) {
         const err = `clang++: error: syntax error in '${src}': unmatched ${braceCount !== 0 ? 'curly braces' : 'parentheses'}\n`;
         handleErr(err);
@@ -2007,8 +2049,9 @@ export function installCppExtension(workbench: any, options: ExtendedCppExtensio
         for (const d of diags) {
           workbench._diagnosticsStore.add(d);
         }
-        if (typeof window !== 'undefined' && (window as any).monaco && workbench.editor) {
-          const model = workbench.editor.getModel();
+        if (typeof window !== 'undefined' && (window as any).monaco) {
+          const model = (workbench.models && typeof workbench.models.get === 'function' && workbench.models.get(file))
+            || (workbench.activeFile === file && workbench.editor ? workbench.editor.getModel() : null);
           if (model) {
             const markers = diags.map((d) => ({
               startLineNumber: d.line,

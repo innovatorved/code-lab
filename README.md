@@ -214,7 +214,7 @@ bun run tests/test-python-extension.js       # Python 3.12 WebAssembly runtime, 
 Individual suites also run under Node 20, 22 and 24 — CI exercises all three:
 
 ```bash
-bun run build && node tests/run-all.js       # same 44 suites, Node runtime
+bun run build && node tests/run-all.js       # same 45 suites, Node runtime
 ```
 
 Suites load the built bundles from `dist/` (never raw TypeScript from `src/`), so
