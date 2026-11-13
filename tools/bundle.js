@@ -245,14 +245,8 @@ ${terminalCode}
 
   const CodeLabTerminal = root.CodeLabTerminal;
 
-  // --- Module 4: IDE Workbench & Web Component ---
-  (function () {
-${workbenchCode}
-  })();
-
-  // --- Module 5: Modular Packages (@code-lab/*), SQL Pack & Language Extensions ---
+  // --- Module 3.5: Modular Packages (@code-lab/*) & SQL Pack ---
 ${modularKernelCode}
-${umbrellaExtCode}
   const CodeLabSql = {
     createSqlEditor: CodeLabModular.createSqlEditor,
     formatSql: CodeLabModular.formatSql,
@@ -269,6 +263,14 @@ ${umbrellaExtCode}
   };
   root.CodeLabModular = CodeLabModular;
   root.CodeLabSql = CodeLabSql;
+
+  // --- Module 4: IDE Workbench & Web Component ---
+  (function () {
+${workbenchCode}
+  })();
+
+  // --- Module 5: Language Extensions ---
+${umbrellaExtCode}
 
   const CodeLab = root.CodeLab;
   const CodeLabWorkbench = root.CodeLabWorkbench;
@@ -441,15 +443,8 @@ ${shellCode}
 ${terminalCode}
 })();
 
-// --- Module 4: IDE Workbench & Web Component ---
-(function () {
-${workbenchCode}
-})();
-
-// --- Module 5: Modular Packages (@code-lab/*), SQL Pack & Language Extensions ---
+// --- Module 3.5: Modular Packages (@code-lab/*) & SQL Pack ---
 ${modularKernelCode}
-${umbrellaExtCode}
-
 const CodeLabSql = {
   createSqlEditor: CodeLabModular.createSqlEditor,
   formatSql: CodeLabModular.formatSql,
@@ -466,6 +461,14 @@ const CodeLabSql = {
 };
 _root.CodeLabModular = CodeLabModular;
 _root.CodeLabSql = CodeLabSql;
+
+// --- Module 4: IDE Workbench & Web Component ---
+(function () {
+${workbenchCode}
+})();
+
+// --- Module 5: Language Extensions ---
+${umbrellaExtCode}
 
 const CodeLabRuntime = _root.CodeLabRuntime;
 const CodeLabShell = _root.CodeLabShell;
@@ -680,6 +683,7 @@ export {
   CodeLabWorkbenchComponents,
   CodeLabSql,
   CodeLabModular,
+  CodeLabModular as Modular,
   sql,
   modular,
   createSqlEditor,
@@ -1224,12 +1228,28 @@ export interface CodeLabOptions {
   /** Initial workbench mode ('guided' | 'sandbox') */
   mode?: 'guided' | 'sandbox';
   /** Initial workspace language ('js' | 'ts' | 'cpp' | 'py') */
-  language?: 'js' | 'ts' | 'cpp' | 'py';
-  lang?: 'js' | 'ts' | 'cpp' | 'py';
+  language?: 'js' | 'ts' | 'cpp' | 'py' | 'sql';
+  lang?: 'js' | 'ts' | 'cpp' | 'py' | 'sql';
   /** Enabled languages in the language switcher */
-  languages?: Array<'js' | 'ts' | 'cpp' | 'py'>;
-  /** Explicit theme override ('dark' | 'light' | 'auto') */
-  theme?: 'dark' | 'light' | 'auto';
+  languages?: Array<'js' | 'ts' | 'cpp' | 'py' | 'sql'>;
+  /** Explicit theme override ('dark' | 'light' | 'high-contrast' | 'auto') */
+  theme?: 'dark' | 'light' | 'high-contrast' | 'auto';
+  /** SQL dialect ('postgres' | 'sqlite') when running SQL queries or labs */
+  sqlDialect?: 'postgres' | 'sqlite';
+  /** SQL schema metadata for completions, hover badges, and verification */
+  sqlSchema?: Record<string, any> | null;
+  /** Pluggable async SQL query runner for Guided Labs and playgrounds */
+  sqlRunner?: (request: any) => Promise<any> | any;
+  /** Explicit SQL files maps */
+  sqlFiles?: Record<string, string>;
+  sqlSolutionFiles?: Record<string, string>;
+  sqlStarterFiles?: Record<string, string>;
+  /** Initial workspace/embed configuration overrides */
+  settings?: Record<string, any>;
+  /** Force showing or hiding the file explorer in single-file SQL mode */
+  showExplorer?: boolean;
+  /** Editor engine preference ('sql' | 'monaco') */
+  editorEngine?: 'sql' | 'monaco';
   /** Set to false to disable localStorage persistence and use in-memory state only */
   persistState?: boolean;
   /** Structured logger or log level ('silent' | 'error' | 'warn' | 'info' | 'debug', default: 'warn') */
@@ -1316,8 +1336,18 @@ export declare class CodeLabWorkbench {
   openTabs: string[];
   activeFile: string | null;
   mode: 'guided' | 'sandbox';
-  lang: 'js' | 'ts' | 'cpp' | 'py';
-  enabledLanguages: Set<'js' | 'ts' | 'cpp' | 'py'>;
+  lang: 'js' | 'ts' | 'cpp' | 'py' | 'sql';
+  enabledLanguages: Set<'js' | 'ts' | 'cpp' | 'py' | 'sql'>;
+  sqlDialect: 'postgres' | 'sqlite';
+  sqlSchema: Record<string, any> | null;
+  lastSqlResult: Record<string, any> | null;
+  kernel: any;
+  configuration: any;
+  commands: any;
+  keybindings: any;
+  themes: any;
+  plugins: any;
+  contextKeys: any;
   activeStepIndex: number;
   completedSteps: Set<string>;
   steps: CodeLabStep[];
@@ -1327,7 +1357,15 @@ export declare class CodeLabWorkbench {
   constructor(container: HTMLElement | string, options?: CodeLabOptions);
   runDemo(): Promise<void>;
   runTests(filterTestNames?: string | string[] | null): Promise<void>;
-  verifyCurrentStep(): Promise<void>;
+  verifyCurrentStep(payloadOverride?: any): Promise<void>;
+  runSql(modeOverride?: 'run' | 'verify' | 'explain', payloadOverride?: any): Promise<any>;
+  setSqlSchema(schema: Record<string, any> | null): this;
+  setSqlDialect(dialect: 'postgres' | 'sqlite'): this;
+  openSettings(): void;
+  closeSettings(): void;
+  openWorkspaceSettingsJson(): void;
+  runTask(idOrLabel: string): Promise<any>;
+  registerPlugin(manifest: Record<string, any>): { dispose(): void };
   stopExecution(): void;
   cancelExecution(): void;
   selectStep(idx: number, shouldJump?: boolean): void;
@@ -1350,11 +1388,11 @@ export declare class CodeLabWorkbench {
   deleteFile(filename: string): boolean;
   deleteFolder(folderPrefix: string): boolean;
   setMode(newMode: 'guided' | 'sandbox'): void;
-  setLanguage(newLang: 'js' | 'ts' | 'cpp' | 'py'): void;
+  setLanguage(newLang: 'js' | 'ts' | 'cpp' | 'py' | 'sql'): void;
   setTheme(nextTheme: 'dark' | 'light' | 'high-contrast' | 'auto'): this;
   getTheme(): 'dark' | 'light' | 'high-contrast' | 'auto';
-  switchDrawerTab(tabName: 'tests' | 'terminal' | 'problems' | 'stdin' | 'ports' | 'network' | 'inspector' | 'preview'): void;
-  configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts' | 'cpp' | 'py'; stepIndex?: number }): void;
+  switchDrawerTab(tabName: 'tests' | 'terminal' | 'problems' | 'stdin' | 'ports' | 'network' | 'inspector' | 'preview' | 'sql-results' | 'observability' | string): void;
+  configure(opts?: { mode?: 'guided' | 'sandbox'; lang?: 'js' | 'ts' | 'cpp' | 'py' | 'sql'; stepIndex?: number; onClose?: () => void }): void;
   runCode(): Promise<any>;
   runProject(): Promise<any>;
   runEntry(): Promise<any>;
@@ -1439,6 +1477,14 @@ export declare class CodeLabElement extends HTMLElement {
   createTerminalSession(name?: string): string | null;
   switchTerminalSession(id: string): boolean;
   closeTerminalSession(id: string): boolean;
+  openSettings(): void;
+  closeSettings(): void;
+  openWorkspaceSettingsJson(): void;
+  runSql(modeOverride?: 'run' | 'verify' | 'explain', payloadOverride?: any): Promise<any>;
+  setSqlSchema(schema: Record<string, any> | null): this;
+  setSqlDialect(dialect: 'postgres' | 'sqlite'): this;
+  runTask(idOrLabel: string): Promise<any>;
+  registerPlugin(manifest: Record<string, any>): { dispose(): void };
   cloneRepo(repoUrlOrSlug: string, options?: CodeLabCloneOptions): Promise<any>;
 }
 

@@ -5653,6 +5653,149 @@ dialog.codelab-dialog::backdrop {
   overscroll-behavior: contain;
 }
 
+dialog.cl-settings-dialog {
+  padding: 0;
+  margin: auto;
+  width: min(760px, 94vw);
+  max-height: 85vh;
+  border: 1px solid var(--cl-border, #262626);
+  border-radius: 10px;
+  background-color: var(--cl-bg-elevated, #121212);
+  color: var(--cl-fg, #f5f5f5);
+  accent-color: var(--cl-accent, #0284c7);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  font-family: var(--cl-font-sans, system-ui, sans-serif);
+}
+
+/* Single-file SQL Guided Lab / Workbench mode hides irrelevant multi-file chrome */
+.codelab.is-sql-single-file .codelab-explorer,
+.codelab.is-sql-single-file .codelab-splitter-files {
+  display: none;
+}
+
+.codelab-sql-host {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: var(--cl-bg, #0a0a0a);
+}
+
+.codelab-sql-host .cl-sql-root {
+  height: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+.codelab-sql-host .cl-sql-surface {
+  height: 100% !important;
+}
+
+/* Responsive semantic SQL Results table (sticky thead + @container card stack) */
+.cl-sql-results-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(460px, 65vh);
+  container-type: inline-size;
+  border: 1px solid var(--cl-border, #262626);
+  border-radius: 6px;
+  background-color: var(--cl-bg-elevated, #0f0f10);
+}
+
+.cl-sql-results-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--cl-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-align: left;
+}
+
+.cl-sql-results-caption {
+  padding: 6px 10px;
+  text-align: left;
+  font-family: var(--cl-font-sans, system-ui, sans-serif);
+  font-size: 11.5px;
+  color: var(--cl-fg-muted, #8e8e93);
+  background-color: var(--cl-bg-panel, #161618);
+  border-bottom: 1px solid var(--cl-border, #262626);
+}
+
+.cl-sql-results-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+
+.cl-sql-results-table thead th {
+  padding: 7px 10px;
+  background-color: var(--cl-bg-panel, #161618);
+  color: var(--cl-fg-muted, #a1a1aa);
+  font-weight: 600;
+  font-size: 11px;
+  border-bottom: 1px solid var(--cl-border, #262626);
+  white-space: nowrap;
+}
+
+.cl-sql-results-table tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--cl-border-subtle, #1f1f22);
+  color: var(--cl-fg, #f5f5f5);
+  white-space: nowrap;
+}
+
+.cl-sql-results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+@container (width < 520px) {
+  .cl-sql-results-table,
+  .cl-sql-results-table tbody,
+  .cl-sql-results-table tr,
+  .cl-sql-results-table td {
+    display: block;
+  }
+
+  .cl-sql-results-table thead {
+    display: none;
+  }
+
+  .cl-sql-results-table tbody tr {
+    margin: 8px;
+    border: 1px solid var(--cl-border, #262626);
+    border-radius: 6px;
+  }
+
+  .cl-sql-results-table tbody td {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .cl-sql-results-table tbody td::before {
+    content: var(--col-label, "") ": ";
+    font-weight: 600;
+    color: var(--cl-fg-muted, #8e8e93);
+  }
+}
+
+/* Selected tab shape underline (WCAG 1.4.1 — never indicate selected tab by color alone) */
+.codelab-drawer__tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.codelab-drawer__tab {
+  position: relative;
+  flex: none;
+}
+
+.codelab-drawer__tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 2px solid var(--cl-accent, #0284c7);
+}
+
 .codelab-workbench :where(button, a[href], select, input, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--cl-blue, #54a2ff);
   outline-offset: 2px;

@@ -30,6 +30,8 @@
   }
   const CodeLabTerminal = (root && root.CodeLabTerminal) || terminalModule || {};
   const CodeLabShell = (root && root.CodeLabShell) || shellModule || {};
+  const getModular = () => (typeof CodeLabModular !== 'undefined' && CodeLabModular) || (root && root.CodeLabModular) || null;
+  const getSqlPack = () => (typeof CodeLabSql !== 'undefined' && CodeLabSql) || (root && root.CodeLabSql) || getModular() || null;
   const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine || CodeLabTerminal.createTerminal || CodeLabTerminal.PTYTerminalEngine || (root && (root.createPTYTerminalEngine || root.PTYTerminalEngine));
   const ansiToHtml = CodeLabTerminal.parseAnsiToHtml || CodeLabTerminal.ansiToHtml || (root && (root.parseAnsiToHtml || root.ansiToHtml));
   const createPosixShell = CodeLabShell.createPosixShell || (root && root.createPosixShell);
@@ -1144,18 +1146,49 @@ int main() {
 `
   };
 
-  // Helper to convert JS file set to TS, C++, or Python file set if explicit language files aren't provided
-  function mapFilesToLanguage(filesObj, lang, explicitTsFiles, explicitCppFiles, explicitPyFiles) {
+  const DEFAULT_STANDALONE_SQL_FILES = {
+    'query.sql': `-- SQL Playground & Guided Lab\nSELECT 1 AS id, 'code-lab' AS engine;\n`
+  };
+
+  // Helper to convert JS file set to TS, C++, Python, or SQL file set if explicit language files aren't provided
+  function mapFilesToLanguage(filesObj, lang, explicitTsFiles, explicitCppFiles, explicitPyFiles, explicitSqlFiles) {
+    const preserveConfigFiles = (target) => {
+      for (const [name, content] of Object.entries(filesObj || {})) {
+        if (name.startsWith('.codelab/')) {
+          target[name] = content;
+        }
+      }
+      return target;
+    };
+    if (lang === 'sql') {
+      if (explicitSqlFiles && Object.keys(explicitSqlFiles).length > 0) {
+        return preserveConfigFiles({ ...explicitSqlFiles });
+      }
+      const existingSql = {};
+      for (const [name, content] of Object.entries(filesObj || {})) {
+        if (/\.(sql|md)$/i.test(name) || name.startsWith('.codelab/')) {
+          existingSql[name] = content;
+        }
+      }
+      if (Object.keys(existingSql).some(f => /\.sql$/i.test(f))) {
+        return existingSql;
+      }
+      const outSql = { ...DEFAULT_STANDALONE_SQL_FILES };
+      if (filesObj && filesObj['README.md']) {
+        outSql['README.md'] = filesObj['README.md'];
+      }
+      return preserveConfigFiles(outSql);
+    }
     if (lang === 'ts' && explicitTsFiles && Object.keys(explicitTsFiles).length > 0) {
-      return { ...explicitTsFiles };
+      return preserveConfigFiles({ ...explicitTsFiles });
     }
     if (lang === 'cpp') {
       if (explicitCppFiles && Object.keys(explicitCppFiles).length > 0) {
-        return { ...explicitCppFiles };
+        return preserveConfigFiles({ ...explicitCppFiles });
       }
       const existingCpp = {};
       for (const [name, content] of Object.entries(filesObj || {})) {
-        if (/\.(cpp|cc|cxx|h|hpp|md)$/i.test(name)) {
+        if (/\.(cpp|cc|cxx|h|hpp|md)$/i.test(name) || name.startsWith('.codelab/')) {
           existingCpp[name] = content;
         }
       }
@@ -1166,15 +1199,15 @@ int main() {
       if (filesObj && filesObj['README.md']) {
         outCpp['README.md'] = filesObj['README.md'];
       }
-      return outCpp;
+      return preserveConfigFiles(outCpp);
     }
     if (lang === 'py') {
       if (explicitPyFiles && Object.keys(explicitPyFiles).length > 0) {
-        return { ...explicitPyFiles };
+        return preserveConfigFiles({ ...explicitPyFiles });
       }
       const existingPy = {};
       for (const [name, content] of Object.entries(filesObj || {})) {
-        if (/\.(py|md)$/i.test(name)) {
+        if (/\.(py|md)$/i.test(name) || name.startsWith('.codelab/')) {
           existingPy[name] = content;
         }
       }
@@ -1185,7 +1218,7 @@ int main() {
       if (filesObj && filesObj['README.md']) {
         outPy['README.md'] = filesObj['README.md'];
       }
-      return outPy;
+      return preserveConfigFiles(outPy);
     }
     const out = {};
     for (const [name, content] of Object.entries(filesObj || {})) {
@@ -1435,7 +1468,9 @@ int main() {
         ...(options.cppStarterFiles ? { cppStarterFiles: options.cppStarterFiles } : {}),
         ...((options.cppSolutionFiles || options.cppFiles) ? { cppSolutionFiles: options.cppSolutionFiles || options.cppFiles } : {}),
         ...(options.pyStarterFiles ? { pyStarterFiles: options.pyStarterFiles } : {}),
-        ...((options.pySolutionFiles || options.pyFiles) ? { pySolutionFiles: options.pySolutionFiles || options.pyFiles } : {})
+        ...((options.pySolutionFiles || options.pyFiles) ? { pySolutionFiles: options.pySolutionFiles || options.pyFiles } : {}),
+        ...(options.sqlStarterFiles ? { sqlStarterFiles: options.sqlStarterFiles } : {}),
+        ...((options.sqlSolutionFiles || options.sqlFiles) ? { sqlSolutionFiles: options.sqlSolutionFiles || options.sqlFiles } : {})
       };
       this.steps = options.steps || this.guidedConfig?.steps || [];
       this.hasGuidedLab = Boolean(
@@ -1443,11 +1478,25 @@ int main() {
         options.guidedLab ||
         (this.steps && this.steps.length > 0)
       );
-      this.enabledLanguages = new Set(['js']);
+      const isPureSqlInit = Boolean(
+        (options.lang === 'sql' || options.language === 'sql') &&
+        !options.languages &&
+        !options.hasMultipleLanguages &&
+        !this.guidedConfig.tsStarterFiles &&
+        !this.guidedConfig.tsSolutionFiles &&
+        !this.guidedConfig.tsFiles &&
+        !this.guidedConfig.cppStarterFiles &&
+        !this.guidedConfig.cppSolutionFiles &&
+        !this.guidedConfig.pyStarterFiles &&
+        !this.guidedConfig.pySolutionFiles
+      );
+      this.enabledLanguages = new Set(isPureSqlInit ? ['sql'] : ['js']);
       if (Array.isArray(options.languages)) {
+        this.enabledLanguages = new Set();
         for (const l of options.languages) {
-          if (l === 'js' || l === 'ts' || l === 'cpp' || l === 'py') this.enabledLanguages.add(l);
+          if (l === 'js' || l === 'ts' || l === 'cpp' || l === 'py' || l === 'sql') this.enabledLanguages.add(l);
         }
+        if (this.enabledLanguages.size === 0) this.enabledLanguages.add('js');
       }
       if (
         options.hasMultipleLanguages ||
@@ -1477,9 +1526,19 @@ int main() {
       ) {
         this.enabledLanguages.add('py');
       }
+      if (
+        this.guidedConfig.sqlStarterFiles ||
+        this.guidedConfig.sqlSolutionFiles ||
+        this.guidedConfig.sqlFiles ||
+        options.lang === 'sql' ||
+        options.language === 'sql' ||
+        typeof options.sqlRunner === 'function'
+      ) {
+        this.enabledLanguages.add('sql');
+      }
       this.hasMultipleLanguages = Boolean(
         options.hasMultipleLanguages ||
-        options.languages ||
+        (Array.isArray(options.languages) && options.languages.length > 1) ||
         this.enabledLanguages.size > 1 ||
         this.guidedConfig.tsStarterFiles ||
         this.guidedConfig.tsSolutionFiles ||
@@ -1490,7 +1549,7 @@ int main() {
         this.guidedConfig.pyStarterFiles ||
         this.guidedConfig.pySolutionFiles ||
         this.guidedConfig.pyFiles ||
-        (this.hasGuidedLab && (options.lang || options.language))
+        (!isPureSqlInit && this.hasGuidedLab && (options.lang || options.language))
       );
       this.showWebPreviewOption = Boolean(options.showWebPreview);
       this._diffManager = null;
@@ -1500,6 +1559,21 @@ int main() {
 
       this.mode = options.mode || this.savedState.mode || (this.hasGuidedLab ? 'guided' : 'sandbox');
       this.lang = options.language || options.lang || this.savedState.lang || 'js';
+      this.sqlDialect = (
+        options.sqlDialect === 'sqlite' ||
+        options.dialect === 'sqlite' ||
+        (options.sqlSchema && options.sqlSchema.dialect === 'sqlite') ||
+        (options.schema && options.schema.dialect === 'sqlite')
+      ) ? 'sqlite' : 'postgres';
+      this.sqlSchema = options.sqlSchema || options.schema || null;
+      this.sqlRunner = typeof options.sqlRunner === 'function' ? options.sqlRunner : null;
+      this.lastSqlResult = null;
+      this._sqlWorkbenchEditor = null;
+      this._forceShowExplorer = Boolean(options.showExplorer);
+      this._workspaceTasks = [];
+      this._settingsDialog = null;
+      this._pluginPanelDisposables = [];
+
       this.activeStepIndex = typeof options.stepIndex === 'number' ? options.stepIndex : (this.savedState.activeStepIndex || 0);
       if (this.activeStepIndex >= this.steps.length || this.activeStepIndex < 0) this.activeStepIndex = 0;
 
@@ -1520,7 +1594,9 @@ int main() {
       this.renamingItem = null;
       this._draggedFile = null;
       this.guideTab = 'steps'; // 'steps' | 'readme'
-      this.drawerTab = (this.hasGuidedLab && this.mode === 'guided') ? 'tests' : 'terminal';
+      this.drawerTab = this.lang === 'sql'
+        ? 'sql-results'
+        : ((this.hasGuidedLab && this.mode === 'guided') ? 'tests' : 'terminal');
       this.testSuiteVisible = Boolean(this.hasGuidedLab && this.mode === 'guided');
       this.lastDurationMs = null;
       this.lastPeakMemoryBytes = null;
@@ -1563,7 +1639,9 @@ int main() {
       this.cursorPos = { lineNumber: 1, column: 1 };
       this.lastRunDurationMs = null;
       this.runtimeStatusState = 'idle';
-      this.runtimeStatusText = 'Node.js v22 Worker · Idle';
+      this.runtimeStatusText = this.lang === 'sql'
+        ? `${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'} · Idle`
+        : 'Node.js v22 Worker · Idle';
 
       // Initialize working files for current mode & language
       this.files = this._computeInitialFiles();
@@ -1666,9 +1744,11 @@ int main() {
       this._markerDisposable = null;
       this._destroyed = false;
 
+      this._initKernel();
       this._renderShell();
       this._bindEvents();
       this._initEditor();
+      this._syncDotCodelabConfig({ isInitialMount: true });
       this._checkUrlSnapshot();
       this._hydrateFromAsyncStorage();
 
@@ -1680,12 +1760,181 @@ int main() {
         this.use(plugin);
       }
 
+      if (this.plugins && typeof this.plugins.fireActivationEvent === 'function') {
+        this.plugins.fireActivationEvent('onStartupFinished').catch((err) => {
+          this.logger.debug('onStartupFinished plugin activation error.', err);
+        });
+      }
+
       if (options.repo && typeof options.repo === 'string') {
         this.cloneRepo(options.repo, {
           intoRoot: options.cloneIntoRoot !== false,
           branch: options.branch || undefined,
           fetchImpl: options.fetchImpl || undefined
         }).catch((err) => this.logger.warn('Initial cloneRepo failed.', err));
+      }
+    }
+
+    _initKernel() {
+      const mod = getModular();
+      if (!mod || typeof mod.createCodeLabKernel !== 'function') {
+        this.kernel = null;
+        this.configuration = null;
+        this.commands = null;
+        this.keybindings = null;
+        this.themes = null;
+        this.plugins = null;
+        this.contextKeys = null;
+        this._errorBoundary = null;
+        return;
+      }
+      try {
+        this.kernel = mod.createCodeLabKernel({
+          instanceId: this.instanceId,
+          initialFiles: this.files,
+          runtimeDelegate: (opts) => this._executeRuntime(opts)
+        });
+        this.configuration = this.kernel.configuration;
+        this.commands = this.kernel.commands;
+        this.keybindings = this.kernel.keybindings;
+        this.themes = this.kernel.themes;
+        this.plugins = this.kernel.plugins;
+        this.contextKeys = this.kernel.contextKeys;
+        this._errorBoundary = (this.container && mod.WorkbenchErrorBoundary)
+          ? new mod.WorkbenchErrorBoundary(this.container, this.kernel.logger)
+          : null;
+
+        if (this.contextKeys) {
+          this.contextKeys.setContext('editorLangId', this.lang);
+          this.contextKeys.setContext('workbenchMode', this.mode);
+          this.contextKeys.setContext('isGuidedLab', this.hasGuidedLab);
+        }
+
+        // Load persisted user settings from localStorage if available
+        if (this.persistState && this.configuration) {
+          const savedUserSettings = safeStorageGet(`${STORAGE_PREFIX}user-settings`, this.logger);
+          if (savedUserSettings) {
+            this.configuration.importProfile(savedUserSettings);
+          }
+        }
+
+        // Apply URL ?settings= parameter if present
+        if (typeof window !== 'undefined' && window.location && window.location.search && this.configuration) {
+          try {
+            const params = new URLSearchParams(window.location.search);
+            const encoded = params.get('settings');
+            if (encoded) {
+              this.configuration.applyUrlParam(encoded);
+            }
+          } catch (err) {
+            this.logger.debug('URL ?settings= parameter parse skipped.', err);
+          }
+        }
+
+        // Apply constructor overrides onto Layer 4 if passed in options.settings
+        if (this.options && this.options.settings && typeof this.options.settings === 'object' && this.configuration) {
+          this.configuration.setOverrides(this.options.settings);
+        }
+
+        // Register built-in commands & keybindings
+        if (this.commands) {
+          this.commands.registerCommand({
+            id: 'workbench.action.openSettings',
+            title: 'Preferences: Open Settings (UI)',
+            category: 'Preferences',
+            handler: () => this.openSettings()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.openWorkspaceSettingsJson',
+            title: 'Preferences: Open Workspace Settings (JSON)',
+            category: 'Preferences',
+            handler: () => this.openWorkspaceSettingsJson()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.quickOpen',
+            title: 'Go to File...',
+            category: 'File',
+            handler: () => this.openCommandPalette('files')
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.showCommands',
+            title: 'Show All Commands',
+            category: 'View',
+            handler: () => this.openCommandPalette('commands')
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.openObservability',
+            title: 'Developer: Open Observability & Services Inspector',
+            category: 'Developer',
+            handler: () => this.switchDrawerTab('observability')
+          });
+          this.commands.registerCommand({
+            id: 'codeLab.runCode',
+            title: 'CodeLab: Run Code',
+            category: 'CodeLab',
+            handler: () => this.runCode()
+          });
+          this.commands.registerCommand({
+            id: 'codeLab.runTests',
+            title: 'CodeLab: Run Tests',
+            category: 'CodeLab',
+            handler: () => this.runTests()
+          });
+          this.commands.registerCommand({
+            id: 'codeLab.runSql',
+            title: 'SQL: Run Query',
+            category: 'SQL',
+            when: "editorLangId == 'sql'",
+            handler: () => this.runSql('run')
+          });
+          this.commands.registerCommand({
+            id: 'codeLab.explainSql',
+            title: 'SQL: Explain Query Plan',
+            category: 'SQL',
+            when: "editorLangId == 'sql'",
+            handler: () => this.runSql('explain')
+          });
+          this.commands.registerCommand({
+            id: 'codeLab.formatDocument',
+            title: 'Editor: Format Document',
+            category: 'Editor',
+            handler: () => this.formatActiveDocument()
+          });
+          this.commands.registerCommand({
+            id: 'tasks.runTask',
+            title: 'Tasks: Run Workspace Task',
+            category: 'Tasks',
+            handler: (taskId) => this.runTask(taskId)
+          });
+        }
+
+        if (this.keybindings) {
+          this.keybindings.registerKeybinding({
+            key: 'Mod+,',
+            command: 'workbench.action.openSettings'
+          });
+        }
+
+        if (this.configuration) {
+          this.configuration.onDidChangeConfiguration((e) => {
+            if (!this._destroyed) {
+              this._applyConfigurationChanges(e);
+              if (e.source === 'user' && this.persistState) {
+                safeStorageSet(`${STORAGE_PREFIX}user-settings`, this.configuration.exportProfile(), this.logger);
+              }
+            }
+          });
+        }
+
+        if (this.plugins) {
+          this.plugins.onDidChangePlugins(() => {
+            if (!this._destroyed) {
+              this._refreshDrawerTabs();
+            }
+          });
+        }
+      } catch (err) {
+        this.logger.warn('Modular kernel initialization failed; continuing in standalone mode.', err);
       }
     }
 
@@ -1932,6 +2181,36 @@ int main() {
           this.logger.debug('monaco.editor.setTheme failed.', err);
         }
       }
+      if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setTheme === 'function') {
+        try {
+          this._sqlWorkbenchEditor.setTheme(resolved === 'light' ? 'light' : 'dark');
+        } catch (err) {
+          this.logger.debug('_sqlWorkbenchEditor.setTheme failed.', err);
+        }
+      }
+      if (this.themes && typeof this.themes.setTheme === 'function' && !this._applyingThemeFromService) {
+        try {
+          this._applyingThemeFromService = true;
+          this.themes.setTheme(resolved === 'light' ? 'light' : resolved === 'high-contrast' ? 'high-contrast' : 'dark');
+        } catch (err) {
+          this.logger.debug('themes.setTheme failed.', err);
+        } finally {
+          this._applyingThemeFromService = false;
+        }
+      }
+      // Relay color-scheme/theme to preview iframes explicitly (Safari does not inherit color-scheme into iframes)
+      if (this.container && typeof this.container.querySelectorAll === 'function') {
+        const frames = this.container.querySelectorAll('.codelab-preview-frame, iframe[data-cl-preview-frame]');
+        frames.forEach((frame) => {
+          try {
+            if (frame && frame.contentWindow && typeof frame.contentWindow.postMessage === 'function') {
+              frame.contentWindow.postMessage({ type: 'codelab:theme-change', theme: resolved }, '*');
+            }
+          } catch (err) {
+            this.logger.debug('Preview iframe theme postMessage skipped.', err);
+          }
+        });
+      }
       this._emitEvent('theme-change', { theme: normalized, resolvedTheme: resolved });
       return this;
     }
@@ -2019,6 +2298,12 @@ int main() {
         this._updateStatusBar();
         return;
       }
+      if (this.configuration && this.configuration.get('files.autoSave', 'afterDelay') === 'off') {
+        return;
+      }
+      const effectiveDelay = (delayMs === 180 && this.configuration)
+        ? Math.max(50, Number(this.configuration.get('files.autoSaveDelay', 180)) || 180)
+        : delayMs;
       if (this._saveDebounceTimer) {
         clearTimeout(this._saveDebounceTimer);
       }
@@ -2027,7 +2312,7 @@ int main() {
         if (!this._destroyed) {
           this._saveState();
         }
-      }, delayMs);
+      }, effectiveDelay);
     }
 
     flushState() {
@@ -2275,13 +2560,15 @@ int main() {
         curEl.textContent = `Ln ${this.cursorPos.lineNumber || 1}, Col ${this.cursorPos.column || 1}`;
       }
       if (langEl) {
-        langEl.textContent = this.lang === 'cpp'
-          ? 'C++20 (Clang/WASI)'
-          : this.lang === 'py'
-            ? 'Python 3.12 (CPython WASI)'
-            : this.lang === 'ts'
-              ? 'TypeScript 5.x'
-              : 'JavaScript (CJS/ESM)';
+        langEl.textContent = this.lang === 'sql'
+          ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18')
+          : this.lang === 'cpp'
+            ? 'C++20 (Clang/WASI)'
+            : this.lang === 'py'
+              ? 'Python 3.12 (CPython WASI)'
+              : this.lang === 'ts'
+                ? 'TypeScript 5.x'
+                : 'JavaScript (CJS/ESM)';
       }
       this._updateTelemetryHud();
     }
@@ -2292,13 +2579,23 @@ int main() {
         ...this.referenceFiles,
         ...(this.guidedConfig?.starterFiles || {})
       };
-      if (mode === 'guided' && (this.guidedConfig?.starterFiles || this.guidedConfig?.tsStarterFiles || this.guidedConfig?.cppStarterFiles || this.guidedConfig?.pyStarterFiles)) {
+      if (
+        mode === 'guided' &&
+        (
+          this.guidedConfig?.starterFiles ||
+          this.guidedConfig?.tsStarterFiles ||
+          this.guidedConfig?.cppStarterFiles ||
+          this.guidedConfig?.pyStarterFiles ||
+          this.guidedConfig?.sqlStarterFiles
+        )
+      ) {
         return mapFilesToLanguage(
           baseJsStarter,
           lang,
           this.guidedConfig?.tsStarterFiles,
           this.guidedConfig?.cppStarterFiles,
-          this.guidedConfig?.pyStarterFiles
+          this.guidedConfig?.pyStarterFiles,
+          this.guidedConfig?.sqlStarterFiles
         );
       }
       return mapFilesToLanguage(
@@ -2306,7 +2603,8 @@ int main() {
         lang,
         this.guidedConfig?.tsSolutionFiles,
         this.guidedConfig?.cppSolutionFiles,
-        this.guidedConfig?.pySolutionFiles
+        this.guidedConfig?.pySolutionFiles,
+        this.guidedConfig?.sqlSolutionFiles
       );
     }
 
@@ -2328,8 +2626,29 @@ int main() {
       return base;
     }
 
+    _isSingleFileSqlMode() {
+      if (this.lang !== 'sql' || this._forceShowExplorer) return false;
+      const codeFiles = Object.keys(this.files || {}).filter(
+        f => !f.startsWith('.codelab/') && !/^readme\.md$/i.test(f)
+      );
+      return codeFiles.length <= 1;
+    }
+
     _pickDefaultFile() {
       const names = Object.keys(this.files);
+      if (this.lang === 'sql') {
+        if (this.guidedConfig?.mainFile) {
+          const sqlMain = this.guidedConfig.mainFile.replace(/\.(js|ts|cpp|py)$/, '.sql');
+          if (this.files[sqlMain]) return sqlMain;
+          if (this.files[this.guidedConfig.mainFile]) return this.guidedConfig.mainFile;
+        }
+        if (this.files['query.sql']) return 'query.sql';
+        if (this.files['solution.sql']) return 'solution.sql';
+        if (this.files['main.sql']) return 'main.sql';
+        if (this.files['schema.sql']) return 'schema.sql';
+        const sqlImpl = names.find(f => /\.sql$/i.test(f) && !/test/i.test(f));
+        return sqlImpl || names.find(f => /\.sql$/i.test(f)) || names.find(f => !f.endsWith('.md') && !f.startsWith('.codelab/')) || names[0] || '';
+      }
       if (this.lang === 'py') {
         if (this.guidedConfig?.mainFile) {
           const pyMain = this.guidedConfig.mainFile.replace(/\.(js|ts|cpp)$/, '.py');
@@ -2375,6 +2694,28 @@ int main() {
 
     _findEntryFile(kind) {
       const names = Object.keys(this.files);
+      if (this.lang === 'sql') {
+        if (kind === 'test') {
+          if (this.explicitTestEntry) {
+            const sqlTest = this.explicitTestEntry.replace(/\.(js|ts|cpp|py)$/, '.sql');
+            if (this.files[sqlTest]) return sqlTest;
+            if (this.files[this.explicitTestEntry]) return this.explicitTestEntry;
+          }
+          if (this.files['test.sql']) return 'test.sql';
+          return names.find(f => /(^|\/)(test.*|.*_test)\.sql$/i.test(f)) || null;
+        }
+        if (this.explicitEntry) {
+          const sqlEntry = this.explicitEntry.replace(/\.(js|ts|cpp|py)$/, '.sql');
+          if (this.files[sqlEntry]) return sqlEntry;
+          if (this.files[this.explicitEntry]) return this.explicitEntry;
+        }
+        return (this.activeFile && /\.sql$/i.test(this.activeFile) ? this.activeFile : null) ||
+          (this.files['query.sql'] ? 'query.sql' : null) ||
+          (this.files['solution.sql'] ? 'solution.sql' : null) ||
+          (this.files['main.sql'] ? 'main.sql' : null) ||
+          names.find(f => /\.sql$/i.test(f)) ||
+          null;
+      }
       if (this.lang === 'py') {
         if (kind === 'test') {
           if (this.explicitTestEntry) {
@@ -2480,19 +2821,22 @@ int main() {
         (this.enabledLanguages && this.enabledLanguages.size > 1)
       );
       if (!hasMulti) return '';
+      const showJs = Boolean(!this.enabledLanguages || this.enabledLanguages.has('js'));
       const showTs = Boolean(
         !this.enabledLanguages ||
         this.enabledLanguages.has('ts') ||
-        !this.enabledLanguages.has('cpp')
+        (!this.enabledLanguages.has('cpp') && !this.enabledLanguages.has('py') && !this.enabledLanguages.has('sql'))
       );
       const showCpp = Boolean(this.enabledLanguages && this.enabledLanguages.has('cpp'));
       const showPy = Boolean(this.enabledLanguages && this.enabledLanguages.has('py'));
+      const showSql = Boolean(this.enabledLanguages && this.enabledLanguages.has('sql'));
       return `
               <div class="codelab-lang-switch" role="group" aria-label="Language Selector">
-                <button type="button" class="codelab-lang-btn ${this.lang === 'js' ? 'active' : ''}" data-cl-lang="js" data-lang="js" aria-pressed="${this.lang === 'js'}">JS</button>
+                ${showJs ? `<button type="button" class="codelab-lang-btn ${this.lang === 'js' ? 'active' : ''}" data-cl-lang="js" data-lang="js" aria-pressed="${this.lang === 'js'}">JS</button>` : ''}
                 ${showTs ? `<button type="button" class="codelab-lang-btn ${this.lang === 'ts' ? 'active' : ''}" data-cl-lang="ts" data-lang="ts" aria-pressed="${this.lang === 'ts'}">TS</button>` : ''}
                 ${showCpp ? `<button type="button" class="codelab-lang-btn ${this.lang === 'cpp' ? 'active' : ''}" data-cl-lang="cpp" data-lang="cpp" aria-pressed="${this.lang === 'cpp'}">C++</button>` : ''}
                 ${showPy ? `<button type="button" class="codelab-lang-btn ${this.lang === 'py' ? 'active' : ''}" data-cl-lang="py" data-lang="py" aria-pressed="${this.lang === 'py'}">PY</button>` : ''}
+                ${showSql ? `<button type="button" class="codelab-lang-btn ${this.lang === 'sql' ? 'active' : ''}" data-cl-lang="sql" data-lang="sql" aria-pressed="${this.lang === 'sql'}">SQL</button>` : ''}
               </div>
       `;
     }
@@ -2543,17 +2887,36 @@ int main() {
       const drawerTabs = this.container.querySelector('.codelab-drawer__tabs');
       if (!drawerTabs) return;
 
-      const isGuided = Boolean(this.hasGuidedLab && this.mode === 'guided');
-      const showTests = isGuided || this.testSuiteVisible || this.drawerTab === 'tests';
-      const hasWeb = this._hasWebContent();
+      const isSingleSql = this._isSingleFileSqlMode();
+      const showSqlTab = Boolean(this.lang === 'sql' || this.lastSqlResult);
       const problemsCount = this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function'
         ? this._diagnosticsStore.getAll().length
         : 0;
 
+      const appendDrawerTabHtml = (parent, pos, htmlSnippet) => {
+        if (parent && typeof parent.insertAdjacentHTML === 'function') {
+          parent.insertAdjacentHTML(pos, htmlSnippet);
+        } else if (parent && typeof parent.innerHTML === 'string') {
+          parent.innerHTML = pos === 'afterbegin' ? (htmlSnippet + parent.innerHTML) : (parent.innerHTML + htmlSnippet);
+        }
+      };
+
+      let sqlTab = drawerTabs.querySelector('[data-cl-drawertab="sql-results"]');
+      if (!sqlTab && showSqlTab) {
+        appendDrawerTabHtml(drawerTabs, 'afterbegin', `
+          <button type="button" role="tab" aria-selected="${this.drawerTab === 'sql-results'}" class="codelab-drawer__tab ${this.drawerTab === 'sql-results' ? 'active' : ''}" data-cl-drawertab="sql-results" title="SQL Query Results &amp; EXPLAIN Plan">
+            ${CL_ICONS.database}
+            <span>Query Results</span>
+          </button>
+        `);
+      } else if (sqlTab && sqlTab.style) {
+        sqlTab.style.display = showSqlTab ? 'inline-flex' : 'none';
+      }
+
       let probTab = drawerTabs.querySelector('[data-cl-drawertab="problems"]');
       if (!probTab) {
         const termTab = drawerTabs.querySelector('[data-cl-drawertab="terminal"]');
-        if (termTab) {
+        if (termTab && typeof termTab.insertAdjacentHTML === 'function') {
           termTab.insertAdjacentHTML('afterend', `
             <button type="button" role="tab" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
               ${CL_ICONS.warning}
@@ -2567,12 +2930,11 @@ int main() {
         if (countSpan) countSpan.textContent = String(problemsCount);
       }
 
-
       let stdinTab = drawerTabs.querySelector('[data-cl-drawertab="stdin"]');
       if (!stdinTab) {
         const testTab = drawerTabs.querySelector('[data-cl-drawertab="tests"]');
         const afterTab = testTab || drawerTabs.querySelector('[data-cl-drawertab="problems"]') || drawerTabs.querySelector('[data-cl-drawertab="terminal"]');
-        if (afterTab) {
+        if (afterTab && typeof afterTab.insertAdjacentHTML === 'function') {
           afterTab.insertAdjacentHTML('afterend', `
             <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input">
               ${CL_ICONS.keyboard}
@@ -2582,6 +2944,43 @@ int main() {
         }
       }
 
+      let obsTab = drawerTabs.querySelector('[data-cl-drawertab="observability"]');
+      if (!obsTab && this.kernel) {
+        appendDrawerTabHtml(drawerTabs, 'beforeend', `
+          <button type="button" role="tab" aria-selected="${this.drawerTab === 'observability'}" class="codelab-drawer__tab ${this.drawerTab === 'observability' ? 'active' : ''}" data-cl-drawertab="observability" title="Services, Settings &amp; Event Telemetry">
+            ${CL_ICONS.activity}
+            <span>Observability</span>
+          </button>
+        `);
+      }
+
+      if (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function') {
+        for (const panel of this.plugins.panels.values()) {
+          if (!panel || !panel.id) continue;
+          const existingPanelTab = drawerTabs.querySelector(`[data-cl-drawertab="${panel.id}"]`);
+          if (!existingPanelTab) {
+            appendDrawerTabHtml(drawerTabs, 'beforeend', `
+              <button type="button" role="tab" aria-selected="${this.drawerTab === panel.id}" class="codelab-drawer__tab ${this.drawerTab === panel.id ? 'active' : ''}" data-cl-drawertab="${escapeHtml(panel.id)}">
+                <span>${escapeHtml(panel.title || panel.id)}</span>
+              </button>
+            `);
+          }
+        }
+      }
+
+      const noisyTabs = ['terminal', 'stdin', 'ports', 'preview', 'network', 'inspector'];
+      for (const noisyId of noisyTabs) {
+        const el = drawerTabs.querySelector(`[data-cl-drawertab="${noisyId}"]`);
+        if (el && el.style) {
+          el.style.display = isSingleSql ? 'none' : '';
+        }
+      }
+      const testsEl = drawerTabs.querySelector('[data-cl-drawertab="tests"]');
+      if (testsEl && testsEl.style && isSingleSql && !this._findEntryFile('test')) {
+        testsEl.style.display = 'none';
+      } else if (testsEl && testsEl.style && !isSingleSql) {
+        testsEl.style.display = '';
+      }
     }
 
     // ── Render Workbench DOM ───────────────────────────────────────────────
@@ -2593,11 +2992,20 @@ int main() {
       const themeAttr = this.themeOption !== 'auto' ? `data-theme="${escapeHtml(this.themeOption)}"` : '';
       const brandLabel = (this.title && this.title !== 'custom-lab' && this.title !== this.labId) ? this.title : 'code-lab';
       const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
+      const isSingleSql = this._isSingleFileSqlMode();
+      const showSqlTab = Boolean(this.lang === 'sql' || this.lastSqlResult);
+      const pluginPanelsHtml = (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function')
+        ? Array.from(this.plugins.panels.values()).map((panel) => `
+            <button type="button" role="tab" aria-selected="${this.drawerTab === panel.id}" class="codelab-drawer__tab ${this.drawerTab === panel.id ? 'active' : ''}" data-cl-drawertab="${escapeHtml(panel.id)}">
+              <span>${escapeHtml(panel.title || panel.id)}</span>
+            </button>
+          `).join('')
+        : '';
       const shellVars = [`--cl-explorer-width:${Math.round(this.explorerWidth || 196)}px`];
       if (this.previewSplitWidth) shellVars.push(`--cl-preview-split-width:${Math.round(this.previewSplitWidth)}px`);
       const explorerStyle = `style="${shellVars.join(';')}"`;
       this.container.innerHTML = `
-        <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr} ${explorerStyle}>
+        <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''} ${isSingleSql ? 'is-sql-single-file' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr} ${explorerStyle}>
           <!-- Top Bar -->
           <div class="codelab-topbar codelab-toolbar">
             <div class="codelab-topbar__left">
@@ -2639,9 +3047,9 @@ int main() {
                 <span>Stop</span>
               </button>
               ${(this.hasGuidedLab && this.mode === 'guided') ? `
-                <button type="button" class="codelab-btn codelab-btn--run" data-cl-action="run-demo" title="Run demo.js (⌘+Shift+Enter)">
+                <button type="button" class="codelab-btn codelab-btn--run" data-cl-action="run-demo" title="${this.lang === 'sql' ? 'Run Query (⌘+Shift+Enter)' : 'Run demo.js (⌘+Shift+Enter)'}">
                   ${CL_ICONS.play}
-                  <span>Run Demo</span>
+                  <span>${this.lang === 'sql' ? 'Run Query' : 'Run Demo'}</span>
                   <span class="codelab-btn__kbd">⇧⌘↵</span>
                 </button>
                 <button type="button" class="codelab-btn codelab-btn--test" id="cl-primary-exec-btn" data-cl-action="verify-step" title="Verify Current Step (⌘+Enter)">
@@ -2651,9 +3059,9 @@ int main() {
                 </button>
               ` : `
                 <div class="codelab-btn-split">
-                  <button type="button" class="codelab-btn codelab-btn--run codelab-btn-split__main" id="cl-primary-exec-btn" data-cl-action="run-code" title="Run Code (⌘↵)">
+                  <button type="button" class="codelab-btn codelab-btn--run codelab-btn-split__main" id="cl-primary-exec-btn" data-cl-action="run-code" title="${this.lang === 'sql' ? 'Run SQL Query (⌘↵)' : 'Run Code (⌘↵)'}">
                     ${CL_ICONS.play}
-                    <span>Run Code</span>
+                    <span>${this.lang === 'sql' ? 'Run SQL' : 'Run Code'}</span>
                     <span class="codelab-btn__kbd">⌘↵</span>
                   </button>
                   <button type="button" class="codelab-btn codelab-btn--run codelab-btn-split__trigger" id="cl-split-run-trigger" title="More Execution Options" aria-haspopup="true">
@@ -2666,6 +3074,11 @@ int main() {
                     <button type="button" class="codelab-split-menu__item" data-cl-action="run-active-file">
                       <span>▶ Run Active File (${escapeHtml(this.activeFile || 'active')})</span> <kbd style="opacity:0.6">⇧⌘↵</kbd>
                     </button>
+                    ${this.lang === 'sql' ? `
+                    <button type="button" class="codelab-split-menu__item" data-cl-action="explain-sql">
+                      <span>⚡ Explain Query Plan</span>
+                    </button>
+                    ` : ''}
                     ${this._findEntryFile('test') ? `
                     <button type="button" class="codelab-split-menu__item" data-cl-action="run-tests">
                       <span>✓ Run Test Suite</span>
@@ -2686,18 +3099,21 @@ int main() {
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               ${this.hasGuidedLab ? `
               <button type="button" class="codelab-btn codelab-btn--icon ${isGuideCollapsed ? '' : 'active'}" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel" aria-pressed="${isGuideCollapsed ? 'false' : 'true'}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
               </button>
               ` : ''}
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-drawer-btn" data-cl-action="toggle-drawer" title="Toggle Terminal Drawer" aria-label="Toggle Terminal Drawer">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
+              </button>
+              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-settings-btn" data-cl-action="open-settings" title="Settings (⌘,)" aria-label="Open Settings">
+                ${CL_ICONS.settings}
               </button>
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-fullscreen-btn" data-cl-action="toggle-fullscreen" title="Toggle Fullscreen IDE (Esc to exit)" aria-label="Toggle Fullscreen IDE">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
               </button>
               ${this.onClose ? `
                 <button type="button" class="codelab-btn codelab-btn--exit-lab codelab-btn--close-ide" id="cl-close-ide-btn" data-cl-action="close-lab" title="${escapeHtml(this.backLabel ? `Exit Lab (${this.backLabel})` : 'Exit Lab / Back to Build Guide')}" aria-label="Exit Lab">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                   <span class="codelab-btn__label">Exit Lab</span>
                 </button>
               ` : ''}
@@ -2719,7 +3135,7 @@ int main() {
                   <span>Architecture Brief</span>
                 </button>
                 <button type="button" class="codelab-guide__collapse-btn" data-cl-action="toggle-guide" title="Collapse sidebar" aria-label="Collapse sidebar">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="15 18 9 12 15 6"></polyline>
                   </svg>
                 </button>
@@ -2758,6 +3174,7 @@ int main() {
                   <div class="codelab-breadcrumbs" id="cl-breadcrumbs" aria-label="Editor Breadcrumbs"></div>
                   <div class="codelab-editor-wrap">
                     <div class="codelab-monaco-host" id="cl-monaco-host"></div>
+                    <div class="codelab-sql-host" id="cl-sql-editor-host" style="display:none"></div>
                     <div class="codelab-fallback-wrap" id="cl-fallback-wrap" style="display:none">
                       <div class="codelab-fallback-gutter" id="cl-fallback-gutter" aria-hidden="true">1</div>
                       <textarea class="codelab-fallback-editor" id="cl-fallback-editor" spellcheck="false" aria-label="Code Editor"></textarea>
@@ -2779,7 +3196,11 @@ int main() {
               <div class="codelab-drawer codelab-bottom" id="cl-drawer">
                 <div class="codelab-drawer__bar">
                   <div class="codelab-drawer__tabs" role="tablist" aria-label="Execution Output Panels">
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'sql-results'}" class="codelab-drawer__tab ${this.drawerTab === 'sql-results' ? 'active' : ''}" data-cl-drawertab="sql-results" title="SQL Query Results &amp; EXPLAIN Plan" style="display:${showSqlTab ? 'inline-flex' : 'none'}">
+                      ${CL_ICONS.database}
+                      <span>Query Results</span>
+                    </button>
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.terminal}
                       <span>Terminal &amp; REPL</span>
                     </button>
@@ -2788,40 +3209,47 @@ int main() {
                       <span>Problems</span>
                       <span class="codelab-badge" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:rgba(255,255,255,0.1);color:#fff;">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests" style="${(isSingleSql && !this._findEntryFile('test')) ? 'display:none' : ''}">
                       ${CL_ICONS.check}
                       <span>Test Suite</span>
                       <span class="codelab-drawer__pill" id="cl-test-pill">Ready</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.keyboard}
                       <span>Stdin</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.radio}
                       <span>Ports</span>
                       <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.globe}
                       <span>Web Preview</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.activity}
                       <span>Network</span>
                       <span class="codelab-drawer__pill" id="cl-network-pill">${(this.lastHttpTrace || []).length} reqs</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector">
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.database}
                       <span>Virtual Disk &amp; HTTP</span>
                       <span class="codelab-drawer__pill" id="cl-vfs-pill">0 files</span>
                     </button>
+                    ${this.kernel ? `
+                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'observability'}" class="codelab-drawer__tab ${this.drawerTab === 'observability' ? 'active' : ''}" data-cl-drawertab="observability" title="Services, Settings &amp; Event Telemetry">
+                      ${CL_ICONS.activity}
+                      <span>Observability</span>
+                    </button>
+                    ` : ''}
+                    ${pluginPanelsHtml}
                   </div>
                   <div class="codelab-hud-pill" id="cl-telemetry-hud" style="display:none;" title="Last Execution Telemetry"></div>
                   <div style="display:flex;align-items:center;gap:6px;">
-                    <div class="codelab-terminal-sessions" id="cl-terminal-sessions"></div>
-                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal Session" aria-label="New Terminal Session" style="padding:2px 6px;font-size:11px;">+</button>
-                    <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);">Ctrl+C</button>
+                    <div class="codelab-terminal-sessions" id="cl-terminal-sessions" style="${isSingleSql ? 'display:none' : ''}"></div>
+                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal Session" aria-label="New Terminal Session" style="padding:2px 6px;font-size:11px;${isSingleSql ? 'display:none;' : ''}">+</button>
+                    <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);${isSingleSql ? 'display:none;' : ''}">Ctrl+C</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Output" style="padding:2px 6px;font-size:11px;">Clear</button>
                     <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Minimize/Expand Drawer" aria-label="Minimize or Expand Drawer" style="padding:2px 6px;font-size:11px;">${CL_ICONS.chevronsUpDown}</button>
                   </div>
@@ -2836,7 +3264,7 @@ int main() {
             <div class="codelab-statusbar__left">
               <span class="codelab-statusbar__item" id="cl-status-runtime">
                 <span class="codelab-statusbar__dot" id="cl-status-dot"></span>
-                <span id="cl-status-text">Node.js v22 Worker · Idle</span>
+                <span id="cl-status-text">${escapeHtml(this.runtimeStatusText || 'Node.js v22 Worker · Idle')}</span>
               </span>
               <span class="codelab-statusbar__sep">·</span>
               <span class="codelab-statusbar__item" id="cl-status-file">${escapeHtml(this.activeFile || 'workspace')}</span>
@@ -2848,7 +3276,7 @@ int main() {
               <span class="codelab-statusbar__sep">·</span>
               <span class="codelab-statusbar__item">UTF-8</span>
               <span class="codelab-statusbar__sep">·</span>
-              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
+              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'sql' ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18') : this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
             </div>
           </footer>
 
@@ -2871,6 +3299,14 @@ int main() {
 
     _resolveStepTargetFile(rawTarget) {
       if (!rawTarget) return '';
+      if (this.lang === 'sql') {
+        const asSql = rawTarget.replace(/\.(js|ts|cpp|py)$/, '.sql');
+        if (this.files && this.files[asSql] !== undefined) return asSql;
+        if (this.files && this.files[rawTarget] !== undefined) return rawTarget;
+        if (this.files && this.files['query.sql'] !== undefined) return 'query.sql';
+        if (this.files && this.files['solution.sql'] !== undefined) return 'solution.sql';
+        return asSql;
+      }
       if (this.lang === 'cpp') {
         const asHpp = rawTarget.replace(/\.(js|ts)$/, '.hpp');
         if (this.files && this.files[asHpp] !== undefined) return asHpp;
@@ -3269,6 +3705,10 @@ int main() {
     }
 
     _renderFileLists() {
+      const shell = this.container.querySelector('.codelab');
+      if (shell && shell.classList) {
+        shell.classList.toggle('is-sql-single-file', this._isSingleFileSqlMode());
+      }
       const explorerEl = this.container.querySelector('#cl-explorer-list');
       const tabsEl = this.container.querySelector('#cl-file-tabs');
       const explorerLangEl = this.container.querySelector('#cl-explorer-lang');
@@ -3336,9 +3776,9 @@ int main() {
         const sortedFiles = Array.from(node.files.entries()).sort((a, b) => a[0].localeCompare(b[0]));
         for (const [baseName, fullPath] of sortedFiles) {
           const isActive = fullPath === this.activeFile;
-          const badge = fullPath.endsWith('.md') ? 'DOC' : fullPath.endsWith('.json') ? 'PKG' : /(^|\/)test\./i.test(fullPath) ? 'TEST' : /(^|\/)(demo|main)\./i.test(fullPath) ? 'DEMO' : /\.(hpp|h)$/i.test(fullPath) ? 'HDR' : 'SRC';
-          const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(fullPath) ? 'cpp' : fullPath.endsWith('.py') ? 'py' : fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
-          const fileIcon = ext === 'json' ? CL_ICONS.database : ext === 'md' ? CL_ICONS.book : CL_ICONS.file;
+          const badge = fullPath.endsWith('.md') ? 'DOC' : fullPath.endsWith('.json') ? 'PKG' : /\.sql$/i.test(fullPath) ? 'SQL' : /(^|\/)test\./i.test(fullPath) ? 'TEST' : /(^|\/)(demo|main)\./i.test(fullPath) ? 'DEMO' : /\.(hpp|h)$/i.test(fullPath) ? 'HDR' : 'SRC';
+          const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(fullPath) ? 'cpp' : /\.sql$/i.test(fullPath) ? 'sql' : fullPath.endsWith('.py') ? 'py' : fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
+          const fileIcon = (ext === 'json' || ext === 'sql') ? CL_ICONS.database : ext === 'md' ? CL_ICONS.book : CL_ICONS.file;
           const indent = depth * 14 + 10;
           const isRenamingFile = Boolean(
             this.renamingItem &&
@@ -3450,6 +3890,7 @@ int main() {
             this._renderFileLists();
           } else if (e.key === 'Enter') {
             e.preventDefault();
+            if (e.isComposing || e.keyCode === 229) return;
             if (createSettled) return;
             createSettled = true;
             const val = (treeInput.value || '').trim();
@@ -3536,6 +3977,7 @@ int main() {
             this._renderFileLists();
           } else if (e.key === 'Enter') {
             e.preventDefault();
+            if (e.isComposing || e.keyCode === 229) return;
             commitRename();
           }
         });
@@ -3548,7 +3990,7 @@ int main() {
       const openTabs = Array.isArray(this.openTabs) ? this.openTabs : [];
       const tabsHtml = openTabs.map(f => {
         const isActive = f === this.activeFile;
-        const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(f) ? 'cpp' : f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
+        const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(f) ? 'cpp' : /\.sql$/i.test(f) ? 'sql' : f.endsWith('.py') ? 'py' : f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
         return `
           <div role="tab" tabindex="0" aria-selected="${isActive}" class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
             <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext === 'cpp' ? 'C++' : ext.toUpperCase()}</span>
@@ -4406,6 +4848,113 @@ int main() {
             </div>
           </div>
         `;
+        return;
+      }
+
+      if (this.drawerTab === 'sql-results') {
+        const res = this.lastSqlResult;
+        if (!res) {
+          bodyEl.innerHTML = `
+            <div style="color:var(--cl-fg-muted);padding:16px;">
+              Press <strong>⌘+Enter</strong> or click <strong>${this.hasGuidedLab && this.mode === 'guided' ? 'Verify Step' : 'Run SQL'}</strong> to execute the SQL query (${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'}).
+            </div>
+          `;
+          return;
+        }
+        const verificationHtml = res.verification
+          ? `<div class="codelab-test-summary ${res.verification.passed ? 'all-pass' : 'has-fail'}" style="margin-bottom:10px;">
+               <div>
+                 <strong>${res.verification.passed ? '✓ Step Verification Passed' : '✖ Step Verification Failed'}</strong>
+                 ${res.verification.message ? `<span style="margin-left:8px;font-size:12px;">${escapeHtml(res.verification.message)}</span>` : ''}
+               </div>
+               <span style="font-family:var(--cl-font-mono);font-size:12px;">${typeof res.durationMs === 'number' ? `${res.durationMs.toFixed(1)} ms` : ''}</span>
+             </div>`
+          : '';
+        const errHtml = res.error
+          ? `<div role="alert" style="padding:10px 12px;margin-bottom:10px;border-radius:6px;border:1px solid rgba(239,68,68,0.45);background:rgba(239,68,68,0.12);color:var(--cl-red,#f87171);font-family:var(--cl-font-mono);font-size:12px;white-space:pre-wrap;">${escapeHtml(typeof res.error === 'string' ? res.error : (res.error.message || String(res.error)))}</div>`
+          : '';
+        const cols = Array.isArray(res.columns) ? res.columns : [];
+        const rows = Array.isArray(res.rows) ? res.rows : [];
+        const captionId = `cl-sql-cap-${escapeHtml(this.instanceId)}`;
+        const rowSummary = `${rows.length} row${rows.length === 1 ? '' : 's'}${typeof res.durationMs === 'number' ? ` · ${res.durationMs.toFixed(1)} ms` : ''}`;
+        const tableHtml = cols.length > 0
+          ? `<div tabindex="0" role="region" aria-labelledby="${captionId}" class="cl-sql-results-wrapper">
+               <table class="cl-sql-results-table">
+                 <caption id="${captionId}" class="cl-sql-results-caption">Query Result (${escapeHtml(rowSummary)})</caption>
+                 <thead>
+                   <tr>
+                     ${cols.map(c => `<th scope="col">${escapeHtml(String(c))}</th>`).join('')}
+                   </tr>
+                 </thead>
+                 <tbody>
+                   ${rows.length === 0
+                     ? `<tr><td colspan="${cols.length}" style="color:var(--cl-fg-muted);font-style:italic;">0 rows returned</td></tr>`
+                     : rows.map(row => {
+                         const cells = Array.isArray(row)
+                           ? cols.map((_, idx) => row[idx])
+                           : cols.map(c => (row && typeof row === 'object' ? row[c] : undefined));
+                         return `<tr>${cells.map((val, idx) => {
+                           const colLabel = String(cols[idx] ?? '').replace(/['"\\]/g, '');
+                           const display = val === null || val === undefined
+                             ? '<span style="opacity:0.5;font-style:italic;">NULL</span>'
+                             : escapeHtml(typeof val === 'object' ? JSON.stringify(val) : String(val));
+                           return `<td style="--col-label: '${escapeHtml(colLabel)}'">${display}</td>`;
+                         }).join('')}</tr>`;
+                       }).join('')}
+                 </tbody>
+               </table>
+             </div>`
+          : (!res.error
+              ? `<div style="color:var(--cl-fg-muted);font-size:12px;padding:8px 2px;">Statement executed (${escapeHtml(rowSummary)}).</div>`
+              : '');
+        const planHtml = res.plan
+          ? `<div style="margin-top:10px;">
+               <div style="font-size:11px;font-weight:600;color:var(--cl-fg-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Query Execution Plan</div>
+               <pre style="margin:0;padding:10px;border-radius:6px;border:1px solid var(--cl-border,#262626);background:var(--cl-bg,#0a0a0a);color:var(--cl-fg,#f5f5f5);font-family:var(--cl-font-mono);font-size:11.5px;overflow:auto;">${escapeHtml(typeof res.plan === 'string' ? res.plan : JSON.stringify(res.plan, null, 2))}</pre>
+             </div>`
+          : '';
+        bodyEl.innerHTML = `<div style="padding:10px;">${verificationHtml}${errHtml}${tableHtml}${planHtml}</div>`;
+        return;
+      }
+
+      if (this.drawerTab === 'observability') {
+        const mod = getModular();
+        if (this.kernel && mod && typeof mod.renderObservabilityPanelHtml === 'function') {
+          bodyEl.innerHTML = mod.renderObservabilityPanelHtml({
+            container: this.kernel.container,
+            configuration: this.configuration,
+            plugins: this.plugins,
+            logger: this.kernel.logger,
+            recentEvents: this.kernel.getRecentEvents(),
+            workerStatus: this.runtimeStatusText || 'Idle'
+          });
+        } else {
+          bodyEl.innerHTML = `<div style="padding:14px;color:var(--cl-fg-muted);font-size:12px;">Observability kernel is not initialized.</div>`;
+        }
+        return;
+      }
+
+      if (this.plugins && this.plugins.panels && typeof this.plugins.panels.get === 'function') {
+        const contributedPanel = this.plugins.panels.get(this.drawerTab);
+        if (contributedPanel && typeof contributedPanel.render === 'function') {
+          while (this._pluginPanelDisposables && this._pluginPanelDisposables.length > 0) {
+            const d = this._pluginPanelDisposables.pop();
+            if (d && typeof d.dispose === 'function') {
+              try { d.dispose(); } catch (err) { this.logger.debug('Plugin panel dispose skipped.', err); }
+            }
+          }
+          bodyEl.innerHTML = '';
+          try {
+            const disp = contributedPanel.render(bodyEl);
+            if (disp && typeof disp.dispose === 'function') {
+              this._pluginPanelDisposables.push(disp);
+            }
+          } catch (err) {
+            this.logger.error(`Plugin panel "${this.drawerTab}" render threw.`, err);
+            bodyEl.innerHTML = `<div role="alert" style="padding:12px;color:var(--cl-red);">Failed to render plugin panel: ${escapeHtml(err && err.message ? err.message : String(err))}</div>`;
+          }
+          return;
+        }
       }
     }
 
@@ -5456,6 +6005,14 @@ int main() {
         const active = b.dataset.clDrawertab === this.drawerTab;
         b.classList.toggle('active', active);
         b.setAttribute('aria-selected', String(active));
+        if (active && typeof b.scrollIntoView === 'function') {
+          try {
+            const scrollOpts = { block: 'nearest', inline: 'nearest', container: 'nearest' };
+            b['scrollIntoView'](scrollOpts);
+          } catch (err) {
+            void err;
+          }
+        }
       });
       const drawer = this.container.querySelector('#cl-drawer');
       if (drawer) drawer.classList.remove('is-minimized');
@@ -6622,6 +7179,56 @@ int main() {
       loadMonaco(this.monacoUrl).then(m => {
         this.monaco = m;
         if (!monacoHost) return;
+        if (m.editor && typeof m.editor.defineTheme === 'function') {
+          try {
+            m.editor.defineTheme('codelab-hc-dark', {
+              base: 'hc-black',
+              inherit: true,
+              rules: [],
+              colors: {
+                'editor.background': '#000000',
+                'editor.foreground': '#ffffff'
+              }
+            });
+          } catch (err) {
+            this.logger.debug('defineTheme codelab-hc-dark skipped.', err);
+          }
+        }
+        const mod = getModular();
+        if (m.languages && m.languages.json && m.languages.json.jsonDefaults && typeof m.languages.json.jsonDefaults.setDiagnosticsOptions === 'function' && this.configuration && mod) {
+          try {
+            m.languages.json.jsonDefaults.setDiagnosticsOptions({
+              validate: true,
+              allowComments: true,
+              trailingCommas: 'ignore',
+              schemas: [
+                {
+                  uri: 'https://code-lab.dev/schemas/settings.json',
+                  fileMatch: ['**/.codelab/settings.json', '.codelab/settings.json'],
+                  schema: this.configuration.getJsonSchema()
+                },
+                {
+                  uri: 'https://code-lab.dev/schemas/keybindings.json',
+                  fileMatch: ['**/.codelab/keybindings.json', '.codelab/keybindings.json'],
+                  schema: mod.KEYBINDINGS_JSON_SCHEMA
+                },
+                {
+                  uri: 'https://code-lab.dev/schemas/tasks.json',
+                  fileMatch: ['**/.codelab/tasks.json', '.codelab/tasks.json'],
+                  schema: mod.TASKS_JSON_SCHEMA
+                },
+                {
+                  uri: 'https://code-lab.dev/schemas/extensions.json',
+                  fileMatch: ['**/.codelab/extensions.json', '.codelab/extensions.json'],
+                  schema: mod.EXTENSIONS_JSON_SCHEMA
+                }
+              ]
+            });
+          } catch (err) {
+            this.logger.debug('Monaco JSON schema registration skipped.', err);
+          }
+        }
+
         const isDark = this._resolvedTheme() !== 'light';
 
         // Create models for all code files
@@ -6631,12 +7238,14 @@ int main() {
         this.editor = m.editor.create(monacoHost, {
           model: currentModel,
           theme: isDark ? 'codelab-dark' : 'codelab-light',
-          fontFamily: '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
-          fontSize: 13,
+          fontFamily: this.configuration ? this.configuration.get('editor.fontFamily', '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace') : '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
+          fontSize: this.configuration ? this.configuration.get('editor.fontSize', 13) : 13,
           lineHeight: 20,
-          tabSize: 2,
+          tabSize: this.configuration ? this.configuration.get('editor.tabSize', 2) : 2,
           insertSpaces: true,
-          minimap: { enabled: false },
+          wordWrap: this.configuration ? this.configuration.get('editor.wordWrap', 'off') : 'off',
+          lineNumbers: this.configuration ? this.configuration.get('editor.lineNumbers', 'on') : 'on',
+          minimap: { enabled: this.configuration ? Boolean(this.configuration.get('editor.minimap.enabled', false)) : false },
           scrollBeyondLastLine: false,
           automaticLayout: true,
           padding: { top: 12, bottom: 12 },
@@ -6645,6 +7254,8 @@ int main() {
           renderLineHighlight: 'all',
           bracketPairColorization: { enabled: true }
         });
+
+        this._applyConfigurationChanges(null);
 
         // Dynamic ResizeObserver to guarantee 100% width on layout shifts
         if (typeof ResizeObserver !== 'undefined' && monacoHost) {
@@ -6661,6 +7272,8 @@ int main() {
           this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
             if (this.mode === 'guided') {
               this.verifyCurrentStep();
+            } else if (this.lang === 'sql' || (this.activeFile && /\.sql$/i.test(this.activeFile))) {
+              this.runSql('run');
             } else {
               this.runTests();
             }
@@ -6668,6 +7281,11 @@ int main() {
           this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter, () => {
             this.runDemo();
           });
+          if (m.KeyCode.Comma) {
+            this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Comma, () => {
+              this.openSettings();
+            });
+          }
           if (m.KeyCode.KeyP) {
             this.editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyP, () => {
               this.openCommandPalette('commands');
@@ -6728,17 +7346,29 @@ int main() {
     }
 
     _notifyCodeChange(filename, code) {
-      if (this.shell && this.shell.vfs && filename && typeof this.shell.vfs.writeFileSync === 'function') {
+      const cleanRel = filename ? String(filename).replace(/^\/+/, '') : '';
+      if (this.shell && this.shell.vfs && cleanRel && typeof this.shell.vfs.writeFileSync === 'function') {
         try {
-          const clean = String(filename).replace(/^\/+/, '');
-          const parts = clean.split('/');
+          const parts = cleanRel.split('/');
           if (parts.length > 1 && typeof this.shell.vfs.mkdirSync === 'function') {
             this.shell.vfs.mkdirSync('/workspace/' + parts.slice(0, -1).join('/'), { recursive: true });
           }
-          this.shell.vfs.writeFileSync('/workspace/' + clean, String(code ?? ''));
+          this.shell.vfs.writeFileSync('/workspace/' + cleanRel, String(code ?? ''));
         } catch (err) {
           this.logger.debug(`Could not sync "${filename}" to shell VFS on edit.`, err);
         }
+      }
+      if (this.kernel && this.kernel.fs && cleanRel && typeof this.kernel.fs.writeFile === 'function') {
+        try {
+          Promise.resolve(this.kernel.fs.writeFile('/workspace/' + cleanRel, String(code ?? ''))).catch((err) => {
+            this.logger.debug(`Could not sync "${cleanRel}" to kernel VFS.`, err);
+          });
+        } catch (err) {
+          this.logger.debug(`Could not sync "${cleanRel}" to kernel VFS.`, err);
+        }
+      }
+      if (cleanRel.startsWith('.codelab/')) {
+        this._syncDotCodelabConfig({ isInitialMount: false });
       }
       if ((this.drawerTab === 'preview' || (this.previewState && this.previewState.dockMode === 'split')) && this.previewState && this.previewState.port) {
         if (this._previewReloadTimer) {
@@ -6885,6 +7515,7 @@ int main() {
 
     _syncActiveFileToView() {
       const monacoHost = this.container.querySelector('#cl-monaco-host');
+      const sqlHost = this.container.querySelector('#cl-sql-editor-host');
       const fallbackWrap = this.container.querySelector('#cl-fallback-wrap');
       const fallbackEl = this.container.querySelector('#cl-fallback-editor');
       const mdPreview = this.container.querySelector('#cl-md-preview');
@@ -6892,6 +7523,7 @@ int main() {
 
       if (!this.activeFile || !this.openTabs || this.openTabs.length === 0) {
         if (monacoHost) monacoHost.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
         if (fallbackWrap) fallbackWrap.style.display = 'none';
         if (mdPreview) mdPreview.style.display = 'none';
         if (this.editor) {
@@ -6912,6 +7544,7 @@ int main() {
       const isHugeContent = activeContent.length > 2 * 1024 * 1024;
       if ((isBinaryContent || isHugeContent) && !(this._forceOpenedLargeFiles && this._forceOpenedLargeFiles.has(this.activeFile))) {
         if (monacoHost) monacoHost.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
         if (fallbackWrap) fallbackWrap.style.display = 'none';
         if (mdPreview) mdPreview.style.display = 'none';
         if (this.editor) {
@@ -6943,15 +7576,66 @@ int main() {
       }
 
       const isMd = this.activeFile.endsWith('.md');
+      const isSqlFile = /\.sql$/i.test(this.activeFile);
+      const sqlPack = getSqlPack();
+      const useLightweightSqlEditor = Boolean(
+        isSqlFile &&
+        sqlHost &&
+        sqlPack &&
+        typeof sqlPack.createSqlEditor === 'function' &&
+        (!this.editor || (this.options && this.options.editorEngine !== 'monaco'))
+      );
+
       if (isMd) {
         if (monacoHost) monacoHost.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
         if (fallbackWrap) fallbackWrap.style.display = 'none';
         if (mdPreview) {
           mdPreview.style.display = 'block';
           mdPreview.innerHTML = renderSimpleMarkdown(this.files[this.activeFile] || '');
         }
+      } else if (useLightweightSqlEditor) {
+        if (mdPreview) mdPreview.style.display = 'none';
+        if (monacoHost) monacoHost.style.display = 'none';
+        if (fallbackWrap) fallbackWrap.style.display = 'none';
+        sqlHost.style.display = 'block';
+        if (!this._sqlWorkbenchEditor) {
+          this._sqlWorkbenchEditor = sqlPack.createSqlEditor(sqlHost, {
+            value: this.files[this.activeFile] || '',
+            mode: 'inline',
+            dialect: this.sqlDialect,
+            schema: this.sqlSchema || undefined,
+            theme: this._resolvedTheme() === 'light' ? 'light' : 'dark',
+            minLines: 10,
+            maxLines: 200,
+            ariaLabel: `SQL Editor (${this.activeFile})`,
+            onChange: (nextVal) => {
+              if (this.activeFile && /\.sql$/i.test(this.activeFile)) {
+                this.files[this.activeFile] = nextVal;
+                this._scheduleSaveState();
+                this._notifyCodeChange(this.activeFile, nextVal);
+              }
+            },
+            onRun: (payload) => {
+              if (this.mode === 'guided') {
+                this.verifyCurrentStep(payload);
+              } else {
+                this.runSql('run', payload);
+              }
+            },
+            onExplain: (payload) => {
+              this.runSql('explain', payload);
+            }
+          });
+        } else {
+          const desired = this.files[this.activeFile] || '';
+          if (this._sqlWorkbenchEditor.getValue() !== desired) {
+            this._sqlWorkbenchEditor.setValue(desired);
+          }
+        }
       } else {
         if (mdPreview) mdPreview.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
         if (this.editor && this.monaco) {
           if (monacoHost) monacoHost.style.display = 'block';
           if (fallbackWrap) fallbackWrap.style.display = 'none';
@@ -7057,9 +7741,30 @@ int main() {
           ? e.target.closest('#cl-preview-url-input')
           : null;
         if (previewInput && e.key === 'Enter') {
+          if (e.isComposing || e.keyCode === 229) return;
           e.preventDefault();
           this._previewGo(previewInput.value);
           return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+          e.preventDefault();
+          this.openSettings();
+          return;
+        }
+        if (this.keybindings && this.commands && typeof this.keybindings.resolve === 'function') {
+          const kbRule = this.keybindings.resolve(e);
+          if (kbRule && this.commands.hasCommand(kbRule.command)) {
+            const activeTag = e.target && e.target.tagName ? String(e.target.tagName).toUpperCase() : '';
+            const hasMod = Boolean(e.metaKey || e.ctrlKey || e.altKey || /^F\d+$/i.test(e.key || ''));
+            if (hasMod || (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA')) {
+              e.preventDefault();
+              const cmdArgs = Array.isArray(kbRule.args) ? kbRule.args : (kbRule.args !== undefined ? [kbRule.args] : []);
+              this.commands.executeCommand(kbRule.command, ...cmdArgs).catch((err) => {
+                this.logger.warn(`Keybinding command "${kbRule.command}" failed.`, err);
+              });
+              return;
+            }
+          }
         }
         if (e.key === 'Escape' && this.folderSwitcherOpen) {
           this.folderSwitcherOpen = false;
@@ -7104,6 +7809,9 @@ int main() {
           }
         }
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          if (e.defaultPrevented || (e.target && typeof e.target.closest === 'function' && e.target.closest('#cl-sql-editor-host'))) {
+            return;
+          }
           e.preventDefault();
           if (e.shiftKey) {
             if (this.mode === 'guided') {
@@ -7463,6 +8171,9 @@ int main() {
           if (action === 'run-code') this.runCode();
           else if (action === 'run-entry') this.runEntry();
           else if (action === 'run-active-file') this.runActiveFile();
+          else if (action === 'explain-sql') this.runSql('explain');
+          else if (action === 'open-settings') this.openSettings();
+          else if (action === 'open-settings-json') this.openWorkspaceSettingsJson();
           else if (action === 'open-stdin') this.switchDrawerTab('stdin');
           else if (action === 'share-snapshot') this.shareSnapshot();
           else if (action === 'run-demo') this.runDemo();
@@ -7720,7 +8431,7 @@ int main() {
               });
             }
           } else if (action === 'open-large-file-anyway') {
-            const targetFile = actionEl.dataset.clFile || this.activeFile;
+            const targetFile = actionBtn.dataset.clFile || this.activeFile;
             if (targetFile) {
               this._forceOpenedLargeFiles.add(targetFile);
               this._syncActiveFileToView();
@@ -7798,13 +8509,21 @@ int main() {
 
     // ── VS Code Command Palette & Quick Open ────────────────────────────────
     _getPaletteCommands() {
-      return [
+      const builtin = [
         { id: 'run-code', label: 'CodeLab: Run Code (Entry or Active File)', shortcut: '⌘↵', action: () => this.runCode() },
         { id: 'run-active', label: 'CodeLab: Run Active File', shortcut: '⇧⌘↵', action: () => this.runActiveFile() },
         { id: 'run-demo', label: 'CodeLab: Run Demo Script', shortcut: '⇧⌘↵', action: () => this.runDemo() },
         { id: 'run-tests', label: 'CodeLab: Run Unit Tests', shortcut: '⌘↵', action: () => this.runTests() },
         { id: 'verify-step', label: 'CodeLab: Verify Current Guided Step', shortcut: '⌘↵', action: () => this.verifyCurrentStep() },
+        { id: 'sql-run', label: 'SQL: Run Query', shortcut: '⌘↵', action: () => this.runSql('run') },
+        { id: 'sql-explain', label: 'SQL: Explain Query Plan', action: () => this.runSql('explain') },
         { id: 'format-document', label: 'Editor: Format Document', shortcut: '⇧⌥F', action: () => this.formatActiveDocument() },
+        { id: 'open-settings', label: 'Preferences: Open Settings (UI)', shortcut: '⌘,', action: () => this.openSettings() },
+        { id: 'open-settings-json', label: 'Preferences: Open Workspace Settings (.codelab/settings.json)', action: () => this.openWorkspaceSettingsJson() },
+        { id: 'theme-dark', label: 'Preferences: Color Theme — Dark', action: () => this.setTheme('dark') },
+        { id: 'theme-light', label: 'Preferences: Color Theme — Light', action: () => this.setTheme('light') },
+        { id: 'theme-hc', label: 'Preferences: Color Theme — High Contrast', action: () => this.setTheme('high-contrast') },
+        { id: 'open-observability', label: 'Developer: Open Observability & Services Inspector', action: () => this.switchDrawerTab('observability') },
         { id: 'share-snapshot', label: 'CodeLab: Share Snapshot Link (#codelab=...)', action: () => this.shareSnapshot() },
         { id: 'open-stdin', label: 'View: Open Stdin / Custom Input Panel', action: () => this.switchDrawerTab('stdin') },
         { id: 'view-problems-tab', label: 'View: Focus Problems Drawer Tab', action: () => this.switchDrawerTab('problems') },
@@ -7818,10 +8537,11 @@ int main() {
         { id: 'export-workspace', label: 'Workspace: Export Workspace as JSON', action: () => this.exportWorkspace({ download: true }) },
         { id: 'export-workspace-zip', label: 'Workspace: Export Project as ZIP Archive', action: () => this.exportProjectZip({ download: true }) },
         { id: 'reset-workspace', label: 'Workspace: Reset Workspace to Clean State', action: () => this.resetLab() },
-        { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript / C++ / Python', action: () => {
+        { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript / C++ / Python / SQL', action: () => {
           const order = ['js', 'ts'];
           if (this.enabledLanguages && this.enabledLanguages.has('cpp')) order.push('cpp');
           if (this.enabledLanguages && this.enabledLanguages.has('py')) order.push('py');
+          if (this.enabledLanguages && this.enabledLanguages.has('sql')) order.push('sql');
           const next = order[(order.indexOf(this.lang) + 1) % order.length] || 'js';
           this.setLanguage(next);
         } },
@@ -7839,6 +8559,55 @@ int main() {
         { id: 'open-packages', label: 'Packages: Manage NPM Dependencies & Runtime', action: () => this.showPackagesModal() },
         { id: 'git-clone', label: 'Git: Clone Public GitHub Repository...', action: () => this.showCloneRepoModal() }
       ];
+
+      if (Array.isArray(this._workspaceTasks)) {
+        for (const task of this._workspaceTasks) {
+          builtin.push({
+            id: `task:${task.id}`,
+            label: `Tasks: Run ${task.label} (${task.command})`,
+            shortcut: '',
+            action: () => this.runTask(task.id)
+          });
+        }
+      }
+
+      if (this.commands && typeof this.commands.getCommands === 'function') {
+        const builtinIds = new Set([
+          ...builtin.map((b) => b.id),
+          'workbench.action.openSettings',
+          'workbench.action.openWorkspaceSettingsJson',
+          'workbench.action.quickOpen',
+          'workbench.action.showCommands',
+          'workbench.action.openObservability',
+          'codeLab.runCode',
+          'codeLab.runTests',
+          'codeLab.runSql',
+          'codeLab.explainSql',
+          'codeLab.formatDocument',
+          'tasks.runTask'
+        ]);
+        const contributed = this.commands.getCommands(this.contextKeys || undefined);
+        const mod = getModular();
+        for (const cmd of contributed) {
+          if (builtinIds.has(cmd.id)) continue;
+          const kbRaw = this.keybindings ? this.keybindings.lookupKeybinding(cmd.id) : undefined;
+          const shortcut = kbRaw && mod && typeof mod.formatShortcutBadge === 'function'
+            ? mod.formatShortcutBadge(kbRaw, true)
+            : (kbRaw || '');
+          builtin.push({
+            id: cmd.id,
+            label: cmd.category ? `${cmd.category}: ${cmd.title}` : cmd.title,
+            shortcut,
+            action: () => {
+              this.commands.executeCommand(cmd.id).catch((err) => {
+                this.logger.warn(`Command "${cmd.id}" threw.`, err);
+              });
+            }
+          });
+        }
+      }
+
+      return builtin;
     }
 
     openCommandPalette(mode = 'commands') {
@@ -7892,6 +8661,7 @@ int main() {
               this._renderPaletteList(input.value);
             }
           } else if (e.key === 'Enter') {
+            if (e.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             this._executePaletteSelection(this.paletteSelectedIndex);
           } else if (e.key === 'Escape') {
@@ -7923,8 +8693,12 @@ int main() {
           }));
       } else {
         const files = this._orderedFileNames();
-        items = files
-          .filter(f => !query || f.toLowerCase().includes(query))
+        const mod = getModular();
+        const excludePatterns = this.configuration ? this.configuration.get('search.exclude', []) : [];
+        const ranked = (mod && typeof mod.rankWorkspaceFiles === 'function')
+          ? mod.rankWorkspaceFiles(files, query, Array.isArray(excludePatterns) ? excludePatterns : [])
+          : files.filter(f => !query || f.toLowerCase().includes(query));
+        items = ranked
           .map(f => ({
             type: 'file',
             id: f,
@@ -8367,10 +9141,17 @@ int main() {
       if (newMode !== 'guided' && newMode !== 'sandbox') return;
       if (this.mode === newMode) return;
       this.mode = newMode;
+      if (this.contextKeys) {
+        this.contextKeys.setContext('workbenchMode', this.mode);
+      }
       this.files = this._computeInitialFiles();
       this.openTabs = this._orderedFileNames();
       this.activeFile = this._pickDefaultFile();
       this._saveState();
+      if (this.kernel && this.kernel.fs) {
+        this.kernel.fs.loadRecord(this.files, '/workspace');
+      }
+      this._syncDotCodelabConfig({ isInitialMount: false });
 
       this.container.querySelectorAll('[data-cl-mode]').forEach(btn => {
         const isActive = btn.dataset.clMode === this.mode;
@@ -8384,6 +9165,10 @@ int main() {
           primaryBtn.setAttribute('data-cl-action', 'verify-step');
           primaryBtn.setAttribute('title', 'Verify Current Step (⌘+Enter)');
           primaryBtn.innerHTML = `${CL_ICONS.check}<span>Verify Step</span><span class="codelab-btn__kbd">⌘↵</span>`;
+        } else if (this.lang === 'sql') {
+          primaryBtn.setAttribute('data-cl-action', 'run-code');
+          primaryBtn.setAttribute('title', 'Run SQL Query (⌘+Enter)');
+          primaryBtn.innerHTML = `${CL_ICONS.play}<span>Run Query</span><span class="codelab-btn__kbd">⌘↵</span>`;
         } else {
           primaryBtn.setAttribute('data-cl-action', 'run-tests');
           primaryBtn.setAttribute('title', 'Run Test Suite (⌘+Enter)');
@@ -8427,22 +9212,36 @@ int main() {
     }
 
     setLanguage(newLang) {
-      if (newLang !== 'js' && newLang !== 'ts' && newLang !== 'cpp' && newLang !== 'py') return;
+      if (newLang !== 'js' && newLang !== 'ts' && newLang !== 'cpp' && newLang !== 'py' && newLang !== 'sql') return;
       if (this.lang === newLang) return;
       this.lang = newLang;
       if (this.enabledLanguages instanceof Set) {
         this.enabledLanguages.add(newLang);
       }
+      if (this.contextKeys) {
+        this.contextKeys.setContext('editorLangId', this.lang);
+      }
+      if (this.plugins && typeof this.plugins.fireActivationEvent === 'function') {
+        this.plugins.fireActivationEvent(`onLanguage:${this.lang}`).catch(() => {});
+      }
       this.files = this._computeInitialFiles();
       this.openTabs = this._orderedFileNames();
       this.activeFile = this._pickDefaultFile();
+      if (this.lang === 'sql') {
+        this.drawerTab = 'sql-results';
+      }
       this._saveState();
+      if (this.kernel && this.kernel.fs) {
+        this.kernel.fs.loadRecord(this.files, '/workspace');
+      }
+      this._syncDotCodelabConfig({ isInitialMount: false });
 
       if (typeof this._refreshToolbarAndTabs === 'function') {
         this._refreshToolbarAndTabs();
       } else {
         this._refreshLanguageSwitcher();
       }
+      this._refreshDrawerTabs();
       this.container.querySelectorAll('[data-cl-lang]').forEach(btn => {
         const isActive = btn.dataset.clLang === this.lang;
         btn.classList.toggle('active', isActive);
@@ -8452,6 +9251,7 @@ int main() {
       this._syncAllModels();
       this._syncActiveFileToView();
       this._renderGuidePane();
+      this._renderDrawerBody();
       this._updateStatusBar();
     }
 
@@ -8482,7 +9282,7 @@ int main() {
       if (mode === 'guided' || mode === 'sandbox') {
         this.setMode(mode);
       }
-      if (lang === 'js' || lang === 'ts' || lang === 'cpp' || lang === 'py') {
+      if (lang === 'js' || lang === 'ts' || lang === 'cpp' || lang === 'py' || lang === 'sql') {
         this.setLanguage(lang);
       }
       if (typeof stepIndex === 'number' && !Number.isNaN(stepIndex)) {
@@ -8583,6 +9383,10 @@ int main() {
         delete this.savedState.hasSnapshot[key];
       }
       this._saveState();
+      if (this.kernel && this.kernel.fs) {
+        this.kernel.fs.loadRecord(this.files, '/workspace');
+      }
+      this._syncDotCodelabConfig({ isInitialMount: false });
       this._syncAllModels();
       this._syncActiveFileToView();
       this._renderStepPills();
@@ -8666,6 +9470,7 @@ int main() {
         input.focus();
         input.addEventListener('keydown', e => {
           if (e.key === 'Enter' && input.value.trim()) {
+            if (e.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             this.addNpmPackage(input.value.trim());
           }
@@ -8955,6 +9760,9 @@ int main() {
     }
 
     async runCode() {
+      if (this.lang === 'sql' || (this.activeFile && /\.sql$/i.test(this.activeFile))) {
+        return this.runSql('run');
+      }
       const entry = this._findEntryFile('demo') || this.activeFile || this._pickDefaultFile();
       if (!entry) {
         this.terminalLogs.push({ type: 'stderr', text: 'No entry file or active file to run.' });
@@ -8962,10 +9770,16 @@ int main() {
         this._renderDrawerBody();
         return;
       }
+      if (/\.sql$/i.test(entry)) {
+        return this.runSql('run');
+      }
       return this._executeEntryFile(entry);
     }
 
     async runProject() {
+      if (this.lang === 'sql') {
+        return this.runSql('run');
+      }
       const entry = this._findEntryFile('demo');
       if (!entry && this._hasWebContent() && typeof this.previewApp === 'function') {
         return this.previewApp();
@@ -8975,6 +9789,16 @@ int main() {
 
     async runSelectedCode() {
       if (this.isRunning) return null;
+      if (this.lang === 'sql' || (this.activeFile && /\.sql$/i.test(this.activeFile))) {
+        const fullSql = (this.activeFile && typeof this.files[this.activeFile] === 'string') ? this.files[this.activeFile] : '';
+        const selectedSql = this._sqlWorkbenchEditor ? this._sqlWorkbenchEditor.getSelection() : '';
+        return this.runSql('run', {
+          sql: fullSql,
+          selectedSql,
+          effectiveSql: (selectedSql && selectedSql.trim()) ? selectedSql : fullSql,
+          dialect: this.sqlDialect
+        });
+      }
       let selectedText = '';
       if (this.editor && typeof this.editor.getSelection === 'function' && typeof this.editor.getModel === 'function') {
         const sel = this.editor.getSelection();
@@ -9046,6 +9870,9 @@ int main() {
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
+      }
+      if (/\.sql$/i.test(file) || this.lang === 'sql') {
+        return this.runSql('run');
       }
       return this._executeEntryFile(file);
     }
@@ -9138,6 +9965,9 @@ int main() {
 
     async runDemo() {
       if (this.isRunning) return;
+      if (this.lang === 'sql') {
+        return this.runSql('run');
+      }
       const entry = this._findEntryFile('demo') || this._findEntryFile('entry') || this.activeFile;
       if (!entry) {
         if ((this.files['index.html'] || this.files['public/index.html']) && typeof this.previewApp === 'function') {
@@ -9148,6 +9978,9 @@ int main() {
         this._renderDrawerBody();
         return;
       }
+      if (/\.sql$/i.test(entry)) {
+        return this.runSql('run');
+      }
       return this._executeEntryFile(entry);
     }
 
@@ -9156,6 +9989,25 @@ int main() {
       const file = this.activeFile;
       const code = this.files[file] || '';
       if (!code) return;
+
+      if (file.endsWith('.sql')) {
+        const sqlPack = getSqlPack();
+        const tabSize = this.configuration ? this.configuration.get('editor.tabSize', 2) : 2;
+        const formatted = this._sqlWorkbenchEditor
+          ? this._sqlWorkbenchEditor.format()
+          : (sqlPack && typeof sqlPack.formatSql === 'function'
+              ? sqlPack.formatSql(code, { dialect: this.sqlDialect, indent: Number(tabSize) || 2, keywordCase: 'upper' })
+              : code);
+        if (formatted !== code) {
+          this.files[file] = formatted;
+          if (this.editor && this.editor.getModel()) {
+            this.editor.setValue(formatted);
+          }
+          this._saveState();
+          this._notifyCodeChange(file, formatted);
+        }
+        return;
+      }
 
       if (file.endsWith('.js') || file.endsWith('.ts') || file.endsWith('.jsx') || file.endsWith('.tsx')) {
         if (this.editor && typeof this.editor.getAction === 'function') {
@@ -9284,7 +10136,7 @@ int main() {
         const snapshot = await decompressor(token);
         if (snapshot && snapshot.files && typeof snapshot.files === 'object') {
           this.files = { ...snapshot.files };
-          if (snapshot.lang && (snapshot.lang === 'js' || snapshot.lang === 'ts' || snapshot.lang === 'cpp' || snapshot.lang === 'py')) {
+          if (snapshot.lang && (snapshot.lang === 'js' || snapshot.lang === 'ts' || snapshot.lang === 'cpp' || snapshot.lang === 'py' || snapshot.lang === 'sql')) {
             this.lang = snapshot.lang;
           }
           if (snapshot.stdin) {
@@ -9308,6 +10160,12 @@ int main() {
     async runTests(filterTestNames = null) {
       if (this.isRunning) return;
       const entry = this._findEntryFile('test');
+      if (!entry && this.lang === 'sql') {
+        return this.runSql('verify');
+      }
+      if (entry && /\.sql$/i.test(entry)) {
+        return this.runSql('verify');
+      }
       if (!entry) {
         this.terminalLogs.push({ type: 'stderr', text: 'No test file (test.js, test.ts, test.cpp, test.py) found in this workspace.' });
         this.drawerTab = 'terminal';
@@ -9441,13 +10299,464 @@ int main() {
       return lastRes;
     }
 
-    async verifyCurrentStep() {
-      await this.runTests();
+    async verifyCurrentStep(payloadOverride = null) {
+      if (this.lang === 'sql' && !this._findEntryFile('test')) {
+        await this.runSql('verify', payloadOverride);
+      } else {
+        await this.runTests();
+      }
       const step = this.steps[this.activeStepIndex];
       if (step && this.completedSteps.has(step.id) && this.activeStepIndex < this.steps.length - 1) {
         // Advance to next step and jump to its target symbol/TODO
         this.selectStep(this.activeStepIndex + 1, true);
       }
+    }
+
+    setSqlSchema(schema) {
+      this.sqlSchema = schema || null;
+      if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setSchema === 'function') {
+        this._sqlWorkbenchEditor.setSchema(this.sqlSchema);
+      }
+      return this;
+    }
+
+    setSqlDialect(dialect) {
+      this.sqlDialect = dialect === 'sqlite' ? 'sqlite' : 'postgres';
+      this.runtimeStatusText = `Ready · ${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'}`;
+      if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setDialect === 'function') {
+        this._sqlWorkbenchEditor.setDialect(this.sqlDialect);
+      }
+      this._updateStatusBar();
+      return this;
+    }
+
+    async runSql(modeOverride = 'run', payloadOverride = null) {
+      if (this.isRunning) return null;
+      const runMode = (modeOverride === 'verify' || modeOverride === 'explain') ? modeOverride : 'run';
+      const targetFile = (this.activeFile && /\.sql$/i.test(this.activeFile))
+        ? this.activeFile
+        : (this._findEntryFile('demo') || this._pickDefaultFile() || 'query.sql');
+      const fullSql = (payloadOverride && typeof payloadOverride.sql === 'string')
+        ? payloadOverride.sql
+        : String(this.files[targetFile] ?? '');
+      const selectedSql = (payloadOverride && typeof payloadOverride.selectedSql === 'string')
+        ? payloadOverride.selectedSql
+        : (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.getSelection === 'function'
+            ? this._sqlWorkbenchEditor.getSelection()
+            : '');
+      const effectiveSql = (payloadOverride && typeof payloadOverride.effectiveSql === 'string')
+        ? payloadOverride.effectiveSql
+        : ((selectedSql && selectedSql.trim()) ? selectedSql : fullSql);
+
+      const stepObj = (this.steps && this.steps[this.activeStepIndex]) ? this.steps[this.activeStepIndex] : null;
+      const stepInfo = stepObj
+        ? { index: this.activeStepIndex, id: stepObj.id, title: stepObj.title }
+        : null;
+
+      this.isRunning = true;
+      this._updateRunStateUI();
+      this._setRuntimeStatus('running', runMode === 'explain' ? 'Explaining SQL plan...' : 'Running SQL query...');
+      const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const sqlPack = getSqlPack();
+
+      let res = null;
+      let caughtErr = null;
+      try {
+        if (typeof this.sqlRunner === 'function') {
+          res = await this.sqlRunner({
+            sql: fullSql,
+            selectedSql,
+            effectiveSql,
+            dialect: this.sqlDialect,
+            mode: runMode,
+            step: stepInfo
+          });
+        } else if (root.CodeLabRuntime && typeof root.CodeLabRuntime.createSqliteDatabase === 'function') {
+          const SqliteDb = root.CodeLabRuntime.createSqliteDatabase(this.shell ? this.shell.vfs : null, () => this.cwd || '/workspace');
+          const db = new SqliteDb(':memory:');
+          if (this.files['schema.sql'] && targetFile !== 'schema.sql') {
+            db.exec(this.files['schema.sql']);
+          }
+          if (this.files['seed.sql'] && targetFile !== 'seed.sql') {
+            db.exec(this.files['seed.sql']);
+          }
+          const trimmedSql = String(effectiveSql || '').trim();
+          if (!trimmedSql) {
+            res = { columns: [], rows: [], rowCount: 0, execMs: 0 };
+          } else if (runMode === 'explain') {
+            const explainStmt = /^EXPLAIN\b/i.test(trimmedSql)
+              ? trimmedSql
+              : `EXPLAIN QUERY PLAN ${trimmedSql.replace(/;\s*$/, '')}`;
+            const planRows = db.query(explainStmt).all();
+            const planText = planRows.map((r) => r.detail || JSON.stringify(r)).join('\n');
+            res = {
+              columns: planRows.length > 0 ? Object.keys(planRows[0]) : ['id', 'parent', 'detail'],
+              rows: planRows,
+              rowCount: planRows.length,
+              plan: planText
+            };
+          } else {
+            const stmts = trimmedSql.split(';').map((s) => s.trim()).filter(Boolean);
+            let lastRows = [];
+            for (let i = 0; i < stmts.length; i++) {
+              const st = stmts[i];
+              if (/^(SELECT|WITH|PRAGMA|EXPLAIN)\b/i.test(st)) {
+                lastRows = db.query(st).all();
+              } else {
+                db.run(st);
+              }
+            }
+            const columns = lastRows.length > 0 ? Object.keys(lastRows[0]) : [];
+            res = {
+              columns,
+              rows: lastRows,
+              rowCount: lastRows.length
+            };
+          }
+        } else {
+          throw new Error('No SQL runner configured and built-in SQLite engine is unavailable.');
+        }
+      } catch (err) {
+        caughtErr = err;
+      } finally {
+        this.isRunning = false;
+        this._updateRunStateUI();
+      }
+
+      const elapsed = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0));
+      const rawError = caughtErr || (res && res.error ? res.error : null);
+
+      const diagMod = root.CodeLabDiagnostics;
+      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
+        this._diagnosticsStore = diagMod.createDiagnosticsStore();
+      }
+
+      if (rawError) {
+        const parsedDiag = (sqlPack && typeof sqlPack.parseSqlEngineError === 'function')
+          ? sqlPack.parseSqlEngineError(rawError, effectiveSql, this.sqlDialect)
+          : {
+              severity: 'error',
+              message: rawError && rawError.message ? String(rawError.message) : String(rawError),
+              line: 1,
+              column: 1
+            };
+        if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setDiagnostics === 'function') {
+          this._sqlWorkbenchEditor.setDiagnostics([parsedDiag]);
+        }
+        if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function') {
+          this._diagnosticsStore.setFileDiagnostics(targetFile, [{
+            file: targetFile,
+            line: parsedDiag.line || 1,
+            column: parsedDiag.column || 1,
+            severity: 'error',
+            message: parsedDiag.hint ? `${parsedDiag.message} (Hint: ${parsedDiag.hint})` : parsedDiag.message,
+            source: 'sql'
+          }], 'sql');
+        }
+        this.lastSqlResult = {
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          execMs: (res && typeof res.execMs === 'number') ? res.execMs : elapsed,
+          error: parsedDiag.hint ? `${parsedDiag.message}\nHint: ${parsedDiag.hint}` : parsedDiag.message,
+          verification: res && res.verification ? res.verification : undefined
+        };
+        this._setRuntimeStatus('error', 'SQL query error');
+      } else {
+        if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.clearDiagnostics === 'function') {
+          this._sqlWorkbenchEditor.clearDiagnostics();
+        }
+        if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function') {
+          this._diagnosticsStore.setFileDiagnostics(targetFile, [], 'sql');
+        }
+        const rows = (res && Array.isArray(res.rows)) ? res.rows : [];
+        let cols = (res && Array.isArray(res.columns)) ? [...res.columns] : [];
+        if (cols.length === 0 && rows.length > 0 && rows[0] && typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
+          cols = Object.keys(rows[0]);
+        }
+        const normalizedRows = rows.map((r) => {
+          if (Array.isArray(r)) return r;
+          if (r && typeof r === 'object') return cols.map((c) => r[c]);
+          return [r];
+        });
+        this.lastSqlResult = {
+          columns: cols,
+          rows: normalizedRows,
+          rowCount: (res && typeof res.rowCount === 'number') ? res.rowCount : normalizedRows.length,
+          execMs: (res && typeof res.execMs === 'number') ? res.execMs : elapsed,
+          plan: res && res.plan !== undefined
+            ? (typeof res.plan === 'string' ? res.plan : JSON.stringify(res.plan, null, 2))
+            : undefined,
+          verification: res && res.verification ? res.verification : undefined,
+          error: null
+        };
+        this._setRuntimeStatus('idle', `Ready · ${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'}`);
+      }
+
+      this.lastRunDurationMs = this.lastSqlResult.execMs;
+      this.lastDurationMs = this.lastSqlResult.execMs;
+      this.drawerTab = 'sql-results';
+      this._refreshDrawerTabs();
+      this._updateTelemetryHud();
+
+      if (
+        !rawError &&
+        (runMode === 'verify' || (this.hasGuidedLab && this.mode === 'guided')) &&
+        stepObj &&
+        (!this.lastSqlResult.verification || this.lastSqlResult.verification.passed !== false)
+      ) {
+        if (!this.completedSteps.has(stepObj.id)) {
+          this.completedSteps.add(stepObj.id);
+          this._saveState();
+          if (this.onStepComplete) {
+            try { this.onStepComplete(stepObj, this.activeStepIndex); } catch (cbErr) { this.logger.error('onStepComplete callback threw.', cbErr); }
+          }
+          const stepDetail = {
+            labId: this.labId,
+            step: stepObj,
+            stepId: stepObj.id,
+            stepIndex: this.activeStepIndex,
+            index: this.activeStepIndex,
+            completedSteps: Array.from(this.completedSteps)
+          };
+          this._emitEvent('codelab:step-complete', stepDetail);
+          this._emitEvent('codelab:step:pass', stepDetail);
+          if (this.steps.length > 0 && this.completedSteps.size >= this.steps.length) {
+            if (this.onLabComplete) {
+              try { this.onLabComplete(this.labId); } catch (cbErr) { this.logger.error('onLabComplete callback threw.', cbErr); }
+            }
+            this._emitEvent('codelab:lab-complete', {
+              labId: this.labId,
+              completedSteps: Array.from(this.completedSteps)
+            });
+          }
+        }
+      }
+
+      this._renderStepPills();
+      this._renderGuidePane();
+      this._renderDrawerBody();
+      this._updateStatusBar();
+
+      if (this.onRun) {
+        try { this.onRun(this.lastSqlResult); } catch (cbErr) { this.logger.error('onRun callback threw.', cbErr); }
+      }
+      this._emitEvent('codelab:sql-run', { labId: this.labId, mode: runMode, result: this.lastSqlResult });
+      this._emitEvent('codelab:run', { labId: this.labId, mode: runMode, entry: targetFile, result: this.lastSqlResult });
+      return this.lastSqlResult;
+    }
+
+    _syncDotCodelabConfig({ isInitialMount = false } = {}) {
+      const mod = getModular();
+      if (!mod || !this.configuration) return;
+
+      const diagMod = root.CodeLabDiagnostics;
+      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
+        this._diagnosticsStore = diagMod.createDiagnosticsStore();
+      }
+
+      // 1. .codelab/settings.json
+      const rawSettings = Object.prototype.hasOwnProperty.call(this.files, '.codelab/settings.json')
+        ? this.files['.codelab/settings.json']
+        : '';
+      const settingsDiags = this.configuration.loadWorkspaceSettingsJson(rawSettings || '', '.codelab/settings.json');
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function') {
+        this._diagnosticsStore.setFileDiagnostics(
+          '.codelab/settings.json',
+          settingsDiags.map((d) => ({
+            file: d.file || '.codelab/settings.json',
+            line: d.line || 1,
+            column: d.column || 1,
+            severity: d.severity || 'warning',
+            message: d.message,
+            source: 'settings'
+          })),
+          'settings'
+        );
+      }
+
+      // 2. .codelab/keybindings.json
+      if (this.keybindings && typeof this.keybindings.setUserKeybindings === 'function') {
+        const rawKb = Object.prototype.hasOwnProperty.call(this.files, '.codelab/keybindings.json')
+          ? this.files['.codelab/keybindings.json']
+          : '';
+        if (rawKb && rawKb.trim() && typeof mod.parseJsonc === 'function') {
+          const parsedKb = mod.parseJsonc(rawKb);
+          if (Array.isArray(parsedKb.value)) {
+            const validRules = parsedKb.value.filter(
+              (r) => r && typeof r === 'object' && typeof r.key === 'string' && typeof r.command === 'string'
+            );
+            this.keybindings.setUserKeybindings(validRules);
+          }
+        } else {
+          this.keybindings.setUserKeybindings([]);
+        }
+      }
+
+      // 3. .codelab/tasks.json
+      const rawTasks = Object.prototype.hasOwnProperty.call(this.files, '.codelab/tasks.json')
+        ? this.files['.codelab/tasks.json']
+        : '';
+      if (rawTasks && rawTasks.trim() && typeof mod.parseTasksConfig === 'function') {
+        const parsedTasks = mod.parseTasksConfig(rawTasks, '.codelab/tasks.json');
+        this._workspaceTasks = parsedTasks.tasks || [];
+        if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function') {
+          this._diagnosticsStore.setFileDiagnostics(
+            '.codelab/tasks.json',
+            (parsedTasks.diagnostics || []).map((d) => ({
+              file: '.codelab/tasks.json',
+              line: d.line || 1,
+              column: d.column || 1,
+              severity: d.severity || 'warning',
+              message: d.message,
+              source: 'tasks'
+            })),
+            'tasks'
+          );
+        }
+        if (isInitialMount) {
+          for (const task of this._workspaceTasks) {
+            if (task.runOn === 'folderOpen' && task.command) {
+              Promise.resolve().then(() => this.runTask(task.id)).catch((err) => {
+                this.logger.warn(`Auto-task "${task.label}" failed on folderOpen.`, err);
+              });
+            }
+          }
+        }
+      } else {
+        this._workspaceTasks = [];
+      }
+
+      // 4. .codelab/extensions.json
+      const rawExt = Object.prototype.hasOwnProperty.call(this.files, '.codelab/extensions.json')
+        ? this.files['.codelab/extensions.json']
+        : '';
+      if (rawExt && rawExt.trim() && typeof mod.parseExtensionsConfig === 'function' && this.plugins) {
+        const parsedExt = mod.parseExtensionsConfig(rawExt, '.codelab/extensions.json');
+        const toActivate = [
+          ...(parsedExt.config.autoActivate || []),
+          ...(parsedExt.config.recommendations || [])
+        ];
+        for (const pluginId of toActivate) {
+          this.plugins.activatePlugin(pluginId).catch(() => {});
+        }
+      }
+    }
+
+    _applyConfigurationChanges(changeEvent) {
+      if (!this.configuration) return;
+      const affects = (key) => !changeEvent || typeof changeEvent.affectsConfiguration !== 'function' || changeEvent.affectsConfiguration(key);
+
+      if (affects('workbench.colorTheme') && changeEvent) {
+        const rawTheme = String(this.configuration.get('workbench.colorTheme', 'dark'));
+        const mapped = (rawTheme === 'light' || rawTheme === 'codelab-light')
+          ? 'light'
+          : (rawTheme === 'high-contrast' || rawTheme === 'hc-dark' || rawTheme === 'codelab-hc-dark')
+            ? 'high-contrast'
+            : (rawTheme === 'auto' ? 'auto' : 'dark');
+        if (this.theme !== mapped) {
+          this.setTheme(mapped);
+        }
+      }
+
+      if (affects('editor')) {
+        const fontSize = Number(this.configuration.get('editor.fontSize', 13)) || 13;
+        const fontFamily = String(this.configuration.get('editor.fontFamily', '') || '');
+        const tabSize = Number(this.configuration.get('editor.tabSize', 2)) || 2;
+        const wordWrap = String(this.configuration.get('editor.wordWrap', 'off'));
+        const lineNumbers = String(this.configuration.get('editor.lineNumbers', 'on'));
+        const minimapEnabled = Boolean(this.configuration.get('editor.minimap.enabled', false));
+
+        const shellEl = this.container ? this.container.querySelector('.codelab') : null;
+        if (shellEl) {
+          shellEl.style.setProperty('--cl-editor-font-size', `${fontSize}px`);
+          if (fontFamily) {
+            shellEl.style.setProperty('--cl-editor-font-family', fontFamily);
+          }
+        }
+        const fallbackEl = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
+        if (fallbackEl) {
+          fallbackEl.style.fontSize = `${fontSize}px`;
+        }
+        if (this.editor && typeof this.editor.updateOptions === 'function') {
+          this.editor.updateOptions({
+            fontSize,
+            ...(fontFamily ? { fontFamily } : {}),
+            tabSize,
+            wordWrap,
+            lineNumbers,
+            minimap: { enabled: minimapEnabled }
+          });
+        }
+      }
+
+      if (affects('sql.dialect') && changeEvent) {
+        const cfgDialect = this.configuration.get('sql.dialect', this.sqlDialect);
+        if (cfgDialect === 'postgres' || cfgDialect === 'sqlite') {
+          this.setSqlDialect(cfgDialect);
+        }
+      }
+    }
+
+    openSettings() {
+      const mod = getModular();
+      if (!mod || typeof mod.SettingsDialogController !== 'function' || !this.configuration) {
+        return this.openWorkspaceSettingsJson();
+      }
+      const host = (this.container && this.container.querySelector('.codelab')) || this.container;
+      if (!host) return;
+      if (!this._settingsDialog) {
+        this._settingsDialog = new mod.SettingsDialogController(host, {
+          configuration: this.configuration,
+          onOpenSettingsJson: () => this.openWorkspaceSettingsJson(),
+          onExportSettings: (jsonStr) => {
+            if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+              navigator.clipboard.writeText(jsonStr).catch(() => {});
+            }
+            this._showToast('Settings profile copied to clipboard', 'success');
+          }
+        });
+      }
+      this._settingsDialog.open();
+    }
+
+    closeSettings() {
+      if (this._settingsDialog && typeof this._settingsDialog.close === 'function') {
+        this._settingsDialog.close();
+      }
+    }
+
+    openWorkspaceSettingsJson() {
+      if (!Object.prototype.hasOwnProperty.call(this.files, '.codelab/settings.json')) {
+        const defaultContent = this.configuration && typeof this.configuration.toWorkspaceJsonString === 'function'
+          ? this.configuration.toWorkspaceJsonString()
+          : '{\n}\n';
+        this.setFile('.codelab/settings.json', defaultContent, { open: true });
+      } else {
+        this.openFile('.codelab/settings.json');
+      }
+    }
+
+    async runTask(idOrLabel) {
+      const tasks = Array.isArray(this._workspaceTasks) ? this._workspaceTasks : [];
+      const found = tasks.find((t) => t.id === idOrLabel || t.label === idOrLabel);
+      const commandStr = found ? found.command : (typeof idOrLabel === 'string' ? idOrLabel : '');
+      if (!commandStr) return null;
+      this.switchDrawerTab('terminal');
+      return this._handleReplCommand(commandStr);
+    }
+
+    registerPlugin(manifest) {
+      if (!manifest || !this.plugins || typeof this.plugins.registerPlugin !== 'function') {
+        return { dispose() {} };
+      }
+      const disp = this.plugins.registerPlugin(manifest);
+      const events = Array.isArray(manifest.activationEvents) ? manifest.activationEvents : ['*'];
+      if (events.includes(`onLanguage:${this.lang}`)) {
+        this.plugins.activatePlugin(manifest.id).catch(() => {});
+      }
+      this._refreshDrawerTabs();
+      return disp;
     }
 
     _resolveShellPath(rawPath) {
@@ -9782,7 +11091,7 @@ int main() {
       if (data.mode === 'guided' || data.mode === 'sandbox') {
         this.mode = data.mode;
       }
-      if (data.language === 'js' || data.language === 'ts' || data.language === 'cpp') {
+      if (data.language === 'js' || data.language === 'ts' || data.language === 'cpp' || data.language === 'py' || data.language === 'sql') {
         this.lang = data.language;
       }
       if (data.files && typeof data.files === 'object') {
@@ -10078,6 +11387,7 @@ int main() {
         replaceBtn.addEventListener('click', triggerReplace);
         replaceInput.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
+            if (e.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             triggerReplace();
           }
@@ -10276,6 +11586,10 @@ int main() {
         this.activeFile = this._pickDefaultFile();
       }
       this._saveState();
+      if (this.kernel && this.kernel.fs) {
+        this.kernel.fs.loadRecord(this.files, '/workspace');
+      }
+      this._syncDotCodelabConfig({ isInitialMount: false });
       this._syncAllModels();
       this._syncActiveFileToView();
     }
@@ -10390,6 +11704,7 @@ int main() {
         input.focus();
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' && input.value.trim()) {
+            if (e.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             const val = input.value.trim();
             this.closeModal();
@@ -10567,6 +11882,8 @@ int main() {
         plugin(this, pluginOptions);
       } else if (typeof plugin === 'object' && typeof plugin.install === 'function') {
         plugin.install(this, pluginOptions);
+      } else if (typeof plugin === 'object' && typeof plugin.id === 'string' && typeof plugin.name === 'string') {
+        this.registerPlugin(plugin);
       }
       if (this.enabledLanguages instanceof Set && this.enabledLanguages.size > 1) {
         this.hasMultipleLanguages = true;
@@ -10583,6 +11900,30 @@ int main() {
       this._destroyed = true;
       this.flushState();
       this.stopExecution();
+      if (this._settingsDialog && typeof this._settingsDialog.dispose === 'function') {
+        try { this._settingsDialog.dispose(); } catch (err) { this.logger.debug('settingsDialog dispose skipped.', err); }
+        this._settingsDialog = null;
+      }
+      if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.destroy === 'function') {
+        try { this._sqlWorkbenchEditor.destroy(); } catch (err) { this.logger.debug('sqlWorkbenchEditor destroy skipped.', err); }
+        this._sqlWorkbenchEditor = null;
+      }
+      if (Array.isArray(this._pluginPanelDisposables)) {
+        for (const d of this._pluginPanelDisposables) {
+          if (d && typeof d.dispose === 'function') {
+            try { d.dispose(); } catch (_err) { void _err; }
+          }
+        }
+        this._pluginPanelDisposables = [];
+      }
+      if (this._errorBoundary && typeof this._errorBoundary.clear === 'function') {
+        this._errorBoundary.clear();
+        this._errorBoundary = null;
+      }
+      if (this.kernel && typeof this.kernel.dispose === 'function') {
+        try { this.kernel.dispose(); } catch (err) { this.logger.debug('kernel dispose skipped.', err); }
+        this.kernel = null;
+      }
       if (this._saveDebounceTimer) {
         clearTimeout(this._saveDebounceTimer);
         this._saveDebounceTimer = null;
@@ -10673,7 +12014,7 @@ int main() {
           this._instance.setTheme(newVal || 'auto');
         } else if (name === 'mode' && (newVal === 'guided' || newVal === 'sandbox')) {
           this._instance.switchMode(newVal);
-        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts' || newVal === 'cpp' || newVal === 'py')) {
+        } else if ((name === 'language' || name === 'lang') && (newVal === 'js' || newVal === 'ts' || newVal === 'cpp' || newVal === 'py' || newVal === 'sql')) {
           this._instance.switchLang(newVal);
         } else if (name === 'title' && newVal) {
           this._instance.title = newVal;
@@ -10786,6 +12127,14 @@ int main() {
       createTerminalSession(name) { return this._instance ? this._instance.createTerminalSession(name) : null; }
       switchTerminalSession(id) { return this._instance ? this._instance.switchTerminalSession(id) : false; }
       closeTerminalSession(id) { return this._instance ? this._instance.closeTerminalSession(id) : false; }
+      openSettings() { if (this._instance) this._instance.openSettings(); }
+      closeSettings() { if (this._instance) this._instance.closeSettings(); }
+      openWorkspaceSettingsJson() { if (this._instance) this._instance.openWorkspaceSettingsJson(); }
+      runSql(mode, payload) { return this._instance ? this._instance.runSql(mode, payload) : Promise.resolve(null); }
+      setSqlSchema(schema) { if (this._instance) this._instance.setSqlSchema(schema); return this; }
+      setSqlDialect(dialect) { if (this._instance) this._instance.setSqlDialect(dialect); return this; }
+      runTask(idOrLabel) { return this._instance ? this._instance.runTask(idOrLabel) : Promise.resolve(null); }
+      registerPlugin(manifest) { return this._instance ? this._instance.registerPlugin(manifest) : { dispose() {} }; }
       on(ev, fn) { return this._instance ? this._instance.on(ev, fn) : () => {}; }
       off(ev, fn) { if (this._instance) this._instance.off(ev, fn); }
       use(plugin, opts) { if (this._instance) this._instance.use(plugin, opts); return this; }
@@ -10832,6 +12181,10 @@ int main() {
     Runtime: root.CodeLabRuntime,
     Shell: root.CodeLabShell,
     Terminal: root.CodeLabTerminal,
+    Modular: getModular(),
+    sql: getSqlPack(),
+    createSqlEditor: getSqlPack() ? getSqlPack().createSqlEditor : null,
+    formatSql: getSqlPack() ? getSqlPack().formatSql : null,
     zip: root.CodeLabZip || null,
     createZip: root.CodeLabZip ? root.CodeLabZip.createZip : null,
     extractZip: root.CodeLabZip ? root.CodeLabZip.extractZip : null,
