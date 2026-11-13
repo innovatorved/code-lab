@@ -45,7 +45,7 @@ Browser-native code IDE workbench, modular guided challenge engine (`@innovatorv
 
 ---
 
-## Install
+## Install & Subpath Entrypoints
 
 ```bash
 bun add @innovatorved/code-lab
@@ -53,12 +53,33 @@ bun add @innovatorved/code-lab
 npm install @innovatorved/code-lab
 ```
 
-Or load from a static script tag via CDN:
+Load the full IDE workbench or the standalone `< 35 KB` SQL pack via CDN:
 
 ```html
+<!-- Full Browser IDE Workbench -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.css" />
 <script src="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.js"></script>
+
+<!-- Lightweight SQL Inline Editor & Playground (~16.5 KB gzipped JS + CSS, zero WASM boot) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab-sql.css" />
+<script src="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab-sql.umd.js"></script>
 ```
+
+| Subpath Export | Format | Gzip Size | Description |
+| :--- | :--- | :--- | :--- |
+| `@innovatorved/code-lab` | ESM + CJS/UMD + `.d.ts` | `~506 KB` (with CSS) | Full multi-file IDE workbench, POSIX shell, virtual runtime, Settings UI, plugins, and `CodeLab.createSqlEditor` |
+| `@innovatorved/code-lab/code-lab.css` | CSS | — | Full IDE stylesheet (Dark, Light, High-Contrast + CSS custom properties) |
+| `@innovatorved/code-lab/sql` | ESM + UMD + `.d.ts` | `~16.5 KB` (JS + CSS) | Standalone `PostgreSQL 18` + `SQLite 3` inline & playground SQL editor (`window.CodeLabSql`) |
+| `@innovatorved/code-lab/sql.css` | CSS | — | Standalone SQL editor & playground stylesheet |
+| `@innovatorved/code-lab/runtime` | ESM + CJS + `.d.ts` | `~83 KB` | Headless Node.js / Bun / WASI Web Worker execution engine |
+| `@innovatorved/code-lab/shell` | ESM + CJS + `.d.ts` | — | Pure-JS POSIX shell AST interpreter & 71 UNIX coreutils |
+| `@innovatorved/code-lab/terminal` | ESM + CJS + `.d.ts` | `~10.2 KB` | Interactive PTY terminal emulator with 256-color / TrueColor ANSI |
+| `@innovatorved/code-lab/schemas` | ESM + CJS + `.d.ts` | — | Zod v4 runtime validation schemas & inferred TypeScript types |
+| `@innovatorved/code-lab/extensions/guided-lab` | ESM + UMD + `.d.ts` | — | Step-by-step curriculum challenge stepper, hints, test verification & diff |
+| `@innovatorved/code-lab/extensions/typescript` | ESM + UMD + `.d.ts` | — | TypeScript workspace language pack |
+| `@innovatorved/code-lab/extensions/cpp` | ESM + UMD + `.d.ts` | — | Real C++17/20/23 Clang/LLVM + LLD WASI toolchain & DSA test headers |
+| `@innovatorved/code-lab/extensions/python` | ESM + UMD + `.d.ts` | — | Python 3.12 WebAssembly (Pyodide) runtime, `pytest` & DSA helpers |
+| `@innovatorved/code-lab/preview-sw.js` | Service Worker | — | Same-origin virtual loopback preview worker (`/__preview/:port/*`) |
 
 ---
 
@@ -173,21 +194,41 @@ const lab = CodeLab.mount('#editor', {
   );
 ```
 
-### 5. Lightweight SQL Inline Editor & Playground (`@innovatorved/code-lab/sql`)
+### 5. Lightweight SQL Inline Editor, Playground & Guided Labs (`@innovatorved/code-lab/sql`)
 
-Mount 1–10 runnable `PostgreSQL 18` or `SQLite 3` blocks (`~16.5 KB` gzipped JS + CSS combined, zero WASM boot of its own):
+Mount 1–10 runnable `PostgreSQL 18` or `SQLite 3` blocks (`~16.5 KB` gzipped JS + CSS combined, zero WASM boot of its own) across three chrome modes (`'inline'`, `'playground'`, and `'workbench'`):
 
 ```js
-import { createSqlEditor, formatSql, parseSqlEngineError } from '@innovatorved/code-lab/sql';
+import {
+  createSqlEditor,
+  formatSql,
+  highlightSql,
+  completeSql,
+  parseSqlEngineError
+} from '@innovatorved/code-lab/sql';
 import '@innovatorved/code-lab/sql.css';
 
 const editor = createSqlEditor(document.getElementById('sql-box'), {
-  mode: 'playground', // 'inline' | 'playground'
-  dialect: 'postgres', // 'postgres' | 'sqlite'
-  value: formatSql('select o.id, o.total_cents from orders o where o.total_cents > 1000;'),
+  mode: 'playground', // 'inline' (lesson blocks) | 'playground' (split/stacked)
+  dialect: 'postgres', // 'postgres' (PostgreSQL 18) | 'sqlite' (SQLite 3)
+  theme: 'auto', // 'dark' | 'light' | 'auto' (live MutationObserver on <html data-theme>)
+  minLines: 4,
+  maxLines: 18,
+  value: formatSql(
+    'select o.id, o.total_cents from customers c join orders o on o.customer_id = c.id where o.total_cents > 1000;',
+    { dialect: 'postgres', indent: 2, keywordCase: 'upper' }
+  ),
   schema: {
     dialect: 'postgres',
     tables: [
+      {
+        name: 'customers',
+        rowCount: 12000,
+        columns: [
+          { name: 'id', type: 'bigint', pk: true },
+          { name: 'email', type: 'text' }
+        ]
+      },
       {
         name: 'orders',
         rowCount: 84000,
@@ -199,19 +240,61 @@ const editor = createSqlEditor(document.getElementById('sql-box'), {
       }
     ]
   },
-  onRun({ effectiveSql }) {
-    console.log('Executing SQL:', effectiveSql);
+  async onRun({ sql, selectedSql, effectiveSql }) {
+    try {
+      // Plug in PGlite, SQLite WASI/wa-sqlite, or any HTTP query runner:
+      editor.clearDiagnostics();
+      console.log('Executing SQL:', effectiveSql);
+    } catch (err) {
+      // Maps Postgres `position` / `LINE N:` and SQLite `near "..."` to wavy inline ranges
+      editor.setDiagnostics([parseSqlEngineError(err, effectiveSql, 'postgres')]);
+    }
+  }
+});
+
+// Insert table/column identifiers from external clickable schema pills:
+editor.insertAtCursor('orders.total_cents');
+```
+
+**SQL Keyboard Shortcuts & Accessibility (WCAG 2.1 AA)**:
+- `Cmd/Ctrl + Enter` — Execute query (`selectedSql` when a selection is active, otherwise full `sql` via `effectiveSql`)
+- `Shift + Alt + F` / `Cmd/Ctrl + Shift + F` — Format SQL (`formatSql`)
+- `Cmd/Ctrl + /` — Toggle `-- ` line comments
+- `Ctrl + Space` (or typing `alias.`) — Open schema & keyword `role="listbox"` autocomplete (`PK`/`FK` badges + row counts)
+- `Esc` → `Tab` — Releases `Tab` indentation so keyboard focus moves cleanly to the next page control (no keyboard trap, WCAG 2.1.2)
+
+For **3-step SQL Guided Labs** inside the full workbench (`mode: 'workbench'`), pass `lang: 'sql'` and a `sqlRunner` callback — single-file SQL labs automatically hide multi-file explorer and POSIX terminal chrome while keeping step instructions, hints, diff, and tabular result verification:
+
+```js
+import CodeLab from '@innovatorved/code-lab';
+import '@innovatorved/code-lab/code-lab.css';
+
+const sqlLab = CodeLab.mount('#sql-guided-lab', {
+  lang: 'sql',
+  sqlDialect: 'postgres',
+  code: 'SELECT id, email FROM customers ORDER BY id;',
+  steps: [
+    { id: 'step-1', title: 'Order customers by ID', instructions: 'Return `id` and `email` ordered by `id`.' }
+  ],
+  async sqlRunner({ sql, mode }) {
+    return {
+      columns: ['id', 'email'],
+      rows: [[1, 'ada@analytical.org'], [2, 'grace@compiler.org']],
+      rowCount: 2,
+      durationMs: 1.2,
+      verification: { passed: true, message: 'All rows verified!' }
+    };
   }
 });
 ```
 
-### 6. Workspace Configuration (`.codelab/settings.json`)
+### 6. Workspace Settings, Keybindings, Themes & Plugins (`.codelab/*`)
 
-Configure editor, theme, runtime, and SQL defaults per workspace using JSON with Comments (JSONC):
+Configure editor, theme, runtime, and SQL defaults per workspace using JSON with Comments (JSONC), open the native `<dialog closedby="any">` Settings UI via `lab.openSettings()` (`Cmd+,`), or register declarative plugins:
 
 ```jsonc
 {
-  // .codelab/settings.json
+  // .codelab/settings.json (4-scope cascade: default < user < workspace < override)
   "workbench.colorTheme": "dark", // "dark" | "light" | "high-contrast"
   "editor.fontSize": 14,
   "editor.tabSize": 2,
@@ -220,7 +303,28 @@ Configure editor, theme, runtime, and SQL defaults per workspace using JSON with
 }
 ```
 
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/PLUGINS.md`](./docs/PLUGINS.md), and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for deep-dive architecture and plugin guides.
+```js
+// Register a declarative plugin contributing commands, settings, or drawer panels
+lab.registerPlugin({
+  id: 'acme.query-plan',
+  name: 'EXPLAIN Visualizer',
+  version: '1.0.0',
+  contributes: {
+    panels: [
+      {
+        id: 'explain-plan',
+        title: 'Query Plan',
+        location: 'drawer',
+        render(container) {
+          container.textContent = 'Visual EXPLAIN plan ready.';
+        }
+      }
+    ]
+  }
+});
+```
+
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/PLUGINS.md`](./docs/PLUGINS.md), [`docs/ROADMAP.md`](./docs/ROADMAP.md), and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for deep-dive architecture and plugin guides.
 
 ---
 
@@ -246,12 +350,18 @@ Complete documentation is published on the [GitHub Wiki](https://github.com/inno
 # Install dependencies with Bun
 bun install
 
-# Rebuild all distribution bundles
+# Rebuild all distribution bundles & verify size / architecture gates
 bun run build
+bun run check:boundaries                     # Enforce 4-layer workspace DAG & 0 circular dependencies
+bun run check:size                           # Enforce gzip size budgets (@innovatorved/code-lab/sql < 35 KB)
+bun run typecheck && bun run typecheck:strict
+bun run lint
 
-# Run the complete test suite
+# Run the complete test suite (47 suites + Playwright cross-browser E2E)
 bun run test:all
-bun run tests/test-all-builds.js             # 15/15 builds & 226 unit tests
+bun run tests/test-modular-packages.js       # DI, VFS backends, ConfigurationService, Keybindings, Themes, Plugins
+bun run tests/test-sql-playground.js         # PostgreSQL 18 + SQLite 3 tokenizer, formatter, autocomplete, diagnostics
+bun run tests/test-all-builds.js             # 20/20 builds & 241 unit tests
 bun run tests/test-runtime-advanced.js       # Advanced runtime, VFS, HTTP/TCP
 bun run tests/test-option1-shell-bun-http.js # Shell AST, Bun runtime, curl, ports, npm/pnpm
 bun run tests/test-frameworks.js             # React/Preact/Vue/Angular support + browser preview server
@@ -260,6 +370,7 @@ bun run tests/test-stress-shell.js           # Deep pipelines, redirections, lar
 bun run tests/test-workbench-ui.js           # Workbench tabs, explorer, shortcuts
 bun run tests/test-cpp-extension.js          # Real C++20 WASI runtime, g++, and language extensions
 bun run tests/test-python-extension.js       # Python 3.12 WebAssembly runtime, pytest, and language service
+bun run test:browser:all                     # Headless Playwright across Chromium, Firefox, and WebKit
 ```
 
 Individual suites also run under Node 20, 22 and 24 — CI exercises all three:

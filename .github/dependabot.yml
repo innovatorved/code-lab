@@ -5,6 +5,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # tools/lint.js and tools/check-boundaries.js use TypeScript's JS AST API
+      # (ts.createSourceFile), which was removed in TypeScript 7 (native Go CLI).
+      - dependency-name: "typescript"
+        versions: [">= 7.0.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
