@@ -16,7 +16,7 @@
     },
     "apps/web": {
       "name": "@code-lab/web",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/commands": "workspace:*",
         "@code-lab/core": "workspace:*",
@@ -32,18 +32,18 @@
     },
     "packages/commands": {
       "name": "@code-lab/commands",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/core": {
       "name": "@code-lab/core",
-      "version": "0.4.0",
+      "version": "0.5.0",
     },
     "packages/editor": {
       "name": "@code-lab/editor",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
         "@code-lab/settings": "workspace:*",
@@ -52,21 +52,21 @@
     },
     "packages/fs": {
       "name": "@code-lab/fs",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/preview": {
       "name": "@code-lab/preview",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/runtime": {
       "name": "@code-lab/runtime",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
         "@code-lab/fs": "workspace:*",
@@ -74,25 +74,25 @@
     },
     "packages/settings": {
       "name": "@code-lab/settings",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/sql": {
       "name": "@code-lab/sql",
-      "version": "0.4.0",
+      "version": "0.5.0",
     },
     "packages/terminal": {
       "name": "@code-lab/terminal",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/ui": {
       "name": "@code-lab/ui",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@code-lab/commands": "workspace:*",
         "@code-lab/core": "workspace:*",

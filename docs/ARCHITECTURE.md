@@ -1,4 +1,4 @@
-# `@innovatorved/code-lab` Architecture (v0.4.0)
+# `@innovatorved/code-lab` Architecture (v0.5.0)
 
 `@innovatorved/code-lab` is a modular, strict-TypeScript, open-source browser IDE core, POSIX virtual execution environment, and first-class SQL playground (`@innovatorved/code-lab/sql`). It runs entirely client-side with zero server dependencies and zero mandatory `COOP`/`COEP` headers.
 

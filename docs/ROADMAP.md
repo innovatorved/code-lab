@@ -1,6 +1,14 @@
 # `@innovatorved/code-lab` Roadmap
 
-This roadmap tracks post-`v0.4.0` architectural and product milestones across the `code-lab` monorepo.
+This roadmap tracks post-`v0.5.0` architectural and product milestones across the `code-lab` monorepo.
+
+---
+
+## Shipped in `v0.5.0`
+- **VS Code 5-Region Layout Architecture**: Full layout fidelity with top Menu Bar / Title Bar (accessible menus: File, Edit, Selection, View, Go, Run, Terminal, Help), Activity Bar (Explorer, Search, Source Control, Run & Debug, Extensions, Settings, Account), Primary Side Bar with tab switching, Editor Group with split tabs and breadcrumbs, Bottom Panel / Drawer, and Status Bar.
+- **Strict Terminal Drawer Isolation**: POSIX shell and PTY terminal isolated strictly to the bottom drawer (`#cl-drawer`), preventing clutter in the file explorer sidebar.
+- **Non-Destructive Workspaces & Confirmation Guards**: Opening Settings (`Cmd+,`), switching recent workspaces, or creating a new blank workspace no longer wipes VFS contents unexpectedly; dirty workspace guards prompt the user before re-cloning or resetting.
+- **Comprehensive Cross-Browser Testing**: Playwright browser suite (138 tests) hardened across Chromium, Firefox, and WebKit with resilient stream rollback handling.
 
 ---
 

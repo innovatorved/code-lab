@@ -69,16 +69,23 @@
   - [x] Bundle-size budget gate [check-bundle-size.js](file:///Users/vedgupta/Desktop/code-lab/tools/check-bundle-size.js), Prettier, `lint-staged`, Changesets config, and hardened [ci.yml](file:///Users/vedgupta/Desktop/code-lab/.github/workflows/ci.yml)
   - [x] Complete open-source governance docs (`README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `ARCHITECTURE.md`, `docs/ROADMAP.md`, `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`)
 
+- [x] **Milestone 6 — Phase 6 VS Code 5-Region Layout, Non-Destructive Workspaces & Terminal Isolation (`v0.5.0`)**
+  - [x] Full VS Code 5-region layout parity (Menu Bar with dropdown menus, Activity Bar, Primary Side Bar, Editor Group, Bottom Drawer, Status Bar)
+  - [x] Isolated terminal and REPL strictly to the bottom drawer (`#cl-drawer`)
+  - [x] Non-destructive Settings dialog (`Cmd+,`) and modal switching without wiping user workspaces
+  - [x] Recent workspace switcher (`?workspace=`), dirty confirmation dialogs, and re-clone overwrite protections
+  - [x] Cross-browser Playwright test hardening across Chromium, Firefox, and WebKit (138 tests passing in CI)
+
 ---
 
-## Final Engineering Metrics (Before `v0.3.2` vs After `v0.4.0`)
+## Final Engineering Metrics (Before `v0.3.2` vs After `v0.5.0`)
 
-| Metric | Before (`v0.3.2`) | After (`v0.4.0`) |
+| Metric | Before (`v0.3.2`) | After (`v0.5.0`) |
 | --- | --- | --- |
 | **Workspace Packages** | 1 monolith package | **11 Bun workspaces** across 4 enforced DAG layers (`0` violations, `0` cycles) |
 | **Strict TypeScript Modules (`strict: true`)** | 12 leaf files | **48 strict TypeScript modules** (`0` `any` leaks, `0` empty `catch` blocks) |
 | **SQL Inline/Playground Bundle (`@innovatorved/code-lab/sql`)** | N/A (fell back to plain `<textarea>` or full 1.8 MB IDE) | **`16.57 KB` gzipped** (JS + CSS combined; `< 35 KB` budget, `0` WASM overhead) |
 | **Audit Findings Open (`P0` / `P1` / `P2`)** | `6 P0`, `14 P1`, `6 P2` (26 open) | **`0` open** (`26/26` resolved with dedicated regression tests) |
 | **Dependency Vulnerabilities (`bun audit`)** | 2 in root + 32 in `examples/cloud-ide` | **`0` vulnerabilities** across root and `examples/cloud-ide` |
-| **Automated Node / Bun Test Suites** | 43 suites | **47 suites** (100% green in both Bun and Node) |
-| **Playwright Real Chromium E2E Specs** | 27 tests | **30 tests** (100% green in headless Chromium, `0` uncaught page errors) |
+| **Automated Node / Bun Test Suites** | 43 suites | **49 suites** (100% green in both Bun and Node) |
+| **Playwright Real Browser E2E Specs** | 27 tests | **46 tests / 138 matrix runs** (100% green in Chromium, Firefox & WebKit) |

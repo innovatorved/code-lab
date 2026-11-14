@@ -6,7 +6,7 @@ labels: ["bug"]
 ---
 
 ## Environment
-- `@innovatorved/code-lab` version: `0.4.0`
+- `@innovatorved/code-lab` version: `0.5.0`
 - Entrypoint (`@innovatorved/code-lab`, `@innovatorved/code-lab/sql`, `@innovatorved/code-lab/runtime`):
 - Browser & OS (or Node/Bun version):
 

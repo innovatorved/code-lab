@@ -4,6 +4,27 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-14
+
+### Added
+- **VS Code 5-Region Layout Architecture (`src/workbench.ts`, `src/code-lab.css`)**:
+  - Implemented full VS Code 5-region workbench topology:
+    - **Top Menu Bar & Title Bar**: Accessible top menu bar featuring File, Edit, Selection, View, Go, Run, Terminal, and Help menus with keyboard navigation, accelerators, and click-outside dismissal.
+    - **Activity Bar**: Left-aligned primary activity navigation bar housing icons for Explorer (`Cmd+Shift+E`), Search (`Cmd+Shift+F`), Source Control (`Ctrl+Shift+G`), Run & Debug (`Cmd+Shift+D`), Extensions (`Cmd+Shift+X`), Settings (`Cmd+,`), and Account.
+    - **Primary Side Bar**: Dedicated collapsible, resizable side panel hosting file tree explorer, multi-file search, and visual git SCM view with active tab state preservation.
+    - **Editor Group Area**: Tabbed document container with dirty indicators, breadcrumb navigation, split layouts, and in-editor diagnostics.
+    - **Bottom Panel / Drawer (`#cl-drawer`)**: Multi-tab drawer housing Terminal, Output, Problems, Debug Console, and Ports with collapsible height and toggle shortcuts (`Cmd+J`).
+    - **Status Bar**: Bottom status indicator displaying active git branch, error/warning problem counts, language mode, line/col position, encoding, and drawer/sidebar toggle controls.
+- **Strict Terminal & REPL Drawer Isolation**:
+  - POSIX shell and interactive PTY terminal emulator instances are strictly isolated to the bottom drawer (`#cl-drawer`), preventing clutter in the file explorer sidebar.
+- **Non-Destructive Workspaces & Confirmation Guards**:
+  - Re-architected settings, search, git SCM, and problems dialogs to run as overlays on the active workspace without wiping open buffers, dirty VFS changes, or terminal session logs.
+  - Added safe workspace confirmation guards (`_showWorkspaceConfirmModal`) that detect dirty/uncommitted modifications before performing new blank workspace creations or repository clones.
+  - Added URL workspace parameter persistence (`?workspace=`) and Recent Workspaces dialog for seamless switching between lab sessions without data loss.
+- **Cross-Browser Test Hardening (Playwright Chromium, Firefox, WebKit)**:
+  - Hardened real-browser Playwright suites against stream controller exceptions during mid-body HTTP rollbacks on Gecko (Firefox).
+  - 160/160 E2E VS Code parity tests, 12/12 workbench feature groups, 49/49 monorepo test suites, and 46 Playwright browser tests (138 cross-browser executions) green.
+
 ## [0.4.0] - 2026-11-13
 
 ### Added
