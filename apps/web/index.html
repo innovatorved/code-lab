@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>CodeLab — Browser-Native Modular IDE &amp; SQL Playground</title>
     <link rel="stylesheet" href="../../dist/code-lab.css" />
     <link rel="stylesheet" href="../../dist/code-lab-sql.css" />
@@ -10,29 +11,69 @@
       html, body {
         margin: 0;
         padding: 0;
+        width: 100%;
         height: 100%;
-        background: #050505;
-        color: #f5f5f5;
+        overflow: hidden;
+        background: var(--cl-bg, #000000);
+        color: var(--cl-fg, #f5f5f5);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }
       #ide-shell {
         height: 100vh;
         width: 100vw;
+        overflow: hidden;
+      }
+      #ide-shell > .codelab,
+      #ide-shell > .codelab-workbench {
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
+        max-height: none;
+        border: none;
+        border-radius: 0;
       }
     </style>
   </head>
   <body>
-    <div id="ide-shell"></div>
+    <div id="ide-shell" class="codelab-fullbleed"></div>
     <script src="../../dist/code-lab.js"></script>
     <script>
-      window.workbench = new window.CodeLabWorkbench(document.getElementById('ide-shell'), {
-        id: 'codelab-web-shell',
-        title: 'CodeLab Modular Workspace',
-        files: {
-          'index.ts': "const greeting: string = 'Hello from CodeLab v0.4.0!';\nconsole.log(greeting);\n",
-          '.codelab/settings.json': '{\n  // Live workspace configuration\n  "editor.fontSize": 14,\n  "editor.tabSize": 2,\n  "workbench.colorTheme": "dark"\n}\n'
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var urlWorkspace = params.get('workspace');
+        var urlLabId = params.get('labId') || urlWorkspace;
+        var isBlank = params.get('blank') === '1' || params.get('blank') === 'true' || params.get('empty') === '1' || params.get('empty') === 'true';
+        var lang = params.get('lang') || params.get('language') || undefined;
+        var mode = params.get('mode') || undefined;
+        var theme = params.get('theme') || undefined;
+        var repo = params.get('repo') || undefined;
+        var persistParam = params.get('persist');
+        var persistState = persistParam === null ? true : (persistParam !== '0' && persistParam !== 'false');
+        var labId = urlLabId || (isBlank ? 'blank-web-workspace' : 'codelab-web-shell');
+        var opts = {
+          id: labId,
+          labId: labId,
+          title: urlWorkspace ? labId : (isBlank ? 'Blank Workspace' : 'CodeLab Modular Workspace'),
+          fullbleed: true,
+          previewSwUrl: false,
+          persistState: persistState,
+          blank: isBlank,
+          language: lang,
+          mode: mode,
+          theme: theme,
+          repo: repo
+        };
+        if (isBlank) {
+          opts.files = {};
+        } else if (!urlWorkspace && !repo) {
+          opts.files = {
+            'index.ts': "const greeting: string = 'Hello from CodeLab v0.4.0!';\nconsole.log(greeting);\n",
+            '.codelab/settings.json': '{\n  // Live workspace configuration\n  "editor.fontSize": 14,\n  "editor.tabSize": 2,\n  "workbench.colorTheme": "dark"\n}\n'
+          };
         }
-      });
+        window.workbench = new window.CodeLabWorkbench(document.getElementById('ide-shell'), opts);
+        window.__codelabIde = window.workbench;
+      })();
     </script>
   </body>
 </html>

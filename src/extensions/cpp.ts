@@ -2036,39 +2036,39 @@ export function installCppExtension(workbench: any, options: ExtendedCppExtensio
 
   workbench.hasMultipleLanguages = workbench.enabledLanguages.size > 1;
 
-  // Wire up debounced static linter if workbench has diagnostics store
-  if (workbench._diagnosticsStore) {
-    let lintTimer: any = null;
-    const originalOnCodeChange = workbench.options?.onCodeChange;
-    workbench._cppLintHandler = (file: string, code: string) => {
-      if (!file || !/\.(?:cpp|cc|cxx|hpp|h)$/.test(file)) return;
-      if (lintTimer) clearTimeout(lintTimer);
-      lintTimer = setTimeout(() => {
-        const diags = analyzeCppSource(code, file, workbench.vfs);
-        workbench._diagnosticsStore.clear('cpp-linter');
-        for (const d of diags) {
-          workbench._diagnosticsStore.add(d);
-        }
-        if (typeof window !== 'undefined' && (window as any).monaco) {
-          const model = (workbench.models && typeof workbench.models.get === 'function' && workbench.models.get(file))
-            || (workbench.activeFile === file && workbench.editor ? workbench.editor.getModel() : null);
-          if (model) {
-            const markers = diags.map((d) => ({
-              startLineNumber: d.line,
-              startColumn: d.col || 1,
-              endLineNumber: d.line,
-              endColumn: (d.col || 1) + 20,
-              message: d.message,
-              severity: d.severity === 'error'
-                ? (window as any).monaco.MarkerSeverity.Error
-                : (window as any).monaco.MarkerSeverity.Warning
-            }));
-            (window as any).monaco.editor.setModelMarkers(model, 'cpp-linter', markers);
-          }
-        }
-      }, 180);
-    };
-  }
+  // Synchronous static C++ linter (resolves _diagnosticsStore dynamically)
+  workbench._cppLintHandler = (file: string, code: string) => {
+    if (!file || !/\.(?:cpp|cc|cxx|hpp|h)$/i.test(file)) return;
+    const diags = analyzeCppSource(String(code ?? ''), file, workbench ? workbench.vfs : undefined);
+    const store = workbench ? workbench._diagnosticsStore : null;
+    if (store && typeof store.setFileDiagnostics === 'function') {
+      store.setFileDiagnostics(file, 'cpp-linter', diags);
+    } else if (store && typeof store.clear === 'function' && typeof store.add === 'function') {
+      store.clear('cpp-linter');
+      for (const d of diags) {
+        store.add(d);
+      }
+    }
+    if (typeof window !== 'undefined' && (window as any).monaco) {
+      const model =
+        (workbench.models && typeof workbench.models.get === 'function' && workbench.models.get(file)) ||
+        (workbench.activeFile === file && workbench.editor ? workbench.editor.getModel() : null);
+      if (model) {
+        const markers = diags.map((d) => ({
+          startLineNumber: d.line,
+          startColumn: d.col || 1,
+          endLineNumber: d.endLine || d.line,
+          endColumn: d.endCol || (d.col || 1) + 20,
+          message: d.message,
+          severity:
+            d.severity === 'error'
+              ? (window as any).monaco.MarkerSeverity.Error
+              : (window as any).monaco.MarkerSeverity.Warning
+        }));
+        (window as any).monaco.editor.setModelMarkers(model, 'cpp-linter', markers);
+      }
+    }
+  };
 
   if (options.preload) {
     toolchain.ensureLoaded().catch((err) => {

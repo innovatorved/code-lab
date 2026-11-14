@@ -30,8 +30,32 @@
   }
   const CodeLabTerminal = (root && root.CodeLabTerminal) || terminalModule || {};
   const CodeLabShell = (root && root.CodeLabShell) || shellModule || {};
-  const getModular = () => (typeof CodeLabModular !== 'undefined' && CodeLabModular) || (root && root.CodeLabModular) || null;
-  const getSqlPack = () => (typeof CodeLabSql !== 'undefined' && CodeLabSql) || (root && root.CodeLabSql) || getModular() || null;
+  let _cachedModularModule = null;
+  const getModular = () => {
+    if (typeof CodeLabModular !== 'undefined' && CodeLabModular) return CodeLabModular;
+    if (root && root.CodeLabModular) return root.CodeLabModular;
+    if (_cachedModularModule) return _cachedModularModule;
+    if (typeof require === 'function') {
+      try {
+        _cachedModularModule = require('./modular-kernel');
+        return _cachedModularModule;
+      } catch (err) {
+        void err;
+      }
+      try {
+        _cachedModularModule = require('./modular-kernel.js');
+        return _cachedModularModule;
+      } catch (err) {
+        void err;
+      }
+    }
+    return null;
+  };
+  const getSqlPack = () =>
+    (typeof CodeLabSql !== 'undefined' && CodeLabSql) ||
+    (root && (root.CodeLabSql || (root.CodeLab && (root.CodeLab.sql || root.CodeLab.CodeLabSql)))) ||
+    getModular() ||
+    null;
   const createPTYTerminalEngine = CodeLabTerminal.createPTYTerminalEngine || CodeLabTerminal.createTerminal || CodeLabTerminal.PTYTerminalEngine || (root && (root.createPTYTerminalEngine || root.PTYTerminalEngine));
   const ansiToHtml = CodeLabTerminal.parseAnsiToHtml || CodeLabTerminal.ansiToHtml || (root && (root.parseAnsiToHtml || root.ansiToHtml));
   const createPosixShell = CodeLabShell.createPosixShell || (root && root.createPosixShell);
@@ -1289,7 +1313,14 @@ int main() {
     share: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
     layout: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
     maximize: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
-    settings: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
+    settings: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    files: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H9a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h6"/><path d="M5 8H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1"/></svg>',
+    gitBranch: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
+    sidebarLeft: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+    panelBottom: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/></svg>',
+    chevronUp: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>',
+    collapseAll: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+    close: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
   };
 
   let _workbenchInstanceCounter = 0;
@@ -1419,13 +1450,33 @@ int main() {
       if (!this.container) {
         throw new Error('CodeLabWorkbench requires a valid DOM container element.');
       }
+      if (!CodeLabWorkbench._instances) {
+        CodeLabWorkbench._instances = new Set();
+      }
+      CodeLabWorkbench._instances.add(this);
       this.options = options || {};
+      this.persistState = options.persistState !== false && options.persist !== false;
+      this._explicitThemeOption = Boolean(options.theme);
+      this._explicitDrawerTabOption = Boolean(options.drawerTab);
+      this._explicitSqlDialectOption = Boolean(options.sqlDialect || options.dialect);
       this.logger = createLogger({ logger: options.logger, debug: options.debug });
       this._persistenceFailureReported = false;
       this.saveStatusState = 'saved';
       this.saveStatusError = null;
+      this._dirtyFiles = new Set();
+      this._userEditSeq = 0;
+      this._savedSettingsScrollTop = 0;
+      this._syncingModelFromFiles = false;
+      this._syncingSqlEditorFromFiles = false;
+      if (!CodeLabWorkbench._instances) CodeLabWorkbench._instances = new Set();
+      CodeLabWorkbench._instances.add(this);
+      this._syncingWorkspaceSettingsFile = false;
+      this._applyingConfigTheme = false;
+      this._applyingConfigSidebar = false;
+      this._userSwitchedDrawerTab = false;
+      this.outputLogs = [];
       this.instanceId = options.instanceId || (`cl-${++_workbenchInstanceCounter}`);
-      this.labId = options.id || options.labId || options.buildId || 'custom-lab';
+      this.labId = options.id || options.labId || options.buildId || (options.blank ? 'blank-workspace' : 'custom-lab');
       this.title = options.title || this.labId;
       this.summary = options.summary || '';
       this.monacoUrl = options.monacoUrl || MONACO_BASE;
@@ -1470,8 +1521,30 @@ int main() {
                     : 'index.js']: options.code
           }
         : null;
-      const rawRefFiles = options.solutionFiles || options.files || codeShorthandFile || implData?.files || {};
-      this.referenceFiles = Object.keys(rawRefFiles).length > 0 ? { ...rawRefFiles } : { ...DEFAULT_STANDALONE_FILES };
+      const hasExplicitFilesProp = Boolean(
+        options &&
+        (Object.prototype.hasOwnProperty.call(options, 'files') ||
+          Object.prototype.hasOwnProperty.call(options, 'solutionFiles'))
+      );
+      this._hasExplicitFilesProp = hasExplicitFilesProp;
+      const isExplicitBlank = Boolean(
+        options && (
+          options.blank === true ||
+          (hasExplicitFilesProp &&
+            !options.code &&
+            !options.solutionFiles &&
+            options.files &&
+            typeof options.files === 'object' &&
+            Object.keys(options.files).length === 0)
+        )
+      );
+      this._isBlankBase = isExplicitBlank;
+      const rawRefFiles = isExplicitBlank
+        ? {}
+        : (options.solutionFiles || options.files || codeShorthandFile || implData?.files || {});
+      this.referenceFiles = (isExplicitBlank || hasExplicitFilesProp || Object.keys(rawRefFiles).length > 0)
+        ? { ...rawRefFiles }
+        : { ...DEFAULT_STANDALONE_FILES };
 
       this.guidedConfig = {
         ...(guidedData || {}),
@@ -1573,6 +1646,11 @@ int main() {
 
       this.mode = options.mode || this.savedState.mode || (this.hasGuidedLab ? 'guided' : 'sandbox');
       this.lang = options.language || options.lang || this.savedState.lang || 'js';
+      this._initialLabId = this.labId;
+      this._initialReferenceFiles = { ...this.referenceFiles };
+      this._initialHasGuidedLab = this.hasGuidedLab;
+      this._initialMode = this.mode;
+      this._initialLang = this.lang;
       this.sqlDialect = (
         options.sqlDialect === 'sqlite' ||
         options.dialect === 'sqlite' ||
@@ -1597,7 +1675,34 @@ int main() {
       this.explorerFolder = this.savedState?.explorerFolder || ''; // '' = workspace root, else folder path scope
       this.explorerWidth = (typeof this.savedState?.explorerWidth === 'number' && this.savedState.explorerWidth >= 120)
         ? this.savedState.explorerWidth
-        : 196;
+        : 260;
+      this.activeSidebarView = (typeof this.savedState?.activeSidebarView === 'string' && this.savedState.activeSidebarView)
+        ? this.savedState.activeSidebarView
+        : 'explorer';
+      this.sidebarVisible = typeof options.sidebarVisible === 'boolean'
+        ? options.sidebarVisible
+        : (typeof this.savedState?.sidebarVisible === 'boolean' ? this.savedState.sidebarVisible : true);
+      this.panelVisible = typeof options.panelVisible === 'boolean'
+        ? options.panelVisible
+        : (typeof this.savedState?.panelVisible === 'boolean' ? this.savedState.panelVisible : true);
+      this.drawerCollapsed = !this.panelVisible;
+      this.panelHeight = (typeof this.savedState?.panelHeight === 'number' && this.savedState.panelHeight >= 100)
+        ? this.savedState.panelHeight
+        : 220;
+      this.panelMaximized = Boolean(this.savedState?.panelMaximized);
+      this._activeTopMenu = null;
+      this._activeSubmenu = null;
+      this._topbarMenuOutsideHandler = null;
+      this._searchState = {
+        query: '',
+        replaceText: '',
+        regex: false,
+        caseSensitive: false,
+        wholeWord: false,
+        includeGlob: '',
+        excludeGlob: '',
+        results: []
+      };
       // 0 = use the default 44% track; otherwise a pixel width chosen by dragging
       // the preview splitter.
       this.previewSplitWidth = (typeof this.savedState?.previewSplitWidth === 'number' && this.savedState.previewSplitWidth >= 200)
@@ -1608,9 +1713,12 @@ int main() {
       this.renamingItem = null;
       this._draggedFile = null;
       this.guideTab = 'steps'; // 'steps' | 'readme'
-      this.drawerTab = this.lang === 'sql'
-        ? 'sql-results'
-        : ((this.hasGuidedLab && this.mode === 'guided') ? 'tests' : 'terminal');
+      const savedDrawerTab = typeof this.savedState?.drawerTab === 'string' ? this.savedState.drawerTab : '';
+      this.drawerTab = options.drawerTab || savedDrawerTab || (
+        this.lang === 'sql'
+          ? 'sql-results'
+          : ((this.hasGuidedLab && this.mode === 'guided') ? 'tests' : 'terminal')
+      );
       this.testSuiteVisible = Boolean(this.hasGuidedLab && this.mode === 'guided');
       this.lastDurationMs = null;
       this.lastPeakMemoryBytes = null;
@@ -1659,6 +1767,7 @@ int main() {
 
       // Initialize working files for current mode & language
       this.files = this._computeInitialFiles();
+      this._savedSnapshot = { ...this.files };
 
       // Auto-populate folders from nested files
       Object.keys(this.files).forEach(f => {
@@ -1668,11 +1777,20 @@ int main() {
         }
       });
 
-      // Decouple openTabs from files
+      // Decouple openTabs from files (cap large repositories/snapshots to <= 1 tab while preserving <= 8 starter tabs)
       if (Array.isArray(this.savedState?.openTabs)) {
         this.openTabs = this.savedState.openTabs.filter(f => this.files[f] !== undefined);
       } else {
-        this.openTabs = this._orderedFileNames();
+        const allOrdered = this._orderedFileNames();
+        const maxInitTabs = typeof options.maxInitialTabs === 'number'
+          ? Math.max(0, options.maxInitialTabs)
+          : (allOrdered.length > 8 ? 1 : allOrdered.length);
+        if (allOrdered.length > maxInitTabs) {
+          const primary = this._pickPrimaryCloneFile(allOrdered);
+          this.openTabs = (maxInitTabs > 0 && primary) ? [primary] : allOrdered.slice(0, maxInitTabs);
+        } else {
+          this.openTabs = allOrdered;
+        }
       }
 
       if (options.activeFile && this.files[options.activeFile] !== undefined) {
@@ -1690,6 +1808,8 @@ int main() {
       } else {
         this.activeFile = null;
       }
+      this.settingsTabOpen = false;
+      this.activeTab = this.activeFile;
 
       // Execution & shell state
       this.cwd = '/workspace';
@@ -1746,6 +1866,9 @@ int main() {
 
       this.shell = null;
       this._initShell();
+      if (this.savedState && this.savedState.gitState) {
+        this._restoreSavedGitState(this.savedState.gitState);
+      }
 
       // Editor instances
       this.monaco = null;
@@ -1757,14 +1880,36 @@ int main() {
       this._breadcrumbRafId = null;
       this._markerDisposable = null;
       this._destroyed = false;
+      this._isBooting = true;
+      this._editorInitialized = false;
+      this._activeSplitterCleanup = null;
+      this._mdPreviewOpen = false;
+      this._fallbackHistory = new Map();
+      this._activeCloneAbortController = null;
+      this._cloneCancelledByUser = false;
+      this._searchState = {
+        query: '',
+        replaceText: '',
+        include: '',
+        exclude: '',
+        regex: false,
+        caseSensitive: false,
+        wholeWord: false
+      };
+      this._problemsFilterQuery = '';
+      this._problemsSeverityFilter = 'all';
+      this._collapsedProblemFiles = new Set();
+      this._problemNavIdx = -1;
+      this._lintDebounceTimer = null;
+      this._activeScmDiffFile = null;
+      this._activeScmDiffStaged = false;
+      this._scmCreatingBranch = false;
+      this._sidebarHadFocusOnPointerDown = undefined;
 
+      this._ensureDiagnosticsStore();
       this._initKernel();
-      this._renderShell();
-      this._bindEvents();
-      this._initEditor();
-      this._syncDotCodelabConfig({ isInitialMount: true });
-      this._checkUrlSnapshot();
-      this._hydrateFromAsyncStorage();
+      this._syncDotCodelabConfig({ isInitialMount: false });
+      this._applyInitialWorkbenchConfig();
 
       const initialPlugins = [
         ...(Array.isArray(options.extensions) ? options.extensions : []),
@@ -1772,6 +1917,19 @@ int main() {
       ];
       for (const plugin of initialPlugins) {
         this.use(plugin);
+      }
+
+      this._isBooting = false;
+      this._renderShell();
+      this._bindEvents();
+      this._initEditor();
+      this._applyConfigurationChanges(null);
+      this._lintAllWorkspaceFiles();
+      this._runInitialFolderOpenTasks();
+      this._checkUrlSnapshot();
+      this._hydrateFromAsyncStorage();
+      if (this.persistState && (this._isBlankBase || Object.keys(this.files || {}).length > 0)) {
+        this._registerWorkspaceMetaInStorage();
       }
 
       if (this.plugins && typeof this.plugins.fireActivationEvent === 'function') {
@@ -1787,6 +1945,13 @@ int main() {
           fetchImpl: options.fetchImpl || undefined
         }).catch((err) => this.logger.warn('Initial cloneRepo failed.', err));
       }
+    }
+
+    get entry() {
+      if (this.explicitEntry && this.files && Object.prototype.hasOwnProperty.call(this.files, this.explicitEntry)) {
+        return this.explicitEntry;
+      }
+      return this._findEntryFile('demo') || null;
     }
 
     _initKernel() {
@@ -1808,6 +1973,19 @@ int main() {
           initialFiles: this.files,
           runtimeDelegate: (opts) => this._executeRuntime(opts)
         });
+        if (this.kernel && this.kernel.fs && typeof this.kernel.fs.mkdir === 'function' && this.folders) {
+          try {
+            this.kernel.fs.mkdir('/workspace');
+            for (const folder of this.folders) {
+              const cf = this._normalizeWorkspaceRelPath(folder);
+              if (cf) {
+                try { this.kernel.fs.mkdir('/workspace/' + cf); } catch (_e) { void _e; }
+              }
+            }
+          } catch (_e) {
+            void _e;
+          }
+        }
         this.configuration = this.kernel.configuration;
         this.commands = this.kernel.commands;
         this.keybindings = this.kernel.keybindings;
@@ -1822,6 +2000,86 @@ int main() {
           this.contextKeys.setContext('editorLangId', this.lang);
           this.contextKeys.setContext('workbenchMode', this.mode);
           this.contextKeys.setContext('isGuidedLab', this.hasGuidedLab);
+        }
+
+        if (this.configuration && typeof this.configuration.registerSetting === 'function') {
+          this.configuration.registerSetting({
+            key: 'files.autoSave',
+            category: 'Files',
+            title: 'Auto Save',
+            description: 'Controls auto save of dirty editors (off, afterDelay, or onFocusChange).',
+            defaultValue: 'afterDelay',
+            schema: {
+              type: 'string',
+              enum: ['afterDelay', 'onFocusChange', 'off'],
+              default: 'afterDelay',
+              description: 'Controls auto save of dirty editors.'
+            }
+          });
+          this.configuration.registerSetting({
+            key: 'workbench.panel.defaultTab',
+            category: 'Workbench',
+            title: 'Default Bottom Panel Tab',
+            description: 'Default bottom drawer tab opened on startup.',
+            defaultValue: 'terminal',
+            schema: {
+              type: 'string',
+              enum: [
+                'terminal',
+                'output',
+                'problems',
+                'tests',
+                'stdin',
+                'ports',
+                'preview',
+                'network',
+                'inspector',
+                'observability',
+                'sql-results'
+              ],
+              default: 'terminal',
+              description: 'Default bottom drawer tab opened on startup.'
+            }
+          });
+
+          const coerceExcludeMap = (val) => {
+            if (!val || typeof val !== 'object' || Array.isArray(val)) return val;
+            const entries = Object.entries(val);
+            if (!entries.every(([, v]) => typeof v === 'boolean')) return val;
+            return entries.filter(([, enabled]) => enabled === true).map(([glob]) => glob.trim()).filter(Boolean);
+          };
+          const origSetWs = this.configuration.setWorkspaceSetting.bind(this.configuration);
+          this.configuration.setWorkspaceSetting = (key, val) =>
+            origSetWs(key, key === 'files.exclude' ? coerceExcludeMap(val) : val);
+          const origSetUser = this.configuration.setUserSetting.bind(this.configuration);
+          this.configuration.setUserSetting = (key, val) =>
+            origSetUser(key, key === 'files.exclude' ? coerceExcludeMap(val) : val);
+          if (typeof this.configuration.setOverrides === 'function') {
+            const origSetOv = this.configuration.setOverrides.bind(this.configuration);
+            this.configuration.setOverrides = (ov) => {
+              if (ov && typeof ov === 'object' && Object.prototype.hasOwnProperty.call(ov, 'files.exclude')) {
+                return origSetOv({ ...ov, 'files.exclude': coerceExcludeMap(ov['files.exclude']) });
+              }
+              return origSetOv(ov);
+            };
+          }
+          if (typeof this.configuration.loadWorkspaceSettingsJson === 'function') {
+            const origLoadWsJson = this.configuration.loadWorkspaceSettingsJson.bind(this.configuration);
+            this.configuration.loadWorkspaceSettingsJson = (rawJsonc, filePath) => {
+              if (rawJsonc && typeof rawJsonc === 'string' && rawJsonc.includes('"files.exclude"') && typeof mod.parseJsonc === 'function') {
+                const parsed = mod.parseJsonc(rawJsonc);
+                if (parsed && parsed.errors.length === 0 && parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
+                  const rawEx = parsed.value['files.exclude'];
+                  const coerced = coerceExcludeMap(rawEx);
+                  if (coerced !== rawEx) {
+                    const cloned = { ...parsed.value, 'files.exclude': coerced };
+                    return origLoadWsJson(JSON.stringify(cloned, null, 2), filePath);
+                  }
+                }
+              }
+              return origLoadWsJson(rawJsonc, filePath);
+            };
+          }
         }
 
         // Load persisted user settings from localStorage if available
@@ -1857,6 +2115,84 @@ int main() {
             title: 'Preferences: Open Settings (UI)',
             category: 'Preferences',
             handler: () => this.openSettings()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.files.save',
+            title: 'File: Save',
+            category: 'File',
+            handler: () => this.saveActiveFile({ manual: true })
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.files.saveAll',
+            title: 'File: Save All',
+            category: 'File',
+            handler: () => this.saveWorkspace()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.toggleSidebarVisibility',
+            title: 'View: Toggle Primary Side Bar Visibility',
+            category: 'View',
+            handler: () => this.toggleSidebar()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.togglePanel',
+            title: 'View: Toggle Panel Visibility',
+            category: 'View',
+            handler: () => this.togglePanel()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.terminal.toggleTerminal',
+            title: 'View: Toggle Terminal',
+            category: 'Terminal',
+            handler: () => this.toggleTerminal()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.terminal.new',
+            title: 'Terminal: Create New Terminal',
+            category: 'Terminal',
+            handler: () => this.createTerminalSession()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.view.explorer',
+            title: 'View: Show Explorer',
+            category: 'View',
+            handler: () => this.setSidebarView('explorer', { ensureOpen: true, focus: true })
+          });
+          this.commands.registerCommand({
+            id: 'workbench.view.search',
+            title: 'View: Show Search',
+            category: 'View',
+            handler: () => this.openSearchView()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.view.scm',
+            title: 'View: Show Source Control',
+            category: 'View',
+            handler: () => this.openScmView()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.actions.view.problems',
+            title: 'View: Focus Problems (Errors, Warnings, Infos)',
+            category: 'View',
+            handler: () => this.openProblemsPanel()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.gotoLine',
+            title: 'Go: Go to Line/Column...',
+            category: 'Go',
+            handler: () => this.promptGoToLine()
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.marker.next',
+            title: 'Go: Next Problem (Error, Warning, Info)',
+            category: 'Go',
+            handler: () => this.goToNextProblem(false)
+          });
+          this.commands.registerCommand({
+            id: 'workbench.action.marker.prev',
+            title: 'Go: Previous Problem (Error, Warning, Info)',
+            category: 'Go',
+            handler: () => this.goToNextProblem(true)
           });
           this.commands.registerCommand({
             id: 'workbench.action.openWorkspaceSettingsJson',
@@ -1923,10 +2259,23 @@ int main() {
         }
 
         if (this.keybindings) {
-          this.keybindings.registerKeybinding({
-            key: 'Mod+,',
-            command: 'workbench.action.openSettings'
-          });
+          const defaultBindings = [
+            { key: 'Mod+,', command: 'workbench.action.openSettings' },
+            { key: 'Mod+s', command: 'workbench.action.files.save' },
+            { key: 'Mod+b', command: 'workbench.action.toggleSidebarVisibility' },
+            { key: 'Mod+j', command: 'workbench.action.togglePanel' },
+            { key: 'Ctrl+`', command: 'workbench.action.terminal.toggleTerminal' },
+            { key: 'Ctrl+Shift+`', command: 'workbench.action.terminal.new' },
+            { key: 'Mod+Shift+e', command: 'workbench.view.explorer' },
+            { key: 'Mod+Shift+f', command: 'workbench.view.search' },
+            { key: 'Ctrl+Shift+g', command: 'workbench.view.scm' },
+            { key: 'Mod+Shift+m', command: 'workbench.actions.view.problems' },
+            { key: 'F8', command: 'workbench.action.marker.next' },
+            { key: 'Shift+F8', command: 'workbench.action.marker.prev' }
+          ];
+          for (const kb of defaultBindings) {
+            this.keybindings.registerKeybinding(kb);
+          }
         }
 
         if (this.configuration) {
@@ -1944,6 +2293,9 @@ int main() {
           this.plugins.onDidChangePlugins(() => {
             if (!this._destroyed) {
               this._refreshDrawerTabs();
+              if (typeof this._refreshSidebarPluginContributions === 'function') {
+                this._refreshSidebarPluginContributions();
+              }
             }
           });
         }
@@ -2088,30 +2440,410 @@ int main() {
       }
     }
 
-    _syncFilesToShellVfs() {
-      if (!this.shell || !this.shell.vfs) return;
-      const vfs = this.shell.vfs;
-      try {
-        if (typeof vfs.mkdirSync === 'function') {
-          vfs.mkdirSync('/workspace', { recursive: true });
-          for (const folder of (this.folders || [])) {
-            if (folder) vfs.mkdirSync('/workspace/' + folder.replace(/^\/+/, ''), { recursive: true });
-          }
+    _normalizeWorkspaceRelPath(rawPath) {
+      if (typeof rawPath !== 'string') return null;
+      const trimmed = rawPath.trim();
+      if (!trimmed || trimmed.includes('\0')) return null;
+      const unified = trimmed.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      if (!unified) return null;
+      const segments = unified.split('/');
+      const out = [];
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        if (!seg || seg === '.' || seg === '..' || seg.trim() === '') return null;
+        out.push(seg);
+      }
+      return out.length > 0 ? out.join('/') : null;
+    }
+
+    _vfsEnsureFolder(relFolder) {
+      const clean = this._normalizeWorkspaceRelPath(relFolder);
+      if (!clean) return;
+      if (this.shell && this.shell.vfs && typeof this.shell.vfs.mkdirSync === 'function') {
+        try {
+          this.shell.vfs.mkdirSync('/workspace/' + clean, { recursive: true });
+        } catch (err) {
+          this.logger.debug('VFS mkdirSync failed.', err);
         }
-        for (const [relPath, content] of Object.entries(this.files || {})) {
-          const clean = String(relPath).replace(/^\/+/, '');
-          if (!clean) continue;
-          const absPath = '/workspace/' + clean;
-          const slashIdx = absPath.lastIndexOf('/');
+      }
+      if (this.kernel && this.kernel.fs && typeof this.kernel.fs.mkdir === 'function') {
+        try {
+          const segments = clean.split('/');
+          let cur = '/workspace';
+          for (const seg of segments) {
+            if (!seg) continue;
+            cur += '/' + seg;
+            this.kernel.fs.mkdir(cur);
+          }
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+
+    _vfsWriteFile(relFile, content) {
+      const clean = this._normalizeWorkspaceRelPath(relFile);
+      if (!clean) return;
+      const text = String(content ?? '');
+      if (this.shell && this.shell.vfs) {
+        const vfs = this.shell.vfs;
+        const absPath = '/workspace/' + clean;
+        const slashIdx = absPath.lastIndexOf('/');
+        try {
           if (slashIdx > 0 && typeof vfs.mkdirSync === 'function') {
             vfs.mkdirSync(absPath.slice(0, slashIdx), { recursive: true });
           }
           if (typeof vfs.writeFileSync === 'function') {
-            vfs.writeFileSync(absPath, String(content ?? ''));
+            vfs.writeFileSync(absPath, text);
+          }
+        } catch (err) {
+          this.logger.debug('VFS writeFileSync failed.', err);
+        }
+      }
+      if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFile === 'function') {
+        try {
+          this.kernel.fs.writeFile('/workspace/' + clean, text);
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+
+    _clearDiagnosticsForPath(relPath, isFolder = false) {
+      const store = this._diagnosticsStore;
+      if (!store || typeof store.remove !== 'function') return;
+      const clean = String(relPath || '')
+        .trim()
+        .replace(/\\/g, '/')
+        .replace(/^\/+|\/+$/g, '')
+        .replace(/^(?:\.\/+)+/, '');
+      if (!clean) return;
+      let items = [];
+      if (isFolder) {
+        if (typeof store.getAll === 'function') {
+          const prefix = clean + '/';
+          items = store.getAll().filter((d) => d && typeof d.file === 'string' && (d.file === clean || d.file.startsWith(prefix)));
+        }
+      } else if (typeof store.getByFile === 'function') {
+        items = store.getByFile(clean);
+      } else if (typeof store.getAll === 'function') {
+        items = store.getAll().filter((d) => d && d.file === clean);
+      }
+      if (!items.length) return;
+      const run = () => {
+        for (let i = 0; i < items.length; i++) {
+          const d = items[i];
+          if (d && d.id) store.remove(d.id);
+        }
+      };
+      if (typeof store.batch === 'function') {
+        store.batch(run);
+      } else {
+        run();
+      }
+    }
+
+    _vfsDeleteFile(relFile) {
+      const clean = String(relFile || '').replace(/^\/+/, '');
+      if (!clean) return;
+      if (this.shell && this.shell.vfs) {
+        const vfs = this.shell.vfs;
+        const absPath = '/workspace/' + clean;
+        try {
+          if (typeof vfs.rmSync === 'function') {
+            vfs.rmSync(absPath, { force: true });
+          } else if (typeof vfs.unlinkSync === 'function') {
+            vfs.unlinkSync(absPath);
+          }
+        } catch (err) {
+          this.logger.debug('VFS file delete skipped.', err);
+        }
+      }
+      if (this.kernel && this.kernel.fs && typeof this.kernel.fs.deleteFile === 'function') {
+        try {
+          this.kernel.fs.deleteFile('/workspace/' + clean);
+        } catch (err) {
+          void err;
+        }
+      }
+      this._clearDiagnosticsForPath(clean, false);
+    }
+
+    _vfsDeleteFolder(relFolder) {
+      const clean = String(relFolder || '').replace(/^\/+|\/+$/g, '');
+      if (!clean) return;
+      if (this.shell && this.shell.vfs) {
+        const vfs = this.shell.vfs;
+        const absPath = '/workspace/' + clean;
+        try {
+          if (typeof vfs.rmSync === 'function') {
+            vfs.rmSync(absPath, { recursive: true, force: true });
+          } else if (typeof vfs.rmdirSync === 'function') {
+            vfs.rmdirSync(absPath);
+          }
+        } catch (err) {
+          this.logger.debug('VFS folder delete skipped.', err);
+        }
+      }
+      if (this.kernel && this.kernel.fs && typeof this.kernel.fs.deleteFile === 'function') {
+        try {
+          this.kernel.fs.deleteFile('/workspace/' + clean, { recursive: true });
+        } catch (err) {
+          void err;
+        }
+      }
+      this._clearDiagnosticsForPath(clean, true);
+    }
+
+    _vfsRenamePath(oldRel, newRel, isFolder = false) {
+      const cleanOld = String(oldRel || '').replace(/^\/+|\/+$/g, '');
+      const cleanNew = this._normalizeWorkspaceRelPath(newRel);
+      if (!cleanOld || !cleanNew || cleanOld === cleanNew) return;
+      if (this.shell && this.shell.vfs) {
+        const vfs = this.shell.vfs;
+        const absOld = '/workspace/' + cleanOld;
+        const absNew = '/workspace/' + cleanNew;
+        const slashIdx = absNew.lastIndexOf('/');
+        try {
+          if (slashIdx > 0 && typeof vfs.mkdirSync === 'function') {
+            vfs.mkdirSync(absNew.slice(0, slashIdx), { recursive: true });
+          }
+          if (typeof vfs.renameSync === 'function' && typeof vfs.existsSync === 'function' && vfs.existsSync(absOld)) {
+            vfs.renameSync(absOld, absNew);
+          } else if (!isFolder) {
+            if (typeof vfs.writeFileSync === 'function') {
+              vfs.writeFileSync(absNew, String(this.files[cleanNew] ?? ''));
+            }
+            if (typeof vfs.rmSync === 'function') {
+              vfs.rmSync(absOld, { force: true });
+            } else if (typeof vfs.unlinkSync === 'function') {
+              vfs.unlinkSync(absOld);
+            }
+          }
+        } catch (err) {
+          this.logger.debug('VFS rename fallback executed.', err);
+          if (isFolder) {
+            this._vfsDeleteFolder(cleanOld);
+            this._syncFilesToShellVfs();
+          } else {
+            this._vfsDeleteFile(cleanOld);
+            this._vfsWriteFile(cleanNew, this.files[cleanNew]);
           }
         }
-      } catch (err) {
-        this.logger.debug('Could not sync files to shell VFS.', err);
+      }
+      if (this.kernel && this.kernel.fs) {
+        try {
+          if (typeof this.kernel.fs.rename === 'function') {
+            this.kernel.fs.rename('/workspace/' + cleanOld, '/workspace/' + cleanNew);
+          } else if (typeof this.kernel.fs.loadRecord === 'function') {
+            this.kernel.fs.loadRecord(this.files, '/workspace');
+          }
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+
+    _pruneWorkspaceVfs(keepGitDir = false) {
+      if (this.shell && this.shell.vfs) {
+        const vfs = this.shell.vfs;
+        try {
+          if (typeof vfs.readdirSync === 'function' && typeof vfs.existsSync === 'function') {
+            if (!vfs.existsSync('/workspace')) {
+              if (typeof vfs.mkdirSync === 'function') vfs.mkdirSync('/workspace', { recursive: true });
+            } else {
+              const entries = vfs.readdirSync('/workspace') || [];
+              for (const entry of entries) {
+                const name = typeof entry === 'string' ? entry : (entry && entry.name);
+                if (!name) continue;
+                if (keepGitDir && name === '.git') continue;
+                const abs = '/workspace/' + name;
+                if (typeof vfs.rmSync === 'function') {
+                  vfs.rmSync(abs, { recursive: true, force: true });
+                } else if (typeof vfs.unlinkSync === 'function') {
+                  try { vfs.unlinkSync(abs); } catch (_e) { void _e; }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          this.logger.debug('Could not prune /workspace VFS.', err);
+        }
+      }
+      if (this.kernel && this.kernel.fs && typeof this.kernel.fs.deleteFile === 'function') {
+        const kfs = this.kernel.fs;
+        try {
+          if (typeof kfs.readdir === 'function') {
+            if (typeof kfs.exists === 'function' && !kfs.exists('/workspace')) {
+              if (typeof kfs.mkdir === 'function') kfs.mkdir('/workspace');
+            } else {
+              const kEntries = kfs.readdir('/workspace') || [];
+              for (const entry of kEntries) {
+                const name = typeof entry === 'string' ? entry : (entry && entry.name);
+                if (!name) continue;
+                if (keepGitDir && name === '.git') continue;
+                try {
+                  kfs.deleteFile('/workspace/' + name, { recursive: true });
+                } catch (_e) {
+                  void _e;
+                }
+              }
+            }
+          } else if (typeof kfs.toRecord === 'function') {
+            const existing = kfs.toRecord('/workspace') || {};
+            for (const rel of Object.keys(existing)) {
+              const clean = String(rel || '').replace(/^\/+/, '');
+              if (!clean) continue;
+              if (keepGitDir && (clean === '.git' || clean.startsWith('.git/'))) continue;
+              if (!Object.prototype.hasOwnProperty.call(this.files || {}, clean)) {
+                try {
+                  kfs.deleteFile('/workspace/' + clean, { recursive: true });
+                } catch (_e) {
+                  void _e;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+
+    _copyVfsTree(srcVfs, dstVfs, srcDir) {
+      if (!srcVfs || !dstVfs || srcVfs === dstVfs) return;
+      if (typeof srcVfs.existsSync !== 'function' || !srcVfs.existsSync(srcDir)) return;
+      const statFn = typeof srcVfs.lstatSync === 'function'
+        ? (p) => srcVfs.lstatSync(p)
+        : (typeof srcVfs.statSync === 'function' ? (p) => srcVfs.statSync(p) : null);
+      if (!statFn || typeof srcVfs.readdirSync !== 'function') return;
+
+      const walk = (curr) => {
+        let st = null;
+        try { st = statFn(curr); } catch (_e) { return; }
+        if (!st) return;
+        if (typeof st.isDirectory === 'function' && st.isDirectory()) {
+          if (typeof dstVfs.mkdirSync === 'function') {
+            try { dstVfs.mkdirSync(curr, { recursive: true }); } catch (_e) { void _e; }
+          }
+          let entries = [];
+          try { entries = srcVfs.readdirSync(curr) || []; } catch (_e) { entries = []; }
+          for (const entry of entries) {
+            const name = typeof entry === 'string' ? entry : (entry && entry.name);
+            if (!name || name === '.' || name === '..') continue;
+            const child = curr === '/' ? `/${name}` : `${curr}/${name}`;
+            walk(child);
+          }
+          return;
+        }
+        const slash = curr.lastIndexOf('/');
+        if (slash > 0 && typeof dstVfs.mkdirSync === 'function') {
+          try { dstVfs.mkdirSync(curr.slice(0, slash), { recursive: true }); } catch (_e) { void _e; }
+        }
+        if (typeof st.isSymbolicLink === 'function' && st.isSymbolicLink() && st.symlinkTarget && typeof dstVfs.symlinkSync === 'function') {
+          try {
+            dstVfs.symlinkSync(st.symlinkTarget, curr);
+            if (st.mode !== undefined && typeof dstVfs.chmodSync === 'function') {
+              dstVfs.chmodSync(curr, st.mode);
+            }
+            return;
+          } catch (_e) { void _e; }
+        }
+        if (typeof srcVfs.readFileSync === 'function' && typeof dstVfs.writeFileSync === 'function') {
+          try {
+            const raw = srcVfs.readFileSync(curr);
+            dstVfs.writeFileSync(curr, raw);
+            if (st.mode !== undefined && typeof dstVfs.chmodSync === 'function') {
+              dstVfs.chmodSync(curr, st.mode);
+            }
+          } catch (_e) { void _e; }
+        }
+      };
+
+      const cleanRoot = String(srcDir || '/workspace').replace(/\/+$/, '') || '/';
+      walk(cleanRoot);
+    }
+
+    _collectCleanVfsFolders(vfs, rootDir = '/workspace') {
+      const out = [];
+      if (!vfs || typeof vfs.readdirSync !== 'function' || typeof vfs.statSync !== 'function') return out;
+      const hiddenVfsSegRe = /(?:^|\/)(?:\.git|node_modules)(?:\/|$)/;
+      const walk = (dir, relPrefix) => {
+        let entries = [];
+        try { entries = vfs.readdirSync(dir) || []; } catch (_e) { return; }
+        for (const entry of entries) {
+          const name = typeof entry === 'string' ? entry : (entry && entry.name);
+          if (!name || name === '.' || name === '..' || name === '.git' || name === 'node_modules') continue;
+          const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
+          const rel = relPrefix ? `${relPrefix}/${name}` : name;
+          if (hiddenVfsSegRe.test(rel)) continue;
+          let isDir = false;
+          try { isDir = vfs.statSync(full).isDirectory(); } catch (_e) { isDir = false; }
+          if (isDir) {
+            out.push(rel);
+            walk(full, rel);
+          }
+        }
+      };
+      walk(rootDir, '');
+      return out;
+    }
+
+    _syncFilesToShellVfs(opts = {}) {
+      if (opts && opts.pruneExtraneous) {
+        this._pruneWorkspaceVfs(Boolean(opts.keepGitDir));
+      }
+      if (this.shell && this.shell.vfs) {
+        const vfs = this.shell.vfs;
+        try {
+          if (typeof vfs.mkdirSync === 'function') {
+            vfs.mkdirSync('/workspace', { recursive: true });
+            for (const folder of (this.folders || [])) {
+              const cf = this._normalizeWorkspaceRelPath(folder);
+              if (cf) vfs.mkdirSync('/workspace/' + cf, { recursive: true });
+            }
+          }
+          for (const [relPath, content] of Object.entries(this.files || {})) {
+            const clean = this._normalizeWorkspaceRelPath(relPath);
+            if (!clean) continue;
+            const absPath = '/workspace/' + clean;
+            const slashIdx = absPath.lastIndexOf('/');
+            if (slashIdx > 0 && typeof vfs.mkdirSync === 'function') {
+              vfs.mkdirSync(absPath.slice(0, slashIdx), { recursive: true });
+            }
+            if (typeof vfs.writeFileSync === 'function') {
+              vfs.writeFileSync(absPath, String(content ?? ''));
+            }
+          }
+        } catch (err) {
+          this.logger.debug('Could not sync files to shell VFS.', err);
+        }
+      }
+      if (this.kernel && this.kernel.fs) {
+        const kfs = this.kernel.fs;
+        try {
+          if (typeof kfs.mkdir === 'function') {
+            kfs.mkdir('/workspace');
+            for (const folder of (this.folders || [])) {
+              const cf = this._normalizeWorkspaceRelPath(folder);
+              if (cf) {
+                try { kfs.mkdir('/workspace/' + cf); } catch (_e) { void _e; }
+              }
+            }
+          }
+          if (typeof kfs.loadRecord === 'function') {
+            kfs.loadRecord(this.files || {}, '/workspace');
+          } else if (typeof kfs.writeFile === 'function') {
+            for (const [relPath, content] of Object.entries(this.files || {})) {
+              const clean = this._normalizeWorkspaceRelPath(relPath);
+              if (clean) {
+                try { kfs.writeFile('/workspace/' + clean, String(content ?? '')); } catch (_e) { void _e; }
+              }
+            }
+          }
+        } catch (err) {
+          this.logger.debug('Could not sync files to kernel VFS.', err);
+        }
       }
     }
 
@@ -2158,6 +2890,86 @@ int main() {
       return 'dark';
     }
 
+    _normalizeDrawerTabId(rawTab) {
+      const valid = new Set([
+        'problems', 'output', 'terminal', 'ports', 'tests',
+        'stdin', 'preview', 'network', 'inspector', 'observability', 'sql-results'
+      ]);
+      if (typeof rawTab === 'string' && valid.has(rawTab)) return rawTab;
+      return 'terminal';
+    }
+
+    _resolveConfiguredSqlDialect() {
+      if (!this.configuration || typeof this.configuration.inspect !== 'function') {
+        return null;
+      }
+      const defInsp = this.configuration.inspect('sql.defaultDialect');
+      const legInsp = this.configuration.inspect('sql.dialect');
+      const candidates = [
+        defInsp && defInsp.overrideValue,
+        legInsp && legInsp.overrideValue,
+        defInsp && defInsp.workspaceValue,
+        legInsp && legInsp.workspaceValue,
+        defInsp && defInsp.userValue,
+        legInsp && legInsp.userValue
+      ];
+      for (const cand of candidates) {
+        if (cand === 'sqlite' || cand === 'postgres') return cand;
+      }
+      return null;
+    }
+
+    _applyInitialWorkbenchConfig() {
+      if (!this.configuration) return;
+      if (!this._explicitThemeOption) {
+        const themeInsp = typeof this.configuration.inspect === 'function'
+          ? this.configuration.inspect('workbench.colorTheme')
+          : null;
+        if (themeInsp && themeInsp.effectiveSource !== 'default' && themeInsp.effectiveValue) {
+          const ct = themeInsp.effectiveValue;
+          if (ct === 'dark' || ct === 'light' || ct === 'high-contrast') {
+            this.themeOption = ct;
+          }
+        }
+      }
+      if (typeof this.options.sidebarVisible !== 'boolean' && typeof this.savedState?.sidebarVisible !== 'boolean') {
+        this.sidebarVisible = this.configuration.get('workbench.sideBar.visible', true) !== false;
+      }
+      if (!this._explicitDrawerTabOption && !this.savedState?.drawerTab) {
+        const defTabInsp = typeof this.configuration.inspect === 'function'
+          ? this.configuration.inspect('workbench.panel.defaultTab')
+          : null;
+        if (defTabInsp && defTabInsp.effectiveSource !== 'default' && defTabInsp.effectiveValue) {
+          const candidate = this._normalizeDrawerTabId(String(defTabInsp.effectiveValue));
+          if (candidate === 'sql-results' && this.lang !== 'sql') {
+            this.drawerTab = 'terminal';
+          } else {
+            this.drawerTab = candidate;
+          }
+        }
+      }
+      if (!this._explicitSqlDialectOption) {
+        const cfgDialect = this._resolveConfiguredSqlDialect();
+        if (cfgDialect === 'sqlite' || cfgDialect === 'postgres') {
+          this.sqlDialect = cfgDialect;
+          if (this.lang === 'sql') {
+            this.runtimeStatusText = `${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'} · Idle`;
+          }
+        }
+      }
+    }
+
+    _runInitialFolderOpenTasks() {
+      if (!Array.isArray(this._workspaceTasks) || this._workspaceTasks.length === 0) return;
+      for (const t of this._workspaceTasks) {
+        if (t && t.runOn === 'folderOpen' && (t.id || t.label)) {
+          this.runTask(t.id || t.label).catch((err) => {
+            this.logger.warn('folderOpen task failed.', err);
+          });
+        }
+      }
+    }
+
     setTheme(nextTheme) {
       const normalized = (nextTheme === 'light' || nextTheme === 'dark' || nextTheme === 'high-contrast' || nextTheme === 'auto')
         ? nextTheme
@@ -2165,7 +2977,19 @@ int main() {
       this.themeOption = normalized;
       this.theme = normalized;
       const resolved = this._resolvedTheme();
+      if (this.themes && typeof this.themes.setTheme === 'function' && !this._applyingThemeFromService) {
+        try {
+          this._applyingThemeFromService = true;
+          this.themes.setTheme(resolved === 'light' ? 'light' : resolved === 'high-contrast' ? 'high-contrast' : 'dark');
+        } catch (err) {
+          this.logger.debug('themes.setTheme failed.', err);
+        } finally {
+          this._applyingThemeFromService = false;
+        }
+      }
       if (this.container) {
+        const shellEl = this.container.querySelector('.codelab');
+        if (shellEl) shellEl.classList.add('is-switching-theme');
         this.container.classList.remove('codelab-workbench--dark', 'codelab-workbench--light', 'codelab-workbench--high-contrast');
         if (normalized === 'auto') {
           if (typeof this.container.removeAttribute === 'function') this.container.removeAttribute('data-theme');
@@ -2173,21 +2997,48 @@ int main() {
           this.container.setAttribute('data-theme', normalized);
           this.container.classList.add(`codelab-workbench--${normalized}`);
         }
-        const shellEl = this.container.querySelector('.codelab');
         if (shellEl) {
           shellEl.setAttribute('data-cl-theme', resolved);
+          if (typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.setAttribute === 'function') {
+            try {
+              document.documentElement.setAttribute('data-theme', resolved);
+            } catch (_err) {
+              void _err;
+            }
+          }
           if (normalized === 'auto') {
             if (typeof shellEl.removeAttribute === 'function') shellEl.removeAttribute('data-theme');
           } else {
             shellEl.setAttribute('data-theme', normalized);
+            if (this.themes && typeof this.themes.applyToElement === 'function' && shellEl.style && typeof shellEl.style.setProperty === 'function') {
+              try {
+                this.themes.applyToElement(shellEl);
+              } catch (err) {
+                this.logger.debug('themes.applyToElement failed.', err);
+              }
+            }
           }
+          if (shellEl.style) {
+            const schemeVal = resolved === 'light' ? 'light' : 'dark';
+            if (typeof shellEl.style.setProperty === 'function') {
+              shellEl.style.setProperty('color-scheme', schemeVal);
+            } else {
+              shellEl.style.colorScheme = schemeVal;
+            }
+          }
+          try {
+            void shellEl.offsetWidth;
+          } catch (err) {
+            void err;
+          }
+          shellEl.classList.remove('is-switching-theme');
         }
       }
       if (this.monaco && this.monaco.editor && typeof this.monaco.editor.setTheme === 'function') {
         const monacoTheme = resolved === 'light'
           ? 'codelab-light'
           : resolved === 'high-contrast'
-            ? 'hc-black'
+            ? 'codelab-hc-dark'
             : 'codelab-dark';
         try {
           this.monaco.editor.setTheme(monacoTheme);
@@ -2202,14 +3053,29 @@ int main() {
           this.logger.debug('_sqlWorkbenchEditor.setTheme failed.', err);
         }
       }
-      if (this.themes && typeof this.themes.setTheme === 'function' && !this._applyingThemeFromService) {
-        try {
-          this._applyingThemeFromService = true;
-          this.themes.setTheme(resolved === 'light' ? 'light' : resolved === 'high-contrast' ? 'high-contrast' : 'dark');
-        } catch (err) {
-          this.logger.debug('themes.setTheme failed.', err);
-        } finally {
-          this._applyingThemeFromService = false;
+      if (
+        !this._applyingConfigTheme &&
+        normalized !== 'auto' &&
+        this.configuration &&
+        typeof this.configuration.setUserSetting === 'function'
+      ) {
+        const curCfg = this.configuration.get('workbench.colorTheme', 'dark');
+        if (curCfg !== normalized) {
+          this._applyingConfigTheme = true;
+          try {
+            const hadWsOverride =
+              typeof this.configuration.inspect === 'function' &&
+              this.configuration.inspect('workbench.colorTheme').workspaceValue !== undefined;
+            this.configuration.setUserSetting('workbench.colorTheme', normalized);
+            if (hadWsOverride && typeof this.configuration.setWorkspaceSetting === 'function') {
+              this.configuration.setWorkspaceSetting('workbench.colorTheme', normalized);
+              this._persistWorkspaceSettingsFromUi();
+            }
+          } catch (err) {
+            this.logger.debug('Syncing workbench.colorTheme failed.', err);
+          } finally {
+            this._applyingConfigTheme = false;
+          }
         }
       }
       // Relay color-scheme/theme to preview iframes explicitly (Safari does not inherit color-scheme into iframes)
@@ -2237,13 +3103,176 @@ int main() {
       return `${STORAGE_PREFIX}${this.labId}`;
     }
 
+    _sessionStorageKey() {
+      return `sd-codelab-session-v1:${this.labId}`;
+    }
+
+    _getWorkspaceStorageMod() {
+      return root.CodeLabStorage || root.CodeLabWorkspaceStorage || null;
+    }
+
+    _registerWorkspaceMetaInStorage(metaOverrides = {}) {
+      if (!this.persistState) return null;
+      const wsMod = this._getWorkspaceStorageMod();
+      if (!wsMod || typeof wsMod.upsertWorkspaceMeta !== 'function') return null;
+      const fileCount = Object.keys(this.files || {}).length;
+      const repoSlug = (metaOverrides && metaOverrides.repo) || this.repo || (this.options && this.options.repo) || undefined;
+      const defaultKind = repoSlug
+        ? 'repo'
+        : (this._isBlankBase || String(this.labId || '').startsWith('workspace-') || String(this.labId || '').startsWith('blank-'))
+          ? 'blank'
+          : this.hasGuidedLab
+            ? 'guided'
+            : this.lang === 'sql'
+              ? 'sql'
+              : 'custom';
+      try {
+        return wsMod.upsertWorkspaceMeta({
+          labId: this.labId,
+          title: this.title || this.labId,
+          kind: defaultKind,
+          ...(typeof repoSlug === 'string' && repoSlug ? { repo: repoSlug } : {}),
+          fileCount,
+          updatedAt: Date.now(),
+          ...metaOverrides
+        });
+      } catch (err) {
+        this.logger.debug('upsertWorkspaceMeta skipped.', err);
+        return null;
+      }
+    }
+
+    _serializeGitState() {
+      const gs = this.shell && this.shell.gitState ? this.shell.gitState : this._gitState;
+      if (!gs || !gs.initialized) {
+        return { initialized: false };
+      }
+      const stagedEntries = [];
+      if (gs.staged instanceof Map) {
+        for (const [k, v] of gs.staged.entries()) {
+          stagedEntries.push([k, v === null ? null : String(v)]);
+        }
+      } else if (gs.staged && typeof gs.staged[Symbol.iterator] === 'function') {
+        for (const item of gs.staged) {
+          if (typeof item === 'string') {
+            const cur = Object.prototype.hasOwnProperty.call(this.files || {}, item) ? this.files[item] : null;
+            stagedEntries.push([item, cur]);
+          } else if (Array.isArray(item) && item.length >= 2) {
+            stagedEntries.push([item[0], item[1] === null ? null : String(item[1])]);
+          }
+        }
+      }
+      const branchHeads = {};
+      if (gs.branchHeads && typeof gs.branchHeads === 'object') {
+        for (const [bName, bInfo] of Object.entries(gs.branchHeads)) {
+          if (bInfo && typeof bInfo === 'object') {
+            branchHeads[bName] = {
+              headCommit: String(bInfo.headCommit || ''),
+              headSnapshot: { ...(bInfo.headSnapshot || {}) },
+              commits: Array.isArray(bInfo.commits) ? bInfo.commits.slice(0, 50) : []
+            };
+          }
+        }
+      }
+      return {
+        initialized: true,
+        branch: gs.branch || 'main',
+        branches: gs.branches ? Array.from(gs.branches) : [gs.branch || 'main'],
+        headCommit: gs.headCommit || '',
+        headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
+        stagedEntries,
+        commits: Array.isArray(gs.commits) ? gs.commits.slice(0, 50) : [],
+        branchHeads,
+        remoteUrl: gs.remoteUrl || null,
+        remotes: gs.remotes ? { ...gs.remotes } : {}
+      };
+    }
+
+    _syncGitHeadState(gs, nextSnapshot) {
+      if (!gs || typeof gs !== 'object') return {};
+      const scmMod = root.CodeLabScm;
+      if (scmMod && typeof scmMod.syncGitHead === 'function') {
+        return scmMod.syncGitHead(gs, nextSnapshot);
+      }
+      const src = nextSnapshot !== undefined
+        ? (nextSnapshot && typeof nextSnapshot === 'object' ? nextSnapshot : {})
+        : (gs.headFiles || gs.headSnapshot || {});
+      const synced = { ...src };
+      gs.headFiles = synced;
+      gs.headSnapshot = synced;
+      return synced;
+    }
+
+    _restoreSavedGitState(savedGit) {
+      const gs = this.shell && this.shell.gitState ? this.shell.gitState : this._gitState;
+      if (!gs) return;
+      if (!savedGit || !savedGit.initialized) {
+        if (this.shell && this.shell.vfs && typeof this.shell.vfs.rmSync === 'function') {
+          try {
+            this.shell.vfs.rmSync('/workspace/.git', { recursive: true, force: true });
+          } catch (_e) { void _e; }
+        }
+        gs.initialized = false;
+        gs.branch = 'main';
+        gs.branches = new Set(['main']);
+        gs.headCommit = '';
+        this._syncGitHeadState(gs, {});
+        if (gs.staged && typeof gs.staged.clear === 'function') gs.staged.clear();
+        if (gs.stagedFiles && typeof gs.stagedFiles.clear === 'function') gs.stagedFiles.clear();
+        gs.commits = [];
+        gs.remoteUrl = null;
+        gs.remotes = {};
+        return;
+      }
+      const branch = savedGit.branch || 'main';
+      if (this.shell && this.shell.vfs && typeof this.shell.vfs.mkdirSync === 'function' && typeof this.shell.vfs.writeFileSync === 'function') {
+        try {
+          this.shell.vfs.mkdirSync('/workspace/.git/refs/heads', { recursive: true });
+          this.shell.vfs.writeFileSync('/workspace/.git/HEAD', `ref: refs/heads/${branch}\n`);
+          if (savedGit.headCommit) {
+            this.shell.vfs.writeFileSync(`/workspace/.git/refs/heads/${branch}`, `${savedGit.headCommit}\n`);
+          }
+        } catch (_e) { void _e; }
+      }
+      gs.initialized = true;
+      gs.branch = branch;
+      gs.branches = new Set(Array.isArray(savedGit.branches) && savedGit.branches.length > 0 ? savedGit.branches : [branch]);
+      gs.headCommit = savedGit.headCommit || '';
+      const rawHead = (savedGit.headSnapshot && typeof savedGit.headSnapshot === 'object')
+        ? savedGit.headSnapshot
+        : ((savedGit.headFiles && typeof savedGit.headFiles === 'object') ? savedGit.headFiles : {});
+      this._syncGitHeadState(gs, rawHead);
+      if (gs.staged && typeof gs.staged.clear === 'function') gs.staged.clear();
+      if (gs.stagedFiles && typeof gs.stagedFiles.clear === 'function') gs.stagedFiles.clear();
+      if (Array.isArray(savedGit.stagedEntries) && gs.staged) {
+        if (gs.staged instanceof Map) {
+          for (const entry of savedGit.stagedEntries) {
+            if (Array.isArray(entry) && entry.length >= 2) {
+              gs.staged.set(entry[0], entry[1]);
+            }
+          }
+        } else if (typeof gs.staged.add === 'function') {
+          for (const entry of savedGit.stagedEntries) {
+            if (Array.isArray(entry) && entry[0]) gs.staged.add(entry[0]);
+          }
+        }
+      }
+      gs.commits = Array.isArray(savedGit.commits) ? savedGit.commits.slice() : [];
+      gs.branchHeads = (savedGit.branchHeads && typeof savedGit.branchHeads === 'object')
+        ? JSON.parse(JSON.stringify(savedGit.branchHeads))
+        : {};
+      gs.remoteUrl = savedGit.remoteUrl || null;
+      gs.remotes = savedGit.remotes && typeof savedGit.remotes === 'object' ? { ...savedGit.remotes } : {};
+    }
+
     _loadState() {
-      if (this.options && this.options.persistState === false) {
+      if (!this.persistState || (this.options && this.options.persistState === false)) {
         return {};
       }
+      let parsed = {};
       try {
         const raw = safeStorageGet(this._storageKey(), this.logger) || safeStorageGet('sd_codelab_' + this.labId, this.logger);
-        return raw ? JSON.parse(raw) : {};
+        parsed = raw ? JSON.parse(raw) : {};
       } catch (err) {
         this.logger.warn(
           `Ignoring unreadable saved state for "${this.labId}".`,
@@ -2251,6 +3280,31 @@ int main() {
         );
         return {};
       }
+      try {
+        const lsUpdatedAt = (parsed && typeof parsed.updatedAt === 'number' && Number.isFinite(parsed.updatedAt))
+          ? parsed.updatedAt
+          : 0;
+        if (typeof sessionStorage !== 'undefined' && sessionStorage && typeof sessionStorage.getItem === 'function') {
+          const ssRaw = sessionStorage.getItem(this._sessionStorageKey());
+          if (ssRaw) {
+            const ssParsed = JSON.parse(ssRaw);
+            const ssUpdatedAt = (ssParsed && typeof ssParsed.updatedAt === 'number' && Number.isFinite(ssParsed.updatedAt))
+              ? ssParsed.updatedAt
+              : 0;
+            if (ssUpdatedAt > lsUpdatedAt) {
+              const mirrorRaw = safeStorageGet('sd_codelab_' + this.labId, this.logger);
+              const mirrorObj = mirrorRaw ? JSON.parse(mirrorRaw) : null;
+              const mirrorUpdatedAt = (mirrorObj && typeof mirrorObj.updatedAt === 'number') ? mirrorObj.updatedAt : 0;
+              if (mirrorUpdatedAt > 0 && ssUpdatedAt >= mirrorUpdatedAt) {
+                return ssParsed;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        void err;
+      }
+      return parsed && typeof parsed === 'object' ? parsed : {};
     }
 
     _reportPersistenceFailure(cause) {
@@ -2275,10 +3329,21 @@ int main() {
       return error;
     }
 
-    _buildSavedStateSnapshot() {
+    _buildSavedStateSnapshot(opts = {}) {
       const key = `${this.mode}:${this.lang}`;
-      const customFiles = (this.savedState && this.savedState.customFiles) || {};
-      customFiles[key] = { ...this.files };
+      const autoSaveMode = this.configuration
+        ? this.configuration.get('files.autoSave', 'afterDelay')
+        : 'afterDelay';
+      const flushFiles = Boolean(opts && opts.flushFiles) || (
+        !(opts && opts.flushSnapshotOnly) &&
+        autoSaveMode !== 'off' &&
+        autoSaveMode !== 'onFocusChange'
+      );
+      if (flushFiles || !this._savedSnapshot) {
+        this._savedSnapshot = { ...(this.files || {}) };
+      }
+      const customFiles = Object.assign({}, (this.savedState && this.savedState.customFiles) || {});
+      customFiles[key] = { ...(this._savedSnapshot || {}) };
       const hasSnapshot = Object.assign(
         {},
         (this.savedState && this.savedState.hasSnapshot) || {},
@@ -2288,6 +3353,7 @@ int main() {
       const state = {
         mode: this.mode,
         lang: this.lang,
+        isBlankBase: Boolean(this._isBlankBase),
         activeStepIndex: this.activeStepIndex,
         completedSteps: completedArr,
         customFiles,
@@ -2298,103 +3364,263 @@ int main() {
         collapsedFolders: Array.from(this.collapsedFolders || []),
         explorerFolder: this.explorerFolder || '',
         explorerWidth: typeof this.explorerWidth === 'number' ? this.explorerWidth : undefined,
-        previewSplitWidth: this.previewSplitWidth || undefined
+        previewSplitWidth: this.previewSplitWidth || undefined,
+        activeSidebarView: this.activeSidebarView || 'explorer',
+        sidebarVisible: typeof this.sidebarVisible === 'boolean' ? this.sidebarVisible : true,
+        panelVisible: typeof this.panelVisible === 'boolean' ? this.panelVisible : true,
+        panelHeight: typeof this.panelHeight === 'number' ? this.panelHeight : undefined,
+        panelMaximized: Boolean(this.panelMaximized),
+        drawerTab: this.drawerTab || undefined,
+        gitState: this._serializeGitState(),
+        updatedAt: Date.now()
       };
       this.savedState = state;
       return { state, completedArr };
     }
 
-    _scheduleSaveState(delayMs = 180) {
-      this._buildSavedStateSnapshot();
-      if (this.options && this.options.persistState === false) {
+    _scheduleSaveState(delayMs = -1) {
+      if (!this.persistState || (this.options && this.options.persistState === false)) {
+        this._buildSavedStateSnapshot({ flushFiles: true });
         this.saveStatusState = 'saved';
         this.saveStatusError = null;
         this._updateStatusBar();
         return;
       }
-      if (this.configuration && this.configuration.get('files.autoSave', 'afterDelay') === 'off') {
+      const autoSaveMode = this.configuration
+        ? this.configuration.get('files.autoSave', 'afterDelay')
+        : 'afterDelay';
+      if (autoSaveMode === 'off' || autoSaveMode === 'onFocusChange') {
+        this.saveStatusState = 'dirty';
+        this._updateStatusBar();
         return;
       }
-      const effectiveDelay = (delayMs === 180 && this.configuration)
-        ? Math.max(50, Number(this.configuration.get('files.autoSaveDelay', 180)) || 180)
-        : delayMs;
+      this._buildSavedStateSnapshot({ flushFiles: true });
+      const configuredDelay = this.configuration
+        ? Math.max(50, Math.min(30000, Number(this.configuration.get('files.autoSaveDelay', 300)) || 300))
+        : 180;
+      const effectiveDelay = delayMs >= 0 ? delayMs : configuredDelay;
       if (this._saveDebounceTimer) {
         clearTimeout(this._saveDebounceTimer);
       }
       this._saveDebounceTimer = setTimeout(() => {
         this._saveDebounceTimer = null;
         if (!this._destroyed) {
-          this._saveState();
+          this._saveState({ flushFiles: true });
         }
       }, effectiveDelay);
+    }
+
+    _markFileDirty(filename) {
+      if (!filename) return;
+      if (!this._dirtyFiles) this._dirtyFiles = new Set();
+      const wasDirty = this._dirtyFiles.has(filename);
+      this._dirtyFiles.add(filename);
+      if (!wasDirty) {
+        this._renderFileLists();
+        this._updateStatusBar();
+      }
+    }
+
+    _clearFileDirty(filename) {
+      if (!this._dirtyFiles || this._dirtyFiles.size === 0) return;
+      let changed = false;
+      if (filename === undefined || filename === null) {
+        changed = this._dirtyFiles.size > 0;
+        this._dirtyFiles.clear();
+      } else {
+        changed = this._dirtyFiles.delete(filename);
+      }
+      if (changed) {
+        this._renderFileLists();
+        this._updateStatusBar();
+      }
+    }
+
+    saveActiveFile(opts = {}) {
+      const manual = !opts || opts.manual !== false;
+      const saveAll = Boolean(opts && opts.all);
+      const targetFile = (!saveAll && this.activeTab !== '__settings__' && this.activeFile) ? this.activeFile : null;
+      let formatPromise = null;
+      if (manual && targetFile) {
+        const formatOnSave = this.configuration
+          ? Boolean(this.configuration.get('editor.formatOnSave', false))
+          : false;
+        if (formatOnSave && typeof this.formatActiveDocument === 'function') {
+          try {
+            formatPromise = this.formatActiveDocument();
+          } catch (err) {
+            this.logger.debug('formatOnSave skipped.', err);
+          }
+        }
+      }
+      if (targetFile && this.files[targetFile] !== undefined) {
+        this._syncDotCodelabConfig();
+        this._vfsWriteFile(targetFile, this.files[targetFile]);
+      } else {
+        this._syncFilesToShellVfs();
+      }
+      if (!this._savedSnapshot) this._savedSnapshot = {};
+      const autoSaveMode = this.configuration
+        ? this.configuration.get('files.autoSave', 'afterDelay')
+        : 'afterDelay';
+      if (saveAll || !targetFile || (autoSaveMode !== 'off' && autoSaveMode !== 'onFocusChange')) {
+        this._savedSnapshot = { ...(this.files || {}) };
+        this._clearFileDirty();
+        this._saveState({ flushFiles: true });
+      } else {
+        if (this.files[targetFile] !== undefined) {
+          this._savedSnapshot[targetFile] = this.files[targetFile];
+        } else {
+          delete this._savedSnapshot[targetFile];
+        }
+        this._clearFileDirty(targetFile);
+        this._saveState({ flushSnapshotOnly: true });
+      }
+      if (formatPromise && typeof formatPromise.then === 'function') {
+        formatPromise.then(() => {
+          if (this._destroyed) return;
+          if (targetFile && this.files[targetFile] !== undefined) {
+            this._vfsWriteFile(targetFile, this.files[targetFile]);
+            if (this._savedSnapshot) this._savedSnapshot[targetFile] = this.files[targetFile];
+          }
+          this._clearFileDirty(saveAll ? undefined : targetFile);
+          this._saveState({ flushSnapshotOnly: true });
+        }).catch((err) => {
+          this.logger.debug('Async formatOnSave completion skipped.', err);
+        });
+      }
+      if (manual && typeof this._showToast === 'function' && targetFile) {
+        this._showToast(`Saved ${targetFile}`);
+      }
+      return true;
+    }
+
+    saveFile(filename) {
+      const clean = this._normalizeWorkspaceRelPath(filename || this.activeFile || '');
+      if (!clean) return this.saveActiveFile({ manual: true });
+      if (this.files[clean] !== undefined) {
+        this._vfsWriteFile(clean, this.files[clean]);
+        if (!this._savedSnapshot) this._savedSnapshot = {};
+        this._savedSnapshot[clean] = this.files[clean];
+      }
+      this._clearFileDirty(clean);
+      this._saveState({ flushSnapshotOnly: true });
+      return true;
+    }
+
+    saveAllFiles() {
+      return this.saveActiveFile({ manual: true, all: true });
+    }
+
+    saveWorkspace() {
+      return this.saveActiveFile({ manual: true, all: true });
     }
 
     flushState() {
       if (this._saveDebounceTimer) {
         clearTimeout(this._saveDebounceTimer);
         this._saveDebounceTimer = null;
-        this._saveState();
+        this._saveState({ flushFiles: true });
       }
     }
 
-    _hydrateFromAsyncStorage() {
-      if (this.options && this.options.persistState === false) return;
-      if (this.savedState && Object.keys(this.savedState).length > 0) return;
-      if (!root.CodeLabStorage || typeof root.CodeLabStorage.createWorkspaceStorage !== 'function') return;
+    _hydrateFromAsyncStorage(opts = {}) {
+      if (!this.persistState || (this.options && this.options.persistState === false)) {
+        return Promise.resolve(false);
+      }
+      const wsMod = this._getWorkspaceStorageMod();
+      if (!wsMod || typeof wsMod.createWorkspaceStorage !== 'function') {
+        return Promise.resolve(false);
+      }
+      const forceHydrate = Boolean(opts && opts.force);
+      const hasSavedKeys = Boolean(this.savedState && Object.keys(this.savedState).length > 0);
+      const savedUpdatedAt = (hasSavedKeys && typeof this.savedState.updatedAt === 'number' && Number.isFinite(this.savedState.updatedAt))
+        ? this.savedState.updatedAt
+        : 0;
+      const hydrationStartSeq = this._userEditSeq || 0;
+      const targetLabId = this.labId;
       try {
         if (!this._idbStorage) {
-          this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
+          this._idbStorage = wsMod.createWorkspaceStorage();
         }
         const loader = this._idbStorage && typeof this._idbStorage.loadProject === 'function'
-          ? this._idbStorage.loadProject(this.labId)
-          : (this._idbStorage && typeof this._idbStorage.load === 'function' ? this._idbStorage.load(this.labId) : null);
-        if (!loader || typeof loader.then !== 'function') return;
-        Promise.resolve(loader).then((project) => {
-          if (this._destroyed || !project) return;
+          ? this._idbStorage.loadProject(targetLabId)
+          : (this._idbStorage && typeof this._idbStorage.load === 'function' ? this._idbStorage.load(targetLabId) : null);
+        if (!loader || typeof loader.then !== 'function') return Promise.resolve(false);
+        return Promise.resolve(loader).then((project) => {
+          if (this._destroyed || !project || this.labId !== targetLabId) return false;
           const hydratedFiles = project.files && typeof project.files === 'object' ? project.files : null;
-          if (!hydratedFiles || Object.keys(hydratedFiles).length === 0) return;
-          // Only hydrate if user hasn't started typing over the fresh starter state
-          if (this._saveDebounceTimer) return;
-          this.files = { ...this.files, ...hydratedFiles };
+          if (!hydratedFiles || Object.keys(hydratedFiles).length === 0) return false;
+          const projUpdatedAt = (typeof project.updatedAt === 'number' && Number.isFinite(project.updatedAt))
+            ? project.updatedAt
+            : 0;
+          if (!forceHydrate && hasSavedKeys) {
+            if (projUpdatedAt <= 0 || (savedUpdatedAt > 0 && projUpdatedAt <= savedUpdatedAt)) {
+              return false;
+            }
+          }
+          // Never clobber post-mount user or programmatic content edits (T2-F11-06)
+          if (
+            !forceHydrate && (
+              (this._userEditSeq || 0) !== hydrationStartSeq ||
+              this._saveDebounceTimer ||
+              (this._dirtyFiles && this._dirtyFiles.size > 0)
+            )
+          ) {
+            return false;
+          }
+          this.files = (hasSavedKeys || forceHydrate) ? { ...hydratedFiles } : { ...this.files, ...hydratedFiles };
+          this._savedSnapshot = { ...this.files };
           for (const f of Object.keys(this.files)) {
             const parts = f.split('/');
             for (let i = 1; i < parts.length; i++) {
               this.folders.add(parts.slice(0, i).join('/'));
             }
-            if (!this.openTabs.includes(f)) this.openTabs.push(f);
-            if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
-              try {
-                if (parts.length > 1 && typeof this.shell.vfs.mkdirSync === 'function') {
-                  this.shell.vfs.mkdirSync('/workspace/' + parts.slice(0, -1).join('/'), { recursive: true });
-                }
-                this.shell.vfs.writeFileSync('/workspace/' + f, String(this.files[f] ?? ''));
-              } catch (err) {
-                this.logger.debug('Async hydration VFS sync skipped.', err);
-              }
+            if ((!hasSavedKeys || forceHydrate) && !this.openTabs.includes(f) && this.openTabs.length < 8) {
+              this.openTabs.push(f);
             }
           }
+          if (!this.activeFile && this.openTabs.length > 0) {
+            this.activeFile = this._pickDefaultFile() || this.openTabs[0];
+            if (this.activeTab !== '__settings__') this.activeTab = this.activeFile;
+          }
+          this._syncFilesToShellVfs({ pruneExtraneous: forceHydrate });
+          this._buildSavedStateSnapshot({ flushFiles: true });
           this._syncAllModels();
+          this._syncDotCodelabConfig();
+          this._lintAllWorkspaceFiles();
           this._renderFileLists();
-          this._renderTabs();
           this._syncActiveFileToView();
           this._emitEvent('hydrated', { labId: this.labId, files: Object.keys(hydratedFiles) });
+          return true;
         }).catch((err) => {
           this.logger.debug('Async WorkspaceStorage hydration skipped.', err);
+          return false;
         });
       } catch (err) {
         this.logger.debug('WorkspaceStorage hydration initialization skipped.', err);
+        return Promise.resolve(false);
       }
     }
 
-    _saveState() {
+    _saveState(opts = {}) {
       try {
         if (this._saveDebounceTimer) {
           clearTimeout(this._saveDebounceTimer);
           this._saveDebounceTimer = null;
         }
-        const { state, completedArr } = this._buildSavedStateSnapshot();
-        if (this.options && this.options.persistState === false) {
-          this.saveStatusState = 'saved';
+        const autoSaveMode = this.configuration
+          ? this.configuration.get('files.autoSave', 'afterDelay')
+          : 'afterDelay';
+        const shouldFlushFiles = Boolean(opts && opts.flushFiles) || (
+          !(opts && opts.flushSnapshotOnly) &&
+          autoSaveMode !== 'off' &&
+          autoSaveMode !== 'onFocusChange'
+        );
+        const { state, completedArr } = this._buildSavedStateSnapshot(opts);
+        if (!this.persistState || (this.options && this.options.persistState === false)) {
+          if (shouldFlushFiles) this._clearFileDirty();
+          this.saveStatusState = (this._dirtyFiles && this._dirtyFiles.size > 0) ? 'dirty' : 'saved';
           this.saveStatusError = null;
           this._updateStatusBar();
           return;
@@ -2403,13 +3629,16 @@ int main() {
         const serialized = JSON.stringify(state);
         safeStorageSet._lastError = null;
         const recordErr = (err) => { safeStorageSet._lastError = err; };
+        const savedAt = (typeof state.updatedAt === 'number' && Number.isFinite(state.updatedAt))
+          ? state.updatedAt
+          : Date.now();
         const hostMirrorSummary = JSON.stringify({
           mode: state.mode,
           lang: state.lang,
           activeStepIndex: state.activeStepIndex,
           completedSteps: completedArr,
           activeFile: state.activeFile,
-          updatedAt: Date.now()
+          updatedAt: savedAt
         });
         const persisted = [
           safeStorageSet(this._storageKey(), serialized, this.logger, recordErr),
@@ -2417,24 +3646,34 @@ int main() {
           safeStorageSet('codelab_progress_' + this.labId, JSON.stringify(completedArr), this.logger, recordErr),
           safeStorageSet('sd_codelab_' + this.labId, hostMirrorSummary, this.logger, recordErr)
         ];
-        if (root.CodeLabStorage && typeof root.CodeLabStorage.createWorkspaceStorage === 'function') {
+        try {
+          if (typeof sessionStorage !== 'undefined' && sessionStorage && typeof sessionStorage.setItem === 'function') {
+            sessionStorage.setItem(this._sessionStorageKey(), serialized);
+          }
+        } catch (err) {
+          void err;
+        }
+        const wsMod = this._getWorkspaceStorageMod();
+        if (wsMod && typeof wsMod.createWorkspaceStorage === 'function') {
           try {
             if (!this._idbStorage) {
-              this._idbStorage = root.CodeLabStorage.createWorkspaceStorage();
+              this._idbStorage = wsMod.createWorkspaceStorage();
             }
-            const filesSnapshot = { ...(this.files || {}) };
+            const filesSnapshot = { ...(this._savedSnapshot || {}) };
             const stateSnapshot = state;
+            const targetLabId = this.labId;
+            const targetTitle = this.title || this.labId;
             this._idbSaveChain = Promise.resolve(this._idbSaveChain).then(() => {
               if (this._idbStorage && typeof this._idbStorage.saveProject === 'function') {
                 return this._idbStorage.saveProject({
-                  id: this.labId,
-                  name: this.title || this.labId,
+                  id: targetLabId,
+                  name: targetTitle,
                   files: filesSnapshot,
-                  updatedAt: Date.now()
+                  updatedAt: savedAt
                 });
               }
               if (this._idbStorage && typeof this._idbStorage.save === 'function') {
-                return this._idbStorage.save(this.labId, stateSnapshot);
+                return this._idbStorage.save(targetLabId, stateSnapshot);
               }
               return undefined;
             }).catch((err) => {
@@ -2444,13 +3683,22 @@ int main() {
             this.logger.debug('WorkspaceStorage initialization skipped.', err);
           }
         }
+        if (!persisted.includes(false)) {
+          const fileCount = Object.keys(this._savedSnapshot || this.files || {}).length;
+          if (fileCount > 0 || this._isBlankBase || Boolean(this.repo) || (this.labId && (String(this.labId).startsWith('workspace-') || String(this.labId).startsWith('blank-')))) {
+            this._registerWorkspaceMetaInStorage({ updatedAt: savedAt, fileCount });
+          }
+        }
         if (persisted.includes(false)) {
           this._reportPersistenceFailure(safeStorageSet._lastError);
         } else {
-          this.saveStatusState = 'saved';
+          if (shouldFlushFiles) {
+            this._clearFileDirty();
+          }
+          this.saveStatusState = (this._dirtyFiles && this._dirtyFiles.size > 0) ? 'dirty' : 'saved';
           this.saveStatusError = null;
           this._updateStatusBar();
-          this._emitEvent('save-state', { status: 'saved', state: 'saved', labId: this.labId });
+          this._emitEvent('save-state', { status: this.saveStatusState, state: this.saveStatusState, labId: this.labId });
         }
       } catch (err) {
         this.logger.error(
@@ -2526,13 +3774,17 @@ int main() {
     }
 
     _updateStatusBar() {
+      if (!this.container) return;
       const dotEl = this.container.querySelector('#cl-status-dot');
       const textEl = this.container.querySelector('#cl-status-text');
       const fileEl = this.container.querySelector('#cl-status-file');
       const saveEl = this.container.querySelector('#cl-status-save');
       const durEl = this.container.querySelector('#cl-status-duration');
       const curEl = this.container.querySelector('#cl-status-cursor');
+      const indentEl = this.container.querySelector('#cl-status-indent');
       const langEl = this.container.querySelector('#cl-status-lang');
+      const scmTextEl = this.container.querySelector('#cl-status-scm-text');
+      const probsTextEl = this.container.querySelector('#cl-status-problems-text');
 
       if (dotEl) {
         dotEl.className = 'codelab-statusbar__dot' +
@@ -2540,7 +3792,34 @@ int main() {
            this.runtimeStatusState === 'error' ? ' is-error' : '');
       }
       if (textEl) textEl.textContent = this.runtimeStatusText;
-      if (fileEl) fileEl.textContent = this.activeFile || 'workspace';
+      if (fileEl) {
+        fileEl.textContent = this.activeTab === '__settings__'
+          ? 'Settings'
+          : (this.activeFile || 'workspace');
+      }
+      if (scmTextEl) {
+        const gs = typeof this._getGitState === 'function' ? this._getGitState() : (this.shell && this.shell.gitState);
+        const gitBranch = gs && gs.initialized
+          ? (gs.branch || 'main')
+          : 'git';
+        scmTextEl.textContent = gitBranch;
+      }
+      if (typeof this._updateScmActivityBadge === 'function') {
+        this._updateScmActivityBadge();
+      }
+      if (probsTextEl) {
+        let errs = 0;
+        let warns = 0;
+        if (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function') {
+          const storeItems = this._diagnosticsStore.getAll();
+          for (const p of storeItems) {
+            if (p && p.severity === 'error') errs++;
+            else if (p && p.severity === 'warning') warns++;
+          }
+        }
+        probsTextEl.textContent = `⊗ ${errs} ⚠ ${warns}`;
+      }
+      const hasDirty = Boolean((this._dirtyFiles && this._dirtyFiles.size > 0) || this.saveStatusState === 'dirty');
       if (saveEl) {
         if (this.saveStatusState === 'failed') {
           saveEl.style.display = 'inline-flex';
@@ -2551,6 +3830,12 @@ int main() {
             : 'localStorage is unavailable or quota exceeded';
           saveEl.setAttribute('title', `State is stored in memory only: ${reason}`);
           saveEl.setAttribute('data-save-state', 'failed');
+        } else if (hasDirty) {
+          saveEl.style.display = 'inline-flex';
+          saveEl.className = 'codelab-statusbar__item codelab-statusbar__save is-dirty';
+          saveEl.textContent = '● Unsaved';
+          saveEl.setAttribute('title', 'Unsaved changes (Ctrl/Cmd+S to save)');
+          saveEl.setAttribute('data-save-state', 'dirty');
         } else {
           saveEl.style.display = 'none';
           saveEl.className = 'codelab-statusbar__item codelab-statusbar__save';
@@ -2570,24 +3855,44 @@ int main() {
           durEl.style.display = 'none';
         }
       }
-      if (curEl && this.cursorPos) {
-        curEl.textContent = `Ln ${this.cursorPos.lineNumber || 1}, Col ${this.cursorPos.column || 1}`;
+      if (curEl) {
+        const showCursor = Boolean(this.activeFile && this.openTabs && this.openTabs.length > 0 && this.activeTab !== '__settings__');
+        curEl.style.display = showCursor ? 'inline-flex' : 'none';
+        if (showCursor && this.cursorPos) {
+          curEl.textContent = `Ln ${this.cursorPos.lineNumber || 1}, Col ${this.cursorPos.column || 1}`;
+        }
+      }
+      if (indentEl) {
+        const tabSize = this.configuration
+          ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+          : 2;
+        indentEl.textContent = `Spaces: ${tabSize}`;
       }
       if (langEl) {
-        langEl.textContent = this.lang === 'sql'
-          ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18')
-          : this.lang === 'cpp'
-            ? 'C++20 (Clang/WASI)'
-            : this.lang === 'py'
-              ? 'Python 3.12 (CPython WASI)'
-              : this.lang === 'ts'
-                ? 'TypeScript 5.x'
-                : 'JavaScript (CJS/ESM)';
+        if (this.activeTab === '__settings__') {
+          langEl.textContent = 'Settings (UI)';
+        } else {
+          langEl.textContent = this.lang === 'sql'
+            ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18')
+            : this.lang === 'cpp'
+              ? 'C++20 (Clang/WASI)'
+              : this.lang === 'py'
+                ? 'Python 3.12 (CPython WASI)'
+                : this.lang === 'ts'
+                  ? 'TypeScript 5.x'
+                  : 'JavaScript (CJS/ESM)';
+        }
+      }
+      if (typeof this._updateScmActivityBadge === 'function') {
+        this._updateScmActivityBadge();
       }
       this._updateTelemetryHud();
     }
 
     _getBaseFilesForModeAndLang(mode, lang) {
+      if (this._hasExplicitFilesProp && !this.hasGuidedLab && this.referenceFiles && Object.keys(this.referenceFiles).length > 0) {
+        return { ...this.referenceFiles };
+      }
       const baseJsSolution = { ...this.referenceFiles };
       const baseJsStarter = {
         ...this.referenceFiles,
@@ -2706,6 +4011,25 @@ int main() {
       return implFile || names.find(f => !f.endsWith('.md')) || names[0] || '';
     }
 
+    _pickPrimaryCloneFile(filePaths) {
+      const list = Array.isArray(filePaths) ? filePaths.filter(Boolean) : Object.keys(this.files || {});
+      if (list.length === 0) return '';
+      const priority = [
+        /^readme\.md$/i,
+        /^src\/index\.(ts|tsx|js|jsx)$/i,
+        /^src\/main\.(ts|tsx|js|jsx|py|cpp)$/i,
+        /^index\.(ts|tsx|js|jsx|html)$/i,
+        /^main\.(ts|js|py|cpp|sql)$/i,
+        /^app\.(ts|tsx|js|jsx|py)$/i,
+        /^package\.json$/i,
+      ];
+      for (const re of priority) {
+        const hit = list.find(p => re.test(p));
+        if (hit) return hit;
+      }
+      return list.find(p => !p.startsWith('.')) || list[0] || '';
+    }
+
     _findEntryFile(kind) {
       const names = Object.keys(this.files);
       if (this.lang === 'sql') {
@@ -2813,7 +4137,7 @@ int main() {
         ctrlCBtn.classList.toggle('is-running', Boolean(this.isRunning));
         ctrlCBtn.title = this.isRunning
           ? 'Send Ctrl+C — interrupt the running command'
-          : 'Send Ctrl+C (clears the current input line)';
+          : 'Send Ctrl+C — interrupt or cancel current input';
       }
       this.container.querySelectorAll('[data-cl-action="run-code"], [data-cl-action="run-entry"], [data-cl-action="run-active-file"], [data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
         btn.disabled = this.isRunning;
@@ -2903,9 +4227,13 @@ int main() {
 
       const isSingleSql = this._isSingleFileSqlMode();
       const showSqlTab = Boolean(this.lang === 'sql' || this.lastSqlResult);
-      const problemsCount = this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function'
-        ? this._diagnosticsStore.getAll().length
-        : 0;
+      let problemsCount = 0;
+      let hasProblemErrors = false;
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function') {
+        const allDiag = this._diagnosticsStore.getAll();
+        problemsCount = allDiag.length;
+        hasProblemErrors = allDiag.some(d => d && d.severity === 'error');
+      }
 
       const appendDrawerTabHtml = (parent, pos, htmlSnippet) => {
         if (parent && typeof parent.insertAdjacentHTML === 'function') {
@@ -2928,20 +4256,37 @@ int main() {
       }
 
       let probTab = drawerTabs.querySelector('[data-cl-drawertab="problems"]');
+      const probBadgeClass = problemsCount > 0 ? (hasProblemErrors ? 'has-errors' : 'has-warnings') : '';
       if (!probTab) {
         const termTab = drawerTabs.querySelector('[data-cl-drawertab="terminal"]');
         if (termTab && typeof termTab.insertAdjacentHTML === 'function') {
-          termTab.insertAdjacentHTML('afterend', `
+          termTab.insertAdjacentHTML('beforebegin', `
             <button type="button" role="tab" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
               ${CL_ICONS.warning}
               <span>Problems</span>
-              <span class="codelab-badge ${problemsCount > 0 ? 'codelab-badge--warn' : ''}" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:${problemsCount > 0 ? '#cca700' : 'rgba(255,255,255,0.1)'};color:#fff;">${problemsCount}</span>
+              <span class="codelab-badge ${probBadgeClass}" id="cl-problems-count">${problemsCount}</span>
             </button>
           `);
         }
       } else {
         const countSpan = probTab.querySelector('#cl-problems-count');
-        if (countSpan) countSpan.textContent = String(problemsCount);
+        if (countSpan) {
+          countSpan.textContent = String(problemsCount);
+          countSpan.className = `codelab-badge ${probBadgeClass}`.trim();
+        }
+      }
+
+      let outputTab = drawerTabs.querySelector('[data-cl-drawertab="output"]');
+      if (!outputTab) {
+        const anchorProb = drawerTabs.querySelector('[data-cl-drawertab="problems"]');
+        if (anchorProb && typeof anchorProb.insertAdjacentHTML === 'function') {
+          anchorProb.insertAdjacentHTML('afterend', `
+            <button type="button" role="tab" aria-selected="${this.drawerTab === 'output'}" class="codelab-drawer__tab ${this.drawerTab === 'output' ? 'active' : ''}" data-cl-drawertab="output" title="Workbench &amp; Runtime Output" style="${isSingleSql ? 'display:none' : ''}">
+              ${CL_ICONS.code}
+              <span>Output</span>
+            </button>
+          `);
+        }
       }
 
       let stdinTab = drawerTabs.querySelector('[data-cl-drawertab="stdin"]');
@@ -2968,13 +4313,15 @@ int main() {
         `);
       }
 
+      const activeBottomPluginIds = new Set();
       if (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function') {
         for (const panel of this.plugins.panels.values()) {
-          if (!panel || !panel.id) continue;
+          if (!panel || !panel.id || panel.location === 'sidebar') continue;
+          activeBottomPluginIds.add(panel.id);
           const existingPanelTab = drawerTabs.querySelector(`[data-cl-drawertab="${panel.id}"]`);
           if (!existingPanelTab) {
             appendDrawerTabHtml(drawerTabs, 'beforeend', `
-              <button type="button" role="tab" aria-selected="${this.drawerTab === panel.id}" class="codelab-drawer__tab ${this.drawerTab === panel.id ? 'active' : ''}" data-cl-drawertab="${escapeHtml(panel.id)}">
+              <button type="button" role="tab" aria-selected="${this.drawerTab === panel.id}" class="codelab-drawer__tab ${this.drawerTab === panel.id ? 'active' : ''}" data-cl-drawertab="${escapeHtml(panel.id)}" data-cl-plugin-tab="true">
                 <span>${escapeHtml(panel.title || panel.id)}</span>
               </button>
             `);
@@ -2982,7 +4329,19 @@ int main() {
         }
       }
 
-      const noisyTabs = ['terminal', 'stdin', 'ports', 'preview', 'network', 'inspector'];
+      if (typeof drawerTabs.querySelectorAll === 'function') {
+        drawerTabs.querySelectorAll('[data-cl-plugin-tab="true"]').forEach(el => {
+          const id = el.getAttribute('data-cl-drawertab');
+          if (id && !activeBottomPluginIds.has(id)) {
+            if (typeof el.remove === 'function') el.remove();
+            if (this.drawerTab === id) {
+              this.drawerTab = 'terminal';
+            }
+          }
+        });
+      }
+
+      const noisyTabs = ['output', 'terminal', 'stdin', 'ports', 'preview', 'network', 'inspector'];
       for (const noisyId of noisyTabs) {
         const el = drawerTabs.querySelector(`[data-cl-drawertab="${noisyId}"]`);
         if (el && el.style) {
@@ -2995,33 +4354,92 @@ int main() {
       } else if (testsEl && testsEl.style && !isSingleSql) {
         testsEl.style.display = '';
       }
+      this._updateStatusBar();
     }
 
-    // ── Render Workbench DOM ───────────────────────────────────────────────
+    // ── Render Workbench DOM (Canonical VS Code 5-Region Shell) ────────────
     _renderShell() {
+      if (this._isBooting) return;
+      if (typeof this._activeSplitterCleanup === 'function') {
+        try { this._activeSplitterCleanup(); } catch (_err) { void _err; }
+        this._activeSplitterCleanup = null;
+      }
+      const resolvedTheme = this._resolvedTheme();
       if (this.themeOption !== 'auto') {
         this.container.setAttribute('data-theme', this.themeOption);
         this.container.classList.add(`codelab-workbench--${this.themeOption}`);
       }
-      const themeAttr = this.themeOption !== 'auto' ? `data-theme="${escapeHtml(this.themeOption)}"` : '';
+      const themeAttr = this.themeOption !== 'auto'
+        ? `data-theme="${escapeHtml(this.themeOption)}" data-cl-theme="${escapeHtml(resolvedTheme)}"`
+        : `data-cl-theme="${escapeHtml(resolvedTheme)}"`;
       const brandLabel = (this.title && this.title !== 'custom-lab' && this.title !== this.labId) ? this.title : 'code-lab';
       const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
       const isSingleSql = this._isSingleFileSqlMode();
       const showSqlTab = Boolean(this.lang === 'sql' || this.lastSqlResult);
-      const pluginPanelsHtml = (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function')
-        ? Array.from(this.plugins.panels.values()).map((panel) => `
-            <button type="button" role="tab" aria-selected="${this.drawerTab === panel.id}" class="codelab-drawer__tab ${this.drawerTab === panel.id ? 'active' : ''}" data-cl-drawertab="${escapeHtml(panel.id)}">
-              <span>${escapeHtml(panel.title || panel.id)}</span>
-            </button>
-          `).join('')
+      const sidebarRight = Boolean(
+        this.configuration && this.configuration.get('workbench.sidebar.defaultLocation', 'left') === 'right'
+      );
+      const statusBarHidden = Boolean(
+        this.configuration && this.configuration.get('workbench.statusBar.visible', true) === false
+      );
+      const pluginBottomPanelsHtml = (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function')
+        ? Array.from(this.plugins.panels.values())
+            .filter(panel => panel && panel.id && panel.location !== 'sidebar')
+            .map((panel) => `
+              <button type="button" role="tab" tabindex="${this.drawerTab === panel.id ? '0' : '-1'}" aria-selected="${this.drawerTab === panel.id}" class="codelab-drawer__tab ${this.drawerTab === panel.id ? 'active' : ''}" data-cl-drawertab="${escapeHtml(panel.id)}" data-cl-plugin-tab="true">
+                <span>${escapeHtml(panel.title || panel.id)}</span>
+              </button>
+            `).join('')
         : '';
-      const shellVars = [`--cl-explorer-width:${Math.round(this.explorerWidth || 196)}px`];
+      const pluginSidebarBtnsHtml = (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function')
+        ? Array.from(this.plugins.panels.values())
+            .filter(panel => panel && panel.id && panel.location === 'sidebar')
+            .map((panel) => {
+              const viewId = `plugin:${panel.id}`;
+              const isAct = Boolean(this.sidebarVisible && this.activeSidebarView === viewId);
+              return `<button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${isAct ? 'active' : ''}" data-cl-activity="${escapeHtml(viewId)}" title="${escapeHtml(panel.title || panel.id)}" aria-label="${escapeHtml(panel.title || panel.id)}" aria-pressed="${isAct}">${CL_ICONS.box}</button>`;
+            }).join('')
+        : '';
+      const shellClasses = [
+        'codelab',
+        'codelab-workbench',
+        this.options && this.options.fullbleed ? 'codelab--fullbleed' : '',
+        isGuideCollapsed ? 'guide-collapsed' : '',
+        isSingleSql ? 'is-sql-single-file' : '',
+        !this.sidebarVisible ? 'sidebar-collapsed files-collapsed' : '',
+        !this.panelVisible ? 'panel-collapsed' : '',
+        this.panelMaximized ? 'panel-maximized' : '',
+        sidebarRight ? 'sidebar-right' : '',
+        statusBarHidden ? 'statusbar-hidden' : ''
+      ].filter(Boolean).join(' ');
+      const shellVars = [
+        `--cl-explorer-width:${Math.round(this.explorerWidth || 260)}px`,
+        `--cl-drawer-height:${Math.round(this.panelHeight || 220)}px`
+      ];
       if (this.previewSplitWidth) shellVars.push(`--cl-preview-split-width:${Math.round(this.previewSplitWidth)}px`);
       const explorerStyle = `style="${shellVars.join(';')}"`;
+      const topMenus = [
+        { id: 'file', label: 'File' },
+        { id: 'edit', label: 'Edit' },
+        { id: 'selection', label: 'Selection' },
+        { id: 'view', label: 'View' },
+        { id: 'go', label: 'Go' },
+        { id: 'run', label: 'Run' },
+        { id: 'terminal', label: 'Terminal' },
+        { id: 'help', label: 'Help' }
+      ];
+      const menubarHtml = topMenus.map((m, idx) => `
+        <button type="button" role="menuitem" tabindex="${idx === 0 ? '0' : '-1'}" aria-haspopup="menu" aria-expanded="false" class="codelab-menubar__trigger" data-cl-menu="${m.id}">${m.label}</button>
+      `).join('');
+      const isTermDrawer = this.drawerTab === 'terminal' && !isSingleSql;
+      const tabSizeVal = this.configuration
+        ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+        : 2;
+
       this.container.innerHTML = `
-        <div class="codelab codelab-workbench ${isGuideCollapsed ? 'guide-collapsed' : ''} ${isSingleSql ? 'is-sql-single-file' : ''}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr} ${explorerStyle}>
-          <!-- Top Bar -->
-          <div class="codelab-topbar codelab-toolbar">
+        <div class="${shellClasses}" id="codelab-${escapeHtml(this.labId)}" ${themeAttr} ${explorerStyle}>
+          <!-- Region 1: Titlebar & Menubar -->
+          <header class="codelab-topbar codelab-titlebar codelab-toolbar">
             <div class="codelab-topbar__left">
               ${this.onClose ? `
                 <button type="button" class="codelab-btn codelab-btn--back" data-cl-action="close-lab" title="${escapeHtml(this.backLabel)}">
@@ -3033,25 +4451,30 @@ int main() {
                 <span class="codelab-brand__dot"></span>
                 <span>${escapeHtml(brandLabel)}</span>
               </span>
+              <div class="codelab-menubar" id="cl-menubar" role="menubar" aria-label="Application Menu">
+                ${menubarHtml}
+              </div>
               ${this.hasGuidedLab ? `
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               <div class="codelab-mode-switch" role="tablist" aria-label="Lab Mode">
-                <button type="button" role="tab" aria-selected="${this.mode === 'guided'}" class="codelab-mode-btn ${this.mode === 'guided' ? 'active' : ''}" data-cl-mode="guided">
+                <button type="button" role="tab" tabindex="${this.mode === 'guided' ? '0' : '-1'}" aria-selected="${this.mode === 'guided'}" class="codelab-mode-btn ${this.mode === 'guided' ? 'active' : ''}" data-cl-mode="guided">
                   ${CL_ICONS.target}
                   <span>Guided Challenge</span>
                 </button>
-                <button type="button" role="tab" aria-selected="${this.mode === 'sandbox'}" class="codelab-mode-btn ${this.mode === 'sandbox' ? 'active' : ''}" data-cl-mode="sandbox">
+                <button type="button" role="tab" tabindex="${this.mode === 'sandbox' ? '0' : '-1'}" aria-selected="${this.mode === 'sandbox'}" class="codelab-mode-btn ${this.mode === 'sandbox' ? 'active' : ''}" data-cl-mode="sandbox">
                   ${CL_ICONS.code}
                   <span>Reference Sandbox</span>
                 </button>
               </div>
               ` : ''}
               ${this._renderLanguageSwitcherHtml()}
-              <span class="codelab-toolbar__sep" aria-hidden="true"></span>
-              <button type="button" class="codelab-cmd-trigger" data-cl-action="command-palette" title="Open Command Palette (⌘K / ⇧⌘P)">
+            </div>
+
+            <div class="codelab-topbar__center">
+              <button type="button" class="codelab-cmd-trigger" data-cl-action="command-palette" title="Command Center — Go to File (⌘P) or Show Commands (⇧⌘P)" aria-label="Command Palette">
                 ${CL_ICONS.search}
-                <span>Command Palette</span>
-                <kbd style="opacity:0.7">⇧⌘P</kbd>
+                <span>${escapeHtml(brandLabel)} — Go to File / Commands</span>
+                <kbd>⇧⌘P</kbd>
               </button>
             </div>
 
@@ -3083,10 +4506,10 @@ int main() {
                   </button>
                   <div class="codelab-split-menu" id="cl-split-run-menu">
                     <button type="button" class="codelab-split-menu__item" data-cl-action="run-demo">
-                      <span>▶ Run Entry / Demo</span> <kbd style="opacity:0.6">⌘↵</kbd>
+                      <span>▶ Run Entry / Demo</span> <kbd style="opacity:0.75">⌘↵</kbd>
                     </button>
                     <button type="button" class="codelab-split-menu__item" data-cl-action="run-active-file">
-                      <span>▶ Run Active File (${escapeHtml(this.activeFile || 'active')})</span> <kbd style="opacity:0.6">⇧⌘↵</kbd>
+                      <span>▶ Run Active File (${escapeHtml(this.activeFile || 'active')})</span> <kbd style="opacity:0.75">⇧⌘↵</kbd>
                     </button>
                     ${this.lang === 'sql' ? `
                     <button type="button" class="codelab-split-menu__item" data-cl-action="explain-sql">
@@ -3113,17 +4536,20 @@ int main() {
               <span class="codelab-toolbar__sep" aria-hidden="true"></span>
               ${this.hasGuidedLab ? `
               <button type="button" class="codelab-btn codelab-btn--icon ${isGuideCollapsed ? '' : 'active'}" id="cl-toggle-guide-btn" data-cl-action="toggle-guide" title="Toggle Guide Panel" aria-label="Toggle Guide Panel" aria-pressed="${isGuideCollapsed ? 'false' : 'true'}">
-                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+                ${CL_ICONS.book}
               </button>
               ` : ''}
-              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-toggle-drawer-btn" data-cl-action="toggle-drawer" title="Toggle Terminal Drawer" aria-label="Toggle Terminal Drawer">
-                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>
+              <button type="button" class="codelab-btn codelab-btn--icon ${this.sidebarVisible ? 'active' : ''}" id="cl-toggle-sidebar-btn" data-cl-action="toggle-sidebar" title="Toggle Primary Side Bar (⌘B)" aria-label="Toggle Primary Side Bar" aria-pressed="${this.sidebarVisible ? 'true' : 'false'}">
+                ${CL_ICONS.sidebarLeft}
+              </button>
+              <button type="button" class="codelab-btn codelab-btn--icon ${this.panelVisible ? 'active' : ''}" id="cl-toggle-drawer-btn" data-cl-action="toggle-drawer" title="Toggle Panel (⌘J)" aria-label="Toggle Panel" aria-pressed="${this.panelVisible ? 'true' : 'false'}">
+                ${CL_ICONS.panelBottom}
               </button>
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-settings-btn" data-cl-action="open-settings" title="Settings (⌘,)" aria-label="Open Settings">
                 ${CL_ICONS.settings}
               </button>
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-fullscreen-btn" data-cl-action="toggle-fullscreen" title="Toggle Fullscreen IDE (Esc to exit)" aria-label="Toggle Fullscreen IDE">
-                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                ${CL_ICONS.maximize}
               </button>
               ${this.onClose ? `
                 <button type="button" class="codelab-btn codelab-btn--exit-lab codelab-btn--close-ide" id="cl-close-ide-btn" data-cl-action="close-lab" title="${escapeHtml(this.backLabel ? `Exit Lab (${this.backLabel})` : 'Exit Lab / Back to Build Guide')}" aria-label="Exit Lab">
@@ -3132,22 +4558,51 @@ int main() {
                 </button>
               ` : ''}
             </div>
-          </div>
+          </header>
 
-          <!-- Split Body -->
+          <!-- Middle 5-Region Horizontal Flex Body -->
           <div class="codelab-body">
-            ${this.hasGuidedLab ? `
-            <!-- Left Pane: Guided Instructions / README -->
-            <aside class="codelab-guide codelab-pane-left" aria-label="Guided Lab Instructions">
-              <div class="codelab-guide__tabs" role="tablist" aria-label="Guide View">
-                <button type="button" role="tab" aria-selected="${this.guideTab === 'steps'}" class="codelab-guide__tab ${this.guideTab === 'steps' ? 'active' : ''}" data-cl-guidetab="steps">
-                  ${CL_ICONS.list}
-                  <span>Guided Steps (${this.steps.length})</span>
+            <!-- Region 2: 48px Vertical Activity Bar -->
+            <nav class="codelab-activitybar" id="cl-activitybar" aria-label="Activity Bar">
+              <div class="codelab-activitybar__top">
+                <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.sidebarVisible && this.activeSidebarView === 'explorer' ? 'active' : ''}" data-cl-activity="explorer" title="Explorer (⇧⌘E)" aria-label="Explorer" aria-pressed="${this.sidebarVisible && this.activeSidebarView === 'explorer'}">
+                  ${CL_ICONS.files}
                 </button>
-                <button type="button" role="tab" aria-selected="${this.guideTab === 'readme'}" class="codelab-guide__tab ${this.guideTab === 'readme' ? 'active' : ''}" data-cl-guidetab="readme">
+                <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.sidebarVisible && this.activeSidebarView === 'search' ? 'active' : ''}" data-cl-activity="search" title="Search (⇧⌘F)" aria-label="Search" aria-pressed="${this.sidebarVisible && this.activeSidebarView === 'search'}">
+                  ${CL_ICONS.search}
+                </button>
+                <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.sidebarVisible && this.activeSidebarView === 'scm' ? 'active' : ''}" data-cl-activity="scm" title="Source Control (⌃⇧G)" aria-label="Source Control" aria-pressed="${this.sidebarVisible && this.activeSidebarView === 'scm'}">
+                  ${CL_ICONS.gitBranch}
+                  <span class="codelab-activitybar__badge" id="cl-activity-scm-badge" hidden>0</span>
+                </button>
+                <div class="codelab-activitybar__plugins" id="cl-activitybar-plugins">${pluginSidebarBtnsHtml}</div>
+                ${this.hasGuidedLab ? `
+                <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${!isGuideCollapsed ? 'active' : ''}" data-cl-action="toggle-guide" title="Guided Lab Steps" aria-label="Guided Lab Steps" aria-pressed="${!isGuideCollapsed}">
                   ${CL_ICONS.book}
-                  <span>Architecture Brief</span>
                 </button>
+                ` : ''}
+              </div>
+              <div class="codelab-activitybar__bottom">
+                <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.activeTab === '__settings__' ? 'active' : ''}" data-cl-activity="settings" data-cl-action="open-settings" title="Settings (⌘,)" aria-label="Settings" aria-pressed="${this.activeTab === '__settings__'}">
+                  ${CL_ICONS.settings}
+                </button>
+              </div>
+            </nav>
+
+            ${this.hasGuidedLab ? `
+            <!-- Optional Guided Instructions Pane -->
+            <aside class="codelab-guide codelab-pane-left" id="cl-guide-pane" aria-label="Guided Lab Instructions">
+              <div class="codelab-guide__bar">
+                <div class="codelab-guide__tabs" role="tablist" aria-label="Guide View">
+                  <button type="button" role="tab" tabindex="${this.guideTab === 'steps' ? '0' : '-1'}" aria-selected="${this.guideTab === 'steps'}" class="codelab-guide__tab ${this.guideTab === 'steps' ? 'active' : ''}" data-cl-guidetab="steps">
+                    ${CL_ICONS.list}
+                    <span>Guided Steps (${this.steps.length})</span>
+                  </button>
+                  <button type="button" role="tab" tabindex="${this.guideTab === 'readme' ? '0' : '-1'}" aria-selected="${this.guideTab === 'readme'}" class="codelab-guide__tab ${this.guideTab === 'readme' ? 'active' : ''}" data-cl-guidetab="readme">
+                    ${CL_ICONS.book}
+                    <span>Architecture Brief</span>
+                  </button>
+                </div>
                 <button type="button" class="codelab-guide__collapse-btn" data-cl-action="toggle-guide" title="Collapse sidebar" aria-label="Collapse sidebar">
                   <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="15 18 9 12 15 6"></polyline>
@@ -3158,33 +4613,73 @@ int main() {
               <div class="codelab-guide__content" id="cl-guide-content"></div>
               <div class="codelab-guide__footer" id="cl-guide-footer"></div>
             </aside>
-
-            <!-- Interactive Vertical Splitter -->
             <div class="codelab-splitter-v" id="cl-splitter-v" role="separator" aria-orientation="vertical" title="Drag to resize guide panel (double-click to reset)"></div>
             ` : ''}
 
-            <!-- Right Pane: File Explorer + Editor + Bottom Drawer -->
-            <div class="codelab-main">
-              <div class="codelab-workspace">
-                <!-- File Explorer -->
-                <div class="codelab-explorer" aria-label="Workspace Files">
-                  <div class="codelab-explorer__header">
-                    <span>Workspace</span>
-                    <div class="codelab-explorer__actions">
-                      <button type="button" class="codelab-explorer__btn" data-cl-action="new-file-root" title="New File" aria-label="New File">${CL_ICONS.plus}</button>
-                      <button type="button" class="codelab-explorer__btn" data-cl-action="new-folder-root" title="New Folder" aria-label="New Folder">${CL_ICONS.folder}</button>
-                    </div>
-                    <span id="cl-explorer-lang">${this.lang.toUpperCase()}</span>
+            <!-- Region 3: Full-Height Primary Side Bar (Explorer / Search / Source Control / Plugins) -->
+            <aside class="codelab-sidebar codelab-explorer" id="cl-sidebar" aria-label="Primary Side Bar">
+              <div class="codelab-sidebar__view" id="cl-sidebar-explorer" data-sidebar-view="explorer" ${this.activeSidebarView === 'explorer' ? '' : 'hidden'}>
+                <div class="codelab-explorer__header">
+                  <span>Explorer</span>
+                  <div class="codelab-explorer__actions">
+                    <button type="button" class="codelab-explorer__btn" data-cl-action="new-file-root" title="New File" aria-label="New File">${CL_ICONS.plus}</button>
+                    <button type="button" class="codelab-explorer__btn" data-cl-action="new-folder-root" title="New Folder" aria-label="New Folder">${CL_ICONS.folder}</button>
+                    <button type="button" class="codelab-explorer__btn" data-cl-action="collapse-all-folders" title="Collapse Folders in Explorer" aria-label="Collapse Folders">${CL_ICONS.collapseAll}</button>
                   </div>
-                  <div class="codelab-explorer__list" id="cl-explorer-list"></div>
+                  <span id="cl-explorer-lang">${this.lang.toUpperCase()}</span>
                 </div>
+                <div class="codelab-explorer__list" id="cl-explorer-list"></div>
+              </div>
 
-                <!-- Explorer Resize Splitter -->
-                <div class="codelab-splitter-files" id="cl-splitter-files" role="separator" aria-orientation="vertical" title="Drag to resize file explorer (double-click to reset)"></div>
+              <div class="codelab-sidebar__view" id="cl-sidebar-search" data-sidebar-view="search" ${this.activeSidebarView === 'search' ? '' : 'hidden'}>
+                <div class="codelab-explorer__header">
+                  <span>Search</span>
+                </div>
+                <div class="codelab-sidebar__body">
+                  <div class="codelab-sidebar-field">
+                    <input type="search" class="codelab-sidebar-input" id="cl-search-input" placeholder="Search in files..." value="${escapeHtml(this._searchState?.query || '')}" aria-label="Search in workspace files" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="codelab-search-toggles" role="group" aria-label="Search Options">
+                    <button type="button" class="codelab-search-toggle ${this._searchState?.caseSensitive ? 'active' : ''}" data-cl-search-opt="caseSensitive" aria-pressed="${Boolean(this._searchState?.caseSensitive)}" title="Match Case" aria-label="Match Case">Aa</button>
+                    <button type="button" class="codelab-search-toggle ${this._searchState?.wholeWord ? 'active' : ''}" data-cl-search-opt="wholeWord" aria-pressed="${Boolean(this._searchState?.wholeWord)}" title="Match Whole Word" aria-label="Match Whole Word">ab</button>
+                    <button type="button" class="codelab-search-toggle ${this._searchState?.regex ? 'active' : ''}" data-cl-search-opt="regex" aria-pressed="${Boolean(this._searchState?.regex)}" title="Use Regular Expression" aria-label="Use Regular Expression">.*</button>
+                  </div>
+                  <div class="codelab-sidebar-field codelab-search-replace-row">
+                    <input type="text" class="codelab-sidebar-input" id="cl-search-replace-input" placeholder="Replace..." value="${escapeHtml(this._searchState?.replaceText || '')}" aria-label="Replace in workspace files" autocomplete="off" spellcheck="false" />
+                    <div class="codelab-search-replace-actions" role="group" aria-label="Replace Actions">
+                      <button type="button" class="codelab-btn codelab-btn--subtle" data-cl-action="search-replace-one" title="Replace" aria-label="Replace next match">Replace</button>
+                      <button type="button" class="codelab-btn codelab-btn--subtle" data-cl-action="search-replace-all" title="Replace All" aria-label="Replace All">Replace All</button>
+                    </div>
+                  </div>
+                  <div class="codelab-sidebar-field codelab-search-glob-fields">
+                    <input type="text" class="codelab-sidebar-input codelab-sidebar-input--compact" id="cl-search-include" data-cl-search-include="true" placeholder="files to include (e.g. src/**)" value="${escapeHtml(this._searchState?.include || '')}" aria-label="Files to include" autocomplete="off" spellcheck="false" />
+                    <input type="text" class="codelab-sidebar-input codelab-sidebar-input--compact" id="cl-search-exclude" data-cl-search-exclude="true" placeholder="files to exclude (e.g. *.log)" value="${escapeHtml(this._searchState?.exclude || '')}" aria-label="Files to exclude" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="codelab-search-results" id="cl-search-results" aria-live="polite"></div>
+                </div>
+              </div>
 
-                <!-- Editor Column -->
+              <div class="codelab-sidebar__view" id="cl-sidebar-scm" data-sidebar-view="scm" ${this.activeSidebarView === 'scm' ? '' : 'hidden'}>
+                <div class="codelab-explorer__header">
+                  <span>Source Control</span>
+                </div>
+                <div class="codelab-sidebar__body" id="cl-scm-view-body"></div>
+              </div>
+
+              <div class="codelab-sidebar__view" id="cl-sidebar-plugin-host" data-sidebar-view="plugin" ${String(this.activeSidebarView || '').startsWith('plugin:') ? '' : 'hidden'}></div>
+            </aside>
+
+            <!-- Primary Side Bar Resize Splitter -->
+            <div class="codelab-splitter-files" id="cl-splitter-files" role="separator" aria-orientation="vertical" title="Drag to resize side bar (double-click to reset)"></div>
+
+            <!-- Region 4 + 5 Column: Editor Area on Top, Bottom Panel Strictly Beneath Editor -->
+            <div class="codelab-workbench-main codelab-main">
+              <div class="codelab-editor-row codelab-workspace">
                 <div class="codelab-editor-col">
-                  <div class="codelab-tabs codelab-file-tabs" id="cl-file-tabs" role="tablist" aria-label="Open Files"></div>
+                  <div class="codelab-tabs-bar">
+                    <div class="codelab-tabs codelab-file-tabs" id="cl-tabs" role="tablist" aria-label="Open Files"></div>
+                    <div class="codelab-tabs-actions" id="cl-file-tabs-actions"></div>
+                  </div>
                   <div class="codelab-breadcrumbs" id="cl-breadcrumbs" aria-label="Editor Breadcrumbs"></div>
                   <div class="codelab-editor-wrap">
                     <div class="codelab-monaco-host" id="cl-monaco-host"></div>
@@ -3194,6 +4689,8 @@ int main() {
                       <textarea class="codelab-fallback-editor" id="cl-fallback-editor" spellcheck="false" aria-label="Code Editor"></textarea>
                     </div>
                     <div class="codelab-md-preview prose" id="cl-md-preview" style="display:none"></div>
+                    <div class="codelab-settings-host" id="cl-settings-host" role="region" aria-label="Settings Editor" hidden style="display:none"></div>
+                    <div class="codelab-inline-diff-host" id="cl-inline-diff-container" data-role="scm-diff-host" role="region" aria-label="Source Control Diff View" hidden style="display:none"></div>
                     <div class="codelab-empty-editor" id="cl-empty-editor" style="display:none"></div>
                   </div>
                 </div>
@@ -3204,111 +4701,171 @@ int main() {
               </div>
 
               <!-- Interactive Horizontal Splitter -->
-              <div class="codelab-splitter-h" id="cl-splitter-h" role="separator" aria-orientation="horizontal" title="Drag to resize console drawer (double-click to reset)"></div>
+              <div class="codelab-splitter-h" id="cl-splitter-h" role="separator" aria-orientation="horizontal" title="Drag to resize bottom panel (double-click to reset)"></div>
 
-              <!-- Bottom Drawer -->
-              <div class="codelab-drawer codelab-bottom" id="cl-drawer">
+              <!-- Region 5: Bottom Panel (Problems / Output / Terminal / Ports / ...) -->
+              <section class="codelab-drawer codelab-bottom" id="cl-drawer" aria-label="Bottom Panel">
                 <div class="codelab-drawer__bar">
                   <div class="codelab-drawer__tabs" role="tablist" aria-label="Execution Output Panels">
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'sql-results'}" class="codelab-drawer__tab ${this.drawerTab === 'sql-results' ? 'active' : ''}" data-cl-drawertab="sql-results" title="SQL Query Results &amp; EXPLAIN Plan" style="display:${showSqlTab ? 'inline-flex' : 'none'}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'sql-results' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'sql-results'}" class="codelab-drawer__tab ${this.drawerTab === 'sql-results' ? 'active' : ''}" data-cl-drawertab="sql-results" title="SQL Query Results &amp; EXPLAIN Plan" style="display:${showSqlTab ? 'inline-flex' : 'none'}">
                       ${CL_ICONS.database}
                       <span>Query Results</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal" style="${isSingleSql ? 'display:none' : ''}">
-                      ${CL_ICONS.terminal}
-                      <span>Terminal &amp; REPL</span>
-                    </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'problems' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
                       ${CL_ICONS.warning}
                       <span>Problems</span>
-                      <span class="codelab-badge" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:rgba(255,255,255,0.1);color:#fff;">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
+                      <span class="codelab-badge" id="cl-problems-count">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests" style="${(isSingleSql && !this._findEntryFile('test')) ? 'display:none' : ''}">
-                      ${CL_ICONS.check}
-                      <span>Test Suite</span>
-                      <span class="codelab-drawer__pill" id="cl-test-pill">Ready</span>
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'output' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'output'}" class="codelab-drawer__tab ${this.drawerTab === 'output' ? 'active' : ''}" data-cl-drawertab="output" title="Workbench &amp; Runtime Output" style="${isSingleSql ? 'display:none' : ''}">
+                      ${CL_ICONS.code}
+                      <span>Output</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input" style="${isSingleSql ? 'display:none' : ''}">
-                      ${CL_ICONS.keyboard}
-                      <span>Stdin</span>
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'terminal' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'terminal'}" class="codelab-drawer__tab ${this.drawerTab === 'terminal' ? 'active' : ''}" data-cl-drawertab="terminal" style="${isSingleSql ? 'display:none' : ''}">
+                      ${CL_ICONS.terminal}
+                      <span>Terminal</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports" style="${isSingleSql ? 'display:none' : ''}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'ports' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.radio}
                       <span>Ports</span>
                       <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview" style="${isSingleSql ? 'display:none' : ''}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'tests' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests" style="${(isSingleSql && !this._findEntryFile('test')) ? 'display:none' : ''}">
+                      ${CL_ICONS.check}
+                      <span>Test Suite</span>
+                      <span class="codelab-drawer__pill" id="cl-test-pill">Ready</span>
+                    </button>
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'stdin' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input" style="${isSingleSql ? 'display:none' : ''}">
+                      ${CL_ICONS.keyboard}
+                      <span>Stdin</span>
+                    </button>
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'preview' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.globe}
                       <span>Web Preview</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network" style="${isSingleSql ? 'display:none' : ''}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'network' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.activity}
                       <span>Network</span>
                       <span class="codelab-drawer__pill" id="cl-network-pill">${(this.lastHttpTrace || []).length} reqs</span>
                     </button>
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector" style="${isSingleSql ? 'display:none' : ''}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'inspector' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.database}
                       <span>Virtual Disk &amp; HTTP</span>
                       <span class="codelab-drawer__pill" id="cl-vfs-pill">0 files</span>
                     </button>
                     ${this.kernel ? `
-                    <button type="button" role="tab" aria-selected="${this.drawerTab === 'observability'}" class="codelab-drawer__tab ${this.drawerTab === 'observability' ? 'active' : ''}" data-cl-drawertab="observability" title="Services, Settings &amp; Event Telemetry">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'observability' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'observability'}" class="codelab-drawer__tab ${this.drawerTab === 'observability' ? 'active' : ''}" data-cl-drawertab="observability" title="Services, Settings &amp; Event Telemetry">
                       ${CL_ICONS.activity}
                       <span>Observability</span>
                     </button>
                     ` : ''}
-                    ${pluginPanelsHtml}
+                    ${pluginBottomPanelsHtml}
                   </div>
                   <div class="codelab-hud-pill" id="cl-telemetry-hud" style="display:none;" title="Last Execution Telemetry"></div>
-                  <div style="display:flex;align-items:center;gap:6px;">
-                    <div class="codelab-terminal-sessions" id="cl-terminal-sessions" style="${isSingleSql ? 'display:none' : ''}"></div>
-                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal Session" aria-label="New Terminal Session" style="padding:2px 6px;font-size:11px;${isSingleSql ? 'display:none;' : ''}">+</button>
-                    <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);${isSingleSql ? 'display:none;' : ''}">Ctrl+C</button>
-                    <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Output" style="padding:2px 6px;font-size:11px;">Clear</button>
-                    <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Minimize/Expand Drawer" aria-label="Minimize or Expand Drawer" style="padding:2px 6px;font-size:11px;">${CL_ICONS.chevronsUpDown}</button>
+                  <div class="codelab-drawer__actions">
+                    <div class="codelab-drawer__term-actions" id="cl-drawer-term-actions" style="display:${isTermDrawer ? 'inline-flex' : 'none'}">
+                      <div class="codelab-terminal-sessions" id="cl-terminal-sessions"></div>
+                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal (⌃⇧\`)" aria-label="New Terminal Session" style="padding:2px 6px;font-size:11px;">+</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-kill-terminal-btn" data-cl-action="kill-terminal-session" title="Kill Terminal" aria-label="Kill Active Terminal" style="padding:2px 6px;font-size:11px;">${CL_ICONS.trash}</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);">Ctrl+C</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Terminal" aria-label="Clear Terminal" style="padding:2px 6px;font-size:11px;">Clear</button>
+                    </div>
+                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-maximize-drawer-btn" data-cl-action="maximize-drawer" title="Maximize / Restore Panel Size" aria-label="Maximize or Restore Panel Size" aria-pressed="${this.panelMaximized ? 'true' : 'false'}" style="padding:2px 6px;font-size:11px;">${this.panelMaximized ? CL_ICONS.chevronDown : CL_ICONS.chevronUp}</button>
+                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-close-drawer-btn" data-cl-action="close-drawer" title="Close Panel (⌘J)" aria-label="Close Panel" style="padding:2px 6px;font-size:11px;">${CL_ICONS.close}</button>
                   </div>
                 </div>
                 <div class="codelab-drawer__body" id="cl-drawer-body"></div>
-              </div>
+              </section>
             </div>
           </div>
 
-          <!-- Status Bar Footer -->
+          <!-- Interactive 24px Status Bar Footer -->
           <footer class="codelab-statusbar" id="cl-statusbar" role="status" aria-live="polite">
             <div class="codelab-statusbar__left">
               <span class="codelab-statusbar__item" id="cl-status-runtime">
                 <span class="codelab-statusbar__dot" id="cl-status-dot"></span>
                 <span id="cl-status-text">${escapeHtml(this.runtimeStatusText || 'Node.js v22 Worker · Idle')}</span>
               </span>
-              <span class="codelab-statusbar__sep">·</span>
+              <span class="codelab-statusbar__sep" aria-hidden="true"></span>
+              <button type="button" class="codelab-statusbar__btn" data-cl-action="statusbar-scm" title="Source Control (⌃⇧G)" aria-label="Source Control">
+                ${CL_ICONS.gitBranch}
+                <span id="cl-status-scm-text">git</span>
+              </button>
+              <button type="button" class="codelab-statusbar__btn" data-cl-action="statusbar-problems" title="Problems (⇧⌘M)" aria-label="Problems">
+                <span id="cl-status-problems-text">⊗ 0 ⚠ 0</span>
+              </button>
+              <span class="codelab-statusbar__sep" aria-hidden="true"></span>
               <span class="codelab-statusbar__item" id="cl-status-file">${escapeHtml(this.activeFile || 'workspace')}</span>
               <span class="codelab-statusbar__item codelab-statusbar__save" id="cl-status-save" data-save-state="saved" style="display:none"></span>
             </div>
             <div class="codelab-statusbar__right">
               <span class="codelab-statusbar__item" id="cl-status-duration" style="display:none"></span>
-              <span class="codelab-statusbar__item" id="cl-status-cursor">Ln 1, Col 1</span>
-              <span class="codelab-statusbar__sep">·</span>
+              <button type="button" class="codelab-statusbar__btn" id="cl-status-cursor" data-cl-action="go-to-line" title="Go to Line/Column">Ln 1, Col 1</button>
+              <button type="button" class="codelab-statusbar__btn" id="cl-status-indent" data-cl-action="open-settings" title="Select Indentation">Spaces: ${tabSizeVal}</button>
               <span class="codelab-statusbar__item">UTF-8</span>
-              <span class="codelab-statusbar__sep">·</span>
-              <span class="codelab-statusbar__item" id="cl-status-lang">${this.lang === 'sql' ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18') : this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</span>
+              <button type="button" class="codelab-statusbar__btn" id="cl-status-lang" data-cl-action="open-settings" title="Language Mode">${this.lang === 'sql' ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18') : this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</button>
             </div>
           </footer>
 
-          <!-- Solution, Diff, Command Palette & Packages Modal Container -->
+          <!-- Fixed Overlay Slots (Strictly Outside .codelab-topbar!) -->
+          <div id="cl-topbar-menu-slot"></div>
           <div id="cl-modal-slot"></div>
           <div id="cl-context-menu-slot"></div>
-          <!-- Port / Web Preview Toast Notifications -->
+          <div id="cl-palette-slot"></div>
           <div class="codelab-toast-container" id="cl-toast-container" role="status" aria-live="polite"></div>
         </div>
       `;
 
+      if (this.themeOption !== 'auto' && this.themes && typeof this.themes.applyToElement === 'function') {
+        const shellEl = this.container.querySelector('.codelab');
+        if (shellEl && shellEl.style && typeof shellEl.style.setProperty === 'function') {
+          try {
+            this.themes.setTheme(resolvedTheme === 'light' ? 'light' : resolvedTheme === 'high-contrast' ? 'high-contrast' : 'dark');
+            this.themes.applyToElement(shellEl);
+          } catch (err) {
+            this.logger.debug('Initial theme applyToElement skipped.', err);
+          }
+        }
+      }
+
       this._renderStepPills();
       this._renderGuidePane();
       this._renderFileLists();
+      if (typeof this._renderSearchSidebarResults === 'function' && this.activeSidebarView === 'search') {
+        this._renderSearchSidebarResults();
+      }
+      if (typeof this._renderScmSidebar === 'function' && this.activeSidebarView === 'scm') {
+        this._renderScmSidebar();
+      }
+      if (typeof this._renderActiveSidebarPlugin === 'function' && String(this.activeSidebarView || '').startsWith('plugin:')) {
+        this._renderActiveSidebarPlugin();
+      }
       this._renderBreadcrumbs();
       this._renderDrawerBody();
       this._updateStatusBar();
       this._updateRunStateUI();
+
+      if (this._eventsBound) {
+        this._bindSplitters();
+      }
+      if (this._editorInitialized) {
+        const liveMonacoHost = this.container.querySelector('#cl-monaco-host');
+        if (this.editor && liveMonacoHost && typeof this.editor.getDomNode === 'function') {
+          const editorDom = this.editor.getDomNode();
+          if (editorDom && !liveMonacoHost.contains(editorDom)) {
+            liveMonacoHost.appendChild(editorDom);
+          }
+          if (this._editorResizeObserver && typeof this._editorResizeObserver.observe === 'function') {
+            try {
+              this._editorResizeObserver.disconnect();
+              this._editorResizeObserver.observe(liveMonacoHost);
+            } catch (_err) {
+              void _err;
+            }
+          }
+        }
+        this._bindFallbackEditorListeners();
+        this._syncActiveFileToView();
+      }
     }
 
     _resolveStepTargetFile(rawTarget) {
@@ -3359,6 +4916,14 @@ int main() {
     _renderBreadcrumbs() {
       const host = this.container.querySelector('#cl-breadcrumbs');
       if (!host) return;
+      if (!this.activeFile || !this.openTabs || this.openTabs.length === 0 || this.activeTab === '__settings__') {
+        host.innerHTML = '';
+        host.hidden = true;
+        if (host.style) host.style.display = 'none';
+        return;
+      }
+      host.hidden = false;
+      if (host.style) host.style.display = '';
 
       const expandBtnHtml = this.hasGuidedLab ? `
         <button type="button" class="codelab-guide__expand-btn" data-cl-action="toggle-guide" title="Expand sidebar" aria-label="Expand sidebar">
@@ -3639,6 +5204,84 @@ int main() {
       `;
     }
 
+    _globToRegExp(globStr) {
+      let pat = String(globStr || '').trim().replace(/^\/+/, '');
+      if (!pat) return null;
+      let regex = '^';
+      let i = 0;
+      while (i < pat.length) {
+        const c = pat[i];
+        if (c === '*' && pat[i + 1] === '*') {
+          if (pat[i + 2] === '/') {
+            regex += '(?:.+/)?';
+            i += 3;
+          } else {
+            regex += '.*';
+            i += 2;
+          }
+        } else if (c === '*') {
+          regex += '[^/]*';
+          i++;
+        } else if (c === '?') {
+          regex += '[^/]';
+          i++;
+        } else if ('.+^${}()|[]\\'.includes(c)) {
+          regex += '\\' + c;
+          i++;
+        } else {
+          regex += c;
+          i++;
+        }
+      }
+      regex += '$';
+      try {
+        return new RegExp(regex);
+      } catch (err) {
+        void err;
+        return null;
+      }
+    }
+
+    _getExcludePatterns() {
+      if (!this.configuration) return [];
+      const raw = this.configuration.get('files.exclude', []);
+      const patterns = [];
+      if (Array.isArray(raw)) {
+        for (const entry of raw) {
+          if (typeof entry === 'string' && entry.trim()) patterns.push(entry.trim());
+        }
+      } else if (raw && typeof raw === 'object') {
+        for (const [glob, enabled] of Object.entries(raw)) {
+          if (enabled && glob && glob.trim()) patterns.push(glob.trim());
+        }
+      }
+      return patterns;
+    }
+
+    _isPathExcluded(relPath) {
+      if (!relPath) return false;
+      const clean = String(relPath).replace(/^\/+|\/+$/g, '');
+      if (!clean) return false;
+      if (clean === '.git' || clean.startsWith('.git/')) return true;
+      const patterns = this._getExcludePatterns();
+      if (!patterns.length) return false;
+      const segments = clean.split('/');
+      const baseName = segments[segments.length - 1] || clean;
+      for (const pat of patterns) {
+        const re = this._globToRegExp(pat);
+        if (!re) continue;
+        if (re.test(clean) || re.test(clean + '/')) return true;
+        if (!pat.includes('/') && re.test(baseName)) return true;
+        let prefix = '';
+        for (let i = 0; i < segments.length - 1; i++) {
+          prefix = prefix ? `${prefix}/${segments[i]}` : segments[i];
+          if (re.test(prefix) || re.test(prefix + '/')) return true;
+          if (!pat.includes('/') && re.test(segments[i])) return true;
+        }
+      }
+      return false;
+    }
+
     _buildFileTree() {
       const rootNode = {
         name: '',
@@ -3669,16 +5312,18 @@ int main() {
 
       if (this.folders) {
         for (const folder of this.folders) {
-          if (folder) getOrCreateDirNode(folder);
+          if (folder && !this._isPathExcluded(folder)) getOrCreateDirNode(folder);
         }
       }
 
       for (const filePath of this._orderedFileNames()) {
+        if (this._isPathExcluded(filePath)) continue;
         const lastSlash = filePath.lastIndexOf('/');
         if (lastSlash === -1) {
           rootNode.files.set(filePath, filePath);
         } else {
           const dirPath = filePath.slice(0, lastSlash);
+          if (this._isPathExcluded(dirPath)) continue;
           const baseName = filePath.slice(lastSlash + 1);
           const dirNode = getOrCreateDirNode(dirPath);
           dirNode.files.set(baseName, filePath);
@@ -3692,17 +5337,18 @@ int main() {
       const set = new Set();
       if (this.folders) {
         for (const f of this.folders) {
-          if (f) set.add(f);
+          if (f && !this._isPathExcluded(f)) set.add(f);
         }
       }
       for (const filePath of this._orderedFileNames()) {
+        if (this._isPathExcluded(filePath)) continue;
         const idx = filePath.lastIndexOf('/');
         if (idx <= 0) continue;
         const parts = filePath.slice(0, idx).split('/');
         let running = '';
         for (const p of parts) {
           running = running ? `${running}/${p}` : p;
-          set.add(running);
+          if (!this._isPathExcluded(running)) set.add(running);
         }
       }
       return Array.from(set).sort((a, b) => a.localeCompare(b));
@@ -3719,12 +5365,13 @@ int main() {
     }
 
     _renderFileLists() {
+      if (this._isBooting) return;
       const shell = this.container.querySelector('.codelab');
       if (shell && shell.classList) {
         shell.classList.toggle('is-sql-single-file', this._isSingleFileSqlMode());
       }
       const explorerEl = this.container.querySelector('#cl-explorer-list');
-      const tabsEl = this.container.querySelector('#cl-file-tabs');
+      const tabsEl = this.container.querySelector('#cl-tabs, #cl-file-tabs');
       const explorerLangEl = this.container.querySelector('#cl-explorer-lang');
       if (explorerLangEl) explorerLangEl.textContent = this.lang.toUpperCase();
       if (!explorerEl || !tabsEl) return;
@@ -3750,14 +5397,17 @@ int main() {
           );
           if (isRenamingFolder) {
             treeHtml += `
-              <div class="codelab-tree-create-row codelab-tree-rename-row" style="padding-left: ${indent}px;">
-                <span class="codelab-tree-create-icon">${CL_ICONS.folder}</span>
-                <input type="text" id="cl-tree-rename-input" class="codelab-tree-input" value="${escapeHtml(fNode.name)}" aria-label="Rename folder ${escapeHtml(fNode.name)}" autocomplete="off" spellcheck="false" />
+              <div class="codelab-tree-create-wrap">
+                <div class="codelab-tree-create-row codelab-tree-rename-row" style="padding-left: ${indent}px;">
+                  <span class="codelab-tree-create-icon">${CL_ICONS.folder}</span>
+                  <input type="text" id="cl-tree-rename-input" class="codelab-tree-input codelab-inline-input" value="${escapeHtml(fNode.name)}" aria-label="Rename folder ${escapeHtml(fNode.name)}" aria-invalid="false" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" />
+                </div>
+                <div id="cl-tree-input-error" class="codelab-tree-input-error" role="alert" hidden></div>
               </div>
             `;
           } else {
             treeHtml += `
-              <div class="codelab-folder-item ${isCollapsed ? 'collapsed' : 'expanded'}" data-cl-folder="${escapeHtml(fNode.fullPath)}" data-folder="${escapeHtml(fNode.fullPath)}" data-cl-drop-folder="${escapeHtml(fNode.fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
+              <div class="codelab-folder-item ${isCollapsed ? 'collapsed' : 'expanded'}" tabindex="0" data-cl-folder="${escapeHtml(fNode.fullPath)}" data-folder="${escapeHtml(fNode.fullPath)}" data-cl-drop-folder="${escapeHtml(fNode.fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
                 <button type="button" class="codelab-chevron" data-cl-action="toggle-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}" aria-label="${isCollapsed ? 'Expand folder' : 'Collapse folder'}">
                   ${isCollapsed ? CL_ICONS.chevronRight : CL_ICONS.chevronDown}
                 </button>
@@ -3766,6 +5416,7 @@ int main() {
                 <div class="codelab-node-actions">
                   <button type="button" class="codelab-node-action" data-cl-action="new-file-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="New File in ${escapeHtml(fNode.name)}">${CL_ICONS.plus}</button>
                   <button type="button" class="codelab-node-action" data-cl-action="new-folder-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="New Folder in ${escapeHtml(fNode.name)}">${CL_ICONS.folder}</button>
+                  <button type="button" class="codelab-node-action" data-cl-action="rename-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="Rename Folder" aria-label="Rename Folder ${escapeHtml(fNode.name)}">✎</button>
                   <button type="button" class="codelab-node-action" data-cl-action="delete-folder" data-cl-folder="${escapeHtml(fNode.fullPath)}" title="Delete Folder">${CL_ICONS.trash}</button>
                 </div>
               </div>
@@ -3775,9 +5426,12 @@ int main() {
           if (this.creatingItem && this.creatingItem.parentFolder === fNode.fullPath && !isCollapsed) {
             const createIndent = (depth + 1) * 14 + 10;
             treeHtml += `
-              <div class="codelab-tree-create-row" style="padding-left: ${createIndent}px;">
-                <span class="codelab-tree-create-icon">${this.creatingItem.type === 'folder' ? CL_ICONS.folder : CL_ICONS.file}</span>
-                <input type="text" id="cl-tree-create-input" class="codelab-tree-input" placeholder="${this.creatingItem.type === 'folder' ? 'folder-name' : 'filename.' + this.lang}" autocomplete="off" spellcheck="false" />
+              <div class="codelab-tree-create-wrap">
+                <div class="codelab-tree-create-row" style="padding-left: ${createIndent}px;">
+                  <span class="codelab-tree-create-icon">${this.creatingItem.type === 'folder' ? CL_ICONS.folder : CL_ICONS.file}</span>
+                  <input type="text" id="cl-tree-create-input" class="codelab-tree-input codelab-inline-input" placeholder="${this.creatingItem.type === 'folder' ? 'folder-name' : 'filename.' + this.lang}" aria-label="${this.creatingItem.type === 'folder' ? 'New folder name' : 'New file name'}" aria-invalid="false" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" />
+                </div>
+                <div id="cl-tree-input-error" class="codelab-tree-input-error" role="alert" hidden></div>
               </div>
             `;
           }
@@ -3801,16 +5455,21 @@ int main() {
           );
           if (isRenamingFile) {
             treeHtml += `
-              <div class="codelab-tree-create-row codelab-tree-rename-row" style="padding-left: ${indent}px;">
-                <span class="codelab-tree-create-icon">${fileIcon}</span>
-                <input type="text" id="cl-tree-rename-input" class="codelab-tree-input" value="${escapeHtml(baseName)}" aria-label="Rename file ${escapeHtml(baseName)}" autocomplete="off" spellcheck="false" />
+              <div class="codelab-tree-create-wrap">
+                <div class="codelab-tree-create-row codelab-tree-rename-row" style="padding-left: ${indent}px;">
+                  <span class="codelab-tree-create-icon">${fileIcon}</span>
+                  <input type="text" id="cl-tree-rename-input" class="codelab-tree-input codelab-inline-input" value="${escapeHtml(baseName)}" aria-label="Rename file ${escapeHtml(baseName)}" aria-invalid="false" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" />
+                </div>
+                <div id="cl-tree-input-error" class="codelab-tree-input-error" role="alert" hidden></div>
               </div>
             `;
           } else {
+            const isFileDirty = Boolean(this._dirtyFiles && this._dirtyFiles.has(fullPath));
             treeHtml += `
-              <button type="button" class="codelab-file-item ${isActive ? 'active' : ''}" draggable="true" data-cl-file="${escapeHtml(fullPath)}" data-file="${escapeHtml(fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
+              <button type="button" class="codelab-file-item ${isActive ? 'active' : ''}"${isFileDirty ? ' data-dirty="true"' : ''} draggable="true" data-cl-file="${escapeHtml(fullPath)}" data-file="${escapeHtml(fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
                 <span class="codelab-file-icon">${fileIcon}</span>
                 <span class="codelab-file-name" title="${escapeHtml(baseName)}">${escapeHtml(baseName)}</span>
+                ${isFileDirty ? '<span class="codelab-file-dirty" title="Unsaved changes" aria-hidden="true"></span>' : ''}
                 <span class="codelab-file-badge">${badge}</span>
               </button>
             `;
@@ -3820,9 +5479,12 @@ int main() {
 
       if (this.creatingItem && this.creatingItem.parentFolder === rootParent) {
         treeHtml += `
-          <div class="codelab-tree-create-row" style="padding-left: 10px;">
-            <span class="codelab-tree-create-icon">${this.creatingItem.type === 'folder' ? CL_ICONS.folder : CL_ICONS.file}</span>
-            <input type="text" id="cl-tree-create-input" class="codelab-tree-input" placeholder="${this.creatingItem.type === 'folder' ? 'folder-name' : 'filename.' + this.lang}" autocomplete="off" spellcheck="false" />
+          <div class="codelab-tree-create-wrap">
+            <div class="codelab-tree-create-row" style="padding-left: 10px;">
+              <span class="codelab-tree-create-icon">${this.creatingItem.type === 'folder' ? CL_ICONS.folder : CL_ICONS.file}</span>
+              <input type="text" id="cl-tree-create-input" class="codelab-tree-input codelab-inline-input" placeholder="${this.creatingItem.type === 'folder' ? 'folder-name' : 'filename.' + this.lang}" aria-label="${this.creatingItem.type === 'folder' ? 'New folder name' : 'New file name'}" aria-invalid="false" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" />
+            </div>
+            <div id="cl-tree-input-error" class="codelab-tree-input-error" role="alert" hidden></div>
           </div>
         `;
       }
@@ -3836,7 +5498,22 @@ int main() {
         `;
       }
 
-      renderNode(renderRoot, 0);
+      if (renderRoot) {
+        renderNode(renderRoot, 0);
+      }
+
+      if (!this.creatingItem && !this.renamingItem && !scope && renderRoot && renderRoot.folders.size === 0 && renderRoot.files.size === 0) {
+        treeHtml = `
+          <div class="codelab-explorer-empty codelab-explorer-welcome" data-cl-empty-state="explorer">
+            <p class="codelab-explorer-welcome__text">No files in workspace yet.</p>
+            <div class="codelab-explorer-welcome__actions">
+              <button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="new-file-root">New File</button>
+              <button type="button" class="codelab-btn" data-cl-action="open-clone-modal">Clone Repository</button>
+            </div>
+          </div>
+        `;
+      }
+
       explorerEl.innerHTML = treeHtml;
 
       // Attach file drag events
@@ -3891,11 +5568,41 @@ int main() {
         });
       }
 
+      const showInlineTreeError = (inputEl, msg) => {
+        const errEl = explorerEl.querySelector('#cl-tree-input-error');
+        if (errEl) {
+          errEl.textContent = msg;
+          errEl.hidden = false;
+        }
+        if (inputEl) {
+          inputEl.setAttribute('aria-invalid', 'true');
+          inputEl.setAttribute('aria-describedby', 'cl-tree-input-error');
+          if (typeof inputEl.focus === 'function') inputEl.focus();
+        }
+      };
+
+      const clearInlineTreeError = (inputEl) => {
+        const errEl = explorerEl.querySelector('#cl-tree-input-error');
+        if (errEl) {
+          errEl.textContent = '';
+          errEl.hidden = true;
+        }
+        if (inputEl) {
+          inputEl.setAttribute('aria-invalid', 'false');
+          inputEl.removeAttribute('aria-describedby');
+        }
+      };
+
       // Tree inline creation input listeners
       const treeInput = explorerEl.querySelector('#cl-tree-create-input');
       if (treeInput) {
         let createSettled = false;
+        let hasInlineError = false;
         treeInput.focus();
+        treeInput.addEventListener('input', () => {
+          hasInlineError = false;
+          clearInlineTreeError(treeInput);
+        });
         treeInput.addEventListener('keydown', e => {
           if (e.key === 'Escape') {
             e.stopPropagation();
@@ -3906,39 +5613,91 @@ int main() {
             e.preventDefault();
             if (e.isComposing || e.keyCode === 229) return;
             if (createSettled) return;
-            createSettled = true;
             const val = (treeInput.value || '').trim();
             const item = this.creatingItem;
-            this.creatingItem = null;
-            if (val && item) {
-              const full = item.parentFolder ? `${item.parentFolder}/${val}` : val;
-              if (item.type === 'folder') {
-                this.createFolder(full);
-              } else {
-                this.createFile(full);
+            if (!item) return;
+            if (!val) {
+              hasInlineError = true;
+              showInlineTreeError(treeInput, 'A file or folder name must be provided.');
+              return;
+            }
+            const rawFull = item.parentFolder ? `${item.parentFolder}/${val}` : val;
+            const normalized = this._normalizeWorkspaceRelPath(rawFull);
+            if (!normalized) {
+              hasInlineError = true;
+              showInlineTreeError(treeInput, 'Invalid path: relative traversal ("..") or empty segments are not allowed.');
+              return;
+            }
+            if (item.type === 'folder') {
+              const conflict = this._hasPathConflict(normalized, { kind: 'folder' });
+              if (conflict) {
+                hasInlineError = true;
+                showInlineTreeError(
+                  treeInput,
+                  conflict === 'reserved-name'
+                    ? `"${normalized}" is a reserved directory name (.git / node_modules).`
+                    : conflict === 'ancestor-is-file'
+                      ? `Cannot create "${normalized}" inside an existing file.`
+                      : `A file or folder "${normalized}" already exists at this location.`
+                );
+                return;
               }
+              createSettled = true;
+              this.creatingItem = null;
+              this.createFolder(normalized);
             } else {
-              this._renderFileLists();
+              const resolvedFile = this._resolveCreatedFilename(normalized);
+              if (!resolvedFile) {
+                hasInlineError = true;
+                showInlineTreeError(treeInput, 'Invalid file name.');
+                return;
+              }
+              const conflict = this._hasPathConflict(resolvedFile, { kind: 'file' });
+              if (conflict) {
+                hasInlineError = true;
+                showInlineTreeError(
+                  treeInput,
+                  conflict === 'reserved-name'
+                    ? `"${resolvedFile}" uses a reserved directory name (.git / node_modules).`
+                    : conflict === 'ancestor-is-file'
+                      ? `Cannot create "${resolvedFile}" inside an existing file.`
+                      : `A file or folder "${resolvedFile}" already exists at this location.`
+                );
+                return;
+              }
+              createSettled = true;
+              this.creatingItem = null;
+              this.createFile(resolvedFile, '');
             }
           }
         });
         treeInput.addEventListener('blur', () => {
           if (createSettled) return;
+          if (hasInlineError) return;
           createSettled = true;
           if (this.creatingItem) {
             const val = (treeInput.value || '').trim();
             const item = this.creatingItem;
             this.creatingItem = null;
             if (val && item) {
-              const full = item.parentFolder ? `${item.parentFolder}/${val}` : val;
-              if (item.type === 'folder') {
-                this.createFolder(full);
-              } else {
-                this.createFile(full);
+              const rawFull = item.parentFolder ? `${item.parentFolder}/${val}` : val;
+              const normalized = this._normalizeWorkspaceRelPath(rawFull);
+              if (normalized) {
+                if (item.type === 'folder') {
+                  if (!this._hasPathConflict(normalized, { kind: 'folder' })) {
+                    this.createFolder(normalized);
+                    return;
+                  }
+                } else {
+                  const resolvedFile = this._resolveCreatedFilename(normalized);
+                  if (resolvedFile && !this._hasPathConflict(resolvedFile, { kind: 'file' })) {
+                    this.createFile(resolvedFile, '');
+                    return;
+                  }
+                }
               }
-            } else {
-              this._renderFileLists();
             }
+            this._renderFileLists();
           }
         });
       }
@@ -3947,6 +5706,7 @@ int main() {
       const renameInput = explorerEl.querySelector('#cl-tree-rename-input');
       if (renameInput) {
         let renameSettled = false;
+        let hasRenameError = false;
         renameInput.focus();
         if (typeof renameInput.setSelectionRange === 'function') {
           try {
@@ -3957,25 +5717,77 @@ int main() {
             _bootDebug('renameInput.setSelectionRange failed', err);
           }
         }
-        const commitRename = () => {
+        renameInput.addEventListener('input', () => {
+          hasRenameError = false;
+          clearInlineTreeError(renameInput);
+        });
+        const commitRename = (fromBlur) => {
           if (renameSettled) return;
-          renameSettled = true;
           const rawVal = (renameInput.value || '').trim().replace(/^\/+|\/+$/g, '');
           const item = this.renamingItem;
-          this.renamingItem = null;
-          if (!rawVal || !item) {
-            this._renderFileLists();
+          if (!item) return;
+          if (!rawVal) {
+            if (fromBlur) {
+              renameSettled = true;
+              this.renamingItem = null;
+              this._renderFileLists();
+              return;
+            }
+            hasRenameError = true;
+            showInlineTreeError(renameInput, 'A file or folder name must be provided.');
             return;
           }
           const lastSlash = item.targetPath.lastIndexOf('/');
           const parentDir = lastSlash > 0 ? item.targetPath.slice(0, lastSlash) : '';
-          const nextPath = rawVal.includes('/')
+          const candidatePath = rawVal.includes('/')
             ? rawVal
             : (parentDir ? `${parentDir}/${rawVal}` : rawVal);
+          const nextPath = this._normalizeWorkspaceRelPath(candidatePath);
+          if (!nextPath) {
+            if (fromBlur) {
+              renameSettled = true;
+              this.renamingItem = null;
+              this._renderFileLists();
+              return;
+            }
+            hasRenameError = true;
+            showInlineTreeError(renameInput, 'Invalid path: relative traversal ("..") is not allowed.');
+            return;
+          }
           if (nextPath === item.targetPath) {
+            renameSettled = true;
+            this.renamingItem = null;
             this._renderFileLists();
             return;
           }
+          const itemKind = item.type === 'folder' ? 'folder' : 'file';
+          const conflict = this._hasPathConflict(nextPath, {
+            kind: itemKind,
+            ignorePath: item.targetPath,
+            ignoreKind: itemKind
+          });
+          if (conflict) {
+            if (fromBlur) {
+              renameSettled = true;
+              this.renamingItem = null;
+              this._renderFileLists();
+              return;
+            }
+            hasRenameError = true;
+            showInlineTreeError(
+              renameInput,
+              conflict === 'reserved-name'
+                ? `"${nextPath}" is a reserved directory name (.git / node_modules).`
+                : conflict === 'ancestor-is-file'
+                  ? `Cannot move "${nextPath}" inside an existing file.`
+                  : conflict === 'self-subtree'
+                    ? `Cannot move "${item.targetPath}" into a subdirectory of itself.`
+                    : `A file or folder "${nextPath}" already exists at this location.`
+            );
+            return;
+          }
+          renameSettled = true;
+          this.renamingItem = null;
           const ok = item.type === 'folder'
             ? this.renameFolder(item.targetPath, nextPath)
             : this.renameFile(item.targetPath, nextPath);
@@ -3992,27 +5804,42 @@ int main() {
           } else if (e.key === 'Enter') {
             e.preventDefault();
             if (e.isComposing || e.keyCode === 229) return;
-            commitRename();
+            commitRename(false);
           }
         });
         renameInput.addEventListener('blur', () => {
-          commitRename();
+          if (hasRenameError) return;
+          commitRename(true);
         });
       }
 
-      // Tabs rendering
+      // Tabs rendering (strictly WAI-ARIA compliant: zero nested <button> inside [role="tab"]!)
       const openTabs = Array.isArray(this.openTabs) ? this.openTabs : [];
+      const effectiveActiveTab = this.settingsTabOpen && this.activeTab === '__settings__'
+        ? '__settings__'
+        : this.activeFile;
       const tabsHtml = openTabs.map(f => {
-        const isActive = f === this.activeFile;
+        const isActive = f === effectiveActiveTab;
+        const isDirty = Boolean(this._dirtyFiles && this._dirtyFiles.has(f));
         const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(f) ? 'cpp' : /\.sql$/i.test(f) ? 'sql' : f.endsWith('.py') ? 'py' : f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
         return `
-          <div role="tab" tabindex="0" aria-selected="${isActive}" class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
+          <div role="tab" tabindex="${isActive ? '0' : '-1'}" aria-selected="${isActive}"${isDirty ? ' data-dirty="true"' : ''} class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
             <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext === 'cpp' ? 'C++' : ext.toUpperCase()}</span>
             <span class="codelab-tab__label">${escapeHtml(f)}</span>
-            <button type="button" class="codelab-tab__close" data-action="close-tab" data-cl-file="${escapeHtml(f)}" title="Close ${escapeHtml(f)}" aria-label="Close ${escapeHtml(f)}">×</button>
+            ${isDirty ? '<span class="codelab-tab__dirty" title="Unsaved changes" aria-hidden="true"></span>' : ''}
+            <span role="button" tabindex="0" class="codelab-tab__close" data-action="close-tab" data-cl-close-file="${escapeHtml(f)}" title="Close ${escapeHtml(f)}" aria-label="Close ${escapeHtml(f)}">×</span>
           </div>
         `;
       }).join('');
+      const settingsTabHtml = this.settingsTabOpen
+        ? `
+          <div role="tab" tabindex="${effectiveActiveTab === '__settings__' ? '0' : '-1'}" aria-selected="${effectiveActiveTab === '__settings__'}" class="codelab-tab ${effectiveActiveTab === '__settings__' ? 'active' : ''}" data-cl-tab="__settings__" data-tab-file="__settings__">
+            <span class="codelab-tab__ext codelab-tab__ext--json">${CL_ICONS.settings}</span>
+            <span class="codelab-tab__label">Settings</span>
+            <span role="button" tabindex="0" class="codelab-tab__close" data-action="close-tab" data-cl-close-tab="__settings__" title="Close Settings" aria-label="Close Settings">×</span>
+          </div>
+        `
+        : '';
 
       const newFileControl = this.isCreatingFile
         ? `<form class="codelab-new-file-form" id="cl-new-file-form">
@@ -4023,18 +5850,29 @@ int main() {
       const { npmPackages, builtinModules } = this._detectPackages();
       const pkgBadge = npmPackages.length > 0 ? `${npmPackages.length} npm` : `${builtinModules.length} std`;
       const pkgBtnHtml = `
-        <button type="button" class="codelab-pkg-btn" data-cl-action="open-packages" title="Manage NPM Packages &amp; Node.js Built-ins">
+        <button type="button" class="codelab-pkg-btn" data-cl-action="open-packages" title="Manage Dependencies &amp; Built-ins">
           ${CL_ICONS.package}
           <span>Packages</span>
           <span class="codelab-drawer__pill" style="padding:0 5px;font-size:10px;">${pkgBadge}</span>
         </button>
       `;
 
-      tabsEl.innerHTML = tabsHtml + newFileControl + pkgBtnHtml;
+      const mdToggleHtml = (this.activeFile && /\.md$/i.test(this.activeFile) && effectiveActiveTab !== '__settings__')
+        ? `<button type="button" class="codelab-pkg-btn ${this._mdPreviewOpen ? 'active' : ''}" data-cl-action="toggle-md-preview" aria-pressed="${Boolean(this._mdPreviewOpen)}" title="${this._mdPreviewOpen ? 'Edit Markdown Source' : 'Open Markdown Preview'}">
+            <span>${this._mdPreviewOpen ? 'Edit Source' : 'Preview'}</span>
+          </button>`
+        : '';
+
+      tabsEl.innerHTML = tabsHtml + settingsTabHtml;
+      const tabsActionsEl = this.container.querySelector('#cl-file-tabs-actions');
+      if (tabsActionsEl) {
+        tabsActionsEl.innerHTML = mdToggleHtml + newFileControl + pkgBtnHtml;
+      }
 
       if (this.isCreatingFile) {
-        const input = tabsEl.querySelector('#cl-new-file-input');
-        const form = tabsEl.querySelector('#cl-new-file-form');
+        const actionHost = tabsActionsEl || tabsEl;
+        const input = actionHost.querySelector('#cl-new-file-input');
+        const form = actionHost.querySelector('#cl-new-file-form');
         if (input) {
           input.focus();
           input.addEventListener('keydown', ev => {
@@ -4070,16 +5908,116 @@ int main() {
       this._renderFileLists();
     }
 
+    _resolveCreatedFilename(rawPath) {
+      const clean = this._normalizeWorkspaceRelPath(rawPath);
+      if (!clean) return null;
+      const baseOnly = clean.split('/').pop() || '';
+      const isKnownExtensionless = /^(Makefile|Dockerfile|Containerfile|LICENSE|COPYING|NOTICE|AUTHORS|Procfile|Gemfile|Rakefile|Vagrantfile|Justfile|Brewfile)$/i.test(baseOnly);
+      if (
+        !isKnownExtensionless &&
+        !/\.(js|ts|jsx|tsx|mjs|cjs|py|cpp|cc|cxx|hpp|h|html|css|json|md|txt|sh|sql|yaml|yml)$/i.test(clean) &&
+        !baseOnly.includes('.')
+      ) {
+        return `${clean}.${this.lang}`;
+      }
+      return clean;
+    }
+
+    _getAllKnownFolders(ignoreFolderPrefix = '') {
+      const set = new Set();
+      const cleanIgnore = ignoreFolderPrefix ? (this._normalizeWorkspaceRelPath(ignoreFolderPrefix) || '') : '';
+      const isIgnored = (p) => Boolean(cleanIgnore && (p === cleanIgnore || p.startsWith(cleanIgnore + '/')));
+      if (this.folders) {
+        for (const f of this.folders) {
+          const cf = this._normalizeWorkspaceRelPath(f);
+          if (!cf) continue;
+          const parts = cf.split('/');
+          let cur = '';
+          for (let i = 0; i < parts.length; i++) {
+            cur = cur ? `${cur}/${parts[i]}` : parts[i];
+            if (!isIgnored(cur)) set.add(cur);
+          }
+        }
+      }
+      for (const filePath of Object.keys(this.files || {})) {
+        if (cleanIgnore && (filePath === cleanIgnore || filePath.startsWith(cleanIgnore + '/'))) continue;
+        const idx = filePath.lastIndexOf('/');
+        if (idx <= 0) continue;
+        const parts = filePath.slice(0, idx).split('/');
+        let cur = '';
+        for (let i = 0; i < parts.length; i++) {
+          cur = cur ? `${cur}/${parts[i]}` : parts[i];
+          if (!isIgnored(cur)) set.add(cur);
+        }
+      }
+      const hasGit = Boolean(
+        (this.shell && this.shell.gitState && this.shell.gitState.initialized) ||
+        (this.shell && this.shell.vfs && typeof this.shell.vfs.existsSync === 'function' && this.shell.vfs.existsSync('/workspace/.git'))
+      );
+      if (hasGit && !isIgnored('.git')) {
+        set.add('.git');
+      }
+      return set;
+    }
+
+    _hasPathConflict(candidatePath, opts = {}) {
+      const clean = this._normalizeWorkspaceRelPath(candidatePath);
+      if (!clean) return 'invalid';
+      const ignoreKind = opts && opts.ignoreKind === 'folder' ? 'folder' : 'file';
+      const cleanIgnore = (opts && opts.ignorePath) ? (this._normalizeWorkspaceRelPath(opts.ignorePath) || '') : '';
+      if (cleanIgnore && clean.startsWith(cleanIgnore + '/')) return 'self-subtree';
+      const knownFolders = this._getAllKnownFolders(ignoreKind === 'folder' ? cleanIgnore : '');
+      const filesObj = this.files || {};
+      const isIgnoredFile = (fp) => {
+        if (!cleanIgnore) return false;
+        return ignoreKind === 'folder'
+          ? (fp === cleanIgnore || fp.startsWith(cleanIgnore + '/'))
+          : fp === cleanIgnore;
+      };
+      const segments = clean.split('/');
+      if (segments.includes('.git') || segments.includes('node_modules')) {
+        return 'reserved-name';
+      }
+      let ancestor = '';
+      for (let i = 0; i < segments.length - 1; i++) {
+        ancestor = ancestor ? `${ancestor}/${segments[i]}` : segments[i];
+        if (filesObj[ancestor] !== undefined && !isIgnoredFile(ancestor)) {
+          return 'ancestor-is-file';
+        }
+      }
+      if (filesObj[clean] !== undefined && !isIgnoredFile(clean)) {
+        return 'exists-file';
+      }
+      if (knownFolders.has(clean)) {
+        return 'exists-folder';
+      }
+      const descPrefix = clean + '/';
+      for (const fp of Object.keys(filesObj)) {
+        if (!isIgnoredFile(fp) && fp.startsWith(descPrefix)) {
+          return 'has-descendants';
+        }
+      }
+      for (const fd of knownFolders) {
+        if (fd.startsWith(descPrefix)) {
+          return 'has-descendants';
+        }
+      }
+      return null;
+    }
+
     createFolder(folderPath) {
-      let clean = String(folderPath).trim().replace(/^\/+|\/+$/g, '');
+      const clean = this._normalizeWorkspaceRelPath(folderPath);
       if (!clean) return false;
+      if (this._hasPathConflict(clean, { kind: 'folder' })) return false;
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
       const parts = clean.split('/');
       let cur = '';
       for (const p of parts) {
         cur = cur ? `${cur}/${p}` : p;
         this.folders.add(cur);
       }
-      this._saveState();
+      this._vfsEnsureFolder(clean);
+      this._saveState({ flushSnapshotOnly: true });
       this._renderFileLists();
       return true;
     }
@@ -4096,18 +6034,33 @@ int main() {
       this._renderFileLists();
     }
 
-    moveFile(srcPath, dest) {
-      if (!srcPath || this.files[srcPath] === undefined) return false;
-      const baseName = srcPath.split('/').pop();
-      const cleanDest = String(dest || '').trim().replace(/^\/+|\/+$/g, '');
-      const isDestFolder = cleanDest === '' || this.folders.has(cleanDest) || (!cleanDest.split('/').pop().includes('.') && this.files[cleanDest] === undefined);
+    moveFile(srcPath, dest, opts = {}) {
+      const cleanSrc = this._normalizeWorkspaceRelPath(srcPath);
+      if (!cleanSrc || this.files[cleanSrc] === undefined) return false;
+      const baseName = cleanSrc.split('/').pop();
+      const rawDest = String(dest ?? '').trim();
+      const destExact = Boolean(opts && opts.destIsExactFilePath);
+      let cleanDest = '';
+      if (rawDest !== '' && rawDest !== '/') {
+        const normalizedDest = this._normalizeWorkspaceRelPath(rawDest);
+        if (!normalizedDest) return false;
+        cleanDest = normalizedDest;
+      } else if (destExact) {
+        return false;
+      }
+
+      const knownFolders = this._getAllKnownFolders();
+      const isDestFolder = destExact
+        ? false
+        : (cleanDest === '' || this.folders.has(cleanDest) || knownFolders.has(cleanDest) || (!cleanDest.split('/').pop().includes('.') && this.files[cleanDest] === undefined));
       const targetPath = isDestFolder
         ? (cleanDest ? `${cleanDest}/${baseName}` : baseName)
         : cleanDest;
 
-      if (targetPath === srcPath) return false;
-      if (this.files[targetPath] !== undefined) return false;
+      if (!targetPath || targetPath === cleanSrc) return false;
+      if (this._hasPathConflict(targetPath, { kind: 'file', ignorePath: cleanSrc, ignoreKind: 'file' })) return false;
 
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
       const parts = targetPath.split('/');
       let cur = '';
       for (let i = 0; i < parts.length - 1; i++) {
@@ -4116,46 +6069,73 @@ int main() {
         this.collapsedFolders.delete(cur);
       }
 
-      const content = this.files[srcPath];
-      delete this.files[srcPath];
+      const content = this.files[cleanSrc];
+      delete this.files[cleanSrc];
       this.files[targetPath] = content;
 
-      const oldModel = this.models.get(srcPath);
+      const wasDirty = Boolean(this._dirtyFiles && this._dirtyFiles.has(cleanSrc));
+      if (this._dirtyFiles) {
+        this._dirtyFiles.delete(cleanSrc);
+        if (wasDirty) this._dirtyFiles.add(targetPath);
+      }
+      if (this._savedSnapshot) {
+        const hadSaved = Object.prototype.hasOwnProperty.call(this._savedSnapshot, cleanSrc);
+        const savedVal = hadSaved ? this._savedSnapshot[cleanSrc] : content;
+        delete this._savedSnapshot[cleanSrc];
+        this._savedSnapshot[targetPath] = wasDirty ? savedVal : content;
+      }
+
+      this._vfsRenamePath(cleanSrc, targetPath, false);
+      this._clearDiagnosticsForPath(cleanSrc, false);
+
+      const oldModel = this.models.get(cleanSrc);
       if (oldModel) {
         oldModel.dispose();
-        this.models.delete(srcPath);
+        this.models.delete(cleanSrc);
       }
       this._getOrCreateModel(targetPath);
 
       if (Array.isArray(this.openTabs)) {
-        const idx = this.openTabs.indexOf(srcPath);
+        const idx = this.openTabs.indexOf(cleanSrc);
         if (idx !== -1) {
           this.openTabs.splice(idx, 1, targetPath);
         }
       }
 
-      if (this.activeFile === srcPath) {
+      if (this.activeFile === cleanSrc) {
         this.activeFile = targetPath;
+        if (this.activeTab !== '__settings__') {
+          this.activeTab = targetPath;
+        }
       }
 
-      this._saveState();
+      this._lintFile(targetPath);
+      if (cleanSrc.startsWith('.codelab/') || targetPath.startsWith('.codelab/')) {
+        this._syncDotCodelabConfig({ isInitialMount: false });
+      }
+      this._saveState({ flushSnapshotOnly: true });
       this._syncActiveFileToView();
       return true;
     }
 
     renameFile(oldPath, newPath) {
-      const ok = this.moveFile(oldPath, newPath);
+      const ok = this.moveFile(oldPath, newPath, { destIsExactFilePath: true });
       if (ok) {
-        this._syncFilesToShellVfs();
         this._emitEvent('codelab:file-rename', { labId: this.labId, oldPath, newPath });
       }
       return ok;
     }
 
     movePath(sourcePath, targetFolder = '') {
-      const cleanSrc = String(sourcePath || '').trim().replace(/^\/+|\/+$/g, '');
-      const cleanDest = String(targetFolder || '').trim().replace(/^\/+|\/+$/g, '');
+      const cleanSrc = this._normalizeWorkspaceRelPath(sourcePath);
       if (!cleanSrc) return false;
+      const rawDest = String(targetFolder ?? '').trim();
+      let cleanDest = '';
+      if (rawDest !== '' && rawDest !== '/') {
+        const normDest = this._normalizeWorkspaceRelPath(rawDest);
+        if (!normDest) return false;
+        cleanDest = normDest;
+      }
       const allFolders = this._listWorkspaceFolders();
       if (allFolders.includes(cleanSrc)) {
         const baseName = cleanSrc.split('/').pop();
@@ -4168,7 +6148,7 @@ int main() {
 
     startInlineCreate(type = 'file', folderPrefix = '') {
       const kind = type === 'folder' ? 'folder' : 'file';
-      const cleanFolder = String(folderPrefix || '').trim().replace(/^\/+|\/+$/g, '');
+      const cleanFolder = folderPrefix ? (this._normalizeWorkspaceRelPath(folderPrefix) || '') : '';
       if (cleanFolder) {
         const parts = cleanFolder.split('/');
         let cur = '';
@@ -4208,7 +6188,7 @@ int main() {
         }
       }
 
-      const cleanTarget = String(rawTarget || '').trim().replace(/^\/+|\/+$/g, '');
+      const cleanTarget = this._normalizeWorkspaceRelPath(rawTarget);
       if (!cleanTarget) return;
       if (kind === 'file' && this.files[cleanTarget] === undefined) return;
       if (kind === 'folder' && !this._listWorkspaceFolders().includes(cleanTarget)) return;
@@ -4238,10 +6218,25 @@ int main() {
     }
 
     renameFolder(oldFolder, newFolder) {
-      const oldPrefix = String(oldFolder).trim().replace(/^\/+|\/+$/g, '');
-      const newPrefix = String(newFolder).trim().replace(/^\/+|\/+$/g, '');
+      const oldPrefix = this._normalizeWorkspaceRelPath(oldFolder);
+      const newPrefix = this._normalizeWorkspaceRelPath(newFolder);
       if (!oldPrefix || !newPrefix || oldPrefix === newPrefix) return false;
+      if (oldPrefix === '.git' || oldPrefix.startsWith('.git/')) return false;
+      if (newPrefix.startsWith(oldPrefix + '/')) return false;
+      const knownFolders = this._getAllKnownFolders();
+      if (!knownFolders.has(oldPrefix)) return false;
+      if (this._hasPathConflict(newPrefix, { kind: 'folder', ignorePath: oldPrefix, ignoreKind: 'folder' })) return false;
 
+      const fileRenames = [];
+      for (const filePath of Object.keys(this.files)) {
+        if (filePath.startsWith(oldPrefix + '/')) {
+          const newFilePath = newPrefix + filePath.slice(oldPrefix.length);
+          if (this.files[newFilePath] !== undefined) return false;
+          fileRenames.push({ oldPath: filePath, newPath: newFilePath, content: this.files[filePath] });
+        }
+      }
+
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
       const updatedFolders = new Set();
       for (const f of this.folders) {
         if (f === oldPrefix) {
@@ -4272,17 +6267,21 @@ int main() {
       }
       this.collapsedFolders = updatedCollapsed;
 
-      const fileRenames = [];
-      for (const filePath of Object.keys(this.files)) {
-        if (filePath.startsWith(oldPrefix + '/')) {
-          const newFilePath = newPrefix + filePath.slice(oldPrefix.length);
-          fileRenames.push({ oldPath: filePath, newPath: newFilePath, content: this.files[filePath] });
-        }
-      }
-
       for (const { oldPath, newPath, content } of fileRenames) {
         delete this.files[oldPath];
         this.files[newPath] = content;
+
+        const wasDirty = Boolean(this._dirtyFiles && this._dirtyFiles.has(oldPath));
+        if (this._dirtyFiles) {
+          this._dirtyFiles.delete(oldPath);
+          if (wasDirty) this._dirtyFiles.add(newPath);
+        }
+        if (this._savedSnapshot) {
+          const hadSaved = Object.prototype.hasOwnProperty.call(this._savedSnapshot, oldPath);
+          const savedVal = hadSaved ? this._savedSnapshot[oldPath] : content;
+          delete this._savedSnapshot[oldPath];
+          this._savedSnapshot[newPath] = wasDirty ? savedVal : content;
+        }
 
         const oldModel = this.models.get(oldPath);
         if (oldModel) {
@@ -4300,17 +6299,132 @@ int main() {
 
         if (this.activeFile === oldPath) {
           this.activeFile = newPath;
+          if (this.activeTab !== '__settings__') {
+            this.activeTab = newPath;
+          }
         }
       }
 
-      this._saveState();
+      this._vfsRenamePath(oldPrefix, newPrefix, true);
+      this._clearDiagnosticsForPath(oldPrefix, true);
+      for (const { newPath } of fileRenames) {
+        this._lintFile(newPath);
+      }
+      if (oldPrefix === '.codelab' || newPrefix === '.codelab' || oldPrefix.startsWith('.codelab/') || newPrefix.startsWith('.codelab/')) {
+        this._syncDotCodelabConfig({ isInitialMount: false });
+      }
+      this._saveState({ flushSnapshotOnly: true });
       this._syncActiveFileToView();
+      this._emitEvent('codelab:folder-rename', { labId: this.labId, oldFolder: oldPrefix, newFolder: newPrefix });
       return true;
     }
 
-    deleteFolder(folderPath) {
-      const clean = String(folderPath).trim().replace(/^\/+|\/+$/g, '');
+    _confirmDeletePath(kind, rawTarget) {
+      const cleanTarget = this._normalizeWorkspaceRelPath(rawTarget);
+      if (!cleanTarget) return Promise.resolve(false);
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) {
+        const ok = kind === 'folder'
+          ? this.deleteFolder(cleanTarget, { force: true })
+          : this.deleteFile(cleanTarget, { force: true });
+        return Promise.resolve(Boolean(ok));
+      }
+      this._captureModalReturnFocus();
+      const isFolder = kind === 'folder';
+      const childCount = isFolder
+        ? Object.keys(this.files || {}).filter(f => f.startsWith(cleanTarget + '/')).length
+        : 0;
+      const titleText = isFolder ? `Delete Folder "${cleanTarget}"?` : `Delete "${cleanTarget}"?`;
+      const descText = isFolder
+        ? (childCount > 0
+          ? `Are you sure you want to permanently delete "${cleanTarget}" and its ${childCount} nested file${childCount === 1 ? '' : 's'} from the workspace?`
+          : `Are you sure you want to delete the folder "${cleanTarget}" from the workspace?`)
+        : `Are you sure you want to permanently delete "${cleanTarget}" from the workspace?`;
+
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (confirmed) => {
+          if (settled) return;
+          settled = true;
+          this._onModalClosedCallback = null;
+          this.closeModal();
+          if (confirmed) {
+            if (isFolder) {
+              this.deleteFolder(cleanTarget, { force: true });
+            } else {
+              this.deleteFile(cleanTarget, { force: true });
+            }
+          }
+          resolve(Boolean(confirmed));
+        };
+        this._onModalClosedCallback = () => {
+          if (!settled) {
+            settled = true;
+            resolve(false);
+          }
+        };
+
+        slot.innerHTML = `
+          <div class="codelab-modal-backdrop" data-cl-backdrop="delete-confirm">
+            <div class="codelab-modal codelab-confirm-modal" id="delete-confirm-modal" data-cl-modal="delete-confirm" role="dialog" aria-modal="true" aria-labelledby="cl-delete-modal-title" aria-describedby="cl-delete-modal-desc" style="max-width:440px;">
+              <div class="codelab-modal__header">
+                <h3 id="cl-delete-modal-title" class="codelab-modal__title">${escapeHtml(titleText)}</h3>
+                <button type="button" class="codelab-modal__close" data-cl-action="close-modal" aria-label="Close dialog">×</button>
+              </div>
+              <div class="codelab-modal__body">
+                <p id="cl-delete-modal-desc" class="codelab-confirm-modal__desc">${escapeHtml(descText)}</p>
+                <div class="codelab-confirm-modal__actions">
+                  <button type="button" class="codelab-btn" data-cl-action="cancel-delete" data-cl-confirm="cancel" autofocus>Cancel</button>
+                  <button type="button" class="codelab-btn codelab-btn--danger" data-cl-action="confirm-delete" data-cl-confirm="delete">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const backdrop = slot.querySelector('.codelab-modal-backdrop');
+        let pointerStartedOnBackdrop = false;
+        if (backdrop) {
+          backdrop.addEventListener('pointerdown', (ev) => {
+            pointerStartedOnBackdrop = ev.target === backdrop;
+          });
+          backdrop.addEventListener('click', (ev) => {
+            if (ev.target === backdrop && pointerStartedOnBackdrop) {
+              finish(false);
+            }
+            pointerStartedOnBackdrop = false;
+          });
+        }
+        const cancelBtn = slot.querySelector('[data-cl-action="cancel-delete"]');
+        const confirmBtn = slot.querySelector('[data-cl-action="confirm-delete"]');
+        const closeBtn = slot.querySelector('[data-cl-action="close-modal"]');
+        if (cancelBtn) {
+          cancelBtn.addEventListener('click', () => finish(false));
+          if (typeof cancelBtn.focus === 'function') cancelBtn.focus();
+        }
+        if (closeBtn) {
+          closeBtn.addEventListener('click', () => finish(false));
+        }
+        if (confirmBtn) {
+          confirmBtn.addEventListener('click', () => finish(true));
+        }
+      });
+    }
+
+    deleteFolder(folderPath, opts = {}) {
+      const clean = this._normalizeWorkspaceRelPath(folderPath);
       if (!clean) return false;
+      if (clean === '.git' || clean.startsWith('.git/')) return false;
+      if (opts && opts.confirm === true && !opts.force) {
+        return this._confirmDeletePath('folder', clean);
+      }
+      const allFolders = this._listWorkspaceFolders();
+      const knownFolders = this._getAllKnownFolders();
+      const matchingFiles = Object.keys(this.files).filter(f => f.startsWith(clean + '/'));
+      if (!knownFolders.has(clean) && !allFolders.includes(clean) && !this.folders.has(clean) && matchingFiles.length === 0) {
+        return false;
+      }
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
 
       for (const f of Array.from(this.folders)) {
         if (f === clean || f.startsWith(clean + '/')) {
@@ -4324,9 +6438,10 @@ int main() {
         }
       }
 
-      const matchingFiles = Object.keys(this.files).filter(f => f.startsWith(clean + '/'));
       for (const f of matchingFiles) {
         delete this.files[f];
+        if (this._dirtyFiles) this._dirtyFiles.delete(f);
+        if (this._savedSnapshot) delete this._savedSnapshot[f];
         const model = this.models.get(f);
         if (model) {
           model.dispose();
@@ -4340,25 +6455,37 @@ int main() {
         }
       }
 
+      this._vfsDeleteFolder(clean);
+
       if (this.activeFile && this.activeFile.startsWith(clean + '/')) {
         this.activeFile = this.openTabs && this.openTabs.length > 0 ? this.openTabs[0] : null;
+        if (this.activeTab !== '__settings__') {
+          this.activeTab = this.activeFile;
+        }
       }
 
-      this._saveState();
+      if (clean === '.codelab' || matchingFiles.some(f => f.startsWith('.codelab/'))) {
+        this._syncDotCodelabConfig();
+      }
+
+      this._updateProblemsBadge();
+      this._saveState({ flushSnapshotOnly: true });
       this._syncActiveFileToView();
+      this._emitEvent('codelab:folder-delete', { labId: this.labId, folder: clean });
       return true;
     }
 
     createFile(rawName, initialContent = null) {
-      let clean = String(rawName).trim().replace(/^\/+/, '');
+      const clean = this._resolveCreatedFilename(rawName);
       if (!clean) return null;
-      if (!/\.(js|ts|jsx|tsx|mjs|cjs|py|cpp|cc|cxx|hpp|h|html|css|json|md|txt|sh|sql|yaml|yml)$/i.test(clean) && !clean.includes('.')) {
-        clean += `.${this.lang}`;
-      }
       if (this.files[clean] !== undefined) {
         this.openFile(clean);
         return clean;
       }
+      if (this._hasPathConflict(clean, { kind: 'file' })) {
+        return null;
+      }
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
       const parts = clean.split('/');
       let cur = '';
       for (let i = 0; i < parts.length - 1; i++) {
@@ -4380,10 +6507,14 @@ int main() {
                   ? `#include <bits/stdc++.h>\nusing namespace std;\n\n// ${clean}\nint main() {\n    return 0;\n}\n`
                   : `'use strict';\n\n// ${clean}\n`;
       }
-      this._saveState();
+      if (!this._savedSnapshot) this._savedSnapshot = {};
+      this._savedSnapshot[clean] = this.files[clean];
+      this._vfsWriteFile(clean, this.files[clean]);
+      this._saveState({ flushSnapshotOnly: true });
       this._getOrCreateModel(clean);
-      this._syncFilesToShellVfs();
+      this._lintFile(clean);
       this._emitEvent('codelab:file-create', { labId: this.labId, filename: clean, content: this.files[clean] });
+      this._notifyCodeChange(clean, this.files[clean]);
       this.openFile(clean);
       return clean;
     }
@@ -4395,7 +6526,7 @@ int main() {
       const ext = dotIdx > 0 ? filename.slice(dotIdx) : '';
       let candidate = `${base}.copy${ext}`;
       let counter = 2;
-      while (this.files[candidate] !== undefined) {
+      while (this._hasPathConflict(candidate, { kind: 'file' })) {
         candidate = `${base}.copy${counter}${ext}`;
         counter++;
       }
@@ -4404,6 +6535,10 @@ int main() {
     }
 
     closeTab(filename) {
+      if (filename === '__settings__') {
+        this.closeSettings();
+        return;
+      }
       if (!Array.isArray(this.openTabs) || !this.openTabs.includes(filename)) {
         return;
       }
@@ -4418,16 +6553,32 @@ int main() {
           this.activeFile = null;
         }
       }
+      if (this.activeTab !== '__settings__') {
+        this.activeTab = this.activeFile;
+      }
 
       this._saveState();
       this._syncActiveFileToView();
     }
 
     closeOtherTabs(keepFilename) {
+      if (keepFilename === '__settings__') {
+        this.openTabs = [];
+        this.activeFile = null;
+        this.activeTab = '__settings__';
+        this._saveState();
+        this._syncActiveFileToView();
+        return;
+      }
       if (!Array.isArray(this.openTabs)) return;
       if (keepFilename && this.files[keepFilename] !== undefined) {
         this.openTabs = [keepFilename];
         this.activeFile = keepFilename;
+        this.settingsTabOpen = false;
+        this.activeTab = keepFilename;
+        if (this._settingsDialog && typeof this._settingsDialog.unmountInline === 'function') {
+          this._settingsDialog.unmountInline();
+        }
       }
       this._saveState();
       this._syncActiveFileToView();
@@ -4436,34 +6587,54 @@ int main() {
     closeAllTabs() {
       this.openTabs = [];
       this.activeFile = null;
+      this.settingsTabOpen = false;
+      this.activeTab = null;
+      if (this._settingsDialog && typeof this._settingsDialog.unmountInline === 'function') {
+        this._settingsDialog.unmountInline();
+      }
       this._saveState();
       this._syncActiveFileToView();
     }
 
-    deleteFile(filename) {
-      if (!filename || this.files[filename] === undefined) return false;
-      delete this.files[filename];
-      const model = this.models.get(filename);
+    deleteFile(filename, opts = {}) {
+      const clean = this._normalizeWorkspaceRelPath(filename);
+      if (!clean || this.files[clean] === undefined) return false;
+      if (opts && opts.confirm === true && !opts.force) {
+        return this._confirmDeletePath('file', clean);
+      }
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
+      delete this.files[clean];
+      if (this._dirtyFiles) this._dirtyFiles.delete(clean);
+      if (this._savedSnapshot) delete this._savedSnapshot[clean];
+      const model = this.models.get(clean);
       if (model) {
         model.dispose();
-        this.models.delete(filename);
+        this.models.delete(clean);
       }
       let tabIdx = -1;
       if (Array.isArray(this.openTabs)) {
-        tabIdx = this.openTabs.indexOf(filename);
+        tabIdx = this.openTabs.indexOf(clean);
         if (tabIdx !== -1) {
           this.openTabs.splice(tabIdx, 1);
         }
       }
-      this._saveState();
-      if (this.activeFile === filename) {
+      this._vfsDeleteFile(clean);
+      if (clean.startsWith('.codelab/')) {
+        this._syncDotCodelabConfig();
+      }
+      this._updateProblemsBadge();
+      if (this.activeFile === clean) {
         if (this.openTabs && this.openTabs.length > 0) {
           this.activeFile = this.openTabs[Math.max(0, Math.min(tabIdx, this.openTabs.length - 1))];
         } else {
           this.activeFile = null;
         }
       }
-      this._emitEvent('codelab:file-delete', { labId: this.labId, filename });
+      if (this.activeTab !== '__settings__') {
+        this.activeTab = this.activeFile;
+      }
+      this._saveState({ flushSnapshotOnly: true });
+      this._emitEvent('codelab:file-delete', { labId: this.labId, filename: clean });
       this._syncActiveFileToView();
       return true;
     }
@@ -4507,6 +6678,7 @@ int main() {
         const isActive = btn.dataset.clDrawertab === this.drawerTab;
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-selected', String(isActive));
+        btn.setAttribute('tabindex', isActive ? '0' : '-1');
       });
 
       // Update pills
@@ -4547,42 +6719,7 @@ int main() {
       }
 
       if (this.drawerTab === 'problems') {
-        const store = this._diagnosticsStore;
-        const problems = store && typeof store.getAll === 'function' ? store.getAll() : [];
-        if (!problems.length) {
-          bodyEl.innerHTML = `
-            <div style="color:var(--cl-fg-muted);padding:16px;text-align:center;">
-              ${CL_ICONS.check} No problems detected in workspace.
-            </div>
-          `;
-          return;
-        }
-        bodyEl.innerHTML = `
-          <div class="codelab-problems-list">
-            ${problems.map(p => {
-              const icon = p.severity === 'error' ? '✖' : (p.severity === 'warning' ? '⚠' : 'ℹ');
-              const cls = p.severity === 'error' ? 'codelab-problem-item--error' : (p.severity === 'warning' ? 'codelab-problem-item--warning' : 'codelab-problem-item--info');
-              const col = p.col || p.column || 1;
-              return `
-                <div class="codelab-problem-item ${cls}" data-cl-problem-file="${escapeHtml(p.file || '')}" data-cl-problem-line="${p.line || 1}" data-cl-problem-col="${col}" role="button" tabindex="0">
-                  <span class="codelab-problem-item__icon">${icon}</span>
-                  <span class="codelab-problem-item__msg">${escapeHtml(p.message || '')}</span>
-                  <span class="codelab-problem-item__location codelab-problem-item__loc">${escapeHtml(p.file || '')}:${p.line || 1}:${col}</span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        `;
-        if (typeof bodyEl.querySelectorAll === 'function') {
-          bodyEl.querySelectorAll('.codelab-problem-item').forEach((item) => {
-            item.addEventListener('keydown', (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                item.click();
-              }
-            });
-          });
-        }
+        this._renderProblemsPanel(bodyEl);
         return;
       }
 
@@ -4653,8 +6790,31 @@ int main() {
         return;
       }
 
+      if (this.drawerTab === 'output') {
+        this._trimTerminalLogs();
+        const outEntries = (Array.isArray(this.outputLogs) && this.outputLogs.length > 0)
+          ? this.outputLogs
+          : this.terminalLogs.filter(item => item && (item.type === 'stdout' || item.type === 'stderr' || item.type === 'system'));
+        const termFontPx = this.configuration
+          ? Math.max(10, Math.min(28, Number(this.configuration.get('terminal.fontSize', 13)) || 13))
+          : 13;
+        const linesHtml = outEntries.length > 0
+          ? outEntries.map(item => {
+              const html = ansiToHtml ? ansiToHtml(item.text || '') : escapeHtml(item.text || '');
+              return `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${html}</div>`;
+            }).join('')
+          : `<div style="color:var(--cl-fg-muted);font-size:12px;">No output messages yet. Run your code or workspace tasks to inspect output logs.</div>`;
+        bodyEl.innerHTML = `<div class="codelab-output-panel" id="cl-output-surface" style="font-size:${termFontPx}px;line-height:1.5;">${linesHtml}</div>`;
+        bodyEl.scrollTop = bodyEl.scrollHeight;
+        return;
+      }
+
       if (this.drawerTab === 'terminal') {
+        this._trimTerminalLogs();
         this._renderTerminalSessionsBar();
+        const termFontPx = this.configuration
+          ? Math.max(10, Math.min(28, Number(this.configuration.get('terminal.fontSize', 13)) || 13))
+          : 13;
         const logsHtml = this.terminalLogs
           .map(item => {
             const html = ansiToHtml ? ansiToHtml(item.text || '') : escapeHtml(item.text || '');
@@ -4669,7 +6829,7 @@ int main() {
         const afterHtml = this.isRunning ? '' : escapeHtml(this._ptyInputAfterCursor || '');
         const cursorClass = this.isRunning ? 'codelab-pty__cursor' : 'codelab-pty__cursor blink';
         const cursorCharHtml = this.isRunning ? '' : '&#x2588;';
-        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface" tabindex="0"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><div class="codelab-pty__active-line" id="cl-pty-active-line"${busyAttr}><span class="codelab-pty__prompt">${promptHtml}</span><span class="codelab-pty__before">${beforeHtml}</span><span class="${cursorClass}">${cursorCharHtml}</span><span class="codelab-pty__after">${afterHtml}</span></div><form class="codelab-repl" id="cl-repl-form" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
+        bodyEl.innerHTML = `<div class="codelab-terminal" id="cl-terminal-surface" tabindex="0" style="font-size:${termFontPx}px;"><div class="codelab-terminal__log" id="cl-terminal-log">${logsHtml}</div><div class="codelab-pty__active-line" id="cl-pty-active-line"${busyAttr} style="font-size:${termFontPx}px;"><span class="codelab-pty__prompt">${promptHtml}</span><span class="codelab-pty__before">${beforeHtml}</span><span class="${cursorClass}">${cursorCharHtml}</span><span class="codelab-pty__after">${afterHtml}</span></div><form class="codelab-repl" id="cl-repl-form" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;"><span class="codelab-repl__prompt">${escapeHtml(promptLabel)}</span><input type="text" class="codelab-repl__input" id="cl-repl-input" placeholder="ls, pwd, cat file.js, node demo.js, node test.js, or JS/TS expression…" autocomplete="off" spellcheck="false" aria-label="REPL command input"></form></div>`;
         bodyEl.scrollTop = bodyEl.scrollHeight;
         const termSurface = bodyEl.querySelector('#cl-terminal-surface');
         const input = bodyEl.querySelector('#cl-repl-input');
@@ -4752,7 +6912,7 @@ int main() {
               e.preventDefault();
               if (this.inRepl) {
                 this.inRepl = false;
-                this.terminalLogs.push({ type: 'stdout', text: 'Exiting REPL...' });
+                this._pushTerminalLog({ type: 'stdout', text: 'Exiting REPL...' });
                 this._renderDrawerBody();
                 const nextInput = this.container.querySelector('#cl-repl-input');
                 if (nextInput && typeof nextInput.focus === 'function') nextInput.focus();
@@ -5015,12 +7175,20 @@ int main() {
       };
 
       // A newline completes the current line: commit it to the log + DOM, then begin a fresh line.
+      const maxScrollback = this._getTerminalScrollback();
       const commitActiveLine = () => {
-        this.terminalLogs.push({ type: this._activeStreamType || type, text: this._activeStreamLine });
-        if (this.terminalLogs.length > 2000) {
-          this.terminalLogs.splice(0, this.terminalLogs.length - 2000);
+        const entry = { type: this._activeStreamType || type, text: this._activeStreamLine };
+        this._pushTerminalLog(entry);
+        if (Array.isArray(this.outputLogs)) {
+          this.outputLogs.push(entry);
+          if (this.outputLogs.length > maxScrollback) {
+            this.outputLogs.splice(0, this.outputLogs.length - maxScrollback);
+          }
+        }
+        if (this.terminalLogs.length > maxScrollback) {
+          this.terminalLogs.splice(0, this.terminalLogs.length - maxScrollback);
           if (canPatchDom && termLogEl) {
-            while (termLogEl.childElementCount > 2000 && termLogEl.firstElementChild) {
+            while (termLogEl.childElementCount > maxScrollback && termLogEl.firstElementChild) {
               termLogEl.removeChild(termLogEl.firstElementChild);
             }
           }
@@ -5101,12 +7269,66 @@ int main() {
       }
     }
 
+    _getTerminalScrollback() {
+      if (!this.configuration) return 1000;
+      const val = Number(this.configuration.get('terminal.scrollback', 1000));
+      if (Number.isNaN(val)) return 1000;
+      return Math.max(100, Math.min(50000, Math.floor(val)));
+    }
+
+    _trimTerminalLogs() {
+      const maxSb = this._getTerminalScrollback();
+      let trimmed = false;
+      if (Array.isArray(this.terminalLogs) && this.terminalLogs.length > maxSb) {
+        this.terminalLogs.splice(0, this.terminalLogs.length - maxSb);
+        trimmed = true;
+      }
+      if (Array.isArray(this._terminalSessions)) {
+        for (const s of this._terminalSessions) {
+          if (s && Array.isArray(s.logs) && s.logs !== this.terminalLogs && s.logs.length > maxSb) {
+            s.logs.splice(0, s.logs.length - maxSb);
+          }
+        }
+      }
+      if (Array.isArray(this.outputLogs) && this.outputLogs.length > maxSb) {
+        this.outputLogs.splice(0, this.outputLogs.length - maxSb);
+        trimmed = true;
+      }
+      return trimmed;
+    }
+
+    _pushTerminalLog(entry) {
+      if (!entry) return;
+      if (Array.isArray(this.terminalLogs)) {
+        Array.prototype.push.call(this.terminalLogs, entry);
+      }
+      this._trimTerminalLogs();
+    }
+
+    _log(type = 'stdout', text = '') {
+      this._pushTerminalLog({ type, text: String(text ?? '') });
+      if (this.drawerTab === 'terminal' || this.drawerTab === 'output') {
+        this._renderDrawerBody();
+      }
+    }
+
     _flushTerminalStream() {
       if (this._activeStreamLine) {
-        this.terminalLogs.push({
+        const entry = {
           type: this._activeStreamType || 'stdout',
           text: this._activeStreamLine
-        });
+        };
+        this._pushTerminalLog(entry);
+        const maxScrollback = this._getTerminalScrollback();
+        if (this.terminalLogs.length > maxScrollback) {
+          this.terminalLogs.splice(0, this.terminalLogs.length - maxScrollback);
+        }
+        if (Array.isArray(this.outputLogs)) {
+          this.outputLogs.push(entry);
+          if (this.outputLogs.length > maxScrollback) {
+            this.outputLogs.splice(0, this.outputLogs.length - maxScrollback);
+          }
+        }
         this._activeStreamLine = '';
         this._activeStreamEl = null;
       }
@@ -5140,6 +7362,9 @@ int main() {
     }
 
     _handleInterrupt() {
+      if (this._cloneInFlight || this._activeCloneAbortController) {
+        this.cancelClone();
+      }
       const isCommandRunning = Boolean(this.isRunning || this._activeCommandAbortController);
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
       const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
@@ -5167,14 +7392,14 @@ int main() {
         this._updateRunStateUI();
 
         this._flushTerminalStream();
-        this.terminalLogs.push({ type: 'stdout', text: '^C' });
+        this._pushTerminalLog({ type: 'stdout', text: '^C' });
       } else {
         if (this.inRepl) {
           this.inRepl = false;
-          this.terminalLogs.push({ type: 'stdout', text: '^C\nExiting REPL...' });
+          this._pushTerminalLog({ type: 'stdout', text: '^C\nExiting REPL...' });
         } else {
           const currentInput = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
-          this.terminalLogs.push({ type: 'stdout', text: `${promptLabel} ${currentInput}^C` });
+          this._pushTerminalLog({ type: 'stdout', text: `${promptLabel} ${currentInput}^C` });
         }
       }
 
@@ -5253,8 +7478,8 @@ int main() {
         } else {
           const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
           const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
-          this.terminalLogs.push({ type: 'system', text: `${promptLabel} ${currentInput}` });
-          this.terminalLogs.push({ type: 'stdout', text: candidates.join('  ') });
+          this._pushTerminalLog({ type: 'system', text: `${promptLabel} ${currentInput}` });
+          this._pushTerminalLog({ type: 'stdout', text: candidates.join('  ') });
           this._renderDrawerBody();
           const nextInput = this.container.querySelector('#cl-repl-input');
           if (nextInput) {
@@ -5268,48 +7493,315 @@ int main() {
       }
     }
 
+    _getFilteredProblems(allProblems) {
+      const list = Array.isArray(allProblems) ? allProblems : [];
+      const sevFilter = this._problemsSeverityFilter || 'all';
+      const rawQuery = String(this._problemsFilterQuery || '').trim().toLowerCase();
+      return list.filter((p) => {
+        if (!p) return false;
+        const sev = p.severity === 'error' ? 'error' : (p.severity === 'warning' ? 'warning' : 'info');
+        if (sevFilter !== 'all' && sev !== sevFilter) return false;
+        if (!rawQuery) return true;
+        const hay = `${p.file || ''} ${p.message || ''} ${p.source || ''} ${p.code || ''}`.toLowerCase();
+        return hay.includes(rawQuery);
+      });
+    }
+
+    _renderProblemsListHtml(allProblems) {
+      const total = Array.isArray(allProblems) ? allProblems.length : 0;
+      const filtered = this._getFilteredProblems(allProblems);
+      if (total === 0) {
+        return `
+          <div class="codelab-problems-empty" style="color:var(--cl-fg-muted);padding:16px;text-align:center;">
+            ${CL_ICONS.check} No problems detected in workspace.
+          </div>
+        `;
+      }
+      if (filtered.length === 0) {
+        return `
+          <div class="codelab-problems-empty" style="color:var(--cl-fg-muted);padding:16px;text-align:center;">
+            No problems match the current filter.
+          </div>
+        `;
+      }
+      if (!this._collapsedProblemFiles) this._collapsedProblemFiles = new Set();
+      const grouped = new Map();
+      for (const p of filtered) {
+        const fKey = String(p.file || 'workspace');
+        if (!grouped.has(fKey)) grouped.set(fKey, []);
+        grouped.get(fKey).push(p);
+      }
+      const groupsHtml = [];
+      for (const [fileKey, items] of grouped.entries()) {
+        if (!items || items.length === 0) continue;
+        const isCollapsed = this._collapsedProblemFiles.has(fileKey);
+        const rowsHtml = isCollapsed ? '' : items.map((p) => {
+          const sev = p.severity === 'error' ? 'error' : (p.severity === 'warning' ? 'warning' : 'info');
+          const sevLabel = sev === 'error' ? 'Error' : (sev === 'warning' ? 'Warning' : 'Info');
+          const icon = sev === 'error' ? '✖' : (sev === 'warning' ? '⚠' : 'ℹ');
+          const cls = sev === 'error'
+            ? 'codelab-problem-item--error'
+            : (sev === 'warning' ? 'codelab-problem-item--warning' : 'codelab-problem-item--info');
+          const ln = Math.max(1, Number(p.line || 1));
+          const col = Math.max(1, Number(p.col || p.column || 1));
+          const srcTag = p.source ? `<span class="codelab-problem-item__source">[${escapeHtml(String(p.source))}]</span>` : '';
+          return `
+            <div class="codelab-problem-item codelab-problem-row ${cls}" data-cl-problem-file="${escapeHtml(p.file || '')}" data-problem-file="${escapeHtml(p.file || '')}" data-cl-diag-file="${escapeHtml(p.file || '')}" data-cl-problem-line="${ln}" data-cl-problem-col="${col}" role="button" tabindex="0" aria-label="${escapeHtml(`${sevLabel} in ${p.file || 'workspace'} at line ${ln}, column ${col}: ${p.message || ''}`)}">
+              <span class="codelab-problem-item__icon" aria-hidden="true">${icon}</span>
+              <span class="codelab-problem-item__msg">${escapeHtml(p.message || '')}</span>
+              ${srcTag}
+              <span class="codelab-problem-item__location codelab-problem-item__loc">[Ln ${ln}, Col ${col}]</span>
+            </div>
+          `;
+        }).join('');
+        groupsHtml.push(`
+          <div class="codelab-problems-group ${isCollapsed ? 'is-collapsed' : ''}" data-problem-group-file="${escapeHtml(fileKey)}">
+            <button type="button" class="codelab-problems-group__header" data-cl-action="toggle-problem-group" data-problem-group="${escapeHtml(fileKey)}" aria-expanded="${!isCollapsed}" title="Toggle ${escapeHtml(fileKey)} problems">
+              <span class="codelab-problems-group__chevron" aria-hidden="true">${isCollapsed ? '▸' : '▾'}</span>
+              <span class="codelab-problems-group__file">${escapeHtml(fileKey)}</span>
+              <span class="codelab-badge">${items.length}</span>
+            </button>
+            <div class="codelab-problems-group__items" ${isCollapsed ? 'hidden' : ''}>${rowsHtml}</div>
+          </div>
+        `);
+      }
+      return groupsHtml.join('');
+    }
+
+    _bindProblemItemKeyboard(scopeEl) {
+      if (!scopeEl || typeof scopeEl.querySelectorAll !== 'function') return;
+      scopeEl.querySelectorAll('.codelab-problem-item').forEach((item) => {
+        if (item._clKeyBound) return;
+        item._clKeyBound = true;
+        item.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            item.click();
+          }
+        });
+      });
+    }
+
+    _renderProblemsPanel(bodyEl) {
+      if (!bodyEl) return;
+      const store = this._ensureDiagnosticsStore();
+      const allProblems = store && typeof store.getAll === 'function' ? store.getAll() : [];
+      let errCount = 0;
+      let warnCount = 0;
+      let infoCount = 0;
+      for (const p of allProblems) {
+        if (!p) continue;
+        if (p.severity === 'error') errCount++;
+        else if (p.severity === 'warning') warnCount++;
+        else infoCount++;
+      }
+      const totalCount = allProblems.length;
+      const sevFilter = this._problemsSeverityFilter || 'all';
+      const filterVal = String(this._problemsFilterQuery || '');
+
+      const existingFilter = typeof bodyEl.querySelector === 'function' ? bodyEl.querySelector('#cl-problems-filter') : null;
+      const existingList = typeof bodyEl.querySelector === 'function' ? bodyEl.querySelector('#cl-problems-list') : null;
+      const filterHasFocus = Boolean(
+        existingFilter &&
+        typeof document !== 'undefined' &&
+        document.activeElement === existingFilter
+      );
+
+      if (existingFilter && existingList && filterHasFocus) {
+        existingList.innerHTML = this._renderProblemsListHtml(allProblems);
+        this._bindProblemItemKeyboard(existingList);
+        const updateSevBtn = (sev, text) => {
+          const btn = bodyEl.querySelector(`[data-cl-severity-filter="${sev}"]`);
+          if (btn) {
+            const active = sevFilter === sev;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', String(active));
+            btn.textContent = text;
+          }
+        };
+        updateSevBtn('all', `All (${totalCount})`);
+        updateSevBtn('error', `Errors (${errCount})`);
+        updateSevBtn('warning', `Warnings (${warnCount})`);
+        updateSevBtn('info', `Info (${infoCount})`);
+        return;
+      }
+
+      bodyEl.innerHTML = `
+        <div class="codelab-problems-panel">
+          <div class="codelab-problems-toolbar" role="toolbar" aria-label="Problems Filter Controls">
+            <input type="search" id="cl-problems-filter" class="codelab-sidebar-input codelab-problems-filter-input" data-cl-problems-filter="true" placeholder="Filter (e.g. text, file, source)..." value="${escapeHtml(filterVal)}" aria-label="Filter problems" autocomplete="off" spellcheck="false" />
+            <div class="codelab-problems-severity" role="group" aria-label="Filter by severity">
+              <button type="button" class="codelab-problems-sev-btn ${sevFilter === 'all' ? 'active' : ''}" data-cl-severity-filter="all" data-problems-severity="all" aria-pressed="${sevFilter === 'all'}" title="Show All Problems">All (${totalCount})</button>
+              <button type="button" class="codelab-problems-sev-btn ${sevFilter === 'error' ? 'active' : ''}" data-cl-severity-filter="error" data-problems-severity="error" aria-pressed="${sevFilter === 'error'}" title="Show Errors Only">Errors (${errCount})</button>
+              <button type="button" class="codelab-problems-sev-btn ${sevFilter === 'warning' ? 'active' : ''}" data-cl-severity-filter="warning" data-problems-severity="warning" aria-pressed="${sevFilter === 'warning'}" title="Show Warnings Only">Warnings (${warnCount})</button>
+              <button type="button" class="codelab-problems-sev-btn ${sevFilter === 'info' ? 'active' : ''}" data-cl-severity-filter="info" data-problems-severity="info" aria-pressed="${sevFilter === 'info'}" title="Show Info Only">Info (${infoCount})</button>
+            </div>
+          </div>
+          <div class="codelab-problems-list" id="cl-problems-list">
+            ${this._renderProblemsListHtml(allProblems)}
+          </div>
+        </div>
+      `;
+
+      const filterInp = typeof bodyEl.querySelector === 'function' ? bodyEl.querySelector('#cl-problems-filter') : null;
+      const listContainer = typeof bodyEl.querySelector === 'function' ? bodyEl.querySelector('#cl-problems-list') : null;
+      if (filterInp && listContainer) {
+        filterInp.addEventListener('input', () => {
+          this._problemsFilterQuery = filterInp.value || '';
+          const latest = store && typeof store.getAll === 'function' ? store.getAll() : [];
+          listContainer.innerHTML = this._renderProblemsListHtml(latest);
+          this._bindProblemItemKeyboard(listContainer);
+        });
+      }
+      this._bindProblemItemKeyboard(bodyEl);
+    }
+
+    _revealLineColInActiveEditor(rawLine, rawCol) {
+      const line = Math.max(1, Math.floor(Number(rawLine) || 1));
+      const col = Math.max(1, Math.floor(Number(rawCol) || 1));
+      this.cursorPos = { lineNumber: line, column: col, ln: line, col };
+      if (this.editor && typeof this.editor.revealLineInCenter === 'function') {
+        try {
+          this.editor.revealLineInCenter(line);
+          if (typeof this.editor.setPosition === 'function') {
+            this.editor.setPosition({ lineNumber: line, column: col });
+          }
+          if (typeof this.editor.focus === 'function') {
+            this.editor.focus();
+          }
+        } catch (err) {
+          void err;
+        }
+      } else if (this.container && typeof this.container.querySelector === 'function') {
+        const sqlHost = this.container.querySelector('#cl-sql-editor-host');
+        const sqlTa = (sqlHost && (!sqlHost.style || sqlHost.style.display !== 'none'))
+          ? sqlHost.querySelector('.cl-sql-textarea')
+          : null;
+        const targetTa = sqlTa || this.container.querySelector('#cl-fallback-editor');
+        if (targetTa && typeof targetTa.value === 'string') {
+          const lines = targetTa.value.split('\n');
+          const clampedIdx = Math.min(Math.max(0, line - 1), Math.max(0, lines.length - 1));
+          let offset = 0;
+          for (let i = 0; i < clampedIdx; i++) {
+            offset += lines[i].length + 1;
+          }
+          const lineLen = lines[clampedIdx] ? lines[clampedIdx].length : 0;
+          offset += Math.min(Math.max(0, col - 1), lineLen);
+          if (typeof targetTa.setSelectionRange === 'function') {
+            try { targetTa.setSelectionRange(offset, offset); } catch (err) { void err; }
+          }
+          if (typeof targetTa.focus === 'function') {
+            targetTa.focus();
+          }
+          if (!sqlTa && typeof this._updateFallbackGutter === 'function') {
+            this._updateFallbackGutter();
+          }
+        }
+      }
+      this._updateStatusBar();
+      this._scheduleBreadcrumbs();
+    }
+
+    goToNextProblem(reverse = false) {
+      const store = this._ensureDiagnosticsStore();
+      const all = store && typeof store.getAll === 'function' ? store.getAll() : [];
+      const list = this._getFilteredProblems(all);
+      if (!list.length) return null;
+      const len = list.length;
+      if (typeof this._problemNavIdx !== 'number' || this._problemNavIdx < 0 || this._problemNavIdx >= len) {
+        this._problemNavIdx = reverse ? len - 1 : 0;
+      } else {
+        this._problemNavIdx = (this._problemNavIdx + (reverse ? -1 : 1) + len) % len;
+      }
+      const target = list[this._problemNavIdx];
+      if (target && target.file && Object.prototype.hasOwnProperty.call(this.files || {}, target.file)) {
+        this.openFile(target.file);
+        this._revealLineColInActiveEditor(target.line || 1, target.col || target.column || 1);
+      }
+      return target || null;
+    }
+
     _getCompletionCandidates(currentInput) {
       const line = currentInput || '';
       const lastSpaceIdx = line.lastIndexOf(' ');
       const token = lastSpaceIdx === -1 ? line : line.slice(lastSpaceIdx + 1);
       const isFirstToken = lastSpaceIdx === -1;
 
-      if (isFirstToken) {
+      if (isFirstToken && !token.includes('/')) {
         const commands = [
-          'ab', 'bun', 'cat', 'cd', 'chaos', 'clear', 'cp', 'curl', 'echo', 'env',
-          'export', 'find', 'grep', 'head', 'help', 'hey', 'history', 'jobs', 'kill',
-          'ls', 'mkdir', 'mv', 'node', 'npm', 'npx', 'ps', 'pwd', 'redis-cli', 'rm',
-          'sed', 'sort', 'sqlite3', 'tail', 'touch', 'uniq', 'unset', 'wc', 'which', 'wrk'
+          'ab', 'awk', 'bun', 'cat', 'cd', 'chaos', 'clang++', 'clear', 'cp', 'curl',
+          'diff', 'echo', 'env', 'export', 'find', 'g++', 'git', 'grep', 'head', 'help',
+          'hey', 'history', 'jobs', 'kill', 'ls', 'mkdir', 'mv', 'node', 'npm', 'npx',
+          'ports', 'ps', 'pwd', 'pytest', 'python3', 'redis-cli', 'rm', 'sed', 'serve',
+          'sort', 'sqlite3', 'tail', 'touch', 'tree', 'uniq', 'unset', 'wc', 'which', 'wrk'
         ];
         return commands.filter(c => c.startsWith(token));
-      } else {
-        const vfsPaths = [];
-        const cwd = this.cwd || '/workspace';
-        const normCwd = cwd.endsWith('/') ? cwd : cwd + '/';
-
-        for (const p of Object.keys(this.files || {})) {
-          const fullPath = p.startsWith('/') ? p : normCwd + p;
-          if (token.startsWith('/')) {
-            vfsPaths.push(fullPath);
-          } else if (fullPath.startsWith(normCwd)) {
-            vfsPaths.push(fullPath.slice(normCwd.length));
-          } else {
-            vfsPaths.push(p);
-          }
-        }
-        for (const folder of (this.folders || [])) {
-          const fullFolder = folder.startsWith('/') ? folder : normCwd + folder;
-          if (token.startsWith('/')) {
-            vfsPaths.push(fullFolder + '/');
-          } else if (fullFolder.startsWith(normCwd)) {
-            vfsPaths.push(fullFolder.slice(normCwd.length) + '/');
-          } else {
-            vfsPaths.push(folder + '/');
-          }
-        }
-        const unique = Array.from(new Set(vfsPaths));
-        return unique.filter(p => p.startsWith(token));
       }
+
+      const candidates = new Set();
+      const rawCwd = String(this.cwd || '/workspace').replace(/\/+$/, '') || '/workspace';
+      const normCwd = rawCwd + '/';
+      const isAbsToken = token.startsWith('/');
+      const lastSlash = token.lastIndexOf('/');
+      const dirPrefix = lastSlash === -1 ? '' : token.slice(0, lastSlash + 1);
+
+      const addCandidateFromAbs = (absPath, isFolder) => {
+        const cleanAbs = String(absPath || '').replace(/\/+$/, '');
+        if (!cleanAbs) return;
+        let candidate = '';
+        if (isAbsToken) {
+          candidate = isFolder ? (cleanAbs + '/') : cleanAbs;
+        } else if (cleanAbs.startsWith(normCwd)) {
+          const rel = cleanAbs.slice(normCwd.length);
+          if (!rel) return;
+          candidate = isFolder ? (rel + '/') : rel;
+        } else {
+          return;
+        }
+        if (!candidate.startsWith(token)) return;
+        const remainder = candidate.slice(dirPrefix.length);
+        const subSlash = remainder.indexOf('/');
+        if (subSlash !== -1 && subSlash < remainder.length - 1) {
+          candidates.add(dirPrefix + remainder.slice(0, subSlash + 1));
+        } else {
+          candidates.add(candidate);
+        }
+      };
+
+      for (const p of Object.keys(this.files || {})) {
+        const absFile = p.startsWith('/') ? p : ('/workspace/' + p);
+        addCandidateFromAbs(absFile, false);
+      }
+      for (const folder of (this.folders || [])) {
+        const absFolder = folder.startsWith('/') ? folder : ('/workspace/' + folder);
+        addCandidateFromAbs(absFolder, true);
+      }
+      if (this.shell && this.shell.vfs && typeof this.shell.vfs.readdirSync === 'function') {
+        const lookupDir = isAbsToken
+          ? (dirPrefix ? dirPrefix.replace(/\/+$/, '') || '/' : '/')
+          : (dirPrefix ? (normCwd + dirPrefix).replace(/\/+$/, '') : rawCwd);
+        try {
+          const entries = this.shell.vfs.readdirSync(lookupDir);
+          if (Array.isArray(entries)) {
+            for (const ent of entries) {
+              const name = typeof ent === 'string' ? ent : (ent && ent.name ? ent.name : '');
+              if (!name || name === '.' || name === '..') continue;
+              const childAbs = (lookupDir === '/' ? '' : lookupDir) + '/' + name;
+              let isDir = false;
+              if (this.shell.vfs && typeof this.shell.vfs.statSync === 'function') {
+                try {
+                  const st = this.shell.vfs.statSync(childAbs);
+                  isDir = Boolean(st && typeof st.isDirectory === 'function' && st.isDirectory());
+                } catch (_e) { void _e; }
+              }
+              addCandidateFromAbs(childAbs, isDir);
+            }
+          }
+        } catch (_e) {
+          void _e;
+        }
+      }
+      return Array.from(candidates).sort();
     }
 
     _renderPortsPanel(bodyEl) {
@@ -6012,25 +8504,129 @@ int main() {
       return this.dispatchHttpClientRequest();
     }
 
-    switchDrawerTab(tab) {
+    switchDrawerTab(tab, opts = {}) {
       if (!tab) return;
+      if (!opts || !opts.fromConfig) {
+        this._userSwitchedDrawerTab = true;
+      }
       this.drawerTab = tab;
-      this.container.querySelectorAll('[data-cl-drawertab]').forEach(b => {
-        const active = b.dataset.clDrawertab === this.drawerTab;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-selected', String(active));
-        if (active && typeof b.scrollIntoView === 'function') {
-          try {
-            const scrollOpts = { block: 'nearest', inline: 'nearest', container: 'nearest' };
-            b['scrollIntoView'](scrollOpts);
-          } catch (err) {
-            void err;
+      if (opts && opts.ensureVisible !== false) {
+        this.setPanelVisible(true, { skipRender: true });
+      }
+      if (this.container) {
+        this.container.querySelectorAll('[data-cl-drawertab]').forEach(b => {
+          const active = b.dataset.clDrawertab === this.drawerTab;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-selected', String(active));
+          b.setAttribute('tabindex', active ? '0' : '-1');
+          if (active && typeof b.scrollIntoView === 'function') {
+            try {
+              const scrollOpts = { block: 'nearest', inline: 'nearest', container: 'nearest' };
+              b['scrollIntoView'](scrollOpts);
+            } catch (err) {
+              void err;
+            }
           }
+        });
+        const termActions = this.container.querySelector('#cl-drawer-term-actions');
+        if (termActions && termActions.style) {
+          const showTermActions = this.drawerTab === 'terminal' && !this._isSingleFileSqlMode();
+          termActions.style.display = showTermActions ? 'inline-flex' : 'none';
         }
-      });
-      const drawer = this.container.querySelector('#cl-drawer');
-      if (drawer) drawer.classList.remove('is-minimized');
+        const drawer = this.container.querySelector('#cl-drawer');
+        if (drawer) drawer.classList.remove('is-minimized');
+      }
       this._renderDrawerBody();
+      if (opts && opts.focus && this.drawerTab === 'terminal' && this.container) {
+        const termInput = this.container.querySelector('#cl-repl-input');
+        if (termInput && typeof termInput.focus === 'function') termInput.focus();
+      }
+      if (!opts || (!opts.fromConfig && !opts.skipSave)) {
+        this._saveState();
+      }
+    }
+
+    setPanelVisible(visible, opts = {}) {
+      const next = Boolean(visible);
+      this.panelVisible = next;
+      this.drawerCollapsed = !next;
+      if (!next) {
+        this.panelMaximized = false;
+      }
+      if (this.container) {
+        const shell = this.container.querySelector('.codelab');
+        if (shell && shell.classList) {
+          shell.classList.toggle('panel-collapsed', !next);
+          if (!next) shell.classList.remove('panel-maximized');
+        }
+        const drawer = this.container.querySelector('#cl-drawer');
+        if (drawer && drawer.classList) {
+          drawer.classList.toggle('is-minimized', !next);
+        }
+        const toggleBtn = this.container.querySelector('#cl-toggle-drawer-btn');
+        if (toggleBtn) {
+          toggleBtn.classList.toggle('active', next);
+          toggleBtn.setAttribute('aria-pressed', String(next));
+        }
+      }
+      if (this.editor && typeof this.editor.layout === 'function') {
+        this.editor.layout();
+        setTimeout(() => {
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        }, 50);
+      }
+      if (!opts || !opts.skipRender) {
+        if (next) this._renderDrawerBody();
+        this._saveState();
+      }
+      return this.panelVisible;
+    }
+
+    togglePanel() {
+      return this.setPanelVisible(!this.panelVisible);
+    }
+
+    toggleDrawer() {
+      return this.togglePanel();
+    }
+
+    setPanelMaximized(maximized) {
+      const next = Boolean(maximized);
+      if (next && !this.panelVisible) {
+        this.setPanelVisible(true, { skipRender: true });
+      }
+      this.panelMaximized = next;
+      if (this.container) {
+        const shell = this.container.querySelector('.codelab');
+        if (shell && shell.classList) {
+          shell.classList.toggle('panel-maximized', next);
+        }
+        const maxBtn = this.container.querySelector('#cl-maximize-drawer-btn');
+        if (maxBtn) {
+          maxBtn.setAttribute('aria-pressed', String(next));
+          maxBtn.innerHTML = next ? CL_ICONS.chevronDown : CL_ICONS.chevronUp;
+        }
+      }
+      if (this.editor && typeof this.editor.layout === 'function') {
+        this.editor.layout();
+        setTimeout(() => {
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        }, 50);
+      }
+      this._saveState();
+      return this.panelMaximized;
+    }
+
+    toggleTerminal() {
+      if (this.panelVisible && this.drawerTab === 'terminal') {
+        this.setPanelVisible(false);
+        if (this.editor && typeof this.editor.focus === 'function' && this.activeTab !== '__settings__') {
+          this.editor.focus();
+        }
+        return false;
+      }
+      this.switchDrawerTab('terminal', { ensureVisible: true, focus: true });
+      return true;
     }
 
     // ── M3: Virtual port listeners, toast notifications & dual Web Preview ────
@@ -6126,7 +8722,6 @@ int main() {
 
     _registerPreviewServiceWorker() {
       if (typeof navigator === 'undefined' || !navigator.serviceWorker || typeof navigator.serviceWorker.register !== 'function') return;
-      const url = (this.options && this.options.previewSwUrl) || 'preview-sw.js';
       try {
         const onMessage = (event) => this._handleServiceWorkerMessage(event);
         this._swMessageHandler = onMessage;
@@ -6135,7 +8730,23 @@ int main() {
         } else {
           navigator.serviceWorker.onmessage = onMessage;
         }
-        navigator.serviceWorker.register(url, { scope: (this.options && this.options.previewSwScope) || './' })
+        if (this.options && (this.options.previewSwUrl === false || this.options.previewSw === false)) {
+          this._previewSwReady = false;
+          return;
+        }
+        const explicitSwUrl = this.options && typeof this.options.previewSwUrl === 'string' && this.options.previewSwUrl.trim()
+          ? this.options.previewSwUrl.trim()
+          : '';
+        const pathname = (typeof location !== 'undefined' && location && typeof location.pathname === 'string')
+          ? location.pathname
+          : '/';
+        if (!explicitSwUrl && !(this.options && this.options.useServiceWorkerForIframe === true) && /^\/(apps|tests)\//.test(pathname)) {
+          this._previewSwReady = false;
+          return;
+        }
+        const url = explicitSwUrl || '/preview-sw.js';
+        const scope = (this.options && this.options.previewSwScope) || (explicitSwUrl ? './' : '/');
+        navigator.serviceWorker.register(url, { scope })
           .then((reg) => {
             this._previewSwRegistration = reg;
             this._previewSwReady = true;
@@ -6282,10 +8893,20 @@ int main() {
     _injectPreviewCsp(html, port) {
       if (typeof html !== 'string' || !html) return html;
 
-      const csp = String(this._previewPolicy() || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escapeAttr = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const rawPolicy = String(this._previewPolicy() || '');
+      // W3C CSP3 §6.5.1: frame-ancestors, report-uri, and sandbox are ignored in <meta>
+      // and trigger browser console errors if placed inside <meta content="...">.
+      const metaPolicy = rawPolicy
+        .split(';')
+        .map((dir) => dir.trim())
+        .filter((dir) => dir && !/^(frame-ancestors|report-uri|sandbox)\b/i.test(dir))
+        .join('; ');
+      const escapedMetaCsp = escapeAttr(metaPolicy);
+      const escapedHttpCsp = escapeAttr(rawPolicy);
       const tags = [];
       if (!/<meta[^>]+http-equiv=["']?content-security-policy/i.test(html)) {
-        tags.push(`<meta http-equiv="Content-Security-Policy" content="${csp}">`);
+        tags.push(`<meta http-equiv="Content-Security-Policy" content="${escapedMetaCsp}" data-codelab-http-policy="${escapedHttpCsp}">`);
       }
       if (!/<base\b/i.test(html)) {
         tags.push(`<base href="/__preview/${Number(port) || 3000}/">`);
@@ -6329,7 +8950,7 @@ int main() {
           const level = ['log', 'warn', 'error', 'info'].includes(data.level) ? data.level : 'log';
           const args = Array.isArray(data.args) ? data.args : [data.args];
           const text = args.map((a) => String(a ?? '')).join(' ');
-          this.terminalLogs.push({
+          this._pushTerminalLog({
             type: level === 'error' ? 'stderr' : 'stdout',
             text: `[Preview ${level.toUpperCase()}] ${text}`
           });
@@ -6347,7 +8968,7 @@ int main() {
             col: typeof data.col === 'number' ? data.col : null,
             stack: data.stack ? String(data.stack) : null
           };
-          this.terminalLogs.push({
+          this._pushTerminalLog({
             type: 'stderr',
             text: `[Preview ERROR] ${msg}${data.stack ? '\n' + String(data.stack) : ''}`
           });
@@ -6496,7 +9117,7 @@ int main() {
       const htmlCandidates = ['public/index.html', 'index.html', 'site/index.html', 'src/index.html'];
       if (!htmlCandidates.some((f) => this.files && this.files[f])) {
         this.drawerTab = 'terminal';
-        this.terminalLogs.push({
+        this._pushTerminalLog({
           type: 'system',
           text: '\nNo index.html found. Add an `index.html` (or run `serve <dir>` in the terminal) to preview your app.'
         });
@@ -6514,15 +9135,15 @@ int main() {
       this._syncFilesToShellVfs();
       this.shell.cwd = this.cwd || '/workspace';
       this.drawerTab = 'terminal';
-      this.terminalLogs.push({ type: 'system', text: `\n$ serve ${rootDir}` });
+      this._pushTerminalLog({ type: 'system', text: `\n$ serve ${rootDir}` });
       this._renderDrawerBody();
 
       try {
         const res = await this.shell.execute(`serve ${rootDir}`, {});
-        if (res && res.stdout) this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
-        if (res && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+        if (res && res.stdout) this._pushTerminalLog({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+        if (res && res.stderr) this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
       } catch (err) {
-        this.terminalLogs.push({ type: 'stderr', text: String((err && err.message) || err) });
+        this._pushTerminalLog({ type: 'stderr', text: String((err && err.message) || err) });
       }
       this._renderDrawerBody();
 
@@ -6941,8 +9562,10 @@ int main() {
         });
     }
 
-    _syncVfsSnapshot(fsSnapshot, syncDeletionsFromShell = false) {
+    _syncVfsSnapshot(fsSnapshot, syncDeletionsFromShell = false, opts = {}) {
       let changed = false;
+      const hiddenVfsSegRe = /(?:^|\/)(?:\.git|node_modules)(?:\/|$)/;
+      const suppressAuto = Boolean(opts && opts.suppressAutoOpenTabs);
 
       // 1. Sync from this.shell.vfs if available
       if (this.shell && this.shell.vfs) {
@@ -6953,7 +9576,7 @@ int main() {
           for (const [p, fileObj] of this.shell.vfs.files.entries()) {
             if (p.startsWith('/workspace/')) {
               const rel = p.slice('/workspace/'.length);
-              if (rel && !rel.startsWith('.git/') && !rel.startsWith('node_modules/')) {
+              if (rel && !hiddenVfsSegRe.test(rel)) {
                 const content = typeof fileObj.data === 'string'
                   ? fileObj.data
                   : (fileObj.data ? (fileObj.data.toString ? fileObj.data.toString('utf8') : String(fileObj.data)) : '');
@@ -6964,8 +9587,8 @@ int main() {
           if (this.shell.vfs.dirs instanceof Set) {
             for (const d of this.shell.vfs.dirs) {
               if (d.startsWith('/workspace/')) {
-                const rel = d.slice('/workspace/'.length);
-                if (rel && !rel.startsWith('.git') && !rel.startsWith('node_modules')) {
+                const rel = d.slice('/workspace/'.length).replace(/\/+$/, '');
+                if (rel && !hiddenVfsSegRe.test(rel)) {
                   shellWorkspaceFolders.add(rel);
                 }
               }
@@ -6977,9 +9600,11 @@ int main() {
             let entries = [];
             try { entries = vfs.readdirSync(dir); } catch (_) { return; }
             for (const entry of entries) {
-              if (entry === '.git' || entry === 'node_modules') continue;
-              const full = dir === '/' ? '/' + entry : dir + '/' + entry;
-              const rel = relPrefix ? relPrefix + '/' + entry : entry;
+              const name = typeof entry === 'string' ? entry : (entry && entry.name);
+              if (!name || name === '.git' || name === 'node_modules') continue;
+              const full = dir === '/' ? '/' + name : dir + '/' + name;
+              const rel = relPrefix ? relPrefix + '/' + name : name;
+              if (hiddenVfsSegRe.test(rel)) continue;
               let isDir = false;
               try { isDir = vfs.statSync(full).isDirectory(); } catch (_) { isDir = false; }
               if (isDir) {
@@ -7001,20 +9626,34 @@ int main() {
         for (const folder of shellWorkspaceFolders) {
           if (!this.folders.has(folder)) {
             this.folders.add(folder);
+            if (this.kernel && this.kernel.fs && typeof this.kernel.fs.mkdir === 'function') {
+              try { this.kernel.fs.mkdir('/workspace/' + folder); } catch (_e) { void _e; }
+            }
             changed = true;
           }
         }
 
         // Additions & modifications
-        let newFilesCount = 0;
+        const newlyAddedRels = [];
         for (const [rel] of shellWorkspaceFiles.entries()) {
-          if (this.files[rel] === undefined) newFilesCount++;
+          if (this.files[rel] === undefined) newlyAddedRels.push(rel);
         }
-        const autoOpenTab = newFilesCount <= 5;
+        const newFilesCount = newlyAddedRels.length;
+        const autoOpenSingle = !suppressAuto && newFilesCount === 1 && Array.isArray(this.openTabs) && this.openTabs.length < 8;
         for (const [rel, content] of shellWorkspaceFiles.entries()) {
           if (this.files[rel] === undefined || this.files[rel] !== content) {
             this.files[rel] = content;
-            if (autoOpenTab && !this.openTabs.includes(rel)) {
+            if (this._savedSnapshot) {
+              this._savedSnapshot[rel] = content;
+            }
+            if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFile === 'function') {
+              try {
+                this.kernel.fs.writeFile('/workspace/' + rel, content);
+              } catch (_e) {
+                void _e;
+              }
+            }
+            if (autoOpenSingle && !this.openTabs.includes(rel) && this.openTabs.length < 8) {
               this.openTabs.push(rel);
             }
             changed = true;
@@ -7032,6 +9671,20 @@ int main() {
             } else {
               this._getOrCreateModel(rel);
             }
+            this._lintFile(rel);
+          }
+        }
+        if (!suppressAuto && newlyAddedRels.length >= 1 && Array.isArray(this.openTabs)) {
+          if (this.openTabs.length === 0) {
+            const pick = this._pickPrimaryCloneFile(newlyAddedRels) || newlyAddedRels[0];
+            if (pick) {
+              this.openTabs.push(pick);
+              this.activeFile = pick;
+              this.activeTab = (this.settingsTabOpen && this.activeTab === '__settings__') ? '__settings__' : pick;
+            }
+          } else if (newFilesCount === 1 && !this.activeFile && this.openTabs.length > 0) {
+            this.activeFile = this.openTabs[0];
+            this.activeTab = (this.settingsTabOpen && this.activeTab === '__settings__') ? '__settings__' : this.activeFile;
           }
         }
 
@@ -7040,6 +9693,12 @@ int main() {
           for (const rel of Object.keys(this.files)) {
             if (!shellWorkspaceFiles.has(rel)) {
               delete this.files[rel];
+              if (this._dirtyFiles) this._dirtyFiles.delete(rel);
+              if (this._savedSnapshot) delete this._savedSnapshot[rel];
+              if (this.kernel && this.kernel.fs && typeof this.kernel.fs.deleteFile === 'function') {
+                try { this.kernel.fs.deleteFile('/workspace/' + rel); } catch (_e) { void _e; }
+              }
+              this._clearDiagnosticsForPath(rel, false);
               changed = true;
               const model = this.models.get(rel);
               if (model) {
@@ -7051,15 +9710,23 @@ int main() {
                 if (tabIdx !== -1) {
                   this.openTabs.splice(tabIdx, 1);
                   if (this.activeFile === rel) {
-                    this.activeFile = this.openTabs[Math.max(0, tabIdx - 1)] || this._pickDefaultFile() || null;
+                    this.activeFile = this.openTabs[Math.max(0, tabIdx - 1)] || null;
+                    if (this.activeTab !== '__settings__') {
+                      this.activeTab = this.activeFile;
+                    }
                   }
                 }
               }
             }
           }
+          const remainingFiles = Object.keys(this.files);
           for (const existingFolder of Array.from(this.folders)) {
-            if (!shellWorkspaceFolders.has(existingFolder)) {
+            const hasDescendantFile = remainingFiles.some(f => f.startsWith(existingFolder + '/'));
+            if (!shellWorkspaceFolders.has(existingFolder) && !hasDescendantFile) {
               this.folders.delete(existingFolder);
+              if (this.kernel && this.kernel.fs && typeof this.kernel.fs.deleteFile === 'function') {
+                try { this.kernel.fs.deleteFile('/workspace/' + existingFolder, { recursive: true }); } catch (_e) { void _e; }
+              }
               changed = true;
             }
           }
@@ -7068,21 +9735,40 @@ int main() {
 
       // 2. Also sync from snapshot array if provided
       if (Array.isArray(fsSnapshot) && fsSnapshot.length > 0) {
+        const snapNewFiles = [];
+        for (const item of fsSnapshot) {
+          if (!item || !item.path || !item.path.startsWith('/workspace/')) continue;
+          const rel = item.path.slice('/workspace/'.length).replace(/\/+$/, '');
+          if (!rel || hiddenVfsSegRe.test(rel)) continue;
+          if (!item.isDirectory && (item.content !== undefined || item.preview !== undefined) && this.files[rel] === undefined) {
+            snapNewFiles.push(rel);
+          }
+        }
+        const allowAutoSingle = !suppressAuto && snapNewFiles.length === 1;
         for (const item of fsSnapshot) {
           if (!item || !item.path) continue;
           if (item.path.startsWith('/workspace/')) {
-            const rel = item.path.slice('/workspace/'.length);
-            if (!rel || rel.startsWith('.git/') || rel.startsWith('node_modules/')) continue;
+            const rel = item.path.slice('/workspace/'.length).replace(/\/+$/, '');
+            if (!rel || hiddenVfsSegRe.test(rel)) continue;
             if (item.isDirectory) {
               if (!this.folders.has(rel)) {
                 this.folders.add(rel);
+                if (this.kernel && this.kernel.fs && typeof this.kernel.fs.mkdir === 'function') {
+                  try { this.kernel.fs.mkdir('/workspace/' + rel); } catch (_e) { void _e; }
+                }
                 changed = true;
               }
             } else if (item.content !== undefined || item.preview !== undefined) {
               const content = item.content !== undefined ? item.content : (item.preview || '');
               if (this.files[rel] !== content) {
                 this.files[rel] = content;
-                if (!this.openTabs.includes(rel)) {
+                if (this._savedSnapshot) {
+                  this._savedSnapshot[rel] = content;
+                }
+                if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFile === 'function') {
+                  try { this.kernel.fs.writeFile('/workspace/' + rel, content); } catch (_e) { void _e; }
+                }
+                if (allowAutoSingle && Array.isArray(this.openTabs) && !this.openTabs.includes(rel) && this.openTabs.length < 8) {
                   this.openTabs.push(rel);
                 }
                 changed = true;
@@ -7096,14 +9782,23 @@ int main() {
                 } else {
                   this._getOrCreateModel(rel);
                 }
+                this._lintFile(rel);
               }
             }
+          }
+        }
+        if (!suppressAuto && snapNewFiles.length >= 1 && Array.isArray(this.openTabs) && this.openTabs.length === 0) {
+          const pick = this._pickPrimaryCloneFile(snapNewFiles) || snapNewFiles[0];
+          if (pick) {
+            this.openTabs.push(pick);
+            this.activeFile = pick;
+            this.activeTab = (this.settingsTabOpen && this.activeTab === '__settings__') ? '__settings__' : pick;
           }
         }
       }
 
       if (changed) {
-        this._saveState();
+        this._saveState({ flushSnapshotOnly: true });
         this._renderFileLists();
         this._renderTabs();
         this._syncActiveFileToView();
@@ -7114,84 +9809,238 @@ int main() {
       const fallbackEl = this.container.querySelector('#cl-fallback-editor');
       const gutterEl = this.container.querySelector('#cl-fallback-gutter');
       if (!fallbackEl || !gutterEl) return;
+      const lineMode = this.configuration
+        ? String(this.configuration.get('editor.lineNumbers', 'on'))
+        : 'on';
+      if (lineMode === 'off') {
+        if (gutterEl.style) gutterEl.style.display = 'none';
+        return;
+      }
+      if (gutterEl.style) gutterEl.style.display = '';
       const lineCount = Math.max(1, (fallbackEl.value || '').split('\n').length);
+      const curLn = (this.cursorPos && this.cursorPos.lineNumber) ? this.cursorPos.lineNumber : 1;
       const nums = [];
-      for (let i = 1; i <= lineCount; i++) nums.push(i);
+      for (let i = 1; i <= lineCount; i++) {
+        if (lineMode === 'relative') {
+          nums.push(i === curLn ? i : Math.abs(i - curLn));
+        } else {
+          nums.push(i);
+        }
+      }
       gutterEl.textContent = nums.join('\n');
       gutterEl.scrollTop = fallbackEl.scrollTop;
     }
 
+    _applyEditorSettingsToFallback() {
+      if (!this.container) return;
+      const fallbackEl = this.container.querySelector('#cl-fallback-editor');
+      const gutterEl = this.container.querySelector('#cl-fallback-gutter');
+      if (!fallbackEl) return;
+      const fontSize = this.configuration
+        ? Math.max(10, Math.min(32, Number(this.configuration.get('editor.fontSize', 13)) || 13))
+        : 13;
+      const tabSize = this.configuration
+        ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+        : 2;
+      const wordWrap = this.configuration
+        ? String(this.configuration.get('editor.wordWrap', 'off'))
+        : 'off';
+      if (fallbackEl.style) {
+        fallbackEl.style.fontSize = `${fontSize}px`;
+        fallbackEl.style.tabSize = String(tabSize);
+        fallbackEl.style.whiteSpace = wordWrap === 'off' ? 'pre' : 'pre-wrap';
+        fallbackEl.style.wordBreak = wordWrap === 'off' ? 'normal' : 'break-word';
+      }
+      if (gutterEl && gutterEl.style) {
+        gutterEl.style.fontSize = `${fontSize}px`;
+      }
+      this._updateFallbackGutter();
+    }
+
+    _ensureFallbackHistoryEntry(filePath) {
+      if (!this._fallbackHistory) this._fallbackHistory = new Map();
+      let entry = this._fallbackHistory.get(filePath);
+      if (!entry) {
+        const initVal = (filePath && this.files && typeof this.files[filePath] === 'string') ? this.files[filePath] : '';
+        entry = { undo: [], redo: [], current: initVal, selStart: 0, selEnd: 0 };
+        this._fallbackHistory.set(filePath, entry);
+      }
+      return entry;
+    }
+
+    _recordFallbackEdit(filePath, nextVal, selStart, selEnd) {
+      if (!filePath) return;
+      const entry = this._ensureFallbackHistoryEntry(filePath);
+      if (entry.current === nextVal) return;
+      entry.undo.push({
+        value: entry.current,
+        selStart: typeof entry.selStart === 'number' ? entry.selStart : entry.current.length,
+        selEnd: typeof entry.selEnd === 'number' ? entry.selEnd : entry.current.length
+      });
+      if (entry.undo.length > 100) entry.undo.shift();
+      entry.redo.length = 0;
+      entry.current = nextVal;
+      entry.selStart = typeof selStart === 'number' ? selStart : nextVal.length;
+      entry.selEnd = typeof selEnd === 'number' ? selEnd : nextVal.length;
+    }
+
+    _applyFallbackHistoryStep(direction) {
+      if (!this.activeFile || !this.container) return false;
+      const fallbackEl = this.container.querySelector('#cl-fallback-editor');
+      if (!fallbackEl) return false;
+      const entry = this._ensureFallbackHistoryEntry(this.activeFile);
+      const fromStack = direction === 'redo' ? entry.redo : entry.undo;
+      const toStack = direction === 'redo' ? entry.undo : entry.redo;
+      if (!fromStack.length) return false;
+      const curSelStart = typeof fallbackEl.selectionStart === 'number' ? fallbackEl.selectionStart : entry.current.length;
+      const curSelEnd = typeof fallbackEl.selectionEnd === 'number' ? fallbackEl.selectionEnd : curSelStart;
+      toStack.push({ value: entry.current, selStart: curSelStart, selEnd: curSelEnd });
+      const snap = fromStack.pop();
+      entry.current = snap.value;
+      entry.selStart = snap.selStart;
+      entry.selEnd = snap.selEnd;
+      fallbackEl.value = snap.value;
+      if (typeof fallbackEl.focus === 'function') fallbackEl.focus();
+      if (typeof fallbackEl.setSelectionRange === 'function') {
+        try { fallbackEl.setSelectionRange(snap.selStart, snap.selEnd); } catch (_err) { void _err; }
+      } else {
+        fallbackEl.selectionStart = snap.selStart;
+        fallbackEl.selectionEnd = snap.selEnd;
+      }
+      this.files[this.activeFile] = snap.value;
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
+      this._markFileDirty(this.activeFile);
+      this._updateFallbackGutter();
+      const upToCursor = (snap.value || '').slice(0, snap.selStart || 0).split('\n');
+      const lineNumber = upToCursor.length;
+      const column = upToCursor[upToCursor.length - 1].length + 1;
+      this.cursorPos = { lineNumber, column, ln: lineNumber, col: column };
+      this._updateStatusBar();
+      this._renderBreadcrumbs();
+      this._scheduleSaveState();
+      this._notifyCodeChange(this.activeFile, snap.value);
+      return true;
+    }
+
+    _bindFallbackEditorListeners() {
+      const fallbackEl = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
+      if (!fallbackEl) return;
+      fallbackEl.value = (this.activeFile && this.files[this.activeFile]) ? this.files[this.activeFile] : '';
+      if (this.activeFile) {
+        const hist = this._ensureFallbackHistoryEntry(this.activeFile);
+        hist.current = fallbackEl.value;
+      }
+      this._applyEditorSettingsToFallback();
+      if (fallbackEl._clFallbackBound) return;
+      fallbackEl._clFallbackBound = true;
+
+      const updateFallbackCursor = () => {
+        const val = fallbackEl.value || '';
+        const sel = typeof fallbackEl.selectionStart === 'number' ? fallbackEl.selectionStart : 0;
+        if (this.activeFile) {
+          const hist = this._ensureFallbackHistoryEntry(this.activeFile);
+          hist.selStart = sel;
+          hist.selEnd = typeof fallbackEl.selectionEnd === 'number' ? fallbackEl.selectionEnd : sel;
+        }
+        const upToCursor = val.slice(0, sel).split('\n');
+        const lineNumber = upToCursor.length;
+        const column = upToCursor[upToCursor.length - 1].length + 1;
+        this.cursorPos = { lineNumber, column, ln: lineNumber, col: column };
+        this._updateStatusBar();
+        this._renderBreadcrumbs();
+      };
+
+      const commitFallbackValue = () => {
+        if (this.editor || !this.activeFile) return;
+        const nextVal = fallbackEl.value;
+        const selStart = typeof fallbackEl.selectionStart === 'number' ? fallbackEl.selectionStart : nextVal.length;
+        const selEnd = typeof fallbackEl.selectionEnd === 'number' ? fallbackEl.selectionEnd : selStart;
+        this._recordFallbackEdit(this.activeFile, nextVal, selStart, selEnd);
+        this.files[this.activeFile] = nextVal;
+        this._userEditSeq = (this._userEditSeq || 0) + 1;
+        this._markFileDirty(this.activeFile);
+        this._updateFallbackGutter();
+        updateFallbackCursor();
+        this._scheduleSaveState();
+        this._notifyCodeChange(this.activeFile, nextVal);
+      };
+
+      fallbackEl.addEventListener('scroll', () => {
+        const gutterEl = this.container.querySelector('#cl-fallback-gutter');
+        if (gutterEl) gutterEl.scrollTop = fallbackEl.scrollTop;
+      });
+
+      fallbackEl.addEventListener('keyup', updateFallbackCursor);
+      fallbackEl.addEventListener('click', updateFallbackCursor);
+
+      fallbackEl.addEventListener('blur', () => {
+        if (
+          this.configuration &&
+          this.configuration.get('files.autoSave', 'afterDelay') === 'onFocusChange' &&
+          ((this._dirtyFiles && this._dirtyFiles.size > 0) || this.saveStatusState === 'dirty')
+        ) {
+          this.saveActiveFile({ manual: false });
+        }
+      });
+
+      fallbackEl.addEventListener('input', () => {
+        commitFallbackValue();
+      });
+
+      fallbackEl.addEventListener('keydown', e => {
+        const keyLower = (e.key || '').toLowerCase();
+        if ((e.metaKey || e.ctrlKey) && !e.altKey && keyLower === 'z') {
+          e.preventDefault();
+          this._applyFallbackHistoryStep(e.shiftKey ? 'redo' : 'undo');
+          return;
+        }
+        if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && keyLower === 'y') {
+          e.preventDefault();
+          this._applyFallbackHistoryStep('redo');
+          return;
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const tabSize = this.configuration
+            ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+            : 2;
+          const spaces = ' '.repeat(tabSize);
+          const start = fallbackEl.selectionStart;
+          const end = fallbackEl.selectionEnd;
+          fallbackEl.value = fallbackEl.value.substring(0, start) + spaces + fallbackEl.value.substring(end);
+          fallbackEl.selectionStart = fallbackEl.selectionEnd = start + tabSize;
+          commitFallbackValue();
+        } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
+          e.preventDefault();
+          this.runDemo();
+        } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          if (this.mode === 'guided') {
+            this.verifyCurrentStep();
+          } else {
+            this.runTests();
+          }
+        }
+      });
+    }
+
     // ── Initialize Monaco Editor (with Resilient Line-Numbered Fallback) ────
     _initEditor() {
-      const fallbackWrap = this.container.querySelector('#cl-fallback-wrap');
-      const fallbackEl = this.container.querySelector('#cl-fallback-editor');
-      const monacoHost = this.container.querySelector('#cl-monaco-host');
-
-      if (fallbackEl) {
-        fallbackEl.value = (this.activeFile && this.files[this.activeFile]) ? this.files[this.activeFile] : '';
-        this._updateFallbackGutter();
-
-        const updateFallbackCursor = () => {
-          const val = fallbackEl.value || '';
-          const sel = typeof fallbackEl.selectionStart === 'number' ? fallbackEl.selectionStart : 0;
-          const upToCursor = val.slice(0, sel).split('\n');
-          const lineNumber = upToCursor.length;
-          const column = upToCursor[upToCursor.length - 1].length + 1;
-          this.cursorPos = { lineNumber, column, ln: lineNumber, col: column };
-          this._updateStatusBar();
-          this._renderBreadcrumbs();
-        };
-
-        fallbackEl.addEventListener('scroll', () => {
-          const gutterEl = this.container.querySelector('#cl-fallback-gutter');
-          if (gutterEl) gutterEl.scrollTop = fallbackEl.scrollTop;
-        });
-
-        fallbackEl.addEventListener('keyup', updateFallbackCursor);
-        fallbackEl.addEventListener('click', updateFallbackCursor);
-
-        fallbackEl.addEventListener('input', () => {
-          if (!this.editor && this.activeFile && !this.activeFile.endsWith('.md')) {
-            this.files[this.activeFile] = fallbackEl.value;
-            this._updateFallbackGutter();
-            updateFallbackCursor();
-            this._scheduleSaveState();
-            this._notifyCodeChange(this.activeFile, fallbackEl.value);
-          }
-        });
-
-        fallbackEl.addEventListener('keydown', e => {
-          if (e.key === 'Tab') {
-            e.preventDefault();
-            const start = fallbackEl.selectionStart;
-            const end = fallbackEl.selectionEnd;
-            fallbackEl.value = fallbackEl.value.substring(0, start) + '  ' + fallbackEl.value.substring(end);
-            fallbackEl.selectionStart = fallbackEl.selectionEnd = start + 2;
-            if (this.activeFile) {
-              this.files[this.activeFile] = fallbackEl.value;
-              this._updateFallbackGutter();
-              updateFallbackCursor();
-              this._saveState();
-              this._notifyCodeChange(this.activeFile, fallbackEl.value);
-            }
-          } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
-            e.preventDefault();
-            this.runDemo();
-          } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-            e.preventDefault();
-            if (this.mode === 'guided') {
-              this.verifyCurrentStep();
-            } else {
-              this.runTests();
-            }
-          }
-        });
-      }
-
+      this._editorInitialized = true;
+      this._bindFallbackEditorListeners();
       this._syncActiveFileToView();
 
       loadMonaco(this.monacoUrl).then(m => {
+        if (this._destroyed || !this.container) return;
         this.monaco = m;
+        if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function' && this.files) {
+          for (const fn of Object.keys(this.files)) {
+            if (/\.(?:m?js|cjs|ts)$/i.test(fn)) {
+              this._diagnosticsStore.setFileDiagnostics(fn, [], /\.ts$/i.test(fn) ? 'ts' : 'js');
+            }
+          }
+        }
+        const monacoHost = this.container.querySelector('#cl-monaco-host');
         if (!monacoHost) return;
         if (m.editor && typeof m.editor.defineTheme === 'function') {
           try {
@@ -7243,7 +10092,12 @@ int main() {
           }
         }
 
-        const isDark = this._resolvedTheme() !== 'light';
+        const resolvedInitTheme = this._resolvedTheme();
+        const initMonacoTheme = resolvedInitTheme === 'light'
+          ? 'codelab-light'
+          : resolvedInitTheme === 'high-contrast'
+            ? 'codelab-hc-dark'
+            : 'codelab-dark';
 
         // Create models for all code files
         this._syncAllModels();
@@ -7251,7 +10105,7 @@ int main() {
         const currentModel = this.activeFile ? this._getOrCreateModel(this.activeFile) : null;
         this.editor = m.editor.create(monacoHost, {
           model: currentModel,
-          theme: isDark ? 'codelab-dark' : 'codelab-light',
+          theme: initMonacoTheme,
           fontFamily: this.configuration ? this.configuration.get('editor.fontFamily', '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace') : '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
           fontSize: this.configuration ? this.configuration.get('editor.fontSize', 13) : 13,
           lineHeight: 20,
@@ -7270,6 +10124,18 @@ int main() {
         });
 
         this._applyConfigurationChanges(null);
+
+        if (typeof this.editor.onDidBlurEditorWidget === 'function') {
+          this.editor.onDidBlurEditorWidget(() => {
+            if (
+              this.configuration &&
+              this.configuration.get('files.autoSave', 'afterDelay') === 'onFocusChange' &&
+              ((this._dirtyFiles && this._dirtyFiles.size > 0) || this.saveStatusState === 'dirty')
+            ) {
+              this.saveActiveFile({ manual: false });
+            }
+          });
+        }
 
         // Dynamic ResizeObserver to guarantee 100% width on layout shifts
         if (typeof ResizeObserver !== 'undefined' && monacoHost) {
@@ -7336,14 +10202,20 @@ int main() {
           });
         }
 
-        if (fallbackWrap) fallbackWrap.style.display = 'none';
+        const liveFallbackWrap = this.container.querySelector('#cl-fallback-wrap');
+        if (liveFallbackWrap) liveFallbackWrap.style.display = 'none';
         this._syncActiveFileToView();
 
         // Watch theme changes on <html>
         if (typeof MutationObserver !== 'undefined') {
           this._themeObserver = new MutationObserver(() => {
-            const dark = this._resolvedTheme() !== 'light';
-            m.editor.setTheme(dark ? 'codelab-dark' : 'codelab-light');
+            const rt = this._resolvedTheme();
+            const targetMonacoTheme = rt === 'light'
+              ? 'codelab-light'
+              : rt === 'high-contrast'
+                ? 'codelab-hc-dark'
+                : 'codelab-dark';
+            m.editor.setTheme(targetMonacoTheme);
           });
           this._themeObserver.observe(document.documentElement, {
             attributes: true,
@@ -7351,10 +10223,11 @@ int main() {
           });
         }
       }).catch(() => {
+        if (this._destroyed || !this.container) return;
         // Fallback editor remains visible if offline / CDN blocked
-        if (fallbackWrap && this.activeFile && !this.activeFile.endsWith('.md')) {
-          fallbackWrap.style.display = 'flex';
-          this._updateFallbackGutter();
+        const liveFallbackWrap = this.container.querySelector('#cl-fallback-wrap');
+        if (liveFallbackWrap && this.activeFile && !(this.activeFile.endsWith('.md') && this._mdPreviewOpen)) {
+          this._syncActiveFileToView();
         }
       });
     }
@@ -7381,10 +10254,23 @@ int main() {
           this.logger.debug(`Could not sync "${cleanRel}" to kernel VFS.`, err);
         }
       }
-      if (cleanRel.startsWith('.codelab/')) {
+      if (cleanRel.startsWith('.codelab/') && !this._syncingWorkspaceSettingsFile) {
         this._syncDotCodelabConfig({ isInitialMount: false });
       }
-      if ((this.drawerTab === 'preview' || (this.previewState && this.previewState.dockMode === 'split')) && this.previewState && this.previewState.port) {
+      if (this._lintDebounceTimer) {
+        clearTimeout(this._lintDebounceTimer);
+      }
+      this._lintDebounceTimer = setTimeout(() => {
+        this._lintDebounceTimer = null;
+        if (!this._destroyed && this.files && Object.prototype.hasOwnProperty.call(this.files, cleanRel)) {
+          this._runStaticLintersForFile(cleanRel, this.files[cleanRel]);
+        }
+      }, 150);
+      if (this.activeSidebarView === 'scm' && typeof this._renderScmSidebar === 'function') {
+        this._renderScmSidebar();
+      }
+      const allowPreviewReload = !this.configuration || this.configuration.get('preview.autoReload', true) !== false;
+      if (allowPreviewReload && (this.drawerTab === 'preview' || (this.previewState && this.previewState.dockMode === 'split')) && this.previewState && this.previewState.port) {
         if (this._previewReloadTimer) {
           clearTimeout(this._previewReloadTimer);
         }
@@ -7419,10 +10305,7 @@ int main() {
 
     _syncMonacoMarkersToDiagnostics() {
       if (!this.monaco || !this.monaco.editor || typeof this.monaco.editor.getModelMarkers !== 'function') return;
-      const diagMod = root.CodeLabDiagnostics;
-      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
-        this._diagnosticsStore = diagMod.createDiagnosticsStore();
-      }
+      this._ensureDiagnosticsStore();
       if (!this._diagnosticsStore || typeof this._diagnosticsStore.setFileDiagnostics !== 'function') return;
       const prefix = `file:///${encodeURIComponent(this.instanceId)}/`;
       for (const [filename, model] of this.models.entries()) {
@@ -7485,24 +10368,46 @@ int main() {
                     : filename.endsWith('.md')
                       ? 'markdown'
                       : 'javascript';
+      const configuredTabSize = this.configuration
+        ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+        : 2;
       if (!model) {
         model = this.monaco.editor.createModel(this.files[filename] || '', lang, uri);
+        if (model && typeof model.updateOptions === 'function') {
+          try {
+            model.updateOptions({ tabSize: configuredTabSize, insertSpaces: true });
+          } catch (err) {
+            void err;
+          }
+        }
         if (model && typeof model.onDidChangeContent === 'function') {
           model.onDidChangeContent(() => {
             const val = model.getValue();
             this.files[filename] = val;
+            if (!this._syncingWorkspaceSettingsFile && !this._syncingModelFromFiles) {
+              this._userEditSeq = (this._userEditSeq || 0) + 1;
+              this._markFileDirty(filename);
+            }
             this._scheduleSaveState();
             this._notifyCodeChange(filename, val);
-            if (this.lang === 'py' && typeof this._pyLintHandler === 'function') {
-              this._pyLintHandler(filename, val);
-            }
-            if (this.lang === 'cpp' && typeof this._cppLintHandler === 'function') {
-              this._cppLintHandler(filename, val);
-            }
           });
         }
-      } else if (model.getValue() !== (this.files[filename] || '')) {
-        model.setValue(this.files[filename] || '');
+      } else {
+        if (typeof model.updateOptions === 'function') {
+          try {
+            model.updateOptions({ tabSize: configuredTabSize, insertSpaces: true });
+          } catch (err) {
+            void err;
+          }
+        }
+        if (model.getValue() !== (this.files[filename] || '')) {
+          this._syncingModelFromFiles = true;
+          try {
+            model.setValue(this.files[filename] || '');
+          } finally {
+            this._syncingModelFromFiles = false;
+          }
+        }
       }
       this.models.set(filename, model);
       return model;
@@ -7533,7 +10438,77 @@ int main() {
       const fallbackWrap = this.container.querySelector('#cl-fallback-wrap');
       const fallbackEl = this.container.querySelector('#cl-fallback-editor');
       const mdPreview = this.container.querySelector('#cl-md-preview');
+      const settingsHost = this.container.querySelector('#cl-settings-host');
+      const inlineDiffHost = this.container.querySelector('#cl-inline-diff-container');
       const emptyEl = this.container.querySelector('#cl-empty-editor');
+
+      // Non-destructive Settings Tab: hide code surfaces via display:none WITHOUT calling editor.setModel(null) or disposing!
+      if (this.settingsTabOpen && this.activeTab === '__settings__') {
+        this._activeScmDiffFile = null;
+        if (monacoHost) monacoHost.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
+        if (fallbackWrap) fallbackWrap.style.display = 'none';
+        if (mdPreview) mdPreview.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (inlineDiffHost) {
+          inlineDiffHost.hidden = true;
+          if (inlineDiffHost.style) inlineDiffHost.style.display = 'none';
+        }
+        if (settingsHost) {
+          settingsHost.hidden = false;
+          if (settingsHost.style) settingsHost.style.display = 'block';
+          if (typeof this._mountSettingsInline === 'function') {
+            this._mountSettingsInline(settingsHost);
+          }
+          const listEl = settingsHost.querySelector('[data-role="settings-list"]');
+          if (listEl && typeof this._savedSettingsScrollTop === 'number' && this._savedSettingsScrollTop > 0) {
+            listEl.scrollTop = this._savedSettingsScrollTop;
+          }
+        }
+        const actSettingsBtn = this.container.querySelector('[data-cl-activity="settings"]');
+        if (actSettingsBtn) {
+          actSettingsBtn.classList.add('active');
+          actSettingsBtn.setAttribute('aria-pressed', 'true');
+        }
+        this._renderFileLists();
+        this._renderBreadcrumbs();
+        this._updateStatusBar();
+        return;
+      }
+
+      if (settingsHost) {
+        if (!settingsHost.hidden && (!settingsHost.style || settingsHost.style.display !== 'none')) {
+          const listEl = settingsHost.querySelector('[data-role="settings-list"]');
+          if (listEl) this._savedSettingsScrollTop = listEl.scrollTop;
+        }
+        settingsHost.hidden = true;
+        if (settingsHost.style) settingsHost.style.display = 'none';
+      }
+      const actSettingsBtn = this.container.querySelector('[data-cl-activity="settings"]');
+      if (actSettingsBtn) {
+        actSettingsBtn.classList.remove('active');
+        actSettingsBtn.setAttribute('aria-pressed', 'false');
+      }
+
+      // Non-destructive Source Control Inline Diff: hide sibling editor hosts via display:none WITHOUT mutating models/buffers!
+      if (this._activeScmDiffFile && inlineDiffHost) {
+        if (monacoHost) monacoHost.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
+        if (fallbackWrap) fallbackWrap.style.display = 'none';
+        if (mdPreview) mdPreview.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'none';
+        inlineDiffHost.hidden = false;
+        if (inlineDiffHost.style) inlineDiffHost.style.display = 'flex';
+        this._renderInlineScmDiff(inlineDiffHost);
+        this._renderFileLists();
+        this._renderBreadcrumbs();
+        this._updateStatusBar();
+        return;
+      }
+      if (inlineDiffHost) {
+        inlineDiffHost.hidden = true;
+        if (inlineDiffHost.style) inlineDiffHost.style.display = 'none';
+      }
 
       if (!this.activeFile || !this.openTabs || this.openTabs.length === 0) {
         if (monacoHost) monacoHost.style.display = 'none';
@@ -7589,7 +10564,7 @@ int main() {
         emptyEl.style.display = 'none';
       }
 
-      const isMd = this.activeFile.endsWith('.md');
+      const isMd = /\.md$/i.test(this.activeFile);
       const isSqlFile = /\.sql$/i.test(this.activeFile);
       const sqlPack = getSqlPack();
       const useLightweightSqlEditor = Boolean(
@@ -7600,7 +10575,7 @@ int main() {
         (!this.editor || (this.options && this.options.editorEngine !== 'monaco'))
       );
 
-      if (isMd) {
+      if (isMd && this._mdPreviewOpen) {
         if (monacoHost) monacoHost.style.display = 'none';
         if (sqlHost) sqlHost.style.display = 'none';
         if (fallbackWrap) fallbackWrap.style.display = 'none';
@@ -7613,7 +10588,17 @@ int main() {
         if (monacoHost) monacoHost.style.display = 'none';
         if (fallbackWrap) fallbackWrap.style.display = 'none';
         sqlHost.style.display = 'block';
-        if (!this._sqlWorkbenchEditor) {
+        const hasLiveSqlDom = Boolean(
+          this._sqlWorkbenchEditor &&
+          typeof sqlHost.querySelector === 'function' &&
+          sqlHost.querySelector('.cl-sql-root, .cl-sql-textarea')
+        );
+        if (!hasLiveSqlDom) {
+          if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.destroy === 'function') {
+            try { this._sqlWorkbenchEditor.destroy(); } catch (_err) { void _err; }
+          }
+          this._sqlWorkbenchEditor = null;
+          sqlHost.innerHTML = '';
           this._sqlWorkbenchEditor = sqlPack.createSqlEditor(sqlHost, {
             value: this.files[this.activeFile] || '',
             mode: 'inline',
@@ -7624,8 +10609,11 @@ int main() {
             maxLines: 200,
             ariaLabel: `SQL Editor (${this.activeFile})`,
             onChange: (nextVal) => {
+              if (this._syncingSqlEditorFromFiles) return;
               if (this.activeFile && /\.sql$/i.test(this.activeFile)) {
                 this.files[this.activeFile] = nextVal;
+                this._userEditSeq = (this._userEditSeq || 0) + 1;
+                this._markFileDirty(this.activeFile);
                 this._scheduleSaveState();
                 this._notifyCodeChange(this.activeFile, nextVal);
               }
@@ -7644,11 +10632,21 @@ int main() {
         } else {
           const desired = this.files[this.activeFile] || '';
           if (this._sqlWorkbenchEditor.getValue() !== desired) {
-            this._sqlWorkbenchEditor.setValue(desired);
+            this._syncingSqlEditorFromFiles = true;
+            try {
+              this._sqlWorkbenchEditor.setValue(desired);
+            } finally {
+              this._syncingSqlEditorFromFiles = false;
+            }
           }
         }
       } else {
-        if (mdPreview) mdPreview.style.display = 'none';
+        if (mdPreview) {
+          mdPreview.style.display = 'none';
+          if (isMd) {
+            mdPreview.innerHTML = renderSimpleMarkdown(this.files[this.activeFile] || '');
+          }
+        }
         if (sqlHost) sqlHost.style.display = 'none';
         if (this.editor && this.monaco) {
           if (monacoHost) monacoHost.style.display = 'block';
@@ -7669,7 +10667,10 @@ int main() {
           if (typeof this.editor.layout === 'function') this.editor.layout();
         } else if (fallbackWrap && fallbackEl) {
           fallbackWrap.style.display = 'flex';
-          fallbackEl.value = this.files[this.activeFile] || '';
+          const desiredVal = this.files[this.activeFile] || '';
+          fallbackEl.value = desiredVal;
+          const hist = this._ensureFallbackHistoryEntry(this.activeFile);
+          hist.current = desiredVal;
           this._updateFallbackGutter();
         }
       }
@@ -7684,6 +10685,12 @@ int main() {
         <div class="codelab-empty-editor__inner">
           <div class="codelab-empty-editor__watermark" aria-hidden="true">code-lab</div>
           <div class="codelab-empty-editor__shortcuts" role="group" aria-label="Quick actions">
+            <button type="button" class="codelab-empty-shortcut" data-cl-action="new-file-root">
+              <span>New File</span><kbd>⌘N</kbd>
+            </button>
+            <button type="button" class="codelab-empty-shortcut" data-cl-action="open-clone-modal">
+              <span>Clone Repository</span><kbd>⌘⇧G</kbd>
+            </button>
             <button type="button" class="codelab-empty-shortcut" data-cl-action="command-palette-files">
               <span>Go to File</span><kbd>⌘P</kbd>
             </button>
@@ -7691,20 +10698,39 @@ int main() {
               <span>Show All Commands</span><kbd>⌘⇧P</kbd>
             </button>
           </div>
-          <p class="codelab-empty-editor__subtitle">No editors open. Select a file from the Explorer to start editing.</p>
+          <p class="codelab-empty-editor__subtitle">No editors open. Create a file, clone a repository, or select a file from the Explorer.</p>
         </div>
       `;
     }
 
     // ── Event Delegation & Interactive Splitters ───────────────────────────
     _bindEvents() {
-      if (this._eventsBound) return;
+      if (this._isBooting || this._eventsBound) return;
       this._eventsBound = true;
 
       this._bindSplitters();
 
       this._escHandler = e => {
+        if (!e || e.defaultPrevented) return;
         if (e.key === 'Escape') {
+          if (this._activeTopMenu) {
+            const openSub = e.target && typeof e.target.closest === 'function'
+              ? e.target.closest('.codelab-topbar-submenu.open')
+              : null;
+            if (openSub && this.container && typeof this.container.contains === 'function' && this.container.contains(openSub)) {
+              e.preventDefault();
+              openSub.classList.remove('open');
+              const parentWrap = openSub.closest('.codelab-topbar-menu__has-sub');
+              const parentBtn = parentWrap ? parentWrap.querySelector('[data-cl-submenu]') : null;
+              if (parentBtn) {
+                parentBtn.setAttribute('aria-expanded', 'false');
+                if (typeof parentBtn.focus === 'function') parentBtn.focus();
+              }
+              return;
+            }
+            this._closeTopbarMenu({ restoreFocus: true });
+            return;
+          }
           const ctxSlot = this.container.querySelector('#cl-context-menu-slot');
           if (ctxSlot && ctxSlot.innerHTML.trim() !== '') {
             this.closeContextMenu();
@@ -7727,6 +10753,9 @@ int main() {
           }
           const modalSlot = this.container.querySelector('#cl-modal-slot');
           if (modalSlot && modalSlot.innerHTML.trim() !== '') {
+            if (this._cloneInFlight || this._activeCloneAbortController) {
+              this.cancelClone();
+            }
             this.closeModal();
             return;
           }
@@ -7747,12 +10776,738 @@ int main() {
           }
         };
         document.addEventListener('visibilitychange', this._beforeUnloadHandler);
+        this._topbarMenuOutsideHandler = (ev) => {
+          if (!this._activeTopMenu) return;
+          const t = ev && ev.target;
+          const insideMenuTrigger = t && typeof t.closest === 'function' && t.closest('.codelab-menubar__trigger[data-cl-menu]');
+          const insideSlot = t && typeof t.closest === 'function' && t.closest('#cl-topbar-menu-slot');
+          if (!insideMenuTrigger && !insideSlot) {
+            const prior = this._menuReturnFocusEl || null;
+            const clickedOtherCodelab = Boolean(
+              t && typeof t.closest === 'function' && t.closest('.codelab') &&
+              !(this.container && typeof this.container.contains === 'function' && this.container.contains(t))
+            );
+            this._closeTopbarMenu({ restoreFocus: false });
+            if (!clickedOtherCodelab && typeof document !== 'undefined') {
+              const restoreIfBody = () => {
+                if (this._destroyed || !this.container) return;
+                const ae = document.activeElement;
+                if (!ae || ae === document.body || ae === document.documentElement) {
+                  this._restoreWorkbenchFocus(prior);
+                }
+              };
+              restoreIfBody();
+              let safetyTimer = null;
+              const cleanup = () => {
+                document.removeEventListener('mouseup', onPointerFinish, true);
+                document.removeEventListener('click', onFollowUpClick, true);
+                if (safetyTimer !== null) {
+                  clearTimeout(safetyTimer);
+                  safetyTimer = null;
+                }
+              };
+              const onPointerFinish = () => {
+                if (safetyTimer !== null) {
+                  clearTimeout(safetyTimer);
+                  safetyTimer = null;
+                }
+                restoreIfBody();
+              };
+              const onFollowUpClick = () => {
+                cleanup();
+                restoreIfBody();
+              };
+              document.addEventListener('mouseup', onPointerFinish, true);
+              document.addEventListener('click', onFollowUpClick, true);
+              safetyTimer = setTimeout(() => {
+                cleanup();
+              }, 120);
+            }
+          }
+        };
+        document.addEventListener('pointerdown', this._topbarMenuOutsideHandler);
       }
+
+      // Capture-phase keydown handler so Monaco / inputs do not swallow core VS Code workbench shortcuts
+      this._captureKeydownHandler = e => {
+        if (!e) return;
+        const keyLower = (e.key || '').toLowerCase();
+        const mod = Boolean(e.metaKey || e.ctrlKey);
+        const tgt = e.target;
+        const inCustomContentEditable = Boolean(
+          tgt &&
+          (tgt.isContentEditable || (typeof tgt.closest === 'function' && tgt.closest('[contenteditable="true"]'))) &&
+          !(typeof tgt.closest === 'function' && tgt.closest('#cl-monaco-host, .monaco-editor'))
+        );
+        if (inCustomContentEditable && mod && !e.shiftKey && !e.altKey && keyLower === 'b') {
+          return;
+        }
+        if (mod && !e.shiftKey && !e.altKey && keyLower === 's') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.saveActiveFile({ manual: true });
+          return;
+        }
+        if (mod && !e.shiftKey && !e.altKey && e.key === ',') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openSettings();
+          return;
+        }
+        if (mod && !e.shiftKey && !e.altKey && keyLower === 'b') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.toggleSidebar();
+          return;
+        }
+        if (mod && !e.shiftKey && !e.altKey && keyLower === 'j') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.togglePanel();
+          return;
+        }
+        if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '`' || e.code === 'Backquote' || (e.shiftKey && e.key === '~'))) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.shiftKey) {
+            this.setPanelVisible(true, { skipRender: true });
+            this.createTerminalSession();
+            this.switchDrawerTab('terminal', { ensureVisible: true });
+            const termInp = this.container ? this.container.querySelector('#cl-repl-input') : null;
+            if (termInp && typeof termInp.focus === 'function') termInp.focus();
+          } else {
+            this.toggleTerminal();
+          }
+          return;
+        }
+        if (!mod && !e.altKey && e.key === 'F8') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.goToNextProblem(Boolean(e.shiftKey));
+          return;
+        }
+        if (mod && e.shiftKey && !e.altKey && keyLower === 'e') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.setSidebarView('explorer', { ensureOpen: true, focus: true });
+          return;
+        }
+        if (mod && e.shiftKey && !e.altKey && keyLower === 'f') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openSearchView();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && keyLower === 'g') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openScmView();
+          return;
+        }
+        if (mod && e.shiftKey && !e.altKey && keyLower === 'm') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openProblemsPanel();
+          return;
+        }
+        if ((!mod && !e.shiftKey && !e.altKey && e.key === 'F1') || (mod && e.shiftKey && !e.altKey && keyLower === 'p')) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openCommandPalette('commands');
+          return;
+        }
+        if (mod && !e.shiftKey && !e.altKey && keyLower === 'p') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openCommandPalette('files');
+          return;
+        }
+      };
+      this.container.addEventListener('keydown', this._captureKeydownHandler, true);
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        this._documentKeydownHandler = e => {
+          if (!e || e.defaultPrevented || this._destroyed) return;
+          const t = e.target;
+          if (t && typeof t.closest === 'function' && t.closest('.codelab')) {
+            return;
+          }
+          if (t && (
+            t.tagName === 'INPUT' ||
+            t.tagName === 'TEXTAREA' ||
+            t.tagName === 'SELECT' ||
+            t.isContentEditable ||
+            (typeof t.closest === 'function' && t.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]'))
+          )) {
+            return;
+          }
+          if (!CodeLabWorkbench._isInstanceVisible(this)) return;
+          let targetWb = CodeLabWorkbench._isInstanceVisible(CodeLabWorkbench._lastActiveInstance)
+            ? CodeLabWorkbench._lastActiveInstance
+            : null;
+          if (!targetWb && typeof document.querySelectorAll === 'function' && CodeLabWorkbench._instances) {
+            const shells = Array.from(document.querySelectorAll('.codelab'));
+            for (const sh of shells) {
+              for (const inst of CodeLabWorkbench._instances) {
+                if (inst && inst.container && inst.container.querySelector('.codelab') === sh && CodeLabWorkbench._isInstanceVisible(inst)) {
+                  targetWb = inst;
+                  break;
+                }
+              }
+              if (targetWb) break;
+            }
+          }
+          if (!targetWb && CodeLabWorkbench._instances) {
+            for (const inst of CodeLabWorkbench._instances) {
+              if (CodeLabWorkbench._isInstanceVisible(inst)) {
+                targetWb = inst;
+                break;
+              }
+            }
+          }
+          if (targetWb !== this) return;
+          if (this._captureKeydownHandler) {
+            this._captureKeydownHandler(e);
+          }
+        };
+        document.addEventListener('keydown', this._documentKeydownHandler);
+      }
+
+      this.container.addEventListener('pointerdown', e => {
+        if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('#cl-activitybar [data-cl-activity]')) {
+          const ae = (typeof document !== 'undefined' && document.activeElement) ? document.activeElement : null;
+          const focusInOtherRegion = Boolean(
+            ae &&
+            typeof ae.closest === 'function' &&
+            (ae.closest('#cl-drawer') || ae.closest('.codelab-editor-col') || ae.closest('#cl-statusbar'))
+          );
+          this._sidebarHadFocusOnPointerDown = !focusInOtherRegion;
+        } else {
+          this._sidebarHadFocusOnPointerDown = undefined;
+        }
+      }, true);
+
+      this.container.addEventListener('pointerdown', e => {
+        CodeLabWorkbench._lastActiveInstance = this;
+        this._lastBackdropPointerDownTarget = (e && e.target) ? e.target : null;
+        if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('.codelab-menubar__trigger[data-cl-menu]')) {
+          this._menuOpenBeforePointerDown = this._activeTopMenu;
+        } else {
+          this._menuOpenBeforePointerDown = undefined;
+        }
+      });
+      this.container.addEventListener('focusin', () => {
+        CodeLabWorkbench._lastActiveInstance = this;
+      });
+
+      this.container.addEventListener('mouseover', e => {
+        if (!e || !e.target || typeof e.target.closest !== 'function') return;
+        if (this._activeTopMenu) {
+          const trigger = e.target.closest('.codelab-menubar__trigger[data-cl-menu]');
+          if (trigger && trigger.dataset.clMenu && trigger.dataset.clMenu !== this._activeTopMenu) {
+            this._openTopbarMenu(trigger.dataset.clMenu, { focusFirstItem: false, viaHover: true });
+            return;
+          }
+          const subWrap = e.target.closest('.codelab-topbar-menu__has-sub');
+          if (subWrap) {
+            const subMenu = subWrap.querySelector('.codelab-topbar-submenu');
+            this._closeSiblingSubmenus(subMenu);
+            if (subMenu) {
+              if (!subMenu.classList.contains('open')) {
+                subMenu._openedViaHoverAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+                  ? performance.now()
+                  : Date.now();
+              }
+              subMenu.classList.add('open');
+              const subBtn = subWrap.querySelector('[data-cl-submenu]');
+              if (subBtn) subBtn.setAttribute('aria-expanded', 'true');
+              this._positionSubmenu(subWrap, subMenu);
+            }
+            return;
+          }
+          const plainItem = e.target.closest('.codelab-topbar-menu__item');
+          if (plainItem && !plainItem.closest('.codelab-topbar-submenu') && !plainItem.hasAttribute('data-cl-submenu')) {
+            this._closeSiblingSubmenus(null);
+          }
+        }
+      });
+
+      this.container.addEventListener('input', e => {
+        if (!e || !e.target) return;
+        const t = e.target;
+        if (t.id === 'cl-search-input') {
+          if (!this._searchState) {
+            this._searchState = { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+          }
+          this._searchState.query = t.value || '';
+          this._renderSearchSidebarResults();
+          return;
+        }
+        if (t.id === 'cl-search-replace-input') {
+          if (this._searchState) {
+            this._searchState.replaceText = t.value || '';
+          }
+          return;
+        }
+        if (t.id === 'cl-search-include') {
+          if (!this._searchState) {
+            this._searchState = { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+          }
+          this._searchState.include = t.value || '';
+          this._renderSearchSidebarResults();
+          return;
+        }
+        if (t.id === 'cl-search-exclude') {
+          if (!this._searchState) {
+            this._searchState = { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+          }
+          this._searchState.exclude = t.value || '';
+          this._renderSearchSidebarResults();
+          return;
+        }
+        if (t.id === 'cl-scm-commit-input' && typeof t.closest === 'function' && t.closest('#cl-sidebar-scm')) {
+          const commitBtn = this.container.querySelector('#cl-sidebar-scm #cl-scm-commit-btn');
+          if (commitBtn) {
+            const hasStaged = this.getGitStatus().some(s => s && s.staged);
+            commitBtn.disabled = !(hasStaged && String(t.value || '').trim().length > 0);
+          }
+        }
+      });
+
+      this.container.addEventListener('change', e => {
+        if (!e || !e.target) return;
+        const t = e.target;
+        if (t.id === 'cl-scm-branch-select' && typeof t.value === 'string' && t.value) {
+          this.checkoutGitBranch(t.value);
+          this._renderScmSidebar();
+          this._updateStatusBar();
+        }
+      });
 
       this.container.addEventListener('keydown', e => {
         const keyLower = (e.key || '').toLowerCase();
-        const previewInput = e.target && typeof e.target.closest === 'function'
-          ? e.target.closest('#cl-preview-url-input')
+        const target = e.target;
+        const hasClosest = Boolean(target && typeof target.closest === 'function');
+
+        // WAI-ARIA Menubar keyboard navigation
+        if (hasClosest && target.closest('#cl-menubar')) {
+          const menubar = this.container.querySelector('#cl-menubar');
+          const triggers = menubar ? Array.from(menubar.querySelectorAll('.codelab-menubar__trigger')) : [];
+          if (triggers.length > 0) {
+            const curTrigger = target.closest('.codelab-menubar__trigger') || triggers[0];
+            const idx = Math.max(0, triggers.indexOf(curTrigger));
+            const moveTriggerFocus = (nextIdx) => {
+              triggers.forEach((btn, i) => btn.setAttribute('tabindex', i === nextIdx ? '0' : '-1'));
+              const nextBtn = triggers[nextIdx];
+              if (nextBtn && typeof nextBtn.focus === 'function') nextBtn.focus();
+              if (this._activeTopMenu && nextBtn && nextBtn.dataset.clMenu) {
+                this._openTopbarMenu(nextBtn.dataset.clMenu, { focusFirstItem: false });
+              }
+            };
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              moveTriggerFocus((idx + 1) % triggers.length);
+              return;
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              moveTriggerFocus((idx - 1 + triggers.length) % triggers.length);
+              return;
+            }
+            if (e.key === 'Home') {
+              e.preventDefault();
+              moveTriggerFocus(0);
+              return;
+            }
+            if (e.key === 'End') {
+              e.preventDefault();
+              moveTriggerFocus(triggers.length - 1);
+              return;
+            }
+            if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (curTrigger && curTrigger.dataset.clMenu) {
+                this._openTopbarMenu(curTrigger.dataset.clMenu, { focusFirstItem: true });
+              }
+              return;
+            }
+            if (e.key === 'Escape' && this._activeTopMenu) {
+              e.preventDefault();
+              e.stopPropagation();
+              this._closeTopbarMenu({ restoreFocus: true });
+              return;
+            }
+          }
+        }
+
+        // WAI-ARIA Open Dropdown Menu keyboard navigation (#cl-topbar-menu-slot)
+        if (hasClosest && target.closest('#cl-topbar-menu-slot')) {
+          const slot = this.container.querySelector('#cl-topbar-menu-slot');
+          const inSubmenu = target.closest('.codelab-topbar-submenu');
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (inSubmenu && inSubmenu.classList.contains('open')) {
+              inSubmenu.classList.remove('open');
+              const parentWrap = inSubmenu.closest('.codelab-topbar-menu__has-sub');
+              const parentBtn = parentWrap ? parentWrap.querySelector('[data-cl-submenu]') : null;
+              if (parentBtn) {
+                parentBtn.setAttribute('aria-expanded', 'false');
+                if (typeof parentBtn.focus === 'function') parentBtn.focus();
+              }
+              return;
+            }
+            this._closeTopbarMenu({ restoreFocus: true });
+            return;
+          }
+          if (e.key === 'Tab') {
+            this._closeTopbarMenu({ restoreFocus: false });
+            return;
+          }
+          const menuScope = inSubmenu || (slot && slot.querySelector('.codelab-topbar-menu'));
+          const allItems = menuScope
+            ? Array.from(menuScope.querySelectorAll('.codelab-topbar-menu__item')).filter(el => {
+                if (el.disabled) return false;
+                if (!inSubmenu && el.closest('.codelab-topbar-submenu')) return false;
+                return true;
+              })
+            : [];
+          const curItem = target.closest('.codelab-topbar-menu__item');
+          const curIdx = curItem ? allItems.indexOf(curItem) : -1;
+
+          if (e.key === 'ArrowDown' && allItems.length > 0) {
+            e.preventDefault();
+            const next = allItems[(curIdx + 1) % allItems.length];
+            if (next && typeof next.focus === 'function') next.focus();
+            return;
+          }
+          if (e.key === 'ArrowUp' && allItems.length > 0) {
+            e.preventDefault();
+            const prev = allItems[(curIdx <= 0 ? allItems.length - 1 : curIdx - 1)];
+            if (prev && typeof prev.focus === 'function') prev.focus();
+            return;
+          }
+          if (e.key === 'Home' && allItems.length > 0) {
+            e.preventDefault();
+            if (typeof allItems[0].focus === 'function') allItems[0].focus();
+            return;
+          }
+          if (e.key === 'End' && allItems.length > 0) {
+            e.preventDefault();
+            const last = allItems[allItems.length - 1];
+            if (last && typeof last.focus === 'function') last.focus();
+            return;
+          }
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            if (curItem && curItem.hasAttribute('data-cl-submenu')) {
+              const wrap = curItem.closest('.codelab-topbar-menu__has-sub');
+              const sm = wrap ? wrap.querySelector('.codelab-topbar-submenu') : null;
+              if (sm) {
+                this._closeSiblingSubmenus(sm);
+                sm.classList.add('open');
+                curItem.setAttribute('aria-expanded', 'true');
+                this._positionSubmenu(wrap, sm);
+                const firstSub = sm.querySelector('.codelab-topbar-menu__item');
+                if (firstSub && typeof firstSub.focus === 'function') firstSub.focus();
+                return;
+              }
+            }
+            const menubar = this.container.querySelector('#cl-menubar');
+            const triggers = menubar ? Array.from(menubar.querySelectorAll('.codelab-menubar__trigger')) : [];
+            const activeTriggerIdx = triggers.findIndex(b => b.dataset.clMenu === this._activeTopMenu);
+            if (triggers.length > 0) {
+              const nextTrigger = triggers[(activeTriggerIdx + 1) % triggers.length];
+              if (nextTrigger && nextTrigger.dataset.clMenu) {
+                this._openTopbarMenu(nextTrigger.dataset.clMenu, { focusFirstItem: true });
+              }
+            }
+            return;
+          }
+          if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            if (inSubmenu) {
+              inSubmenu.classList.remove('open');
+              const parentWrap = inSubmenu.closest('.codelab-topbar-menu__has-sub');
+              const parentBtn = parentWrap ? parentWrap.querySelector('[data-cl-submenu]') : null;
+              if (parentBtn) {
+                parentBtn.setAttribute('aria-expanded', 'false');
+                if (typeof parentBtn.focus === 'function') parentBtn.focus();
+              }
+              return;
+            }
+            const menubar = this.container.querySelector('#cl-menubar');
+            const triggers = menubar ? Array.from(menubar.querySelectorAll('.codelab-menubar__trigger')) : [];
+            const activeTriggerIdx = triggers.findIndex(b => b.dataset.clMenu === this._activeTopMenu);
+            if (triggers.length > 0) {
+              const prevTrigger = triggers[(activeTriggerIdx - 1 + triggers.length) % triggers.length];
+              if (prevTrigger && prevTrigger.dataset.clMenu) {
+                this._openTopbarMenu(prevTrigger.dataset.clMenu, { focusFirstItem: true });
+              }
+            }
+            return;
+          }
+          if ((e.key === 'Enter' || e.key === ' ') && curItem) {
+            e.preventDefault();
+            if (curItem.hasAttribute('data-cl-submenu')) {
+              const wrap = curItem.closest('.codelab-topbar-menu__has-sub');
+              const sm = wrap ? wrap.querySelector('.codelab-topbar-submenu') : null;
+              if (sm) {
+                const willOpen = !sm.classList.contains('open');
+                this._closeSiblingSubmenus(willOpen ? sm : null);
+                sm.classList.toggle('open', willOpen);
+                curItem.setAttribute('aria-expanded', String(willOpen));
+                if (willOpen) {
+                  this._positionSubmenu(wrap, sm);
+                  const firstSub = sm.querySelector('.codelab-topbar-menu__item');
+                  if (firstSub && typeof firstSub.focus === 'function') {
+                    firstSub.focus();
+                  }
+                }
+              }
+              return;
+            }
+            const cmd = curItem.dataset.clMenuCmd;
+            if (cmd && !curItem.disabled) {
+              this._closeTopbarMenu({ restoreFocus: false });
+              this._executeTopbarMenuCommand(cmd);
+            }
+            return;
+          }
+        }
+
+        // WAI-ARIA Editor Tab Strip keyboard navigation (#cl-tabs, #cl-file-tabs)
+        if (hasClosest && target.closest('#cl-tabs, #cl-file-tabs')) {
+          const tabStrip = this.container.querySelector('#cl-tabs, #cl-file-tabs');
+          const closeSpan = target.closest('[data-action="close-tab"], .codelab-tab__close');
+          if (closeSpan && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            e.stopPropagation();
+            const ownerTab = closeSpan.closest('.codelab-tab');
+            const beforeTabs = tabStrip ? Array.from(tabStrip.querySelectorAll('.codelab-tab')) : [];
+            const closedIdx = ownerTab ? Math.max(0, beforeTabs.indexOf(ownerTab)) : 0;
+            const tabKey = closeSpan.dataset.clCloseTab || (ownerTab && ownerTab.dataset.clTab);
+            if (tabKey === '__settings__') {
+              this.closeSettings();
+            } else {
+              const fname = closeSpan.dataset.clCloseFile || (ownerTab && ownerTab.dataset.clFile);
+              if (fname) this.closeTab(fname);
+            }
+            const afterStrip = this.container.querySelector('#cl-tabs, #cl-file-tabs');
+            const afterTabs = afterStrip ? Array.from(afterStrip.querySelectorAll('.codelab-tab')) : [];
+            const nextTab = afterTabs[Math.min(closedIdx, afterTabs.length - 1)];
+            if (nextTab && typeof nextTab.focus === 'function') nextTab.focus();
+            else this._restoreWorkbenchFocus(null);
+            return;
+          }
+          const tabEl = target.closest('.codelab-tab');
+          const tabs = tabStrip ? Array.from(tabStrip.querySelectorAll('.codelab-tab')) : [];
+          if (tabEl && tabs.length > 0) {
+            const idx = Math.max(0, tabs.indexOf(tabEl));
+            const activateTabAt = (nextIdx) => {
+              const nextEl = tabs[nextIdx];
+              if (!nextEl) return;
+              if (nextEl.dataset.clTab === '__settings__') {
+                this.activeTab = '__settings__';
+                this._syncActiveFileToView();
+              } else if (nextEl.dataset.clFile) {
+                this.openFile(nextEl.dataset.clFile);
+              }
+              const refreshedStrip = this.container.querySelector('#cl-tabs, #cl-file-tabs');
+              const refreshedTabs = refreshedStrip ? Array.from(refreshedStrip.querySelectorAll('.codelab-tab')) : [];
+              const matchEl = refreshedTabs[nextIdx] || refreshedTabs[0];
+              if (matchEl && typeof matchEl.focus === 'function') matchEl.focus();
+            };
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              activateTabAt((idx + 1) % tabs.length);
+              return;
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              activateTabAt((idx - 1 + tabs.length) % tabs.length);
+              return;
+            }
+            if (e.key === 'Home') {
+              e.preventDefault();
+              activateTabAt(0);
+              return;
+            }
+            if (e.key === 'End') {
+              e.preventDefault();
+              activateTabAt(tabs.length - 1);
+              return;
+            }
+            if (e.key === 'Delete') {
+              e.preventDefault();
+              if (tabEl.dataset.clTab === '__settings__') {
+                this.closeSettings();
+              } else if (tabEl.dataset.clFile) {
+                this.closeTab(tabEl.dataset.clFile);
+              }
+              const afterStrip = this.container.querySelector('#cl-tabs, #cl-file-tabs');
+              const afterTabs = afterStrip ? Array.from(afterStrip.querySelectorAll('.codelab-tab')) : [];
+              const nextTab = afterTabs[Math.min(idx, afterTabs.length - 1)];
+              if (nextTab && typeof nextTab.focus === 'function') nextTab.focus();
+              else this._restoreWorkbenchFocus(null);
+              return;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              activateTabAt(idx);
+              return;
+            }
+          }
+        }
+
+        // WAI-ARIA Bottom Panel Tab Strip keyboard navigation (.codelab-drawer__tabs)
+        if (hasClosest && target.closest('.codelab-drawer__tabs')) {
+          const drawerStrip = target.closest('.codelab-drawer__tabs');
+          const visibleDrawerTabs = drawerStrip
+            ? Array.from(drawerStrip.querySelectorAll('[role="tab"][data-cl-drawertab]')).filter(btn => {
+                if (btn.hidden || btn.disabled) return false;
+                if (btn.style && btn.style.display === 'none') return false;
+                if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+                  try {
+                    if (window.getComputedStyle(btn).display === 'none') return false;
+                  } catch (err) {
+                    void err;
+                  }
+                }
+                return true;
+              })
+            : [];
+          const curDrawerBtn = target.closest('[role="tab"][data-cl-drawertab]');
+          if (curDrawerBtn && visibleDrawerTabs.length > 0) {
+            const idx = Math.max(0, visibleDrawerTabs.indexOf(curDrawerBtn));
+            const moveDrawerTab = (nextIdx) => {
+              const nextBtn = visibleDrawerTabs[nextIdx];
+              if (!nextBtn || !nextBtn.dataset.clDrawertab) return;
+              this.switchDrawerTab(nextBtn.dataset.clDrawertab, { focus: false });
+              if (typeof nextBtn.focus === 'function') nextBtn.focus();
+            };
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              moveDrawerTab((idx + 1) % visibleDrawerTabs.length);
+              return;
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              moveDrawerTab((idx - 1 + visibleDrawerTabs.length) % visibleDrawerTabs.length);
+              return;
+            }
+            if (e.key === 'Home') {
+              e.preventDefault();
+              moveDrawerTab(0);
+              return;
+            }
+            if (e.key === 'End') {
+              e.preventDefault();
+              moveDrawerTab(visibleDrawerTabs.length - 1);
+              return;
+            }
+          }
+        }
+
+        // WAI-ARIA Guided Lab Tab Strip & Mode Switch keyboard navigation
+        if (hasClosest && (target.closest('.codelab-guide__tabs') || target.closest('.codelab-mode-switch'))) {
+          const strip = target.closest('.codelab-guide__tabs') || target.closest('.codelab-mode-switch');
+          const roleTabs = strip ? Array.from(strip.querySelectorAll('[role="tab"]')).filter(btn => !btn.hidden && !btn.disabled) : [];
+          const curBtn = target.closest('[role="tab"]');
+          if (curBtn && roleTabs.length > 0) {
+            const idx = Math.max(0, roleTabs.indexOf(curBtn));
+            const moveRoleTab = (nextIdx) => {
+              roleTabs.forEach((b, i) => b.setAttribute('tabindex', i === nextIdx ? '0' : '-1'));
+              const nextBtn = roleTabs[nextIdx];
+              if (!nextBtn) return;
+              if (typeof nextBtn.click === 'function') nextBtn.click();
+              const liveStrip = strip.classList.contains('codelab-guide__tabs')
+                ? this.container.querySelector('.codelab-guide__tabs')
+                : this.container.querySelector('.codelab-mode-switch');
+              const liveTabs = liveStrip ? Array.from(liveStrip.querySelectorAll('[role="tab"]')).filter(b => !b.hidden && !b.disabled) : [];
+              const liveBtn = liveTabs[nextIdx] || nextBtn;
+              if (liveBtn && typeof liveBtn.focus === 'function') liveBtn.focus();
+            };
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              moveRoleTab((idx + 1) % roleTabs.length);
+              return;
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              moveRoleTab((idx - 1 + roleTabs.length) % roleTabs.length);
+              return;
+            }
+            if (e.key === 'Home') {
+              e.preventDefault();
+              moveRoleTab(0);
+              return;
+            }
+            if (e.key === 'End') {
+              e.preventDefault();
+              moveRoleTab(roleTabs.length - 1);
+              return;
+            }
+          }
+        }
+
+        // Sidebar Search & SCM input Enter shortcuts
+        if (target && (target.id === 'cl-search-input' || target.id === 'cl-search-include' || target.id === 'cl-search-exclude') && e.key === 'Enter' && hasClosest && target.closest('#cl-sidebar-search')) {
+          if (e.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          this._renderSearchSidebarResults();
+          return;
+        }
+        if (target && target.id === 'cl-search-replace-input' && e.key === 'Enter' && hasClosest && target.closest('#cl-sidebar-search')) {
+          if (e.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          this._executeSidebarReplaceAll();
+          return;
+        }
+        if (target && target.id === 'cl-scm-new-branch-input' && hasClosest && target.closest('#cl-sidebar-scm')) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            this._scmCreatingBranch = false;
+            this._renderScmSidebar();
+            return;
+          }
+          if (e.key === 'Enter') {
+            if (e.isComposing || e.keyCode === 229) return;
+            e.preventDefault();
+            const bName = String(target.value || '').trim();
+            if (bName && this.createGitBranch(bName, true)) {
+              this._scmCreatingBranch = false;
+              this._renderScmSidebar();
+              this._updateStatusBar();
+            }
+            return;
+          }
+        }
+        if (target && (e.key === 'Enter' || e.key === ' ') && hasClosest && target.closest('.codelab-session-pill')) {
+          const pillAct = target.closest('[data-cl-action]');
+          if (pillAct && typeof pillAct.click === 'function') {
+            e.preventDefault();
+            pillAct.click();
+            return;
+          }
+        }
+        if (target && target.id === 'cl-scm-commit-input' && e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey) && hasClosest && target.closest('#cl-sidebar-scm')) {
+          if (e.isComposing || e.keyCode === 229) return;
+          const msg = String(target.value || '').trim();
+          if (msg) {
+            e.preventDefault();
+            const hash = this.commitGitChanges(msg);
+            if (hash) {
+              target.value = '';
+              this._renderScmSidebar();
+              this._updateStatusBar();
+            }
+          }
+          return;
+        }
+
+        const previewInput = hasClosest
+          ? target.closest('#cl-preview-url-input')
           : null;
         if (previewInput && e.key === 'Enter') {
           if (e.isComposing || e.keyCode === 229) return;
@@ -7793,10 +11548,46 @@ int main() {
         if (e.key === 'F2' && !e.metaKey && !e.ctrlKey && !e.altKey) {
           const activeTag = e.target && e.target.tagName ? String(e.target.tagName).toUpperCase() : '';
           const inMonaco = e.target && typeof e.target.closest === 'function' && Boolean(e.target.closest('.monaco-editor'));
-          if (!inMonaco && activeTag !== 'INPUT' && activeTag !== 'TEXTAREA' && this.activeFile) {
-            e.preventDefault();
-            this.startInlineRename('file', this.activeFile);
-            return;
+          if (!inMonaco && activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+            const focusedFolderEl = e.target && typeof e.target.closest === 'function'
+              ? e.target.closest('.codelab-folder-item[data-cl-folder]')
+              : null;
+            if (focusedFolderEl && focusedFolderEl.dataset.clFolder) {
+              e.preventDefault();
+              this.startInlineRename('folder', focusedFolderEl.dataset.clFolder);
+              return;
+            }
+            const focusedFileEl = e.target && typeof e.target.closest === 'function'
+              ? e.target.closest('.codelab-file-item[data-cl-file]')
+              : null;
+            if (focusedFileEl && focusedFileEl.dataset.clFile) {
+              e.preventDefault();
+              this.startInlineRename('file', focusedFileEl.dataset.clFile);
+              return;
+            }
+            if (this.activeFile) {
+              e.preventDefault();
+              this.startInlineRename('file', this.activeFile);
+              return;
+            }
+          }
+        }
+        if ((e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) && !e.altKey) {
+          const activeTag = e.target && e.target.tagName ? String(e.target.tagName).toUpperCase() : '';
+          const inExplorer = e.target && typeof e.target.closest === 'function' && Boolean(e.target.closest('#cl-explorer-list'));
+          if (inExplorer && activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+            const focusedFolderEl = e.target.closest('.codelab-folder-item[data-cl-folder]');
+            if (focusedFolderEl && focusedFolderEl.dataset.clFolder) {
+              e.preventDefault();
+              this._confirmDeletePath('folder', focusedFolderEl.dataset.clFolder);
+              return;
+            }
+            const focusedFileEl = e.target.closest('.codelab-file-item[data-cl-file]');
+            if (focusedFileEl && focusedFileEl.dataset.clFile) {
+              e.preventDefault();
+              this._confirmDeletePath('file', focusedFileEl.dataset.clFile);
+              return;
+            }
           }
         }
         if ((e.metaKey || e.ctrlKey) && keyLower === 'k') {
@@ -7867,14 +11658,14 @@ int main() {
           const y = e.clientY || 120;
           this.openContextMenu(x, y, [
             { label: 'Open File', action: 'open-file', target: fname },
-            { label: 'Rename...', shortcut: 'F2', action: 'rename-file', target: fname },
+            { label: 'Rename...', shortcut: 'F2', action: 'rename-file', ctx: 'rename', target: fname },
             { label: 'Duplicate File', action: 'duplicate-file', target: fname },
             { divider: true },
             { label: 'Compare with Solution', action: 'compare-solution', target: fname },
             { label: 'Compare with Starter', action: 'compare-starter', target: fname },
             { divider: true },
             { label: 'Download File', action: 'download-file', target: fname },
-            { label: 'Delete File', action: 'delete-file', target: fname, danger: true }
+            { label: 'Delete File', action: 'delete-file', ctx: 'delete', target: fname, danger: true }
           ]);
           return;
         }
@@ -7889,8 +11680,8 @@ int main() {
             { label: 'New File in Folder...', action: 'new-file-in-folder', target: folder },
             { label: 'New Subfolder...', action: 'new-subfolder', target: folder },
             { divider: true },
-            { label: 'Rename Folder...', action: 'rename-folder-ctx', target: folder },
-            { label: 'Delete Folder', action: 'delete-folder-ctx', target: folder, danger: true }
+            { label: 'Rename Folder...', shortcut: 'F2', action: 'rename-folder-ctx', ctx: 'rename', target: folder },
+            { label: 'Delete Folder', action: 'delete-folder-ctx', ctx: 'delete', target: folder, danger: true }
           ]);
         }
       });
@@ -7898,7 +11689,11 @@ int main() {
       const handleTabMiddleClick = e => {
         if (e.button === 1) {
           const tabEl = e.target.closest('.codelab-tab');
-          if (tabEl && tabEl.dataset.clFile) {
+          if (tabEl && tabEl.dataset.clTab === '__settings__') {
+            e.preventDefault();
+            e.stopPropagation();
+            this.closeSettings();
+          } else if (tabEl && tabEl.dataset.clFile) {
             e.preventDefault();
             e.stopPropagation();
             this.closeTab(tabEl.dataset.clFile);
@@ -7909,6 +11704,72 @@ int main() {
       this.container.addEventListener('mousedown', handleTabMiddleClick);
 
       this.container.addEventListener('click', e => {
+        const menuCmdBtn = e.target.closest('[data-cl-menu-cmd]');
+        if (menuCmdBtn) {
+          e.stopPropagation();
+          if (menuCmdBtn.disabled) return;
+          const cmd = menuCmdBtn.dataset.clMenuCmd;
+          this._closeTopbarMenu({ restoreFocus: false });
+          if (cmd) this._executeTopbarMenuCommand(cmd);
+          return;
+        }
+
+        const subTrigger = e.target.closest('[data-cl-submenu]');
+        if (subTrigger) {
+          e.stopPropagation();
+          const wrap = subTrigger.closest('.codelab-topbar-menu__has-sub');
+          const sm = wrap ? wrap.querySelector('.codelab-topbar-submenu') : null;
+          if (sm) {
+            const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+              ? performance.now()
+              : Date.now();
+            const justHoverOpened = sm.classList.contains('open') && sm._openedViaHoverAt && (now - sm._openedViaHoverAt < 500);
+            sm._openedViaHoverAt = 0;
+            const willOpen = justHoverOpened ? true : !sm.classList.contains('open');
+            this._closeSiblingSubmenus(willOpen ? sm : null);
+            sm.classList.toggle('open', willOpen);
+            subTrigger.setAttribute('aria-expanded', String(willOpen));
+            if (willOpen) this._positionSubmenu(wrap, sm);
+          }
+          return;
+        }
+
+        const menuTrigger = e.target.closest('.codelab-menubar__trigger[data-cl-menu]');
+        if (menuTrigger) {
+          e.stopPropagation();
+          const menuId = menuTrigger.dataset.clMenu;
+          const now = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
+          const justHoverSwitched = this._activeTopMenu === menuId
+            && this._activeTopMenuOpenedViaHover
+            && (now - (this._activeTopMenuOpenedAt || 0) < 500);
+          const openedDuringPress = this._menuOpenBeforePointerDown !== undefined
+            && this._menuOpenBeforePointerDown !== menuId;
+          this._menuOpenBeforePointerDown = undefined;
+          if (this._activeTopMenu === menuId && !justHoverSwitched && !openedDuringPress) {
+            this._closeTopbarMenu({ restoreFocus: true });
+          } else if (menuId) {
+            this._activeTopMenuOpenedViaHover = false;
+            if (this._activeTopMenu !== menuId) {
+              this._openTopbarMenu(menuId, { focusFirstItem: true, viaHover: false });
+            } else {
+              const firstBtn = this.container.querySelector('#cl-topbar-menu-slot .codelab-topbar-menu > .codelab-topbar-menu__item, #cl-topbar-menu-slot .codelab-topbar-menu__item');
+              if (firstBtn && typeof firstBtn.focus === 'function') firstBtn.focus();
+            }
+          }
+          return;
+        }
+
+        if (this._activeTopMenu && !e.target.closest('#cl-topbar-menu-slot')) {
+          const prior = this._menuReturnFocusEl || null;
+          this._closeTopbarMenu({ restoreFocus: false });
+          if (typeof document !== 'undefined') {
+            const ae = document.activeElement;
+            if (!ae || ae === document.body || ae === document.documentElement) {
+              this._restoreWorkbenchFocus(prior);
+            }
+          }
+        }
+
         const ctxBtn = e.target.closest('[data-ctx-action]');
         if (ctxBtn) {
           e.stopPropagation();
@@ -7925,11 +11786,11 @@ int main() {
             this.openFile(target);
             this.showDiffModal(target, 'starter');
           } else if (act === 'download-file' && target) this.downloadFile(target);
-          else if (act === 'delete-file' && target) this.deleteFile(target);
+          else if (act === 'delete-file' && target) this._confirmDeletePath('file', target);
           else if (act === 'new-file-in-folder') this.startInlineCreate('file', target);
           else if (act === 'new-subfolder') this.startInlineCreate('folder', target);
           else if (act === 'rename-folder-ctx' && target) this.startInlineRename('folder', target);
-          else if (act === 'delete-folder-ctx' && target) this.deleteFolder(target);
+          else if (act === 'delete-folder-ctx' && target) this._confirmDeletePath('folder', target);
           else if (act === 'close-tab' && target) this.closeTab(target);
           else if (act === 'close-other-tabs' && target) this.closeOtherTabs(target);
           else if (act === 'close-all-tabs') this.closeAllTabs();
@@ -7951,9 +11812,14 @@ int main() {
         }
 
         if (e.target.classList && (e.target.classList.contains('codelab-palette-backdrop') || e.target.classList.contains('codelab-modal-backdrop'))) {
+          const pointerDownTarget = this._lastBackdropPointerDownTarget;
+          this._lastBackdropPointerDownTarget = null;
+          if (pointerDownTarget && pointerDownTarget !== e.target) return;
+          if (this._cloneInFlight) return;
           this.closeModal();
           return;
         }
+        this._lastBackdropPointerDownTarget = null;
 
         const copyBtn = e.target.closest('[data-cl-action="copy-code"], .codelab-copy-code-btn');
         if (copyBtn) {
@@ -8061,15 +11927,82 @@ int main() {
         if (closeBtn) {
           e.stopPropagation();
           const tabEl = closeBtn.closest('.codelab-tab') || closeBtn;
-          const fname = closeBtn.dataset.clFile || tabEl.dataset.clFile;
+          const tabKey = closeBtn.dataset.clCloseTab || closeBtn.dataset.clTab || tabEl.dataset.clTab;
+          if (tabKey === '__settings__') {
+            this.closeSettings();
+            return;
+          }
+          const fname = closeBtn.dataset.clCloseFile || closeBtn.dataset.clFile || tabEl.dataset.clFile;
           if (fname) this.closeTab(fname);
+          return;
+        }
+
+        const settingsTabBtn = e.target.closest('[data-cl-tab="__settings__"]');
+        if (settingsTabBtn) {
+          this._activeScmDiffFile = null;
+          this.activeTab = '__settings__';
+          this._syncActiveFileToView();
+          return;
+        }
+
+        const activityBtn = e.target.closest('[data-cl-activity]');
+        if (activityBtn) {
+          const actId = activityBtn.dataset.clActivity;
+          if (actId === 'settings') {
+            this.openSettings();
+            return;
+          }
+          if (actId) {
+            const hadSidebarFocus = this._sidebarHadFocusOnPointerDown !== undefined
+              ? this._sidebarHadFocusOnPointerDown
+              : !(typeof document !== 'undefined' && document.activeElement && typeof document.activeElement.closest === 'function' && (document.activeElement.closest('#cl-drawer') || document.activeElement.closest('.codelab-editor-col') || document.activeElement.closest('#cl-statusbar')));
+            this._sidebarHadFocusOnPointerDown = undefined;
+            if (this.sidebarVisible && this.activeSidebarView === actId && hadSidebarFocus) {
+              this.setSidebarVisible(false);
+            } else {
+              this.setSidebarView(actId, { ensureOpen: true, focus: true });
+            }
+            return;
+          }
+        }
+
+        const sevFilterBtn = e.target.closest('[data-cl-severity-filter]');
+        if (sevFilterBtn) {
+          this._problemsSeverityFilter = sevFilterBtn.dataset.clSeverityFilter || 'all';
+          const bodyEl = this.container.querySelector('#cl-drawer-body');
+          if (bodyEl && this.drawerTab === 'problems') {
+            this._renderProblemsPanel(bodyEl);
+          }
+          return;
+        }
+
+        const scmRowTarget = e.target.closest('.codelab-scm-entry[data-scm-path]');
+        if (scmRowTarget && !e.target.closest('button, [data-cl-action], [data-action]')) {
+          const p = scmRowTarget.dataset.scmPath;
+          const staged = scmRowTarget.dataset.scmStaged === 'true';
+          if (p) {
+            this.openScmDiff(p, { staged });
+            return;
+          }
+        }
+
+        const searchOptBtn = e.target.closest('[data-cl-search-opt]');
+        if (searchOptBtn) {
+          const opt = searchOptBtn.dataset.clSearchOpt;
+          if (opt && this._searchState && Object.prototype.hasOwnProperty.call(this._searchState, opt)) {
+            this._searchState[opt] = !this._searchState[opt];
+            const active = Boolean(this._searchState[opt]);
+            searchOptBtn.classList.toggle('active', active);
+            searchOptBtn.setAttribute('aria-pressed', String(active));
+            this._renderSearchSidebarResults();
+          }
           return;
         }
 
         const deleteBtn = e.target.closest('[data-cl-delete-file]');
         if (deleteBtn) {
           e.stopPropagation();
-          this.deleteFile(deleteBtn.dataset.clDeleteFile);
+          this._confirmDeletePath('file', deleteBtn.dataset.clDeleteFile);
           return;
         }
 
@@ -8085,8 +12018,26 @@ int main() {
           return;
         }
 
+        // CRITICAL: Handle [data-cl-search-file] BEFORE [data-cl-file] so search matches jump to (line, col) without closing Search sidebar!
+        const searchMatch = e.target.closest('[data-cl-search-file]');
+        if (searchMatch) {
+          e.stopPropagation();
+          const sFile = searchMatch.dataset.clSearchFile;
+          const sLine = Math.max(1, Number(searchMatch.dataset.clSearchLine || 1));
+          const sCol = Math.max(1, Number(searchMatch.dataset.clSearchCol || 1));
+          if (searchMatch.closest('#cl-modal-slot')) {
+            this.closeModal();
+          }
+          if (sFile) {
+            this.openFile(sFile);
+            this._revealLineColInActiveEditor(sLine, sCol);
+          }
+          return;
+        }
+
         const fileBtn = e.target.closest('[data-cl-file]');
         if (fileBtn) {
+          this._activeScmDiffFile = null;
           this.openFile(fileBtn.dataset.clFile);
           return;
         }
@@ -8121,6 +12072,15 @@ int main() {
             const isOpen = !(menu.classList.contains('active') || menu.classList.contains('open'));
             menu.classList.toggle('active', isOpen);
             menu.classList.toggle('open', isOpen);
+            if (isOpen && typeof menu.getBoundingClientRect === 'function' && typeof window !== 'undefined' && menu.style) {
+              menu.style.right = '0';
+              menu.style.left = 'auto';
+              const r = menu.getBoundingClientRect();
+              if (r.left < 8) {
+                menu.style.right = 'auto';
+                menu.style.left = '0';
+              }
+            }
           }
           return;
         }
@@ -8142,29 +12102,7 @@ int main() {
           }
           if (pFile) {
             this.openFile(pFile);
-            if (this.editor && typeof this.editor.revealLineInCenter === 'function') {
-              this.editor.revealLineInCenter(pLine);
-              this.editor.setPosition({ lineNumber: pLine, column: pCol });
-              this.editor.focus();
-            }
-          }
-          return;
-        }
-
-        const searchMatch = e.target.closest('[data-cl-search-file]');
-        if (searchMatch) {
-          e.stopPropagation();
-          const sFile = searchMatch.dataset.clSearchFile;
-          const sLine = Number(searchMatch.dataset.clSearchLine || 1);
-          const sCol = Number(searchMatch.dataset.clSearchCol || 1);
-          this.closeModal();
-          if (sFile) {
-            this.openFile(sFile);
-            if (this.editor && typeof this.editor.revealLineInCenter === 'function') {
-              this.editor.revealLineInCenter(sLine);
-              this.editor.setPosition({ lineNumber: sLine, column: sCol });
-              this.editor.focus();
-            }
+            this._revealLineColInActiveEditor(pLine, pCol);
           }
           return;
         }
@@ -8214,13 +12152,21 @@ int main() {
           } else if (action === 'export-workspace') {
             this.exportWorkspace({ download: true });
           } else if (action === 'open-packages') this.showPackagesModal();
-          else if (action === 'open-clone-repo') this.showCloneRepoModal();
-          else if (action === 'confirm-clone-repo') {
-            const input = this.container.querySelector('#cl-clone-repo-input');
-            if (input && input.value.trim()) {
-              const repoVal = input.value.trim();
-              this.closeModal();
-              this.cloneRepo(repoVal, { intoRoot: true }).catch(() => {});
+          else if (action === 'open-clone-repo' || action === 'open-clone-modal') this.openCloneDialog();
+          else if (action === 'cancel-clone') {
+            this.cancelClone();
+            this.closeModal();
+          } else if (action === 'new-blank-workspace') {
+            this.openBlankWorkspace();
+          } else if (action === 'confirm-clone-repo') {
+            const form = this.container.querySelector('#cl-clone-repo-form');
+            if (form && typeof form.requestSubmit === 'function') {
+              form.requestSubmit();
+            } else {
+              const input = this.container.querySelector('#cl-clone-repo-input');
+              if (input && typeof this._submitCloneModal === 'function') {
+                this._submitCloneModal();
+              }
             }
           } else if (action === 'add-package') {
             const input = this.container.querySelector('#cl-pkg-input');
@@ -8235,9 +12181,14 @@ int main() {
               this._syncAllModels();
             }
             this.openFile('package.json');
-          } else if (action === 'close-modal') this.closeModal();
+          } else if (action === 'close-modal') {
+            if (this._cloneInFlight || this._activeCloneAbortController) {
+              this.cancelClone();
+            }
+            this.closeModal();
+          }
           else if (action === 'apply-solution') this.applyReferenceSolution();
-          else if (action === 'reset-lab') this.resetLab();
+          else if (action === 'reset-lab') this.resetLab({ ui: true });
           else if (action === 'toggle-fullscreen') this.toggleFullscreen();
           else if (action === 'close-lab') {
             if (typeof document !== 'undefined' && document.fullscreenElement && document.exitFullscreen) {
@@ -8245,52 +12196,93 @@ int main() {
             }
             if (typeof this.onClose === 'function') this.onClose();
             else if (this.isFullscreen) this.toggleFullscreen();
-          } else if (action === 'new-file') {
-            this.isCreatingFile = true;
-            this._renderFileLists();
-          } else if (action === 'new-file-root') {
-            this.creatingItem = { type: 'file', parentFolder: this.explorerFolder || '' };
-            this._renderFileLists();
+          } else if (action === 'new-file' || action === 'new-file-root') {
+            if (!this.sidebarVisible || this.activeSidebarView !== 'explorer') {
+              this.setSidebarView('explorer', { ensureOpen: true, focus: false });
+            }
+            this.startInlineCreate('file', this.explorerFolder || '');
           } else if (action === 'new-folder-root') {
-            this.creatingItem = { type: 'folder', parentFolder: this.explorerFolder || '' };
-            this._renderFileLists();
+            if (!this.sidebarVisible || this.activeSidebarView !== 'explorer') {
+              this.setSidebarView('explorer', { ensureOpen: true, focus: false });
+            }
+            this.startInlineCreate('folder', this.explorerFolder || '');
           } else if (action === 'new-file-folder') {
             const folder = actionBtn.dataset.clFolder || '';
-            this.collapsedFolders.delete(folder);
-            this.creatingItem = { type: 'file', parentFolder: folder };
-            this._renderFileLists();
+            this.startInlineCreate('file', folder);
           } else if (action === 'new-folder-folder') {
             const folder = actionBtn.dataset.clFolder || '';
-            this.collapsedFolders.delete(folder);
-            this.creatingItem = { type: 'folder', parentFolder: folder };
-            this._renderFileLists();
+            this.startInlineCreate('folder', folder);
           } else if (action === 'delete-folder') {
             const folder = actionBtn.dataset.clFolder;
-            if (folder) this.deleteFolder(folder);
+            if (folder) this._confirmDeletePath('folder', folder);
+          } else if (action === 'delete-file') {
+            const file = actionBtn.dataset.clFile || this.activeFile;
+            if (file) this._confirmDeletePath('file', file);
           } else if (action === 'rename-folder') {
             const folder = actionBtn.dataset.clFolder;
-            if (folder) {
-              const newName = typeof window !== 'undefined' && window.prompt ? window.prompt('New folder name:', folder) : null;
-              if (newName && newName.trim() && newName.trim() !== folder) {
-                this.renameFolder(folder, newName.trim());
-              }
-            }
+            if (folder) this.startInlineRename('folder', folder);
+          } else if (action === 'rename-file') {
+            const file = actionBtn.dataset.clFile || this.activeFile;
+            if (file) this.startInlineRename('file', file);
           } else if (action === 'toggle-folder') {
             const folder = actionBtn.dataset.clFolder || (actionBtn.closest('[data-cl-folder]')?.dataset.clFolder);
             if (folder) this.toggleFolder(folder);
           } else if (action === 'toggle-guide') {
             this.toggleGuide();
+          } else if (action === 'toggle-sidebar') {
+            this.toggleSidebar();
           } else if (action === 'toggle-drawer') {
-            const drawer = this.container.querySelector('#cl-drawer');
-            if (drawer) drawer.classList.toggle('is-minimized');
-            if (this.editor) setTimeout(() => this.editor.layout(), 50);
+            this.togglePanel();
+          } else if (action === 'close-drawer') {
+            this.setPanelVisible(false);
+          } else if (action === 'maximize-drawer') {
+            this.setPanelMaximized(!this.panelMaximized);
+          } else if (action === 'collapse-all-folders') {
+            this.collapseAllFolders();
+          } else if (action === 'statusbar-scm') {
+            this.openScmView();
+          } else if (action === 'statusbar-problems') {
+            this.openProblemsPanel();
+          } else if (action === 'go-to-line') {
+            this.promptGoToLine();
+          } else if (action === 'toggle-problem-group') {
+            const fKey = actionBtn.dataset.problemGroup;
+            if (fKey) {
+              if (!this._collapsedProblemFiles) this._collapsedProblemFiles = new Set();
+              if (this._collapsedProblemFiles.has(fKey)) this._collapsedProblemFiles.delete(fKey);
+              else this._collapsedProblemFiles.add(fKey);
+              const bodyEl = this.container.querySelector('#cl-drawer-body');
+              if (bodyEl && this.drawerTab === 'problems') {
+                this._renderProblemsPanel(bodyEl);
+              }
+            }
+          } else if (action === 'search-replace-one') {
+            this._executeSidebarReplaceOne();
+          } else if (action === 'search-replace-all') {
+            this._executeSidebarReplaceAll();
+          } else if (action === 'replace-match') {
+            e.stopPropagation();
+            this._executeSidebarReplaceMatch(
+              actionBtn.dataset.clSearchTargetFile,
+              Number(actionBtn.dataset.clSearchLine || 1),
+              Number(actionBtn.dataset.clSearchCol || 1),
+              Number(actionBtn.dataset.clSearchLen || 0)
+            );
+          } else if (action === 'replace-file') {
+            e.stopPropagation();
+            this._executeSidebarReplaceFile(actionBtn.dataset.clSearchTargetFile);
           } else if (action === 'clear-terminal') {
-            this._clearTerminalLogs();
-            this.lastTestResults = [];
+            if (this.drawerTab === 'output' && Array.isArray(this.outputLogs)) {
+              this.outputLogs.length = 0;
+            } else if (this.drawerTab === 'terminal') {
+              this._clearTerminalLogs();
+            }
             this._renderDrawerBody();
           } else if (action === 'new-terminal-session') {
             this.createTerminalSession();
             if (this.drawerTab !== 'terminal') this.switchDrawerTab('terminal');
+          } else if (action === 'kill-terminal-session') {
+            this.killActiveTerminalSession();
           } else if (action === 'switch-terminal-session') {
             const sid = actionBtn.dataset.sessionId;
             if (sid) this.switchTerminalSession(sid);
@@ -8298,36 +12290,84 @@ int main() {
             e.stopPropagation();
             const sid = actionBtn.dataset.sessionId;
             if (sid) this.closeTerminalSession(sid);
-          } else if (action === 'scm-stage-file') {
+          } else if (action === 'scm-init') {
+            this._initGitRepoInScm();
+          } else if (action === 'scm-stage-file' || action === 'scm-stage') {
             e.stopPropagation();
-            const p = actionBtn.dataset.scmPath;
+            const p = actionBtn.dataset.scmPath || (actionBtn.closest('[data-scm-path]')?.dataset.scmPath);
             if (p) {
               this.stageGitFile(p);
-              this.showScmModal();
+              this._renderScmSidebar();
+              this._updateStatusBar();
             }
-          } else if (action === 'scm-unstage-file') {
+          } else if (action === 'scm-unstage-file' || action === 'scm-unstage') {
             e.stopPropagation();
-            const p = actionBtn.dataset.scmPath;
+            const p = actionBtn.dataset.scmPath || (actionBtn.closest('[data-scm-path]')?.dataset.scmPath);
             if (p) {
               this.unstageGitFile(p);
-              this.showScmModal();
+              this._renderScmSidebar();
+              this._updateStatusBar();
+            }
+          } else if (action === 'scm-discard-file' || action === 'scm-discard') {
+            e.stopPropagation();
+            const p = actionBtn.dataset.scmPath || (actionBtn.closest('[data-scm-path]')?.dataset.scmPath);
+            if (p) {
+              this._confirmDiscardGitFile(p, actionBtn);
             }
           } else if (action === 'scm-stage-all') {
             this.stageAllGitFiles();
-            this.showScmModal();
+            this._renderScmSidebar();
+            this._updateStatusBar();
+          } else if (action === 'scm-unstage-all') {
+            this.unstageAllGitFiles();
+            this._renderScmSidebar();
+            this._updateStatusBar();
           } else if (action === 'scm-commit') {
             const msgInput = this.container.querySelector('#cl-scm-commit-input');
             const msg = msgInput ? msgInput.value.trim() : '';
             if (msg) {
-              this.commitGitChanges(msg);
-              this.showScmModal();
+              const hash = this.commitGitChanges(msg);
+              if (hash && msgInput) msgInput.value = '';
+              this._renderScmSidebar();
+              this._updateStatusBar();
             }
           } else if (action === 'scm-open-file') {
-            const p = actionBtn.dataset.scmPath;
-            this.closeModal();
+            e.stopPropagation();
+            const p = actionBtn.dataset.scmPath || (actionBtn.closest('[data-scm-path]')?.dataset.scmPath);
+            const row = actionBtn.closest('[data-scm-staged]');
+            const staged = Boolean(row && row.dataset.scmStaged === 'true');
+            if (actionBtn.closest('#cl-modal-slot')) {
+              this.closeModal();
+            }
+            if (p) {
+              this.openScmDiff(p, { staged });
+            }
+          } else if (action === 'scm-diff-open-editor') {
+            const p = actionBtn.dataset.scmPath || this._activeScmDiffFile;
+            this.closeScmDiff();
             if (p && Object.prototype.hasOwnProperty.call(this.files, p)) {
               this.openFile(p);
             }
+          } else if (action === 'scm-close-diff') {
+            this.closeScmDiff();
+          } else if (action === 'scm-new-branch-toggle') {
+            this._scmCreatingBranch = !this._scmCreatingBranch;
+            this._renderScmSidebar();
+            if (this._scmCreatingBranch) {
+              const bInp = this.container.querySelector('#cl-scm-new-branch-input');
+              if (bInp && typeof bInp.focus === 'function') bInp.focus();
+            }
+          } else if (action === 'scm-create-branch-submit') {
+            const bInp = this.container.querySelector('#cl-scm-new-branch-input');
+            const bName = bInp ? String(bInp.value || '').trim() : '';
+            if (bName && this.createGitBranch(bName, true)) {
+              this._scmCreatingBranch = false;
+              this._renderScmSidebar();
+              this._updateStatusBar();
+            }
+          } else if (action === 'scm-create-branch-cancel') {
+            this._scmCreatingBranch = false;
+            this._renderScmSidebar();
           } else if (action === 'toggle-hint') {
             const box = this.container.querySelector('#cl-hint-box');
             if (box) box.classList.toggle('open');
@@ -8436,8 +12476,8 @@ int main() {
               this._showToast(`Running load test: hey -n 50 -c 10 ${targetUrl}`, 'info');
               this.shell.execute(`hey -n 50 -c 10 ${targetUrl}`, {}).then((res) => {
                 if (res && res.stdout) {
-                  this.terminalLogs.push({ type: 'system', text: `\n$ hey -n 50 -c 10 ${targetUrl}` });
-                  this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+                  this._pushTerminalLog({ type: 'system', text: `\n$ hey -n 50 -c 10 ${targetUrl}` });
+                  this._pushTerminalLog({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
                 }
                 this._renderDrawerBody();
               }).catch((err) => {
@@ -8450,6 +12490,8 @@ int main() {
               this._forceOpenedLargeFiles.add(targetFile);
               this._syncActiveFileToView();
             }
+          } else if (action === 'toggle-md-preview') {
+            this.toggleMarkdownPreview();
           }
           return;
         }
@@ -8488,10 +12530,178 @@ int main() {
       });
     }
 
+    _clampMenuToViewport(menuEl, preferredX, preferredY) {
+      if (!menuEl || !menuEl.style) return;
+      const vw = (typeof window !== 'undefined' && Number(window.innerWidth)) || 1280;
+      const vh = (typeof window !== 'undefined' && Number(window.innerHeight)) || 800;
+      const pad = 8;
+      let rect = { width: 220, height: 180 };
+      if (typeof menuEl.getBoundingClientRect === 'function') {
+        try {
+          const r = menuEl.getBoundingClientRect();
+          if (r && r.width > 0 && r.height > 0) rect = r;
+        } catch (err) {
+          void err;
+        }
+      }
+      const clampedLeft = Math.max(pad, Math.min(preferredX, vw - rect.width - pad));
+      const clampedTop = Math.max(pad, Math.min(preferredY, vh - rect.height - pad));
+      menuEl.style.left = `${Math.round(clampedLeft)}px`;
+      menuEl.style.top = `${Math.round(clampedTop)}px`;
+    }
+
+    _closeSiblingSubmenus(exceptSubMenu = null) {
+      if (!this.container) return;
+      const slot = this.container.querySelector('#cl-topbar-menu-slot');
+      if (!slot) return;
+      slot.querySelectorAll('.codelab-topbar-submenu.open').forEach(sm => {
+        if (sm !== exceptSubMenu) {
+          sm.classList.remove('open');
+          const wrap = sm.closest('.codelab-topbar-menu__has-sub');
+          const btn = wrap ? wrap.querySelector('[data-cl-submenu]') : null;
+          if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    _positionSubmenu(triggerWrap, subMenu) {
+      if (!triggerWrap || !subMenu || !subMenu.style) return;
+      const vw = (typeof window !== 'undefined' && Number(window.innerWidth)) || 1280;
+      const vh = (typeof window !== 'undefined' && Number(window.innerHeight)) || 800;
+      const pad = 8;
+      subMenu.style.right = 'auto';
+      subMenu.style.bottom = 'auto';
+      subMenu.style.left = '0px';
+      subMenu.style.top = '0px';
+      let tr = { left: 120, right: 320, top: 80, bottom: 108, width: 200, height: 28 };
+      if (typeof triggerWrap.getBoundingClientRect === 'function') {
+        try {
+          const r = triggerWrap.getBoundingClientRect();
+          if (r && (r.width > 0 || r.height > 0)) tr = r;
+        } catch (err) {
+          void err;
+        }
+      }
+      let subRect = { width: 210, height: 140 };
+      if (typeof subMenu.getBoundingClientRect === 'function') {
+        try {
+          const sr = subMenu.getBoundingClientRect();
+          if (sr && sr.width > 0 && sr.height > 0) subRect = sr;
+        } catch (err) {
+          void err;
+        }
+      }
+      let nextLeft;
+      if (tr.right - 2 + subRect.width <= vw - pad) {
+        nextLeft = tr.right - 2;
+      } else if (tr.left - subRect.width + 2 >= pad) {
+        nextLeft = tr.left - subRect.width + 2;
+      } else {
+        nextLeft = Math.max(pad, Math.min(tr.right - 2, vw - subRect.width - pad));
+      }
+      const nextTop = Math.max(pad, Math.min(tr.top - 4, vh - subRect.height - pad));
+      subMenu.style.left = `${Math.round(nextLeft)}px`;
+      subMenu.style.top = `${Math.round(nextTop)}px`;
+    }
+
+    _captureModalReturnFocus() {
+      if (typeof document === 'undefined' || !this.container) return;
+      const ae = document.activeElement;
+      if (
+        ae &&
+        ae !== document.body &&
+        ae !== document.documentElement &&
+        typeof this.container.contains === 'function' &&
+        this.container.contains(ae) &&
+        (!ae.closest || !ae.closest('#cl-modal-slot, #cl-context-menu-slot, #cl-topbar-menu-slot'))
+      ) {
+        this._modalReturnFocusEl = ae;
+      }
+    }
+
+    _restoreWorkbenchFocus(preferredEl = null) {
+      if (this._destroyed || !this.container) return;
+      if (
+        preferredEl &&
+        typeof preferredEl.focus === 'function' &&
+        (typeof preferredEl.isConnected !== 'boolean' || preferredEl.isConnected) &&
+        typeof this.container.contains === 'function' &&
+        this.container.contains(preferredEl) &&
+        (!preferredEl.closest || !preferredEl.closest('#cl-modal-slot, #cl-context-menu-slot, #cl-topbar-menu-slot'))
+      ) {
+        try {
+          preferredEl.focus();
+          if (typeof document !== 'undefined' && document.activeElement && this.container.contains(document.activeElement)) {
+            return;
+          }
+        } catch (err) {
+          void err;
+        }
+      }
+      if (this.activeTab === '__settings__') {
+        const settingsInput = this.container.querySelector('#cl-settings-host input, #cl-settings-host select, #cl-settings-host button');
+        if (settingsInput && typeof settingsInput.focus === 'function') {
+          try {
+            settingsInput.focus({ preventScroll: true });
+            return;
+          } catch (_err) {
+            void _err;
+            settingsInput.focus();
+            return;
+          }
+        }
+      }
+      if (this.editor && typeof this.editor.focus === 'function') {
+        const monacoHost = this.container.querySelector('#cl-monaco-host');
+        if (monacoHost && (!monacoHost.style || monacoHost.style.display !== 'none')) {
+          try {
+            this.editor.focus();
+            if (typeof document !== 'undefined' && document.activeElement && this.container.contains(document.activeElement)) {
+              return;
+            }
+          } catch (err) {
+            void err;
+          }
+        }
+      }
+      const fbWrap = this.container.querySelector('#cl-fallback-wrap');
+      const fb = this.container.querySelector('#cl-fallback-editor');
+      if (fb && fbWrap && fbWrap.style && fbWrap.style.display !== 'none' && typeof fb.focus === 'function') {
+        fb.focus();
+        return;
+      }
+      const sqlHost = this.container.querySelector('#cl-sql-editor-host');
+      if (sqlHost && sqlHost.style && sqlHost.style.display !== 'none') {
+        const sqlTa = sqlHost.querySelector('textarea');
+        if (sqlTa && typeof sqlTa.focus === 'function') {
+          sqlTa.focus();
+          return;
+        }
+      }
+      const fallbackTarget = this.container.querySelector(
+        '#cl-tabs .codelab-tab.active, #cl-file-tabs .codelab-tab.active, #cl-menubar .codelab-menubar__trigger[tabindex="0"], #cl-menubar .codelab-menubar__trigger, .codelab-activitybar__btn'
+      );
+      if (fallbackTarget && typeof fallbackTarget.focus === 'function') {
+        fallbackTarget.focus();
+        return;
+      }
+      const shell = this.container.querySelector('.codelab');
+      if (shell && typeof shell.focus === 'function') {
+        if (!shell.hasAttribute('tabindex')) shell.setAttribute('tabindex', '-1');
+        shell.focus();
+      }
+    }
+
     // ── Right-Click Context Menu ────────────────────────────────────────────
     openContextMenu(x, y, items = []) {
       const slot = this.container.querySelector('#cl-context-menu-slot');
       if (!slot) return;
+      if (typeof document !== 'undefined') {
+        const ae = document.activeElement;
+        if (ae && ae !== document.body && ae !== document.documentElement && typeof this.container.contains === 'function' && this.container.contains(ae) && (!ae.closest || !ae.closest('#cl-context-menu-slot'))) {
+          this._contextMenuReturnFocusEl = ae;
+        }
+      }
       const safeX = Math.max(8, Number(x) || 80);
       const safeY = Math.max(8, Number(y) || 80);
       this._contextMenuItems = items;
@@ -8501,7 +12711,7 @@ int main() {
           return '<div class="codelab-context-menu__divider" role="separator"></div>';
         }
         return `
-          <button type="button" class="codelab-context-menu__item ${item.danger ? 'is-danger' : ''}" role="menuitem" data-ctx-action="${escapeHtml(item.action || '')}" data-ctx-target="${escapeHtml(item.target || '')}">
+          <button type="button" class="codelab-context-menu__item ${item.danger ? 'is-danger' : ''}" role="menuitem" data-ctx-action="${escapeHtml(item.action || '')}"${item.ctx ? ` data-cl-ctx="${escapeHtml(item.ctx)}"` : ''} data-ctx-target="${escapeHtml(item.target || '')}">
             <span class="codelab-context-menu__label">${escapeHtml(item.label || '')}</span>
             ${item.shortcut ? `<span class="codelab-context-menu__kbd">${escapeHtml(item.shortcut)}</span>` : ''}
           </button>
@@ -8513,12 +12723,25 @@ int main() {
           ${itemsHtml}
         </div>
       `;
+      const menuEl = slot.querySelector('.codelab-context-menu');
+      if (menuEl) {
+        this._clampMenuToViewport(menuEl, safeX, safeY);
+      }
     }
 
-    closeContextMenu() {
-      const slot = this.container.querySelector('#cl-context-menu-slot');
+    closeContextMenu(opts = {}) {
+      const slot = this.container ? this.container.querySelector('#cl-context-menu-slot') : null;
+      const hadMenu = Boolean(slot && slot.innerHTML && slot.innerHTML.trim() !== '');
+      const prior = this._contextMenuReturnFocusEl || null;
+      this._contextMenuReturnFocusEl = null;
       if (slot) slot.innerHTML = '';
       this._contextMenuItems = null;
+      if (hadMenu && (!opts || opts.restoreFocus !== false) && typeof document !== 'undefined') {
+        const ae = document.activeElement;
+        if (!ae || ae === document.body || ae === document.documentElement) {
+          this._restoreWorkbenchFocus(prior);
+        }
+      }
     }
 
     // ── VS Code Command Palette & Quick Open ────────────────────────────────
@@ -8547,10 +12770,12 @@ int main() {
         { id: 'new-file', label: 'File: New File...', action: () => this.startInlineCreate('file', '') },
         { id: 'new-folder', label: 'File: New Folder...', action: () => this.startInlineCreate('folder', '') },
         { id: 'rename-active', label: 'File: Rename Active File...', shortcut: 'F2', action: () => { if (this.activeFile) this.startInlineRename('file', this.activeFile); } },
-        { id: 'delete-active', label: 'File: Delete Active File', action: () => { if (this.activeFile) this.deleteFile(this.activeFile); } },
+        { id: 'delete-active', label: 'File: Delete Active File', action: () => { if (this.activeFile) this._confirmDeletePath('file', this.activeFile); } },
+        { id: 'new-blank-workspace', label: 'File: New Blank Workspace...', action: () => this.openBlankWorkspace() },
+        { id: 'open-recent-workspace', label: 'File: Open Recent Workspace...', action: () => this.showOpenRecentWorkspaceModal() },
         { id: 'export-workspace', label: 'Workspace: Export Workspace as JSON', action: () => this.exportWorkspace({ download: true }) },
         { id: 'export-workspace-zip', label: 'Workspace: Export Project as ZIP Archive', action: () => this.exportProjectZip({ download: true }) },
-        { id: 'reset-workspace', label: 'Workspace: Reset Workspace to Clean State', action: () => this.resetLab() },
+        { id: 'reset-workspace', label: 'Workspace: Reset Workspace to Clean State', action: () => this.resetLab({ ui: true }) },
         { id: 'switch-lang', label: 'Language: Switch JavaScript / TypeScript / C++ / Python / SQL', action: () => {
           const order = ['js', 'ts'];
           if (this.enabledLanguages && this.enabledLanguages.has('cpp')) order.push('cpp');
@@ -8560,18 +12785,18 @@ int main() {
           this.setLanguage(next);
         } },
         { id: 'switch-mode', label: 'Mode: Switch Guided / Sandbox Mode', action: () => this.setMode(this.mode === 'guided' ? 'sandbox' : 'guided') },
+        { id: 'toggle-sidebar', label: 'View: Toggle Primary Side Bar Visibility', shortcut: '⌘B', action: () => this.toggleSidebar() },
         { id: 'toggle-guide', label: 'View: Toggle Guide Sidebar', action: () => this.toggleGuide() },
-        { id: 'toggle-drawer', label: 'View: Toggle Bottom Drawer (Tests / Terminal / VFS)', action: () => {
-          const drawer = this.container.querySelector('#cl-drawer');
-          if (drawer) drawer.classList.toggle('is-minimized');
-          if (this.editor) setTimeout(() => this.editor.layout(), 50);
-        } },
+        { id: 'toggle-drawer', label: 'View: Toggle Panel Visibility', shortcut: '⌘J', action: () => this.togglePanel() },
+        { id: 'toggle-terminal', label: 'View: Toggle Terminal', shortcut: '⌃`', action: () => this.toggleTerminal() },
         { id: 'toggle-fullscreen', label: 'View: Toggle Fullscreen Workbench', action: () => this.toggleFullscreen() },
-        { id: 'search-workspace', label: 'Search: Find & Replace Across Files...', shortcut: '⇧⌘F', action: () => this.showSearchModal() },
-        { id: 'open-scm', label: 'Git: Source Control (Status, Stage & Commit)...', action: () => this.showScmModal() },
-        { id: 'open-problems', label: 'View: Show Problems & Diagnostics...', action: () => this.showProblemsModal() },
+        { id: 'search-workspace', label: 'Search: Find & Replace Across Files...', shortcut: '⇧⌘F', action: () => this.openSearchView() },
+        { id: 'open-scm', label: 'Git: Source Control (Status, Stage & Commit)...', shortcut: '⌃⇧G', action: () => this.openScmView() },
+        { id: 'open-problems', label: 'View: Show Problems & Diagnostics...', shortcut: '⇧⌘M', action: () => this.openProblemsPanel() },
+        { id: 'next-problem', label: 'Go: Next Problem (Error, Warning, Info)', shortcut: 'F8', action: () => this.goToNextProblem(false) },
+        { id: 'prev-problem', label: 'Go: Previous Problem (Error, Warning, Info)', shortcut: '⇧F8', action: () => this.goToNextProblem(true) },
         { id: 'open-packages', label: 'Packages: Manage NPM Dependencies & Runtime', action: () => this.showPackagesModal() },
-        { id: 'git-clone', label: 'Git: Clone Public GitHub Repository...', action: () => this.showCloneRepoModal() }
+        { id: 'git-clone', label: 'Git: Clone Public GitHub Repository...', action: () => this.openCloneDialog() }
       ];
 
       if (Array.isArray(this._workspaceTasks)) {
@@ -8627,6 +12852,7 @@ int main() {
     openCommandPalette(mode = 'commands') {
       const slot = this.container.querySelector('#cl-modal-slot');
       if (!slot) return;
+      this._captureModalReturnFocus();
       this.paletteMode = mode === 'files' ? 'files' : 'commands';
       this.paletteSelectedIndex = 0;
       const initialVal = this.paletteMode === 'commands' ? '> ' : '';
@@ -8648,6 +12874,7 @@ int main() {
 
       const input = slot.querySelector('#cl-palette-input');
       if (input) {
+        input.value = initialVal;
         input.focus();
         try {
           input.setSelectionRange(initialVal.length, initialVal.length);
@@ -8706,11 +12933,15 @@ int main() {
             action: c.action
           }));
       } else {
-        const files = this._orderedFileNames();
+        const files = this._orderedFileNames().filter(f => !this._isPathExcluded(f));
         const mod = getModular();
-        const excludePatterns = this.configuration ? this.configuration.get('search.exclude', []) : [];
+        const searchExcl = this.configuration ? this.configuration.get('search.exclude', []) : [];
+        const excludePatterns = [
+          ...(Array.isArray(searchExcl) ? searchExcl : []),
+          ...this._getExcludePatterns()
+        ];
         const ranked = (mod && typeof mod.rankWorkspaceFiles === 'function')
-          ? mod.rankWorkspaceFiles(files, query, Array.isArray(excludePatterns) ? excludePatterns : [])
+          ? mod.rankWorkspaceFiles(files, query, excludePatterns)
           : files.filter(f => !query || f.toLowerCase().includes(query));
         items = ranked
           .map(f => ({
@@ -8832,6 +13063,7 @@ int main() {
     showDiffModalFallback(targetFile = null, compareTarget = 'solution') {
       const slot = this.container.querySelector('#cl-modal-slot');
       if (!slot) return;
+      this._captureModalReturnFocus();
 
       const file = targetFile || this.activeFile || this._pickDefaultFile();
       const isStarter = compareTarget === 'starter';
@@ -8926,168 +13158,225 @@ int main() {
       `;
     }
 
-    _bindSplitters() {
-      const shell = this.container.querySelector('.codelab');
-      const vSplitter = this.container.querySelector('#cl-splitter-v');
-      const hSplitter = this.container.querySelector('#cl-splitter-h');
-      if (!shell) return;
-
-      if (vSplitter) {
-        vSplitter.addEventListener('dblclick', () => {
-          shell.style.setProperty('--cl-guide-width', '360px');
-          if (this.editor) this.editor.layout();
-        });
-
-        vSplitter.addEventListener('pointerdown', e => {
-          e.preventDefault();
-          vSplitter.classList.add('is-dragging');
-          shell.classList.add('is-resizing');
-          vSplitter.setPointerCapture(e.pointerId);
-
-          const onMove = ev => {
-            const rect = shell.getBoundingClientRect();
-            const minW = 240;
-            const maxW = Math.max(minW, Math.floor(rect.width * 0.55));
-            const nextW = Math.min(maxW, Math.max(minW, Math.round(ev.clientX - rect.left)));
-            shell.style.setProperty('--cl-guide-width', `${nextW}px`);
-            if (this.editor) this.editor.layout();
-          };
-
-          const onUp = ev => {
-            vSplitter.classList.remove('is-dragging');
-            shell.classList.remove('is-resizing');
-            try { vSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
-            vSplitter.removeEventListener('pointermove', onMove);
-            vSplitter.removeEventListener('pointerup', onUp);
-          };
-
-          vSplitter.addEventListener('pointermove', onMove);
-          vSplitter.addEventListener('pointerup', onUp);
-        });
+    _setShellCssVar(shell, prop, val) {
+      if (!shell || !shell.style) return;
+      if (typeof shell.style.setProperty === 'function') {
+        if (val === null) {
+          if (typeof shell.style.removeProperty === 'function') shell.style.removeProperty(prop);
+        } else {
+          shell.style.setProperty(prop, val);
+        }
+      } else if (val === null) {
+        delete shell.style[prop];
+      } else {
+        shell.style[prop] = val;
       }
+    }
 
-      if (hSplitter) {
-        hSplitter.addEventListener('dblclick', () => {
-          const drawer = this.container.querySelector('#cl-drawer');
-          if (drawer) drawer.classList.remove('is-minimized');
-          shell.style.setProperty('--cl-drawer-height', '235px');
-          if (this.editor) this.editor.layout();
-        });
+    _attachSplitterDrag(splitterEl, { resizeClass, onStart, onMove, onEnd }) {
+      if (!splitterEl || splitterEl._clSplitterBound) return;
+      splitterEl._clSplitterBound = true;
 
-        hSplitter.addEventListener('pointerdown', e => {
-          e.preventDefault();
-          const mainEl = this.container.querySelector('.codelab-main');
-          const drawer = this.container.querySelector('#cl-drawer');
-          if (!mainEl) return;
-          if (drawer) drawer.classList.remove('is-minimized');
+      splitterEl.addEventListener('pointerdown', e => {
+        if (typeof this._activeSplitterCleanup === 'function') {
+          try { this._activeSplitterCleanup(); } catch (_err) { void _err; }
+          this._activeSplitterCleanup = null;
+        }
+        const shell = this.container ? this.container.querySelector('.codelab') : null;
+        if (!shell) return;
+        if (onStart && onStart(e, shell) === false) return;
 
-          hSplitter.classList.add('is-dragging');
-          shell.classList.add('is-resizing-row');
-          hSplitter.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        splitterEl.classList.add('is-dragging');
+        if (resizeClass) shell.classList.add(resizeClass);
+        try {
+          if (typeof splitterEl.setPointerCapture === 'function') {
+            splitterEl.setPointerCapture(e.pointerId);
+          }
+        } catch (err) {
+          this.logger.debug('setPointerCapture failed.', err);
+        }
 
-          const onMove = ev => {
-            const rect = mainEl.getBoundingClientRect();
-            const minH = 110;
-            const maxH = Math.max(minH, Math.floor(rect.height * 0.7));
-            const nextH = Math.min(maxH, Math.max(minH, Math.round(rect.bottom - ev.clientY)));
-            shell.style.setProperty('--cl-drawer-height', `${nextH}px`);
-            if (this.editor) this.editor.layout();
-          };
+        const moveTarget = (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+          ? window
+          : (typeof document !== 'undefined' && typeof document.addEventListener === 'function' ? document : splitterEl);
+        let ended = false;
 
-          const onUp = ev => {
-            hSplitter.classList.remove('is-dragging');
-            shell.classList.remove('is-resizing-row');
-            try { hSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
-            hSplitter.removeEventListener('pointermove', onMove);
-            hSplitter.removeEventListener('pointerup', onUp);
-          };
-
-          hSplitter.addEventListener('pointermove', onMove);
-          hSplitter.addEventListener('pointerup', onUp);
-        });
-      }
-
-      const fSplitter = this.container.querySelector('#cl-splitter-files');
-      if (fSplitter) {
-        const applyWidth = (w) => {
-          this.explorerWidth = Math.round(w);
-          shell.style.setProperty('--cl-explorer-width', `${this.explorerWidth}px`);
-          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        const handleMove = ev => {
+          if (ended) return;
+          onMove(ev, shell);
         };
 
-        fSplitter.addEventListener('dblclick', () => {
-          applyWidth(196);
-          this._saveState();
-        });
+        const cleanup = ev => {
+          if (ended) return;
+          ended = true;
+          splitterEl.classList.remove('is-dragging');
+          if (resizeClass) shell.classList.remove(resizeClass);
+          try {
+            if (ev && ev.pointerId !== undefined && typeof splitterEl.releasePointerCapture === 'function') {
+              splitterEl.releasePointerCapture(ev.pointerId);
+            }
+          } catch (err) {
+            this.logger.debug('releasePointerCapture failed.', err);
+          }
+          if (moveTarget && typeof moveTarget.removeEventListener === 'function') {
+            moveTarget.removeEventListener('pointermove', handleMove);
+            moveTarget.removeEventListener('pointerup', cleanup);
+            moveTarget.removeEventListener('pointercancel', cleanup);
+          }
+          if (moveTarget !== splitterEl) {
+            splitterEl.removeEventListener('pointermove', handleMove);
+            splitterEl.removeEventListener('pointerup', cleanup);
+            splitterEl.removeEventListener('pointercancel', cleanup);
+          }
+          if (this._activeSplitterCleanup === cleanup) {
+            this._activeSplitterCleanup = null;
+          }
+          if (onEnd && ev) onEnd(ev, shell);
+        };
 
-        fSplitter.addEventListener('pointerdown', e => {
-          e.preventDefault();
-          fSplitter.classList.add('is-dragging');
-          shell.classList.add('is-resizing');
-          try { fSplitter.setPointerCapture(e.pointerId); } catch (err) { this.logger.debug('setPointerCapture failed.', err); }
+        this._activeSplitterCleanup = cleanup;
+        if (moveTarget && typeof moveTarget.addEventListener === 'function') {
+          moveTarget.addEventListener('pointermove', handleMove);
+          moveTarget.addEventListener('pointerup', cleanup);
+          moveTarget.addEventListener('pointercancel', cleanup);
+        }
+        if (moveTarget !== splitterEl) {
+          splitterEl.addEventListener('pointermove', handleMove);
+          splitterEl.addEventListener('pointerup', cleanup);
+          splitterEl.addEventListener('pointercancel', cleanup);
+        }
+      });
+    }
 
-          const onMove = ev => {
-            const ws = this.container.querySelector('.codelab-workspace');
-            const rect = (ws || shell).getBoundingClientRect();
-            const minW = 140;
-            const maxW = Math.max(minW, Math.floor(rect.width * 0.5));
-            const nextW = Math.min(maxW, Math.max(minW, Math.round(ev.clientX - rect.left)));
-            applyWidth(nextW);
-          };
+    _bindSplitters() {
+      if (!this.container) return;
+      const shell = this.container.querySelector('.codelab');
+      if (!shell) return;
 
-          const onUp = ev => {
-            fSplitter.classList.remove('is-dragging');
-            shell.classList.remove('is-resizing');
-            try { fSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
-            fSplitter.removeEventListener('pointermove', onMove);
-            fSplitter.removeEventListener('pointerup', onUp);
-            this._saveState();
-          };
-
-          fSplitter.addEventListener('pointermove', onMove);
-          fSplitter.addEventListener('pointerup', onUp);
+      const vSplitter = this.container.querySelector('#cl-splitter-v');
+      if (vSplitter && !vSplitter._clDblBound) {
+        vSplitter._clDblBound = true;
+        vSplitter.addEventListener('dblclick', () => {
+          const curShell = this.container.querySelector('.codelab');
+          if (curShell) this._setShellCssVar(curShell, '--cl-guide-width', '360px');
+          if (this.editor) this.editor.layout();
         });
       }
+      this._attachSplitterDrag(vSplitter, {
+        resizeClass: 'is-resizing',
+        onMove: (ev, curShell) => {
+          const shellRect = curShell.getBoundingClientRect();
+          const guideEl = this.container.querySelector('#cl-guide-pane, .codelab-guide');
+          const leftEdge = guideEl ? guideEl.getBoundingClientRect().left : shellRect.left;
+          const minW = 220;
+          const maxW = Math.max(minW, Math.floor(shellRect.width * 0.55));
+          const nextW = Math.min(maxW, Math.max(minW, Math.round(ev.clientX - leftEdge)));
+          this._setShellCssVar(curShell, '--cl-guide-width', `${nextW}px`);
+          if (this.editor) this.editor.layout();
+        }
+      });
+
+      const hSplitter = this.container.querySelector('#cl-splitter-h');
+      if (hSplitter && !hSplitter._clDblBound) {
+        hSplitter._clDblBound = true;
+        hSplitter.addEventListener('dblclick', () => {
+          const curShell = this.container.querySelector('.codelab');
+          this.panelHeight = 220;
+          this.panelMaximized = false;
+          if (curShell) curShell.classList.remove('panel-maximized');
+          this.setPanelVisible(true, { skipRender: true });
+          if (curShell) this._setShellCssVar(curShell, '--cl-drawer-height', '220px');
+          if (this.editor) this.editor.layout();
+          this._saveState();
+        });
+      }
+      this._attachSplitterDrag(hSplitter, {
+        resizeClass: 'is-resizing-row',
+        onStart: (_e, curShell) => {
+          const mainEl = this.container.querySelector('.codelab-workbench-main, .codelab-main');
+          if (!mainEl) return false;
+          const drawer = this.container.querySelector('#cl-drawer');
+          if (drawer) drawer.classList.remove('is-minimized');
+          this.panelMaximized = false;
+          curShell.classList.remove('panel-maximized');
+          return true;
+        },
+        onMove: (ev, curShell) => {
+          const mainEl = this.container.querySelector('.codelab-workbench-main, .codelab-main');
+          if (!mainEl) return;
+          const rect = mainEl.getBoundingClientRect();
+          const minH = 110;
+          const maxH = Math.max(minH, Math.floor(rect.height * 0.75));
+          const nextH = Math.min(maxH, Math.max(minH, Math.round(rect.bottom - ev.clientY)));
+          this.panelHeight = nextH;
+          this._setShellCssVar(curShell, '--cl-drawer-height', `${nextH}px`);
+          if (this.editor) this.editor.layout();
+        },
+        onEnd: () => {
+          this._saveState();
+        }
+      });
+
+      const fSplitter = this.container.querySelector('#cl-splitter-files');
+      const applyExplorerWidth = (w, curShell) => {
+        this.explorerWidth = Math.round(w);
+        if (curShell) this._setShellCssVar(curShell, '--cl-explorer-width', `${this.explorerWidth}px`);
+        if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+      };
+      if (fSplitter && !fSplitter._clDblBound) {
+        fSplitter._clDblBound = true;
+        fSplitter.addEventListener('dblclick', () => {
+          applyExplorerWidth(260, this.container.querySelector('.codelab'));
+          this._saveState();
+        });
+      }
+      this._attachSplitterDrag(fSplitter, {
+        resizeClass: 'is-resizing',
+        onMove: (ev, curShell) => {
+          const bodyEl = this.container.querySelector('.codelab-body');
+          const sidebarEl = this.container.querySelector('#cl-sidebar, .codelab-sidebar');
+          const bodyRect = (bodyEl || curShell).getBoundingClientRect();
+          const sbRect = sidebarEl ? sidebarEl.getBoundingClientRect() : bodyRect;
+          const minW = 150;
+          const maxW = Math.max(minW, Math.floor(bodyRect.width * 0.5));
+          const isRight = curShell.classList.contains('sidebar-right');
+          const rawW = isRight ? (sbRect.right - ev.clientX) : (ev.clientX - sbRect.left);
+          const nextW = Math.min(maxW, Math.max(minW, Math.round(rawW)));
+          applyExplorerWidth(nextW, curShell);
+        },
+        onEnd: () => {
+          this._saveState();
+        }
+      });
 
       const pSplitter = this.container.querySelector('#cl-splitter-preview');
-      if (pSplitter) {
+      if (pSplitter && !pSplitter._clDblBound) {
+        pSplitter._clDblBound = true;
         pSplitter.addEventListener('dblclick', () => {
+          const curShell = this.container.querySelector('.codelab');
           this.previewSplitWidth = 0;
-          shell.style.removeProperty('--cl-preview-split-width');
+          if (curShell) this._setShellCssVar(curShell, '--cl-preview-split-width', null);
           if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
           this._saveState();
         });
-
-        pSplitter.addEventListener('pointerdown', e => {
-          e.preventDefault();
-          pSplitter.classList.add('is-dragging');
-          shell.classList.add('is-resizing');
-          try { pSplitter.setPointerCapture(e.pointerId); } catch (err) { this.logger.debug('setPointerCapture failed.', err); }
-
-          const onMove = ev => {
-            const ws = this.container.querySelector('.codelab-workspace');
-            const rect = (ws || shell).getBoundingClientRect();
-            const minW = 240;
-            const maxW = Math.max(minW, Math.floor(rect.width * 0.65));
-            const nextW = Math.min(maxW, Math.max(minW, Math.round(rect.right - ev.clientX)));
-            this.previewSplitWidth = nextW;
-            shell.style.setProperty('--cl-preview-split-width', `${nextW}px`);
-            if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
-          };
-
-          const onUp = ev => {
-            pSplitter.classList.remove('is-dragging');
-            shell.classList.remove('is-resizing');
-            try { pSplitter.releasePointerCapture(ev.pointerId); } catch (err) { this.logger.debug('releasePointerCapture failed.', err); }
-            pSplitter.removeEventListener('pointermove', onMove);
-            pSplitter.removeEventListener('pointerup', onUp);
-            this._saveState();
-          };
-
-          pSplitter.addEventListener('pointermove', onMove);
-          pSplitter.addEventListener('pointerup', onUp);
-        });
       }
+      this._attachSplitterDrag(pSplitter, {
+        resizeClass: 'is-resizing',
+        onMove: (ev, curShell) => {
+          const ws = this.container.querySelector('.codelab-workspace');
+          const rect = (ws || curShell).getBoundingClientRect();
+          const minW = 240;
+          const maxW = Math.max(minW, Math.floor(rect.width * 0.65));
+          const nextW = Math.min(maxW, Math.max(minW, Math.round(rect.right - ev.clientX)));
+          this.previewSplitWidth = nextW;
+          this._setShellCssVar(curShell, '--cl-preview-split-width', `${nextW}px`);
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+        },
+        onEnd: () => {
+          this._saveState();
+        }
+      });
     }
 
     selectStep(idx, shouldJump = true) {
@@ -9111,12 +13400,24 @@ int main() {
 
     openFile(filename, symbolToFind = '') {
       if (!this.files || this.files[filename] === undefined) return;
+      this._activeScmDiffFile = null;
+      if (
+        this.activeFile &&
+        this.activeFile !== filename &&
+        this.configuration &&
+        this.configuration.get('files.autoSave', 'afterDelay') === 'onFocusChange' &&
+        ((this._dirtyFiles && this._dirtyFiles.size > 0) || this.saveStatusState === 'dirty')
+      ) {
+        this.saveActiveFile({ manual: false });
+      }
       if (!Array.isArray(this.openTabs)) this.openTabs = [];
       if (!this.openTabs.includes(filename)) {
         this.openTabs.push(filename);
       }
       this.activeFile = filename;
+      this.activeTab = filename;
       this._saveState();
+      this._lintFile(filename);
       this._syncActiveFileToView();
       this._emitEvent('codelab:file-open', { labId: this.labId, filename });
 
@@ -9151,21 +13452,72 @@ int main() {
       }
     }
 
+    _flushCurrentSlotSnapshot() {
+      const curKey = `${this.mode}:${this.lang}`;
+      if (!this.savedState) this.savedState = {};
+      if (!this.savedState.customFiles) this.savedState.customFiles = {};
+      if (!this.savedState.hasSnapshot) this.savedState.hasSnapshot = {};
+      this.savedState.customFiles[curKey] = { ...(this.files || {}) };
+      this.savedState.hasSnapshot[curKey] = true;
+    }
+
     setMode(newMode) {
       if (newMode !== 'guided' && newMode !== 'sandbox') return;
       if (this.mode === newMode) return;
+      const prevMode = this.mode;
+      const prevFiles = { ...(this.files || {}) };
+      const prevBase = this._getBaseFilesForModeAndLang(prevMode, this.lang);
+      const prevTabs = Array.isArray(this.openTabs) ? [...this.openTabs] : [];
+      const prevActive = this.activeFile;
+      this._flushCurrentSlotSnapshot();
       this.mode = newMode;
       if (this.contextKeys) {
         this.contextKeys.setContext('workbenchMode', this.mode);
       }
-      this.files = this._computeInitialFiles();
-      this.openTabs = this._orderedFileNames();
-      this.activeFile = this._pickDefaultFile();
-      this._saveState();
-      if (this.kernel && this.kernel.fs) {
-        this.kernel.fs.loadRecord(this.files, '/workspace');
+      const computed = this._computeInitialFiles();
+      const merged = { ...computed };
+      if (!this.hasGuidedLab) {
+        for (const [fPath, fContent] of Object.entries(prevFiles)) {
+          if (merged[fPath] === undefined || prevFiles[fPath] !== prevBase[fPath]) {
+            merged[fPath] = fContent;
+          }
+        }
+        for (const baseKey of Object.keys(prevBase)) {
+          if (!Object.prototype.hasOwnProperty.call(prevFiles, baseKey) && merged[baseKey] === prevBase[baseKey]) {
+            delete merged[baseKey];
+          }
+        }
+      } else {
+        for (const [fPath, fContent] of Object.entries(prevFiles)) {
+          if (!Object.prototype.hasOwnProperty.call(prevBase, fPath) && merged[fPath] === undefined) {
+            merged[fPath] = fContent;
+          }
+        }
       }
+      this.files = merged;
+      for (const filePath of Object.keys(this.files)) {
+        const parts = filePath.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          this.folders.add(parts.slice(0, i).join('/'));
+        }
+      }
+      if (!this._savedSnapshot) this._savedSnapshot = {};
+      for (const [k, v] of Object.entries(this.files)) {
+        if (!this._dirtyFiles || !this._dirtyFiles.has(k)) {
+          this._savedSnapshot[k] = v;
+        }
+      }
+      const ordered = this._orderedFileNames();
+      const preservedTabs = prevTabs.filter(t => this.files[t] !== undefined);
+      this.openTabs = ordered.length === 0 ? [] : (ordered.length > 8 ? [this._pickPrimaryCloneFile(ordered)].filter(Boolean) : (preservedTabs.length > 0 ? Array.from(new Set([...preservedTabs, ...ordered])) : ordered));
+      this.activeFile = (!this.hasGuidedLab && prevActive && this.files[prevActive] !== undefined)
+        ? prevActive
+        : (this._pickDefaultFile() || (this.openTabs[0] || null));
+      this.activeTab = this.settingsTabOpen && this.activeTab === '__settings__' ? '__settings__' : this.activeFile;
+      this._saveState({ flushSnapshotOnly: true });
+      this._syncFilesToShellVfs({ pruneExtraneous: true, keepGitDir: true });
       this._syncDotCodelabConfig({ isInitialMount: false });
+      this._lintAllWorkspaceFiles();
 
       this.container.querySelectorAll('[data-cl-mode]').forEach(btn => {
         const isActive = btn.dataset.clMode === this.mode;
@@ -9228,6 +13580,12 @@ int main() {
     setLanguage(newLang) {
       if (newLang !== 'js' && newLang !== 'ts' && newLang !== 'cpp' && newLang !== 'py' && newLang !== 'sql') return;
       if (this.lang === newLang) return;
+      const prevLang = this.lang;
+      const prevFiles = { ...(this.files || {}) };
+      const prevBase = this._getBaseFilesForModeAndLang(this.mode, prevLang);
+      const prevActive = this.activeFile;
+      const prevTabs = Array.isArray(this.openTabs) ? [...this.openTabs] : [];
+      this._flushCurrentSlotSnapshot();
       this.lang = newLang;
       if (this.enabledLanguages instanceof Set) {
         this.enabledLanguages.add(newLang);
@@ -9238,17 +13596,64 @@ int main() {
       if (this.plugins && typeof this.plugins.fireActivationEvent === 'function') {
         this.plugins.fireActivationEvent(`onLanguage:${this.lang}`).catch(() => {});
       }
-      this.files = this._computeInitialFiles();
-      this.openTabs = this._orderedFileNames();
-      this.activeFile = this._pickDefaultFile();
+      const computed = this._computeInitialFiles();
+      const merged = { ...computed };
+      if (!this.hasGuidedLab) {
+        for (const [fPath, fContent] of Object.entries(prevFiles)) {
+          if (merged[fPath] === undefined || prevFiles[fPath] !== prevBase[fPath]) {
+            merged[fPath] = fContent;
+          }
+        }
+      } else {
+        for (const [fPath, fContent] of Object.entries(prevFiles)) {
+          const wasCustom = !Object.prototype.hasOwnProperty.call(prevBase, fPath);
+          const wasModified = Object.prototype.hasOwnProperty.call(prevBase, fPath) && prevBase[fPath] !== fContent;
+          if ((wasCustom || wasModified) && merged[fPath] === undefined) {
+            merged[fPath] = fContent;
+          }
+        }
+      }
+      this.files = merged;
+      for (const filePath of Object.keys(this.files)) {
+        const parts = filePath.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          this.folders.add(parts.slice(0, i).join('/'));
+        }
+      }
+      if (!this._savedSnapshot) this._savedSnapshot = {};
+      for (const [k, v] of Object.entries(this.files)) {
+        if (!this._dirtyFiles || !this._dirtyFiles.has(k)) {
+          this._savedSnapshot[k] = v;
+        }
+      }
+      const defaultNext = this._pickDefaultFile();
+      const validPrevTabs = prevTabs.filter(t => this.files[t] !== undefined);
+      if (Object.keys(this.files).length === 0) {
+        this.openTabs = [];
+        this.activeFile = null;
+      } else {
+        const nextTabs = [...validPrevTabs];
+        if (defaultNext && !nextTabs.includes(defaultNext)) {
+          nextTabs.push(defaultNext);
+        }
+        if (nextTabs.length === 0) {
+          const ordered = this._orderedFileNames();
+          this.openTabs = ordered.length > 8 ? [this._pickPrimaryCloneFile(ordered)].filter(Boolean) : ordered;
+        } else {
+          this.openTabs = nextTabs;
+        }
+        this.activeFile = (this._isBlankBase && prevActive && this.files[prevActive] !== undefined)
+          ? prevActive
+          : (defaultNext || this.openTabs[0] || null);
+      }
+      this.activeTab = this.settingsTabOpen && this.activeTab === '__settings__' ? '__settings__' : this.activeFile;
       if (this.lang === 'sql') {
         this.drawerTab = 'sql-results';
       }
-      this._saveState();
-      if (this.kernel && this.kernel.fs) {
-        this.kernel.fs.loadRecord(this.files, '/workspace');
-      }
+      this._saveState({ flushSnapshotOnly: true });
+      this._syncFilesToShellVfs({ pruneExtraneous: true, keepGitDir: true });
       this._syncDotCodelabConfig({ isInitialMount: false });
+      this._lintAllWorkspaceFiles();
 
       if (typeof this._refreshToolbarAndTabs === 'function') {
         this._refreshToolbarAndTabs();
@@ -9376,19 +13781,92 @@ int main() {
       }
     }
 
-    resetLab() {
+    _isRealBrowserDom() {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+      if (typeof process !== 'undefined' && process && process.versions && (process.versions.node || process.versions.bun)) {
+        return false;
+      }
+      return Boolean(this.container && typeof this.container.querySelector === 'function' && this.container.querySelector('#cl-modal-slot'));
+    }
+
+    _hasModifiedOrCustomFiles() {
+      if (this._dirtyFiles && this._dirtyFiles.size > 0) return true;
+      const base = this._getBaseFilesForModeAndLang(this.mode, this.lang) || {};
+      const curKeys = Object.keys(this.files || {});
+      const baseKeys = Object.keys(base);
+      if (curKeys.length !== baseKeys.length) return true;
+      for (const k of curKeys) {
+        if (!Object.prototype.hasOwnProperty.call(base, k)) return true;
+        if (this.files[k] !== base[k]) return true;
+      }
+      return false;
+    }
+
+    resetLab(opts = {}) {
+      const force = Boolean(opts && opts.force);
+      const isInteractiveBrowser = Boolean((opts && opts.ui) || this._isRealBrowserDom());
+      if (!force && isInteractiveBrowser && this._hasModifiedOrCustomFiles()) {
+        const slot = this.container.querySelector('#cl-modal-slot');
+        if (slot) {
+          this._captureModalReturnFocus();
+          slot.innerHTML = `
+            <div class="codelab-modal-backdrop" data-cl-backdrop="reset-confirm">
+              <div class="codelab-modal codelab-confirm-modal" id="reset-confirm-modal" data-cl-modal="reset-confirm" role="alertdialog" aria-modal="true" aria-labelledby="cl-reset-confirm-title" aria-describedby="cl-reset-confirm-desc" style="max-width:440px;">
+                <div class="codelab-modal__header">
+                  <span id="cl-reset-confirm-title">Reset Workspace</span>
+                  <button type="button" class="codelab-btn" data-cl-action="close-modal" aria-label="Close">✕</button>
+                </div>
+                <div class="codelab-modal__body">
+                  <p id="cl-reset-confirm-desc" style="margin:0 0 16px;color:var(--cl-fg);line-height:1.5;">
+                    Resetting this workspace will discard all custom files, folders, and unsaved edits and restore the starter state. This action cannot be undone.
+                  </p>
+                  <div class="codelab-modal__footer" style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" class="codelab-btn" data-cl-confirm="cancel" data-cl-action="close-modal" autofocus>Cancel</button>
+                    <button type="button" class="codelab-btn codelab-btn--danger" data-cl-confirm="reset" id="cl-confirm-reset-btn">Reset Workspace</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+          const confirmBtn = slot.querySelector('#cl-confirm-reset-btn');
+          if (confirmBtn) {
+            confirmBtn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              this.closeModal({ restoreFocus: false });
+              this.resetLab({ force: true });
+            });
+          }
+          const cancelBtn = slot.querySelector('[data-cl-confirm="cancel"]');
+          if (cancelBtn && typeof cancelBtn.focus === 'function') {
+            cancelBtn.focus();
+          }
+          return false;
+        }
+      }
+
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
+      if (this._dirtyFiles) this._dirtyFiles.clear();
+      if (this._fallbackHistory) this._fallbackHistory.clear();
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.clear === 'function') {
+        try { this._diagnosticsStore.clear(); } catch (_err) { void _err; }
+      }
+      this._mdPreviewOpen = false;
       this.completedSteps = new Set();
       this.folders = new Set();
       this.collapsedFolders = new Set();
       this.files = this._getBaseFilesForModeAndLang(this.mode, this.lang);
+      this._savedSnapshot = { ...(this.files || {}) };
       for (const filePath of Object.keys(this.files)) {
         const parts = filePath.split('/');
         for (let i = 1; i < parts.length; i++) {
           this.folders.add(parts.slice(0, i).join('/'));
         }
       }
-      this.openTabs = this._orderedFileNames();
-      this.activeFile = this._pickDefaultFile();
+      const ordered = this._orderedFileNames();
+      this.openTabs = ordered.length === 0 ? [] : (ordered.length > 8 ? [this._pickPrimaryCloneFile(ordered)].filter(Boolean) : ordered);
+      this.activeFile = ordered.length === 0 ? null : (this._pickDefaultFile() || this.openTabs[0] || null);
+      this.activeTab = this.activeFile;
       const key = `${this.mode}:${this.lang}`;
       if (this.savedState.customFiles) {
         delete this.savedState.customFiles[key];
@@ -9396,21 +13874,22 @@ int main() {
       if (this.savedState.hasSnapshot) {
         delete this.savedState.hasSnapshot[key];
       }
-      this._saveState();
-      if (this.kernel && this.kernel.fs) {
-        this.kernel.fs.loadRecord(this.files, '/workspace');
-      }
+      this._syncFilesToShellVfs({ pruneExtraneous: true });
+      this._saveState({ flushFiles: true });
       this._syncDotCodelabConfig({ isInitialMount: false });
       this._syncAllModels();
+      this._lintAllWorkspaceFiles();
       this._syncActiveFileToView();
       this._renderStepPills();
-      this.terminalLogs.push({ type: 'system', text: `↺ Reset workspace files to clean ${this.mode} (${this.lang.toUpperCase()}) state.` });
+      this._pushTerminalLog({ type: 'system', text: `↺ Reset workspace files to clean ${this.mode} (${this.lang.toUpperCase()}) state.` });
       this._renderDrawerBody();
+      return true;
     }
 
     showPackagesModal() {
       const slot = this.container.querySelector('#cl-modal-slot');
       if (!slot) return;
+      this._captureModalReturnFocus();
       const rawDetected = this._detectPackages();
       const rawPkgs = Array.isArray(rawDetected)
         ? rawDetected
@@ -9525,6 +14004,7 @@ int main() {
     showSolutionModal() {
       const slot = this.container.querySelector('#cl-modal-slot');
       if (!slot) return;
+      this._captureModalReturnFocus();
       const refFiles = this._getBaseFilesForModeAndLang('sandbox', this.lang);
       const targetFile = refFiles[this.activeFile] ? this.activeFile : this._pickDefaultFile();
       const refCode = refFiles[targetFile] || '// Reference solution not found';
@@ -9552,9 +14032,21 @@ int main() {
       `;
     }
 
-    closeModal() {
-      const slot = this.container.querySelector('#cl-modal-slot');
+    closeModal(opts = {}) {
+      this._lastBackdropPointerDownTarget = null;
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      const hadModal = Boolean(slot && slot.innerHTML && slot.innerHTML.trim() !== '');
+      const prior = this._modalReturnFocusEl || null;
+      this._modalReturnFocusEl = null;
+      const onCloseCb = this._onModalClosedCallback || null;
+      this._onModalClosedCallback = null;
       if (slot) slot.innerHTML = '';
+      if (typeof onCloseCb === 'function') {
+        try { onCloseCb(); } catch (_err) { void _err; }
+      }
+      if (hadModal && (!opts || opts.restoreFocus !== false)) {
+        this._restoreWorkbenchFocus(prior);
+      }
     }
 
     closeCommandPalette() {
@@ -9583,8 +14075,12 @@ int main() {
 
     async _executeRuntime(execOptions) {
       const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      const configuredTimeoutMs = this.configuration
+        ? Math.max(500, Math.min(120000, Number(this.configuration.get('runtime.timeoutMs', 8000)) || 8000))
+        : 8000;
       const payload = {
         ...execOptions,
+        timeoutMs: execOptions && execOptions.timeoutMs !== undefined ? execOptions.timeoutMs : configuredTimeoutMs,
         instanceId: this.instanceId,
         stdin: execOptions.stdin !== undefined ? execOptions.stdin : (this.customStdin || ''),
         cppCompiler: execOptions.cppCompiler || this.cppCompiler,
@@ -9779,7 +14275,7 @@ int main() {
       }
       const entry = this._findEntryFile('demo') || this.activeFile || this._pickDefaultFile();
       if (!entry) {
-        this.terminalLogs.push({ type: 'stderr', text: 'No entry file or active file to run.' });
+        this._pushTerminalLog({ type: 'stderr', text: 'No entry file or active file to run.' });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
@@ -9836,7 +14332,7 @@ int main() {
       this.isRunning = true;
       this._updateRunStateUI();
       this.drawerTab = 'terminal';
-      this.terminalLogs.push({ type: 'system', text: '\n$ node -e "<selection>"' });
+      this._pushTerminalLog({ type: 'system', text: '\n$ node -e "<selection>"' });
       this._renderDrawerBody();
 
       const abortCtrl = new AbortController();
@@ -9854,13 +14350,13 @@ int main() {
         });
         this._flushTerminalStream();
         if (!streamedStdout && res && res.stdout) {
-          this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
         if (!streamedStderr && res && res.stderr) {
-          this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (res && res.replValue !== undefined) {
-          this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
+          this._pushTerminalLog({ type: 'success', text: `→ ${res.replValue}` });
         }
         this._renderDrawerBody();
         return res;
@@ -9880,7 +14376,7 @@ int main() {
     async runActiveFile() {
       const file = this.activeFile || this._pickDefaultFile();
       if (!file) {
-        this.terminalLogs.push({ type: 'stderr', text: 'No active file to run.' });
+        this._pushTerminalLog({ type: 'stderr', text: 'No active file to run.' });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
@@ -9894,7 +14390,7 @@ int main() {
     async _executeEntryFile(entry) {
       if (this.isRunning) return;
       if (!entry || this.files[entry] === undefined) {
-        this.terminalLogs.push({ type: 'stderr', text: `File not found: ${entry || 'entry'}` });
+        this._pushTerminalLog({ type: 'stderr', text: `File not found: ${entry || 'entry'}` });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
@@ -9910,7 +14406,7 @@ int main() {
         : isPy
         ? `\n$ python3 ${entry}`
         : `\n$ node ${entry}`;
-      this.terminalLogs.push({ type: 'system', text: cmdText });
+      this._pushTerminalLog({ type: 'system', text: cmdText });
       this._renderDrawerBody();
 
       let abortCtrl = new AbortController();
@@ -9940,13 +14436,13 @@ int main() {
         const aborted = this._isAbortResult(res, abortCtrl.signal);
 
         if (!aborted && !streamedStdout && res.stdout) {
-          this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
         if (!aborted && !streamedStderr && res.stderr) {
-          this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (!aborted && res.error) {
-          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+          this._pushTerminalLog({ type: 'stderr', text: formatErrorText(res.error) });
         }
         if (!aborted) {
           this.lastFsSnapshot = res.fsSnapshot || [];
@@ -9963,7 +14459,7 @@ int main() {
       } catch (err) {
         this._flushTerminalStream();
         if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-          this.terminalLogs.push({ type: 'stderr', text: `Execution error: ${formatErrorText(err)}` });
+          this._pushTerminalLog({ type: 'stderr', text: `Execution error: ${formatErrorText(err)}` });
         }
       } finally {
         if (this._activeCommandAbortController === abortCtrl) {
@@ -9987,7 +14483,7 @@ int main() {
         if ((this.files['index.html'] || this.files['public/index.html']) && typeof this.previewApp === 'function') {
           return this.previewApp();
         }
-        this.terminalLogs.push({ type: 'stderr', text: 'No entry or demo file found in this workspace.' });
+        this._pushTerminalLog({ type: 'stderr', text: 'No entry or demo file found in this workspace.' });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
@@ -10004,6 +14500,42 @@ int main() {
       const code = this.files[file] || '';
       if (!code) return;
 
+      const syncFormattedToEditors = (formatted) => {
+        if (formatted === code) return;
+        this.files[file] = formatted;
+        if (this.editor && this.editor.getModel()) {
+          this.editor.setValue(formatted);
+        }
+        if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setValue === 'function' && /\.sql$/i.test(file)) {
+          if (typeof this._sqlWorkbenchEditor.getValue !== 'function' || this._sqlWorkbenchEditor.getValue() !== formatted) {
+            this._sqlWorkbenchEditor.setValue(formatted);
+          }
+        }
+        const fb = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
+        if (fb && this.activeFile === file) {
+          fb.value = formatted;
+          const hist = this._ensureFallbackHistoryEntry(file);
+          hist.current = formatted;
+          this._updateFallbackGutter();
+        }
+        this._saveState();
+        this._notifyCodeChange(file, formatted);
+      };
+
+      if (file.endsWith('.json')) {
+        try {
+          const tabSize = this.configuration
+            ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+            : 2;
+          const parsed = JSON.parse(code);
+          const formatted = JSON.stringify(parsed, null, tabSize) + '\n';
+          syncFormattedToEditors(formatted);
+        } catch (err) {
+          void err;
+        }
+        return;
+      }
+
       if (file.endsWith('.sql')) {
         const sqlPack = getSqlPack();
         const tabSize = this.configuration ? this.configuration.get('editor.tabSize', 2) : 2;
@@ -10012,14 +14544,7 @@ int main() {
           : (sqlPack && typeof sqlPack.formatSql === 'function'
               ? sqlPack.formatSql(code, { dialect: this.sqlDialect, indent: Number(tabSize) || 2, keywordCase: 'upper' })
               : code);
-        if (formatted !== code) {
-          this.files[file] = formatted;
-          if (this.editor && this.editor.getModel()) {
-            this.editor.setValue(formatted);
-          }
-          this._saveState();
-          this._notifyCodeChange(file, formatted);
-        }
+        syncFormattedToEditors(formatted);
         return;
       }
 
@@ -10029,12 +14554,13 @@ int main() {
           if (action && typeof action.run === 'function') {
             await action.run();
             const newCode = this.editor.getValue();
-            this.files[file] = newCode;
-            this._saveState();
-            this._notifyCodeChange(file, newCode);
+            syncFormattedToEditors(newCode);
             return;
           }
         }
+        // Lightweight indentation/trailing-whitespace normalization fallback when Monaco formatter is unavailable
+        const normalized = code.split('\n').map(line => line.replace(/[ \t]+$/, '')).join('\n');
+        syncFormattedToEditors(normalized.endsWith('\n') ? normalized : (normalized + '\n'));
       } else if (file.endsWith('.cpp') || file.endsWith('.hpp') || file.endsWith('.cc') || file.endsWith('.h')) {
         let formatter = (root && root.CodeLabWorkbenchComponents && root.CodeLabWorkbenchComponents.formatCppSource) ||
           (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents && globalThis.CodeLabWorkbenchComponents.formatCppSource) ||
@@ -10048,15 +14574,7 @@ int main() {
           }
         }
         if (formatter) {
-          const formatted = formatter(code);
-          if (formatted !== code) {
-            this.files[file] = formatted;
-            if (this.editor && this.editor.getModel()) {
-              this.editor.setValue(formatted);
-            }
-            this._saveState();
-            this._notifyCodeChange(file, formatted);
-          }
+          syncFormattedToEditors(formatter(code));
         }
       } else if (file.endsWith('.py')) {
         let formatter = (root && root.CodeLabPython && root.CodeLabPython.formatPythonSource) ||
@@ -10071,15 +14589,7 @@ int main() {
           }
         }
         if (formatter) {
-          const formatted = formatter(code);
-          if (formatted !== code) {
-            this.files[file] = formatted;
-            if (this.editor && this.editor.getModel()) {
-              this.editor.setValue(formatted);
-            }
-            this._saveState();
-            this._notifyCodeChange(file, formatted);
-          }
+          syncFormattedToEditors(formatter(code));
         }
       }
     }
@@ -10181,7 +14691,7 @@ int main() {
         return this.runSql('verify');
       }
       if (!entry) {
-        this.terminalLogs.push({ type: 'stderr', text: 'No test file (test.js, test.ts, test.cpp, test.py) found in this workspace.' });
+        this._pushTerminalLog({ type: 'stderr', text: 'No test file (test.js, test.ts, test.cpp, test.py) found in this workspace.' });
         this.drawerTab = 'terminal';
         this._renderDrawerBody();
         return;
@@ -10194,7 +14704,7 @@ int main() {
       this._updateRunStateUI();
       const isCppTest = /\.(cpp|cc|cxx)$/i.test(entry);
       const isPyTest = /\.py$/i.test(entry);
-      this.terminalLogs.push({
+      this._pushTerminalLog({
         type: 'system',
         text: isCppTest
           ? `\n$ g++ -std=c++20 ${entry} -o a.out && ./a.out`
@@ -10240,13 +14750,13 @@ int main() {
         }
 
         if (!aborted && !streamedStdout && res.stdout) {
-          this.terminalLogs.push({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         }
         if (!aborted && !streamedStderr && res.stderr) {
-          this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (!aborted && res.error) {
-          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+          this._pushTerminalLog({ type: 'stderr', text: formatErrorText(res.error) });
         }
 
         if (this.onTestResult) {
@@ -10297,7 +14807,7 @@ int main() {
       } catch (err) {
         this._flushTerminalStream();
         if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-          this.terminalLogs.push({ type: 'stderr', text: `Test runner error: ${formatErrorText(err)}` });
+          this._pushTerminalLog({ type: 'stderr', text: `Test runner error: ${formatErrorText(err)}` });
         }
       } finally {
         if (this._activeCommandAbortController === abortCtrl) {
@@ -10336,7 +14846,9 @@ int main() {
 
     setSqlDialect(dialect) {
       this.sqlDialect = dialect === 'sqlite' ? 'sqlite' : 'postgres';
-      this.runtimeStatusText = `Ready · ${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'}`;
+      if (this.lang === 'sql') {
+        this.runtimeStatusText = `Ready · ${this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18'}`;
+      }
       if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setDialect === 'function') {
         this._sqlWorkbenchEditor.setDialect(this.sqlDialect);
       }
@@ -10398,6 +14910,10 @@ int main() {
           if (!trimmedSql) {
             res = { columns: [], rows: [], rowCount: 0, execMs: 0 };
           } else if (runMode === 'explain') {
+            const innerSql = trimmedSql.replace(/^EXPLAIN(?:\s+QUERY\s+PLAN)?\s+/i, '').replace(/;\s*$/, '').trim();
+            if (innerSql) {
+              this._validateSqlStatement(innerSql, db);
+            }
             const explainStmt = /^EXPLAIN\b/i.test(trimmedSql)
               ? trimmedSql
               : `EXPLAIN QUERY PLAN ${trimmedSql.replace(/;\s*$/, '')}`;
@@ -10410,10 +14926,11 @@ int main() {
               plan: planText
             };
           } else {
-            const stmts = trimmedSql.split(';').map((s) => s.trim()).filter(Boolean);
+            const stmts = this._splitSqlStatements(trimmedSql);
             let lastRows = [];
             for (let i = 0; i < stmts.length; i++) {
               const st = stmts[i];
+              this._validateSqlStatement(st, db);
               if (/^(SELECT|WITH|PRAGMA|EXPLAIN)\b/i.test(st)) {
                 lastRows = db.query(st).all();
               } else {
@@ -10440,10 +14957,7 @@ int main() {
       const elapsed = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0));
       const rawError = caughtErr || (res && res.error ? res.error : null);
 
-      const diagMod = root.CodeLabDiagnostics;
-      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
-        this._diagnosticsStore = diagMod.createDiagnosticsStore();
-      }
+      this._ensureDiagnosticsStore();
 
       if (rawError) {
         const parsedDiag = (sqlPack && typeof sqlPack.parseSqlEngineError === 'function')
@@ -10560,19 +15074,716 @@ int main() {
       return this.lastSqlResult;
     }
 
+    _splitSqlStatements(sqlText) {
+      const src = String(sqlText || '');
+      const out = [];
+      let cur = '';
+      let inSingle = false;
+      let inDouble = false;
+      let inBacktick = false;
+      let inLineComment = false;
+      let inBlockComment = false;
+      for (let i = 0; i < src.length; i++) {
+        const ch = src[i];
+        const next = src[i + 1] || '';
+        if (inLineComment) {
+          if (ch === '\n') {
+            inLineComment = false;
+            cur += '\n';
+          }
+          continue;
+        }
+        if (inBlockComment) {
+          if (ch === '*' && next === '/') {
+            inBlockComment = false;
+            i++;
+          } else if (ch === '\n') {
+            cur += '\n';
+          }
+          continue;
+        }
+        if (!inSingle && !inDouble && !inBacktick) {
+          if (ch === '-' && next === '-') {
+            inLineComment = true;
+            i++;
+            continue;
+          }
+          if (ch === '/' && next === '*') {
+            inBlockComment = true;
+            i++;
+            continue;
+          }
+          if (ch === ';') {
+            const trimmed = cur.trim();
+            if (trimmed) out.push(trimmed);
+            cur = '';
+            continue;
+          }
+        }
+        if (ch === "'" && !inDouble && !inBacktick) {
+          if (inSingle && next === "'") {
+            cur += "''";
+            i++;
+            continue;
+          }
+          inSingle = !inSingle;
+        } else if (ch === '"' && !inSingle && !inBacktick) {
+          if (inDouble && next === '"') {
+            cur += '""';
+            i++;
+            continue;
+          }
+          inDouble = !inDouble;
+        } else if (ch === '`' && !inSingle && !inDouble) {
+          inBacktick = !inBacktick;
+        }
+        cur += ch;
+      }
+      if (inSingle || inDouble || inBacktick) {
+        throw new Error('SQL syntax error: unterminated quoted literal');
+      }
+      if (inBlockComment) {
+        throw new Error('SQL syntax error: unterminated block comment');
+      }
+      const tail = cur.trim();
+      if (tail) out.push(tail);
+      return out;
+    }
+
+    _validateSqlStatement(rawStmt, db) {
+      const stmt = String(rawStmt || '').trim();
+      if (!stmt) return;
+
+      // Mask string literals and strip comments for structural analysis
+      let masked = '';
+      let inSingle = false;
+      let inDouble = false;
+      let inBacktick = false;
+      let inBracket = false;
+      let parenDepth = 0;
+      for (let i = 0; i < stmt.length; i++) {
+        const ch = stmt[i];
+        const next = stmt[i + 1] || '';
+        if (inSingle) {
+          if (ch === "'" && next === "'") { i++; continue; }
+          if (ch === "'") { inSingle = false; masked += "'s'"; }
+          continue;
+        }
+        if (inDouble) {
+          if (ch === '"' && next === '"') { i++; continue; }
+          if (ch === '"') { inDouble = false; } else { masked += ch; }
+          continue;
+        }
+        if (inBacktick) {
+          if (ch === '`') { inBacktick = false; } else { masked += ch; }
+          continue;
+        }
+        if (inBracket) {
+          if (ch === ']') { inBracket = false; } else { masked += ch; }
+          continue;
+        }
+        if (ch === '-' && next === '-') {
+          while (i < stmt.length && stmt[i] !== '\n') i++;
+          masked += ' ';
+          continue;
+        }
+        if (ch === '/' && next === '*') {
+          i += 2;
+          while (i < stmt.length && !(stmt[i] === '*' && stmt[i + 1] === '/')) i++;
+          i++;
+          masked += ' ';
+          continue;
+        }
+        if (ch === "'") { inSingle = true; continue; }
+        if (ch === '"') { inDouble = true; continue; }
+        if (ch === '`') { inBacktick = true; continue; }
+        if (ch === '[') { inBracket = true; continue; }
+        if (ch === '(') parenDepth++;
+        else if (ch === ')') {
+          parenDepth--;
+          if (parenDepth < 0) {
+            throw new Error('SQL syntax error near ")": unbalanced parentheses');
+          }
+        }
+        masked += ch;
+      }
+      if (inSingle || inDouble || inBacktick || inBracket) {
+        throw new Error('SQL syntax error: unterminated string or identifier');
+      }
+      if (parenDepth !== 0) {
+        throw new Error('SQL syntax error: unbalanced parentheses');
+      }
+
+      const norm = masked.replace(/\s+/g, ' ').trim();
+      if (!norm) return;
+
+      const verbMatch = norm.match(/^([A-Za-z_]\w*)/);
+      const verb = verbMatch ? verbMatch[1].toUpperCase() : '';
+      const validVerbs = new Set([
+        'SELECT', 'WITH', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
+        'PRAGMA', 'EXPLAIN', 'BEGIN', 'COMMIT', 'END', 'ROLLBACK', 'SAVEPOINT',
+        'RELEASE', 'VACUUM', 'ANALYZE', 'REINDEX', 'ATTACH', 'DETACH', 'REPLACE', 'VALUES'
+      ]);
+      if (!verb || !validVerbs.has(verb)) {
+        throw new Error(`SQL syntax error near "${verb || stmt.slice(0, 16)}": unrecognized SQL statement`);
+      }
+
+      // Common clause typos outside strings
+      if (/\bFORM\b/i.test(norm)) {
+        throw new Error('SQL syntax error near "FORM": did you mean FROM?');
+      }
+      if (/\b(?:WHRE|WHER)\b/i.test(norm)) {
+        throw new Error('SQL syntax error: malformed WHERE clause');
+      }
+      if (/\b(?:GRUP|ORDRE)\s+BY\b/i.test(norm)) {
+        throw new Error('SQL syntax error: malformed GROUP BY or ORDER BY clause');
+      }
+
+      const hasTableInDb = (rawTbl) => {
+        if (!db || !(db.tables instanceof Map)) return true;
+        const cleanTbl = String(rawTbl || '').replace(/^["`[]|["`\]]$/g, '').split('.').pop() || '';
+        if (!cleanTbl) return true;
+        const lower = cleanTbl.toLowerCase();
+        if (
+          lower === 'sqlite_master' ||
+          lower === 'sqlite_schema' ||
+          lower === 'sqlite_temp_master' ||
+          lower === 'dual' ||
+          lower.startsWith('pragma_') ||
+          lower.startsWith('json_') ||
+          lower === 'generate_series'
+        ) {
+          return true;
+        }
+        if (db.tables.has(cleanTbl) || db.tables.has(lower)) return true;
+        for (const k of db.tables.keys()) {
+          if (String(k).toLowerCase() === lower) return true;
+        }
+        return false;
+      };
+
+      const cteNames = new Set();
+      if (verb === 'WITH') {
+        const cteRe = /\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s+AS\s*\(/gi;
+        let cm;
+        while ((cm = cteRe.exec(norm)) !== null) {
+          cteNames.add(cm[1].toLowerCase());
+        }
+      }
+
+      if (verb === 'SELECT' || verb === 'WITH') {
+        const selectIdx = verb === 'SELECT' ? 0 : norm.toUpperCase().lastIndexOf('SELECT ');
+        if (selectIdx === -1 && !/\b(?:INSERT|UPDATE|DELETE)\b/i.test(norm)) {
+          throw new Error('SQL syntax error: WITH clause must be followed by SELECT, INSERT, UPDATE, or DELETE');
+        }
+        if (selectIdx !== -1) {
+          const selTail = norm.slice(selectIdx);
+          if (/^SELECT\s*(?:$|FROM\b)/i.test(selTail)) {
+            throw new Error('SQL syntax error near "FROM": missing SELECT column list');
+          }
+          if (/^SELECT\s+(?:DISTINCT\s+|ALL\s+)?\*\s+(?!FROM\b|WHERE\b|GROUP\b|HAVING\b|ORDER\b|LIMIT\b|OFFSET\b|UNION\b|INTERSECT\b|EXCEPT\b|,)[A-Za-z_]\w*/i.test(selTail)) {
+            throw new Error('SQL syntax error: missing FROM keyword');
+          }
+        }
+        const tblRe = /\b(?:FROM|JOIN)\s+([A-Za-z_][\w.]*)/gi;
+        let tm;
+        while ((tm = tblRe.exec(norm)) !== null) {
+          const tbl = tm[1];
+          const upperTbl = tbl.toUpperCase();
+          if (upperTbl === 'SELECT' || upperTbl === 'VALUES' || upperTbl === 'LATERAL') continue;
+          if (cteNames.has(tbl.toLowerCase())) continue;
+          if (!hasTableInDb(tbl)) {
+            throw new Error(`SQL error: no such table: ${tbl}`);
+          }
+        }
+      } else if (verb === 'INSERT' || verb === 'REPLACE') {
+        const im = norm.match(/^(?:INSERT(?:\s+OR\s+\w+)?|REPLACE)\s+INTO\s+([A-Za-z_][\w.]*)/i);
+        if (!im) {
+          throw new Error(`SQL syntax error near "${verb}": expected INTO <table>`);
+        }
+        if (!/\b(?:VALUES|SELECT|DEFAULT\s+VALUES)\b/i.test(norm)) {
+          throw new Error(`SQL syntax error near "${verb}": expected VALUES or SELECT`);
+        }
+        if (!hasTableInDb(im[1])) {
+          throw new Error(`SQL error: no such table: ${im[1]}`);
+        }
+      } else if (verb === 'UPDATE') {
+        const um = norm.match(/^UPDATE(?:\s+OR\s+\w+)?\s+([A-Za-z_][\w.]*)\s+SET\b/i);
+        if (!um) {
+          throw new Error('SQL syntax error near "UPDATE": expected UPDATE <table> SET ...');
+        }
+        if (!hasTableInDb(um[1])) {
+          throw new Error(`SQL error: no such table: ${um[1]}`);
+        }
+      } else if (verb === 'DELETE') {
+        const dm = norm.match(/^DELETE\s+FROM\s+([A-Za-z_][\w.]*)/i);
+        if (!dm) {
+          throw new Error('SQL syntax error near "DELETE": expected DELETE FROM <table>');
+        }
+        if (!hasTableInDb(dm[1])) {
+          throw new Error(`SQL error: no such table: ${dm[1]}`);
+        }
+      } else if (verb === 'CREATE') {
+        if (!/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?(?:UNIQUE\s+)?(?:TABLE|VIEW|INDEX|TRIGGER)\b/i.test(norm)) {
+          throw new Error('SQL syntax error near "CREATE": expected TABLE, VIEW, INDEX, or TRIGGER');
+        }
+      } else if (verb === 'DROP') {
+        const dropMatch = norm.match(/^DROP\s+(TABLE|VIEW|INDEX|TRIGGER)(\s+IF\s+EXISTS)?\s+([A-Za-z_][\w.]*)/i);
+        if (!dropMatch) {
+          throw new Error('SQL syntax error near "DROP": expected DROP TABLE|VIEW|INDEX|TRIGGER <name>');
+        }
+        if (dropMatch[1].toUpperCase() === 'TABLE' && !dropMatch[2] && !hasTableInDb(dropMatch[3])) {
+          throw new Error(`SQL error: no such table: ${dropMatch[3]}`);
+        }
+      }
+    }
+
+    _lintJsonFile(cleanPath, text) {
+      const store = this._ensureDiagnosticsStore();
+      if (!store || typeof store.setFileDiagnostics !== 'function') return;
+      const raw = String(text ?? '');
+      if (!raw.trim()) {
+        store.setFileDiagnostics(cleanPath, [], 'json');
+        return;
+      }
+      const allowComments = /(?:^|\/)(?:tsconfig|jsconfig).*\.json$/i.test(cleanPath) || cleanPath.startsWith('.codelab/');
+      const mod = getModular();
+      if (allowComments && mod && typeof mod.parseJsonc === 'function') {
+        const res = mod.parseJsonc(raw);
+        const errs = Array.isArray(res && res.errors) ? res.errors : [];
+        store.setFileDiagnostics(
+          cleanPath,
+          errs.map((e) => ({
+            file: cleanPath,
+            line: e.line || 1,
+            column: e.column || 1,
+            severity: 'error',
+            message: String(e.message || 'Invalid JSON syntax'),
+            source: 'json'
+          })),
+          'json'
+        );
+        return;
+      }
+      try {
+        JSON.parse(raw);
+        store.setFileDiagnostics(cleanPath, [], 'json');
+      } catch (err) {
+        const msg = err && err.message ? String(err.message) : 'Invalid JSON syntax';
+        let line = 1;
+        let col = 1;
+        const posMatch = msg.match(/position\s+(\d+)/i);
+        if (posMatch) {
+          const offset = Math.max(0, Math.min(raw.length, Number(posMatch[1]) || 0));
+          for (let i = 0; i < offset; i++) {
+            if (raw[i] === '\n') {
+              line++;
+              col = 1;
+            } else {
+              col++;
+            }
+          }
+        } else {
+          const lcMatch = msg.match(/line\s+(\d+)\s+column\s+(\d+)/i);
+          if (lcMatch) {
+            line = Math.max(1, Number(lcMatch[1]) || 1);
+            col = Math.max(1, Number(lcMatch[2]) || 1);
+          }
+        }
+        store.setFileDiagnostics(
+          cleanPath,
+          [{ file: cleanPath, line, column: col, severity: 'error', message: msg, source: 'json' }],
+          'json'
+        );
+      }
+    }
+
+    _lintLexicalJsTs(filename, code) {
+      const store = this._ensureDiagnosticsStore();
+      if (!store || typeof store.setFileDiagnostics !== 'function') return;
+      const cleanPath = String(filename || '').replace(/^\/+/, '');
+      const srcTag = /\.ts$/i.test(cleanPath) ? 'ts' : 'js';
+      const text = String(code ?? '');
+      if (!text.trim()) {
+        store.setFileDiagnostics(cleanPath, [], srcTag);
+        return;
+      }
+      const diags = [];
+      const stack = [];
+      const templateBraceDepths = [];
+      let line = 1;
+      let col = 1;
+      let i = 0;
+      let canStartRegex = true;
+      const len = text.length;
+      const regexKeywords = new Set([
+        'return', 'throw', 'case', 'typeof', 'void', 'delete',
+        'in', 'instanceof', 'new', 'yield', 'await', 'of', 'else', 'do'
+      ]);
+
+      const advance = (ch) => {
+        if (ch === '\n') {
+          line++;
+          col = 1;
+        } else {
+          col++;
+        }
+      };
+
+      while (i < len) {
+        const ch = text[i];
+        const next = i + 1 < len ? text[i + 1] : '';
+
+        if (i === 0 && ch === '#' && next === '!') {
+          while (i < len && text[i] !== '\n') {
+            advance(text[i]);
+            i++;
+          }
+          continue;
+        }
+
+        if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n') {
+          advance(ch);
+          i++;
+          continue;
+        }
+
+        if (ch === '/' && next === '/') {
+          while (i < len && text[i] !== '\n') {
+            advance(text[i]);
+            i++;
+          }
+          continue;
+        }
+
+        if (ch === '/' && next === '*') {
+          const startLine = line;
+          const startCol = col;
+          advance(text[i++]);
+          advance(text[i++]);
+          let closed = false;
+          while (i < len) {
+            if (text[i] === '*' && text[i + 1] === '/') {
+              advance(text[i++]);
+              advance(text[i++]);
+              closed = true;
+              break;
+            }
+            advance(text[i++]);
+          }
+          if (!closed) {
+            diags.push({ file: cleanPath, line: startLine, column: startCol, severity: 'error', message: 'Unterminated block comment', source: srcTag });
+            break;
+          }
+          continue;
+        }
+
+        if (ch === '\'' || ch === '"') {
+          const quote = ch;
+          const startLine = line;
+          const startCol = col;
+          advance(text[i++]);
+          let closed = false;
+          while (i < len) {
+            const c = text[i];
+            if (c === '\\') {
+              advance(text[i++]);
+              if (i < len) advance(text[i++]);
+              continue;
+            }
+            if (c === '\n' || c === '\r') {
+              break;
+            }
+            advance(text[i++]);
+            if (c === quote) {
+              closed = true;
+              break;
+            }
+          }
+          if (!closed) {
+            diags.push({ file: cleanPath, line: startLine, column: startCol, severity: 'error', message: 'Unterminated string literal', source: srcTag });
+            break;
+          }
+          canStartRegex = false;
+          continue;
+        }
+
+        if (ch === '`') {
+          const consumeTemplateBody = () => {
+            while (i < len) {
+              const c = text[i];
+              if (c === '\\') {
+                advance(text[i++]);
+                if (i < len) advance(text[i++]);
+                continue;
+              }
+              if (c === '`') {
+                advance(text[i++]);
+                canStartRegex = false;
+                return 'closed';
+              }
+              if (c === '$' && text[i + 1] === '{') {
+                const exprLine = line;
+                const exprCol = col;
+                advance(text[i++]);
+                advance(text[i++]);
+                stack.push({ ch: '{', expected: '}', line: exprLine, col: exprCol, isTemplateExpr: true });
+                templateBraceDepths.push(stack.length);
+                canStartRegex = true;
+                return 'expr';
+              }
+              advance(text[i++]);
+            }
+            return 'unterminated';
+          };
+          const startLine = line;
+          const startCol = col;
+          advance(text[i++]);
+          const state = consumeTemplateBody();
+          if (state === 'unterminated') {
+            diags.push({ file: cleanPath, line: startLine, column: startCol, severity: 'error', message: 'Unterminated template literal', source: srcTag });
+            break;
+          }
+          continue;
+        }
+
+        if (ch === '/' && canStartRegex) {
+          let probe = i + 1;
+          let inClass = false;
+          let foundEnd = -1;
+          while (probe < len) {
+            const pc = text[probe];
+            if (pc === '\n' || pc === '\r') break;
+            if (pc === '\\') {
+              probe += 2;
+              continue;
+            }
+            if (pc === '[') inClass = true;
+            else if (pc === ']') inClass = false;
+            else if (pc === '/' && !inClass) {
+              foundEnd = probe;
+              break;
+            }
+            probe++;
+          }
+          if (foundEnd > i + 1) {
+            let endIdx = foundEnd + 1;
+            while (endIdx < len && /[dgimsuvy]/.test(text[endIdx])) endIdx++;
+            while (i < endIdx) {
+              advance(text[i++]);
+            }
+            canStartRegex = false;
+            continue;
+          }
+        }
+
+        if (ch === '(' || ch === '[' || ch === '{') {
+          const expected = ch === '(' ? ')' : (ch === '[' ? ']' : '}');
+          stack.push({ ch, expected, line, col, isTemplateExpr: false });
+          advance(text[i++]);
+          canStartRegex = true;
+          continue;
+        }
+
+        if (ch === ')' || ch === ']' || ch === '}') {
+          const curLine = line;
+          const curCol = col;
+          advance(text[i++]);
+          if (stack.length === 0) {
+            diags.push({ file: cleanPath, line: curLine, column: curCol, severity: 'error', message: `Unexpected closing '${ch}'`, source: srcTag });
+            break;
+          }
+          const top = stack.pop();
+          if (top.expected !== ch) {
+            diags.push({ file: cleanPath, line: curLine, column: curCol, severity: 'error', message: `Expected '${top.expected}' to match '${top.ch}' at line ${top.line}, found '${ch}'`, source: srcTag });
+            break;
+          }
+          if (ch === '}' && top.isTemplateExpr && templateBraceDepths.length > 0) {
+            templateBraceDepths.pop();
+            const resumeLine = curLine;
+            const resumeCol = curCol;
+            let closedTpl = false;
+            while (i < len) {
+              const c = text[i];
+              if (c === '\\') {
+                advance(text[i++]);
+                if (i < len) advance(text[i++]);
+                continue;
+              }
+              if (c === '`') {
+                advance(text[i++]);
+                canStartRegex = false;
+                closedTpl = true;
+                break;
+              }
+              if (c === '$' && text[i + 1] === '{') {
+                const exprLine = line;
+                const exprCol = col;
+                advance(text[i++]);
+                advance(text[i++]);
+                stack.push({ ch: '{', expected: '}', line: exprLine, col: exprCol, isTemplateExpr: true });
+                templateBraceDepths.push(stack.length);
+                canStartRegex = true;
+                closedTpl = true;
+                break;
+              }
+              advance(text[i++]);
+            }
+            if (!closedTpl) {
+              diags.push({ file: cleanPath, line: resumeLine, column: resumeCol, severity: 'error', message: 'Unterminated template literal', source: srcTag });
+              break;
+            }
+            continue;
+          }
+          canStartRegex = ch === '}';
+          continue;
+        }
+
+        if (/[A-Za-z_$]/.test(ch)) {
+          let word = '';
+          while (i < len && /[A-Za-z0-9_$]/.test(text[i])) {
+            word += text[i];
+            advance(text[i++]);
+          }
+          canStartRegex = regexKeywords.has(word);
+          continue;
+        }
+
+        if (/[0-9]/.test(ch)) {
+          while (i < len && /[0-9a-fA-FxXoObBn_.]/.test(text[i])) {
+            advance(text[i++]);
+          }
+          canStartRegex = false;
+          continue;
+        }
+
+        if ((ch === '+' && next === '+') || (ch === '-' && next === '-')) {
+          advance(text[i++]);
+          advance(text[i++]);
+          canStartRegex = false;
+          continue;
+        }
+
+        advance(text[i++]);
+        canStartRegex = ch !== '.';
+      }
+
+      if (diags.length === 0 && stack.length > 0) {
+        const unclosed = stack[stack.length - 1];
+        diags.push({
+          file: cleanPath,
+          line: unclosed.line,
+          column: unclosed.col,
+          severity: 'error',
+          message: `Unclosed '${unclosed.ch}' — expected '${unclosed.expected}'`,
+          source: srcTag
+        });
+      }
+      store.setFileDiagnostics(cleanPath, diags, srcTag);
+    }
+
+    _runStaticLintersForFile(filename, code) {
+      if (!filename) return;
+      const clean = String(filename).replace(/^\/+/, '');
+      if (/\.py$/i.test(clean) && typeof this._pyLintHandler === 'function') {
+        this._ensureDiagnosticsStore();
+        this._pyLintHandler(clean, String(code ?? ''));
+      } else if (/\.(cpp|cc|cxx|c|hpp|h)$/i.test(clean) && typeof this._cppLintHandler === 'function') {
+        this._ensureDiagnosticsStore();
+        this._cppLintHandler(clean, String(code ?? ''));
+      } else if (/\.json$/i.test(clean) && clean !== '.codelab/settings.json' && clean !== '.codelab/tasks.json') {
+        this._lintJsonFile(clean, code);
+      } else if (/\.(?:m?js|cjs|ts)$/i.test(clean) && !this.monaco) {
+        this._lintLexicalJsTs(clean, code);
+      }
+    }
+
+    _lintFile(filename) {
+      if (!filename || !this.files || this.files[filename] === undefined) return;
+      this._runStaticLintersForFile(filename, this.files[filename]);
+    }
+
+    _updateProblemsBadge() {
+      if (this._destroyed || !this.container) return;
+      const badgeEl = typeof this.container.querySelector === 'function'
+        ? this.container.querySelector('#cl-problems-count')
+        : null;
+      if (badgeEl) {
+        const total = (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function')
+          ? this._diagnosticsStore.getAll().length
+          : 0;
+        badgeEl.textContent = String(total);
+        if (badgeEl.style) badgeEl.style.display = total > 0 ? 'inline-block' : 'none';
+      }
+      if (this.drawerTab === 'problems') {
+        this._renderDrawerBody();
+      }
+      this._updateStatusBar();
+    }
+
+    _lintAllWorkspaceFiles() {
+      if (!this.files || typeof this.files !== 'object') return;
+      const names = Object.keys(this.files);
+      if (!names.length) return;
+      const store = this._ensureDiagnosticsStore();
+      const run = () => {
+        for (let i = 0; i < names.length; i++) {
+          const fn = names[i];
+          const code = this.files[fn];
+          if (typeof code === 'string' && code.length <= 512 * 1024) {
+            this._runStaticLintersForFile(fn, code);
+          }
+        }
+      };
+      if (store && typeof store.batch === 'function') {
+        store.batch(run);
+      } else {
+        run();
+      }
+    }
+
+    _ensureDiagnosticsStore() {
+      const diagMod = root.CodeLabDiagnostics;
+      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
+        this._diagnosticsStore = diagMod.createDiagnosticsStore();
+        if (typeof this._diagnosticsStore.subscribe === 'function') {
+          this._diagnosticsStore.subscribe(() => {
+            if (this._destroyed || !this.container) return;
+            const badgeEl = this.container.querySelector('#cl-problems-count');
+            if (badgeEl && typeof this._diagnosticsStore.getAll === 'function') {
+              const total = this._diagnosticsStore.getAll().length;
+              badgeEl.textContent = String(total);
+              badgeEl.style.display = total > 0 ? 'inline-block' : 'none';
+            }
+            if (this.drawerTab === 'problems') {
+              this._renderDrawerBody();
+            }
+            this._updateStatusBar();
+          });
+        }
+      }
+      return this._diagnosticsStore;
+    }
+
     _syncDotCodelabConfig({ isInitialMount = false } = {}) {
       const mod = getModular();
       if (!mod || !this.configuration) return;
 
-      const diagMod = root.CodeLabDiagnostics;
-      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
-        this._diagnosticsStore = diagMod.createDiagnosticsStore();
-      }
+      this._ensureDiagnosticsStore();
 
       // 1. .codelab/settings.json
-      const rawSettings = Object.prototype.hasOwnProperty.call(this.files, '.codelab/settings.json')
-        ? this.files['.codelab/settings.json']
-        : '';
+      const hasSettingsFile = Object.prototype.hasOwnProperty.call(this.files, '.codelab/settings.json');
+      const rawSettings = hasSettingsFile ? this.files['.codelab/settings.json'] : '';
+      if (!hasSettingsFile && this.kernel && this.kernel.fs && typeof this.kernel.fs.deleteFile === 'function') {
+        try {
+          const kPath = '/workspace/.codelab/settings.json';
+          if (typeof this.kernel.fs.exists !== 'function' || this.kernel.fs.exists(kPath)) {
+            this.kernel.fs.deleteFile(kPath);
+          }
+        } catch (err) {
+          void err;
+        }
+      }
       const settingsDiags = this.configuration.loadWorkspaceSettingsJson(rawSettings || '', '.codelab/settings.json');
       if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function') {
         this._diagnosticsStore.setFileDiagnostics(
@@ -10639,6 +15850,9 @@ int main() {
         }
       } else {
         this._workspaceTasks = [];
+        if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function') {
+          this._diagnosticsStore.setFileDiagnostics('.codelab/tasks.json', [], 'tasks');
+        }
       }
 
       // 4. .codelab/extensions.json
@@ -10652,8 +15866,21 @@ int main() {
           ...(parsedExt.config.recommendations || [])
         ];
         for (const pluginId of toActivate) {
-          this.plugins.activatePlugin(pluginId).catch(() => {});
+          this.plugins.activatePlugin(pluginId).catch((err) => { void err; });
         }
+      }
+
+      if (this.container && !this._isBooting) {
+        const badgeEl = this.container.querySelector('#cl-problems-count');
+        if (badgeEl && this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function') {
+          const total = this._diagnosticsStore.getAll().length;
+          badgeEl.textContent = String(total);
+          badgeEl.style.display = total > 0 ? 'inline-block' : 'none';
+        }
+        if (this.drawerTab === 'problems') {
+          this._renderDrawerBody();
+        }
+        this._updateStatusBar();
       }
     }
 
@@ -10661,36 +15888,105 @@ int main() {
       if (!this.configuration) return;
       const affects = (key) => !changeEvent || typeof changeEvent.affectsConfiguration !== 'function' || changeEvent.affectsConfiguration(key);
 
-      if (affects('workbench.colorTheme') && changeEvent) {
+      const safeSetStyleVar = (el, name, val) => {
+        if (!el || !el.style) return;
+        if (typeof el.style.setProperty === 'function') {
+          el.style.setProperty(name, val);
+        } else {
+          el.style[name] = val;
+        }
+      };
+
+      if (affects('workbench.colorTheme') && changeEvent && !this._applyingConfigTheme) {
         const rawTheme = String(this.configuration.get('workbench.colorTheme', 'dark'));
         const mapped = (rawTheme === 'light' || rawTheme === 'codelab-light')
           ? 'light'
           : (rawTheme === 'high-contrast' || rawTheme === 'hc-dark' || rawTheme === 'codelab-hc-dark')
             ? 'high-contrast'
             : (rawTheme === 'auto' ? 'auto' : 'dark');
-        if (this.theme !== mapped) {
+        this._applyingConfigTheme = true;
+        try {
           this.setTheme(mapped);
+        } finally {
+          this._applyingConfigTheme = false;
+        }
+      }
+
+      if (affects('workbench.sidebar.defaultLocation')) {
+        const loc = String(this.configuration.get('workbench.sidebar.defaultLocation', 'left'));
+        const shellEl = this.container ? this.container.querySelector('.codelab') : null;
+        if (shellEl) {
+          shellEl.classList.toggle('sidebar-right', loc === 'right');
+        }
+        if (this.editor && typeof this.editor.layout === 'function') {
+          this.editor.layout();
+        }
+      }
+
+      if (affects('workbench.sideBar.visible') && changeEvent) {
+        const vis = this.configuration.get('workbench.sideBar.visible', true) !== false;
+        this.setSidebarVisible(vis, { fromConfig: true });
+      }
+
+      if (affects('workbench.statusBar.visible')) {
+        const sbVis = this.configuration.get('workbench.statusBar.visible', true) !== false;
+        const shellEl = this.container ? this.container.querySelector('.codelab') : null;
+        if (shellEl) {
+          shellEl.classList.toggle('statusbar-hidden', !sbVis);
+        }
+        const sbEl = this.container ? this.container.querySelector('#cl-statusbar') : null;
+        if (sbEl && sbEl.style) {
+          sbEl.style.display = sbVis ? '' : 'none';
+        }
+        if (this.editor && typeof this.editor.layout === 'function') {
+          this.editor.layout();
+        }
+      }
+
+      if (affects('workbench.panel.defaultTab')) {
+        const rawTab = String(this.configuration.get('workbench.panel.defaultTab', 'terminal') || 'terminal');
+        const validTabs = new Set(['terminal', 'problems', 'output', 'ports', 'tests', 'stdin', 'preview', 'network', 'inspector', 'observability', 'sql-results']);
+        const normTab = validTabs.has(rawTab) ? rawTab : 'terminal';
+        if (changeEvent) {
+          this.switchDrawerTab(normTab, { fromConfig: true, ensureVisible: this.panelVisible });
+        } else if (!this._userSwitchedDrawerTab && !this._explicitDrawerTabOption && !this.savedState?.drawerTab && !this._isSingleFileSqlMode()) {
+          const defTabInsp = typeof this.configuration.inspect === 'function'
+            ? this.configuration.inspect('workbench.panel.defaultTab')
+            : null;
+          if (defTabInsp && defTabInsp.effectiveSource !== 'default') {
+            this.switchDrawerTab(normTab, { fromConfig: true, ensureVisible: false });
+          }
         }
       }
 
       if (affects('editor')) {
-        const fontSize = Number(this.configuration.get('editor.fontSize', 13)) || 13;
+        const fontSize = Math.max(8, Math.min(36, Number(this.configuration.get('editor.fontSize', 13)) || 13));
         const fontFamily = String(this.configuration.get('editor.fontFamily', '') || '');
-        const tabSize = Number(this.configuration.get('editor.tabSize', 2)) || 2;
+        const tabSize = Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2));
         const wordWrap = String(this.configuration.get('editor.wordWrap', 'off'));
         const lineNumbers = String(this.configuration.get('editor.lineNumbers', 'on'));
         const minimapEnabled = Boolean(this.configuration.get('editor.minimap.enabled', false));
 
         const shellEl = this.container ? this.container.querySelector('.codelab') : null;
         if (shellEl) {
-          shellEl.style.setProperty('--cl-editor-font-size', `${fontSize}px`);
+          safeSetStyleVar(shellEl, '--cl-editor-font-size', `${fontSize}px`);
           if (fontFamily) {
-            shellEl.style.setProperty('--cl-editor-font-family', fontFamily);
+            safeSetStyleVar(shellEl, '--cl-editor-font-family', fontFamily);
           }
         }
-        const fallbackEl = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
-        if (fallbackEl) {
-          fallbackEl.style.fontSize = `${fontSize}px`;
+        if (typeof this._applyEditorSettingsToFallback === 'function') {
+          this._applyEditorSettingsToFallback();
+        }
+        if (this.models && typeof this.models.values === 'function') {
+          for (const model of this.models.values()) {
+            if (model && typeof model.updateOptions === 'function') {
+              try {
+                model.updateOptions({ tabSize, insertSpaces: true });
+              } catch (err) {
+                void err;
+              }
+            }
+          }
         }
         if (this.editor && typeof this.editor.updateOptions === 'function') {
           this.editor.updateOptions({
@@ -10702,41 +15998,235 @@ int main() {
             minimap: { enabled: minimapEnabled }
           });
         }
+        this._updateStatusBar();
       }
 
-      if (affects('sql.dialect') && changeEvent) {
-        const cfgDialect = this.configuration.get('sql.dialect', this.sqlDialect);
+      if (affects('terminal.fontSize') || affects('terminal.scrollback')) {
+        const termFontSize = Math.max(10, Math.min(28, Number(this.configuration.get('terminal.fontSize', 13)) || 13));
+        const shellEl = this.container ? this.container.querySelector('.codelab') : null;
+        if (shellEl) {
+          safeSetStyleVar(shellEl, '--cl-terminal-font-size', `${termFontSize}px`);
+        }
+        const termSurface = this.container ? this.container.querySelector('#cl-terminal-surface') : null;
+        if (termSurface && termSurface.style) {
+          termSurface.style.fontSize = `${termFontSize}px`;
+        }
+        const termLog = this.container ? this.container.querySelector('#cl-terminal-log') : null;
+        if (termLog && termLog.style) {
+          termLog.style.fontSize = `${termFontSize}px`;
+        }
+        const replInput = this.container ? this.container.querySelector('#cl-repl-input') : null;
+        if (replInput && replInput.style) {
+          replInput.style.fontSize = `${termFontSize}px`;
+        }
+        const outSurface = this.container ? this.container.querySelector('#cl-output-surface') : null;
+        if (outSurface && outSurface.style) {
+          outSurface.style.fontSize = `${termFontSize}px`;
+        }
+        const trimmedLogs = this._trimTerminalLogs();
+        if (trimmedLogs && (this.drawerTab === 'terminal' || this.drawerTab === 'output')) {
+          this._renderDrawerBody();
+        }
+      }
+
+      if (affects('files.autoSave') || affects('files.autoSaveDelay')) {
+        const mode = String(this.configuration.get('files.autoSave', 'afterDelay'));
+        if (mode === 'afterDelay' && this._dirtyFiles && this._dirtyFiles.size > 0) {
+          this._scheduleSaveState();
+        } else if (mode !== 'afterDelay' && this._autoSaveTimer) {
+          clearTimeout(this._autoSaveTimer);
+          this._autoSaveTimer = null;
+        }
+        this._updateStatusBar();
+      }
+
+      if (affects('files.exclude') && changeEvent) {
+        this._renderFileLists();
+        this._renderBreadcrumbs();
+        if (this.activeSidebarView === 'search') {
+          this._renderSearchSidebarResults();
+        }
+      }
+
+      if ((affects('sql.defaultDialect') || affects('sql.dialect')) && changeEvent) {
+        const cfgDialect = this._resolveConfiguredSqlDialect()
+          || (this._explicitSqlDialectOption ? this.sqlDialect : 'postgres');
         if (cfgDialect === 'postgres' || cfgDialect === 'sqlite') {
           this.setSqlDialect(cfgDialect);
         }
       }
     }
 
-    openSettings() {
+    _persistWorkspaceSettingsFromUi(nextWsRecord) {
+      if (this._syncingWorkspaceSettingsFile) return;
+      this._syncingWorkspaceSettingsFile = true;
+      try {
+        const sourceRecord = nextWsRecord !== undefined
+          ? nextWsRecord
+          : (this.configuration && typeof this.configuration.getWorkspaceSettings === 'function'
+            ? this.configuration.getWorkspaceSettings()
+            : null);
+        const cleanObj = {};
+        if (sourceRecord && typeof sourceRecord === 'object') {
+          for (const [k, v] of Object.entries(sourceRecord)) {
+            if (v !== undefined) cleanObj[k] = v;
+          }
+        }
+        this._userEditSeq = (this._userEditSeq || 0) + 1;
+        const tabSize = this.configuration
+          ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
+          : 2;
+        const jsonStr = JSON.stringify(cleanObj, null, tabSize) + '\n';
+        const hadFile = Object.prototype.hasOwnProperty.call(this.files, '.codelab/settings.json');
+        if (Object.keys(cleanObj).length === 0 && !hadFile) {
+          return;
+        }
+        this.folders.add('.codelab');
+        this.files['.codelab/settings.json'] = jsonStr;
+        const existingModel = this.models && this.models.get('.codelab/settings.json');
+        if (existingModel && typeof existingModel.getValue === 'function' && existingModel.getValue() !== jsonStr) {
+          this._syncingModelFromFiles = true;
+          try {
+            existingModel.setValue(jsonStr);
+          } finally {
+            this._syncingModelFromFiles = false;
+          }
+        }
+        const fb = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
+        if (fb && this.activeFile === '.codelab/settings.json' && this.activeTab !== '__settings__') {
+          fb.value = jsonStr;
+          const hist = this._ensureFallbackHistoryEntry('.codelab/settings.json');
+          hist.current = jsonStr;
+          this._updateFallbackGutter();
+        }
+        if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+          try {
+            if (typeof this.shell.vfs.mkdirSync === 'function') {
+              this.shell.vfs.mkdirSync('/workspace/.codelab', { recursive: true });
+            }
+            this.shell.vfs.writeFileSync('/workspace/.codelab/settings.json', jsonStr);
+          } catch (err) {
+            void err;
+          }
+        }
+        if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFile === 'function') {
+          try {
+            Promise.resolve(this.kernel.fs.writeFile('/workspace/.codelab/settings.json', jsonStr)).catch((err) => {
+              void err;
+            });
+          } catch (err) {
+            void err;
+          }
+        }
+        this._clearFileDirty('.codelab/settings.json');
+        this._saveState();
+        this._renderFileLists();
+      } finally {
+        this._syncingWorkspaceSettingsFile = false;
+      }
+    }
+
+    _mountSettingsInline(settingsHost) {
+      if (!settingsHost) return;
       const mod = getModular();
       if (!mod || typeof mod.SettingsDialogController !== 'function' || !this.configuration) {
-        return this.openWorkspaceSettingsJson();
+        return;
       }
-      const host = (this.container && this.container.querySelector('.codelab')) || this.container;
-      if (!host) return;
       if (!this._settingsDialog) {
-        this._settingsDialog = new mod.SettingsDialogController(host, {
+        this._settingsDialog = new mod.SettingsDialogController({
           configuration: this.configuration,
           onOpenSettingsJson: () => this.openWorkspaceSettingsJson(),
+          onWorkspaceSettingsMutated: (wsRecord) => this._persistWorkspaceSettingsFromUi(wsRecord),
           onExportSettings: (jsonStr) => {
             if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-              navigator.clipboard.writeText(jsonStr).catch(() => {});
+              navigator.clipboard.writeText(jsonStr).catch((err) => {
+                void err;
+              });
             }
             this._showToast('Settings profile copied to clipboard', 'success');
           }
         });
       }
-      this._settingsDialog.open();
+      if (typeof this._settingsDialog.mountInline === 'function') {
+        const existingRoot = settingsHost.querySelector('[data-role="settings-inline-root"], .cl-settings-inline');
+        if (!this._settingsDialog.isInlineMounted || !existingRoot) {
+          this._settingsDialog.mountInline(settingsHost);
+          const listEl = settingsHost.querySelector('[data-role="settings-list"]');
+          if (listEl && !listEl._clScrollBound) {
+            listEl._clScrollBound = true;
+            listEl.addEventListener('scroll', () => {
+              if (this.activeTab === '__settings__' && (!settingsHost.style || settingsHost.style.display !== 'none')) {
+                this._savedSettingsScrollTop = listEl.scrollTop;
+              }
+            }, { passive: true });
+          }
+        }
+      }
+    }
+
+    openSettings(opts = {}) {
+      const mod = getModular();
+      if (!mod || typeof mod.SettingsDialogController !== 'function' || !this.configuration) {
+        return this.openWorkspaceSettingsJson();
+      }
+      this._activeScmDiffFile = null;
+      this.settingsTabOpen = true;
+      this.activeTab = '__settings__';
+      this._syncActiveFileToView();
+      const settingsHost = this.container ? this.container.querySelector('#cl-settings-host') : null;
+      if (settingsHost) {
+        const searchInput = settingsHost.querySelector('[data-role="settings-search"]');
+        if (searchInput) {
+          if (opts && typeof opts.query === 'string') {
+            searchInput.value = opts.query;
+            if (typeof Event === 'function') {
+              try {
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+              } catch (err) {
+                void err;
+              }
+            }
+          }
+          if (!opts || opts.focusSearch !== false) {
+            if (typeof searchInput.focus === 'function') {
+              try {
+                searchInput.focus({ preventScroll: true });
+              } catch (_err) {
+                void _err;
+                searchInput.focus();
+              }
+            }
+          }
+        }
+      }
     }
 
     closeSettings() {
-      if (this._settingsDialog && typeof this._settingsDialog.close === 'function') {
-        this._settingsDialog.close();
+      if (!this.settingsTabOpen && this.activeTab !== '__settings__') return;
+      this.settingsTabOpen = false;
+      this._savedSettingsScrollTop = 0;
+      if (this._settingsDialog && typeof this._settingsDialog.unmountInline === 'function') {
+        this._settingsDialog.unmountInline();
+      }
+      const nextFile = (this.activeFile && Array.isArray(this.openTabs) && this.openTabs.includes(this.activeFile))
+        ? this.activeFile
+        : (Array.isArray(this.openTabs) && this.openTabs.length > 0 ? this.openTabs[0] : null);
+      this.activeFile = nextFile;
+      this.activeTab = nextFile;
+      this._syncActiveFileToView();
+      if (this.editor && typeof this.editor.focus === 'function') {
+        try {
+          this.editor.focus();
+        } catch (err) {
+          void err;
+        }
+      } else if (this.container) {
+        const fb = this.container.querySelector('#cl-fallback-editor');
+        const activeTabEl = this.container.querySelector('#cl-tabs .codelab-tab.active, #cl-file-tabs .codelab-tab.active');
+        const focusTarget = (fb && (!fb.style || fb.style.display !== 'none')) ? fb : activeTabEl;
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+          focusTarget.focus();
+        }
       }
     }
 
@@ -10767,10 +16257,23 @@ int main() {
       const disp = this.plugins.registerPlugin(manifest);
       const events = Array.isArray(manifest.activationEvents) ? manifest.activationEvents : ['*'];
       if (events.includes(`onLanguage:${this.lang}`)) {
-        this.plugins.activatePlugin(manifest.id).catch(() => {});
+        this.plugins.activatePlugin(manifest.id).catch((err) => {
+          void err;
+        });
       }
       this._refreshDrawerTabs();
-      return disp;
+      if (typeof this._refreshSidebarPluginContributions === 'function') {
+        this._refreshSidebarPluginContributions();
+      }
+      return {
+        dispose: () => {
+          disp.dispose();
+          this._refreshDrawerTabs();
+          if (typeof this._refreshSidebarPluginContributions === 'function') {
+            this._refreshSidebarPluginContributions();
+          }
+        }
+      };
     }
 
     _resolveShellPath(rawPath) {
@@ -10805,9 +16308,10 @@ int main() {
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
       const promptPrefix = this.inRepl ? '> ' : `codelab:${cwdShort}$ `;
       const echoLine = `${promptPrefix}${trimmed}`;
-      this.terminalLogs.push({ type: 'system', text: echoLine });
-      if (this.terminalLogs.length > 2000) {
-        this.terminalLogs.splice(0, this.terminalLogs.length - 2000);
+      this._pushTerminalLog({ type: 'system', text: echoLine });
+      const maxSbEcho = this._getTerminalScrollback();
+      if (this.terminalLogs.length > maxSbEcho) {
+        this.terminalLogs.splice(0, this.terminalLogs.length - maxSbEcho);
       }
       const termLogEl = this.container ? this.container.querySelector('#cl-terminal-log') : null;
       const ptyOwnsDom = Boolean(this.ptyEngine && this.ptyEngine.container);
@@ -10821,7 +16325,7 @@ int main() {
       if (this.inRepl) {
         if (trimmed === '.exit' || trimmed === 'exit') {
           this.inRepl = false;
-          this.terminalLogs.push({ type: 'stdout', text: 'Exited Node.js REPL.' });
+          this._pushTerminalLog({ type: 'stdout', text: 'Exited Node.js REPL.' });
           this._renderDrawerBody();
           return;
         }
@@ -10831,7 +16335,7 @@ int main() {
           return;
         }
         if (trimmed === '.help') {
-          this.terminalLogs.push({
+          this._pushTerminalLog({
             type: 'stdout',
             text: '.clear    Clear terminal output\n.exit     Exit the Node.js REPL\n.help     Print this help message'
           });
@@ -10856,16 +16360,16 @@ int main() {
           this._flushTerminalStream();
           const aborted = this._isAbortResult(res, abortCtrl.signal);
           const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
-          if (!aborted && !streamedStdout && cleanStdout) this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
-          if (!aborted && !streamedStderr && res.stderr) this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          if (!aborted && !streamedStdout && cleanStdout) this._pushTerminalLog({ type: 'stdout', text: cleanStdout });
+          if (!aborted && !streamedStderr && res.stderr) this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
           if (!aborted && res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
-            this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
+            this._pushTerminalLog({ type: 'success', text: `→ ${res.replValue}` });
           }
-          if (!aborted && res.error) this.terminalLogs.push({ type: 'stderr', text: formatErrorText(res.error) });
+          if (!aborted && res.error) this._pushTerminalLog({ type: 'stderr', text: formatErrorText(res.error) });
         } catch (err) {
           this._flushTerminalStream();
           if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-            this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+            this._pushTerminalLog({ type: 'stderr', text: formatErrorText(err) });
           }
         } finally {
           if (this._activeCommandAbortController === abortCtrl) {
@@ -10885,7 +16389,7 @@ int main() {
       }
       if (trimmed === 'node' || trimmed === 'node -i' || trimmed === 'node --interactive') {
         this.inRepl = true;
-        this.terminalLogs.push({ type: 'stdout', text: 'Welcome to Node.js v22.0.0.\nType ".help" for more information, or ".exit" to return to POSIX shell.' });
+        this._pushTerminalLog({ type: 'stdout', text: 'Welcome to Node.js v22.0.0.\nType ".help" for more information, or ".exit" to return to POSIX shell.' });
         this._renderDrawerBody();
         return;
       }
@@ -10937,6 +16441,13 @@ int main() {
           const aborted = this._isAbortResult(shellRes, abortCtrl.signal);
           this.cwd = this.shell.cwd || this.cwd;
           this._syncVfsSnapshot(null, true);
+          if (/^\s*git\b/.test(trimmed) || (this.shell && this.shell.gitState && this.shell.gitState.initialized)) {
+            this._saveState();
+          }
+          if (this.activeSidebarView === 'scm' && typeof this._renderScmSidebar === 'function') {
+            this._renderScmSidebar();
+          }
+          this._updateStatusBar();
 
           if (shellRes && shellRes.clear) {
             this._clearTerminalLogs();
@@ -10946,32 +16457,24 @@ int main() {
           if (shellRes && shellRes.interactiveRepl) {
             this.inRepl = true;
             if (shellRes.stdout && !streamedStdout) {
-              this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+              this._pushTerminalLog({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
             }
             this._renderDrawerBody();
             return;
           }
 
-          const isCmdNotFound = shellRes && shellRes.exitCode === 127 && typeof shellRes.stderr === 'string' && shellRes.stderr.includes('command not found');
-          if (!isCmdNotFound) {
-            if (!aborted && shellRes && shellRes.stdout && !streamedStdout) {
-              this.terminalLogs.push({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
-            }
-            if (!aborted && shellRes && shellRes.stderr && !streamedStderr) {
-              this.terminalLogs.push({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') });
-            }
-            this._renderDrawerBody();
-            return;
-          } else {
-            // Roll back any temporary output from command not found so JS evaluation fallback can run cleanly
-            this.terminalLogs.splice(logsCountBefore);
-            this._activeStreamLine = '';
-            this._activeStreamEl = null;
+          if (!aborted && shellRes && shellRes.stdout && !streamedStdout) {
+            this._pushTerminalLog({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
           }
+          if (!aborted && shellRes && shellRes.stderr && !streamedStderr) {
+            this._pushTerminalLog({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') });
+          }
+          this._renderDrawerBody();
+          return;
         } catch (err) {
           this._flushTerminalStream();
           if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-            this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+            this._pushTerminalLog({ type: 'stderr', text: formatErrorText(err) });
           }
           this._renderDrawerBody();
           return;
@@ -11011,26 +16514,26 @@ int main() {
         const aborted = this._isAbortResult(res, fallbackAbortCtrl.signal);
         const cleanStdout = res.stdout ? res.stdout.replace(/\n$/, '') : '';
         if (!aborted && !streamedFallbackStdout && cleanStdout) {
-          this.terminalLogs.push({ type: 'stdout', text: cleanStdout });
+          this._pushTerminalLog({ type: 'stdout', text: cleanStdout });
         }
         if (!aborted && !streamedFallbackStderr && res.stderr) {
-          this.terminalLogs.push({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
+          this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
         }
         if (!aborted && res.replValue !== undefined && cleanStdout !== String(res.replValue)) {
-          this.terminalLogs.push({ type: 'success', text: `→ ${res.replValue}` });
+          this._pushTerminalLog({ type: 'success', text: `→ ${res.replValue}` });
         }
         if (!aborted && res.error) {
           const errStr = formatErrorText(res.error);
           if (/^[a-zA-Z0-9_-]+$/.test(trimmed) && errStr.includes(`ReferenceError: ${trimmed} is not defined`)) {
-            this.terminalLogs.push({ type: 'stderr', text: `codelab: ${trimmed}: command not found (type "help" for commands or enter a JS/TS expression)` });
+            this._pushTerminalLog({ type: 'stderr', text: `codelab: ${trimmed}: command not found (type "help" for commands or enter a JS/TS expression)` });
           } else {
-            this.terminalLogs.push({ type: 'stderr', text: errStr });
+            this._pushTerminalLog({ type: 'stderr', text: errStr });
           }
         }
       } catch (err) {
         this._flushTerminalStream();
         if (!(fallbackAbortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-          this.terminalLogs.push({ type: 'stderr', text: formatErrorText(err) });
+          this._pushTerminalLog({ type: 'stderr', text: formatErrorText(err) });
         }
       } finally {
         if (this._activeCommandAbortController === fallbackAbortCtrl) {
@@ -11217,7 +16720,90 @@ int main() {
       if (!searchMod || typeof searchMod.searchInFiles !== 'function') {
         throw new Error('CodeLabSearch engine is not loaded');
       }
-      return searchMod.searchInFiles(this.files || {}, options);
+      const cfgExclude = typeof this._getExcludePatterns === 'function' ? this._getExcludePatterns() : [];
+      const optObj = options && typeof options === 'object' ? { ...options } : { query: String(options || '') };
+      if (cfgExclude.length > 0) {
+        const existingEx = optObj.exclude
+          ? (Array.isArray(optObj.exclude) ? optObj.exclude : String(optObj.exclude).split(',').map(s => s.trim()).filter(Boolean))
+          : [];
+        optObj.exclude = Array.from(new Set([...existingEx, ...cfgExclude]));
+      }
+      return searchMod.searchInFiles(this.files || {}, optObj);
+    }
+
+    _applyInPlaceWorkspaceUpdates(nextFiles, affectedList) {
+      if (!nextFiles || typeof nextFiles !== 'object') return;
+      const changed = Array.isArray(affectedList) && affectedList.length > 0
+        ? affectedList
+        : Object.keys(nextFiles).filter((k) => nextFiles[k] !== this.files[k]);
+      if (changed.length === 0) return;
+
+      for (const relPath of changed) {
+        if (!Object.prototype.hasOwnProperty.call(nextFiles, relPath)) continue;
+        const content = String(nextFiles[relPath] ?? '');
+        this.files[relPath] = content;
+        if (typeof this._markFileDirty === 'function') {
+          this._markFileDirty(relPath);
+        }
+        if (this.models && typeof this.models.has === 'function' && this.models.has(relPath)) {
+          const m = this.models.get(relPath);
+          if (m && typeof m.getValue === 'function' && m.getValue() !== content) {
+            this._syncingModelFromFiles = true;
+            try {
+              m.setValue(content);
+            } finally {
+              this._syncingModelFromFiles = false;
+            }
+          }
+        }
+        if (relPath === this.activeFile && this.container && !this.editor) {
+          const fb = this.container.querySelector('#cl-fallback-editor');
+          if (fb && fb.value !== content) {
+            fb.value = content;
+            if (typeof this._updateFallbackGutter === 'function') {
+              this._updateFallbackGutter();
+            }
+          }
+          const sqlTa = this.container.querySelector('#cl-sql-editor-host .cl-sql-textarea');
+          if (sqlTa && sqlTa.value !== content) {
+            sqlTa.value = content;
+          }
+        }
+        const cleanRel = String(relPath).replace(/^\/+/, '');
+        const absPath = `/workspace/${cleanRel}`;
+        if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+          try {
+            const slash = absPath.lastIndexOf('/');
+            if (slash > 0 && typeof this.shell.vfs.mkdirSync === 'function') {
+              this.shell.vfs.mkdirSync(absPath.slice(0, slash), { recursive: true });
+            }
+            this.shell.vfs.writeFileSync(absPath, content);
+          } catch (_err) {
+            void _err;
+          }
+        }
+        if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFileSync === 'function') {
+          try {
+            this.kernel.fs.writeFileSync(absPath, content);
+          } catch (_err) {
+            void _err;
+          }
+        }
+        if (cleanRel === '.codelab/settings.json' || cleanRel === '.codelab/tasks.json') {
+          this._syncDotCodelabConfig({ isInitialMount: false });
+        } else {
+          this._lintFile(cleanRel);
+        }
+      }
+      this._renderFileLists();
+      if (this.activeSidebarView === 'scm') {
+        this._renderScmSidebar();
+      }
+      if (this._activeScmDiffFile && changed.includes(this._activeScmDiffFile)) {
+        this._syncActiveFileToView();
+      }
+      this._updateStatusBar();
+      this._saveState();
     }
 
     replaceInWorkspace(options) {
@@ -11225,12 +16811,19 @@ int main() {
       if (!searchMod || typeof searchMod.replaceInFiles !== 'function') {
         throw new Error('CodeLabSearch engine is not loaded');
       }
-      const res = searchMod.replaceInFiles(this.files || {}, options, options && options.replacement);
+      const cfgExclude = typeof this._getExcludePatterns === 'function' ? this._getExcludePatterns() : [];
+      const optObj = options && typeof options === 'object' ? { ...options } : { query: '' };
+      if (cfgExclude.length > 0) {
+        const existingEx = optObj.exclude
+          ? (Array.isArray(optObj.exclude) ? optObj.exclude : String(optObj.exclude).split(',').map(s => s.trim()).filter(Boolean))
+          : [];
+        optObj.exclude = Array.from(new Set([...existingEx, ...cfgExclude]));
+      }
+      const res = searchMod.replaceInFiles(this.files || {}, optObj, optObj.replacement);
       const nextFiles = res && (res.updatedFiles || res.files);
       const modifiedCount = res && (typeof res.filesModified === 'number' ? res.filesModified : (Array.isArray(res.filesAffected) ? res.filesAffected.length : 0));
       if (nextFiles && modifiedCount > 0) {
-        this.setFiles(nextFiles);
-        this._syncFilesToShellVfs();
+        this._applyInPlaceWorkspaceUpdates(nextFiles, res.filesAffected);
       }
       return res;
     }
@@ -11261,20 +16854,34 @@ int main() {
       const gs = this._getGitState();
       if (!gs) return false;
       const scmMod = root.CodeLabScm;
+      if (scmMod && typeof scmMod.stageFile === 'function' && (gs.stagedFiles instanceof Map || gs.staged instanceof Map || (this.shell && this.shell.gitState === gs))) {
+        const currentContent = Object.prototype.hasOwnProperty.call(this.files, relPath) ? this.files[relPath] : null;
+        scmMod.stageFile(gs, relPath, currentContent);
+        this._saveState();
+        return true;
+      }
       if (gs.staged instanceof Set) {
         gs.staged.add(relPath);
       } else if (scmMod && typeof scmMod.stageFile === 'function') {
         const currentContent = Object.prototype.hasOwnProperty.call(this.files, relPath) ? this.files[relPath] : null;
         scmMod.stageFile(gs, relPath, currentContent);
       }
+      this._saveState();
       return true;
     }
 
     unstageGitFile(relPath) {
       if (!relPath) return false;
       const gs = this._getGitState();
-      if (!gs || !gs.staged || typeof gs.staged.delete !== 'function') return false;
-      gs.staged.delete(relPath);
+      if (!gs) return false;
+      const scmMod = root.CodeLabScm;
+      if (scmMod && typeof scmMod.unstageFile === 'function') {
+        scmMod.unstageFile(gs, relPath);
+      }
+      if (gs.staged && typeof gs.staged.delete === 'function') {
+        gs.staged.delete(relPath);
+      }
+      this._saveState();
       return true;
     }
 
@@ -11285,7 +16892,154 @@ int main() {
           this.stageGitFile(entry.path);
         }
       }
+      this._saveState();
       return true;
+    }
+
+    unstageAllGitFiles() {
+      const gs = this._getGitState();
+      if (!gs) return false;
+      const scmMod = root.CodeLabScm;
+      if (scmMod && typeof scmMod.unstageAll === 'function') {
+        scmMod.unstageAll(gs);
+      }
+      if (gs.staged && typeof gs.staged.clear === 'function') {
+        gs.staged.clear();
+      }
+      this._saveState();
+      return true;
+    }
+
+    discardGitFile(relPath) {
+      if (!relPath) return false;
+      const cleanRel = String(relPath).replace(/^\/+/, '');
+      const gs = this._getGitState();
+      const scmMod = root.CodeLabScm;
+      let ok = false;
+      if (scmMod && typeof scmMod.discardChanges === 'function') {
+        ok = scmMod.discardChanges(this.shell || { gitState: gs, cwd: '/workspace' }, cleanRel, this.files);
+      } else if (gs) {
+        const headMap = gs.headFiles || gs.headSnapshot || {};
+        if (Object.prototype.hasOwnProperty.call(headMap, cleanRel)) {
+          this.files[cleanRel] = headMap[cleanRel];
+          ok = true;
+        } else if (Object.prototype.hasOwnProperty.call(this.files, cleanRel)) {
+          delete this.files[cleanRel];
+          ok = true;
+        }
+        this.unstageGitFile(cleanRel);
+      }
+      if (ok) {
+        if (!Object.prototype.hasOwnProperty.call(this.files, cleanRel)) {
+          if (Array.isArray(this.openTabs)) {
+            this.openTabs = this.openTabs.filter(t => t !== cleanRel);
+          }
+          if (this._dirtyFiles) this._dirtyFiles.delete(cleanRel);
+          if (this._savedSnapshot) delete this._savedSnapshot[cleanRel];
+          if (this.models && this.models.has(cleanRel)) {
+            const m = this.models.get(cleanRel);
+            if (m && typeof m.dispose === 'function') {
+              try { m.dispose(); } catch (_err) { void _err; }
+            }
+            this.models.delete(cleanRel);
+          }
+          this._vfsDeleteFile(cleanRel);
+          if (this.activeFile === cleanRel) {
+            this.activeFile = (this.openTabs && this.openTabs[0]) || null;
+            if (this.activeTab === cleanRel) this.activeTab = this.activeFile;
+          }
+        } else {
+          const restored = String(this.files[cleanRel] ?? '');
+          if (this._dirtyFiles) this._dirtyFiles.delete(cleanRel);
+          if (this._savedSnapshot) this._savedSnapshot[cleanRel] = restored;
+          if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFileSync === 'function') {
+            try {
+              this.kernel.fs.writeFileSync(`/workspace/${cleanRel}`, restored);
+            } catch (_err) {
+              void _err;
+            }
+          }
+          if (cleanRel === '.codelab/settings.json' || cleanRel === '.codelab/tasks.json') {
+            this._syncDotCodelabConfig({ isInitialMount: false });
+          } else {
+            this._lintFile(cleanRel);
+          }
+        }
+        if (this._dirtyFiles && this._dirtyFiles.size === 0) {
+          this.saveStatusState = 'saved';
+        }
+        if (this._activeScmDiffFile === cleanRel) {
+          this._activeScmDiffFile = null;
+        }
+        this._syncFilesToShellVfs({ pruneExtraneous: true, keepGitDir: true });
+        this._syncAllModels();
+        if (this.activeFile === cleanRel && this.container && !this.editor && Object.prototype.hasOwnProperty.call(this.files, cleanRel)) {
+          const fb = this.container.querySelector('#cl-fallback-editor');
+          if (fb) fb.value = this.files[cleanRel];
+          const sqlTa = this.container.querySelector('#cl-sql-editor-host .cl-sql-textarea');
+          if (sqlTa) sqlTa.value = this.files[cleanRel];
+        }
+        this._saveState();
+        this._syncActiveFileToView();
+        if (this.activeSidebarView === 'scm') {
+          this._renderScmSidebar();
+        }
+        this._updateStatusBar();
+      }
+      return ok;
+    }
+
+    _confirmDiscardGitFile(relPath, triggerEl) {
+      if (!relPath || !this.container) return;
+      const slot = this.container.querySelector('#cl-modal-slot');
+      if (!slot) {
+        this.discardGitFile(relPath);
+        return;
+      }
+      this._captureModalReturnFocus();
+      if (triggerEl && typeof triggerEl.focus === 'function') {
+        this._modalReturnFocusEl = triggerEl;
+      }
+      const cleanRel = String(relPath).replace(/^\/+/, '');
+      const gs = this._getGitState();
+      const headMap = (gs && (gs.headFiles || gs.headSnapshot)) || {};
+      const isUntracked = !Object.prototype.hasOwnProperty.call(headMap, cleanRel);
+      const desc = isUntracked
+        ? `Are you sure you want to delete untracked file "${cleanRel}"? This action cannot be undone.`
+        : `Are you sure you want to discard all working-tree changes in "${cleanRel}" and restore HEAD?`;
+
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-labelledby="cl-discard-modal-title" aria-describedby="cl-discard-modal-desc" style="max-width:420px;">
+            <div class="codelab-modal__header">
+              <span id="cl-discard-modal-title">Discard Changes</span>
+              <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="close-modal" title="Close" aria-label="Close">&times;</button>
+            </div>
+            <div class="codelab-modal__body">
+              <p id="cl-discard-modal-desc" style="margin:0 0 14px;font-size:13px;line-height:1.5;">${escapeHtml(desc)}</p>
+              <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="codelab-btn" id="cl-discard-cancel-btn" data-cl-action="close-modal">Cancel</button>
+                <button type="button" class="codelab-btn codelab-btn--danger" id="cl-discard-confirm-btn">Discard Changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const cancelBtn = slot.querySelector('#cl-discard-cancel-btn');
+      const confirmBtn = slot.querySelector('#cl-discard-confirm-btn');
+      if (cancelBtn && typeof cancelBtn.focus === 'function') {
+        cancelBtn.focus();
+      }
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+          this.discardGitFile(cleanRel);
+          this.closeModal();
+          const scmRoot = this.container ? this.container.querySelector('#cl-sidebar-scm #cl-scm-commit-input, #cl-sidebar-scm') : null;
+          if (scmRoot && typeof scmRoot.focus === 'function') {
+            scmRoot.focus();
+          }
+        });
+      }
     }
 
     commitGitChanges(message) {
@@ -11294,17 +17048,26 @@ int main() {
       const gs = this._getGitState();
       if (!gs) return null;
       const scmMod = root.CodeLabScm;
-      if (gs.staged instanceof Set) {
+      let committedHash = null;
+      if (scmMod && typeof scmMod.commitChanges === 'function' && (gs.stagedFiles instanceof Map || gs.staged instanceof Map || (this.shell && this.shell.gitState === gs))) {
+        try {
+          committedHash = scmMod.commitChanges(gs, msg);
+          this._syncGitHeadState(gs);
+        } catch (err) {
+          void err;
+          return null;
+        }
+      } else if (gs.staged instanceof Set) {
         if (gs.staged.size === 0) return null;
-        if (!gs.headSnapshot) gs.headSnapshot = {};
+        const nextHead = { ...(gs.headSnapshot || gs.headFiles || {}) };
         for (const relPath of gs.staged) {
           if (Object.prototype.hasOwnProperty.call(this.files, relPath)) {
-            gs.headSnapshot[relPath] = this.files[relPath];
+            nextHead[relPath] = this.files[relPath];
           } else {
-            delete gs.headSnapshot[relPath];
+            delete nextHead[relPath];
           }
         }
-        gs.headFiles = Object.assign({}, gs.headSnapshot);
+        const synced = this._syncGitHeadState(gs, nextHead);
         const hash = scmMod && typeof scmMod.computeShortCommitHash === 'function'
           ? scmMod.computeShortCommitHash(`${gs.branch || 'main'}:${msg}:${Date.now()}`)
           : Math.random().toString(16).slice(2, 9);
@@ -11314,184 +17077,1901 @@ int main() {
           author: 'CodeLab Developer <dev@codelab.internal>',
           date: new Date().toUTCString(),
           timestamp: Date.now(),
-          message: msg
+          message: msg,
+          files: { ...synced }
         });
         gs.headCommit = hash;
         gs.staged.clear();
-        this._syncFilesToShellVfs();
-        return hash;
-      }
-      if (scmMod && typeof scmMod.commitChanges === 'function') {
+        committedHash = hash;
+      } else if (scmMod && typeof scmMod.commitChanges === 'function') {
         try {
-          const hash = scmMod.commitChanges(gs, msg);
-          if (gs.headFiles) gs.headSnapshot = Object.assign({}, gs.headFiles);
-          this._syncFilesToShellVfs();
-          return hash;
-        } catch (_err) {
+          committedHash = scmMod.commitChanges(gs, msg);
+          this._syncGitHeadState(gs);
+        } catch (err) {
+          void err;
           return null;
         }
       }
-      return null;
+      if (committedHash) {
+        const curBranch = gs.branch || 'main';
+        if (!gs.branchHeads || typeof gs.branchHeads !== 'object') gs.branchHeads = {};
+        gs.branchHeads[curBranch] = {
+          headCommit: gs.headCommit || committedHash,
+          headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
+          commits: Array.isArray(gs.commits) ? gs.commits.slice() : []
+        };
+        if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+          try {
+            if (typeof this.shell.vfs.mkdirSync === 'function') {
+              this.shell.vfs.mkdirSync('/workspace/.git/refs/heads', { recursive: true });
+            }
+            this.shell.vfs.writeFileSync(`/workspace/.git/refs/heads/${curBranch}`, `${committedHash}\n`);
+          } catch (_err) {
+            void _err;
+          }
+        }
+        if (this._activeScmDiffFile) {
+          const remaining = this.getGitStatus();
+          if (!remaining.some((e) => e && e.path === this._activeScmDiffFile)) {
+            this._activeScmDiffFile = null;
+            this._syncActiveFileToView();
+          } else {
+            this._syncActiveFileToView();
+          }
+        }
+        this._syncFilesToShellVfs({ keepGitDir: true });
+        this._saveState();
+      }
+      return committedHash;
+    }
+
+    listGitBranches() {
+      const gs = this._getGitState();
+      if (!gs) return [];
+      const cur = gs.branch || 'main';
+      if (!(gs.branches instanceof Set)) {
+        gs.branches = new Set(Array.isArray(gs.branches) ? gs.branches : [cur]);
+      }
+      gs.branches.add(cur);
+      return Array.from(gs.branches).map((name) => ({
+        name,
+        current: name === cur
+      }));
+    }
+
+    createGitBranch(name, checkout = true) {
+      const cleanName = String(name || '').trim().replace(/\s+/g, '-');
+      if (!cleanName || cleanName.startsWith('-') || cleanName.includes('..')) return false;
+      const gs = this._getGitState();
+      if (!gs) return false;
+      if (!(gs.branches instanceof Set)) {
+        gs.branches = new Set(Array.isArray(gs.branches) ? gs.branches : [gs.branch || 'main']);
+      }
+      if (!gs.branchHeads || typeof gs.branchHeads !== 'object') gs.branchHeads = {};
+      const curBranch = gs.branch || 'main';
+      gs.branchHeads[curBranch] = {
+        headCommit: gs.headCommit || '',
+        headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
+        commits: Array.isArray(gs.commits) ? gs.commits.slice() : []
+      };
+      gs.branches.add(cleanName);
+      if (!gs.branchHeads[cleanName]) {
+        gs.branchHeads[cleanName] = {
+          headCommit: gs.headCommit || '',
+          headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
+          commits: Array.isArray(gs.commits) ? gs.commits.slice() : []
+        };
+      }
+      if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+        try {
+          if (typeof this.shell.vfs.mkdirSync === 'function') {
+            this.shell.vfs.mkdirSync('/workspace/.git/refs/heads', { recursive: true });
+          }
+          if (gs.headCommit) {
+            this.shell.vfs.writeFileSync(`/workspace/.git/refs/heads/${cleanName}`, `${gs.headCommit}\n`);
+          }
+        } catch (_err) {
+          void _err;
+        }
+      }
+      if (checkout) {
+        return this.checkoutGitBranch(cleanName);
+      }
+      this._saveState();
+      this._renderScmSidebar();
+      this._updateStatusBar();
+      return true;
+    }
+
+    checkoutGitBranch(name) {
+      const cleanName = String(name || '').trim();
+      if (!cleanName) return false;
+      const gs = this._getGitState();
+      if (!gs) return false;
+      if (!(gs.branches instanceof Set)) {
+        gs.branches = new Set(Array.isArray(gs.branches) ? gs.branches : [gs.branch || 'main']);
+      }
+      if (!gs.branches.has(cleanName)) return false;
+      if (!gs.branchHeads || typeof gs.branchHeads !== 'object') gs.branchHeads = {};
+      const prevBranch = gs.branch || 'main';
+      if (prevBranch !== cleanName) {
+        gs.branchHeads[prevBranch] = {
+          headCommit: gs.headCommit || '',
+          headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
+          commits: Array.isArray(gs.commits) ? gs.commits.slice() : []
+        };
+        const targetInfo = gs.branchHeads[cleanName];
+        if (targetInfo && typeof targetInfo === 'object') {
+          gs.headCommit = targetInfo.headCommit || '';
+          this._syncGitHeadState(gs, targetInfo.headSnapshot || {});
+          gs.commits = Array.isArray(targetInfo.commits) ? targetInfo.commits.slice() : [];
+        }
+      }
+      gs.branch = cleanName;
+      if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+        try {
+          if (typeof this.shell.vfs.mkdirSync === 'function') {
+            this.shell.vfs.mkdirSync('/workspace/.git/refs/heads', { recursive: true });
+          }
+          this.shell.vfs.writeFileSync('/workspace/.git/HEAD', `ref: refs/heads/${cleanName}\n`);
+        } catch (_err) {
+          void _err;
+        }
+      }
+      this._saveState();
+      if (this.activeSidebarView === 'scm') {
+        this._renderScmSidebar();
+      }
+      if (this._activeScmDiffFile) {
+        this._syncActiveFileToView();
+      }
+      this._updateStatusBar();
+      return true;
+    }
+
+    getGitLog(limit = 20) {
+      const gs = this._getGitState();
+      if (!gs || !Array.isArray(gs.commits)) return [];
+      const max = Math.max(1, Number(limit) || 20);
+      return gs.commits.slice(0, max).map((c) => ({
+        hash: String(c.hash || ''),
+        message: String(c.message || ''),
+        author: String(c.author || 'CodeLab Developer <dev@codelab.internal>'),
+        date: String(c.date || ''),
+        timestamp: Number(c.timestamp || 0)
+      }));
+    }
+
+    openScmDiff(relPath, opts = {}) {
+      const cleanRel = String(relPath || '').trim().replace(/^\/+/, '');
+      if (!cleanRel) return false;
+      if (this.activeTab === '__settings__') {
+        this.activeTab = this.activeFile || null;
+      }
+      this._activeScmDiffFile = cleanRel;
+      this._activeScmDiffStaged = Boolean(opts && opts.staged);
+      this._syncActiveFileToView();
+      return true;
+    }
+
+    closeScmDiff() {
+      if (!this._activeScmDiffFile) return false;
+      this._activeScmDiffFile = null;
+      this._activeScmDiffStaged = false;
+      this._syncActiveFileToView();
+      return true;
+    }
+
+    _renderInlineScmDiff(hostEl) {
+      if (!hostEl || !this._activeScmDiffFile) return;
+      const relPath = this._activeScmDiffFile;
+      const isStaged = Boolean(this._activeScmDiffStaged);
+      const gs = this._getGitState();
+      const headMap = (gs && (gs.headFiles || gs.headSnapshot)) || {};
+      const leftText = Object.prototype.hasOwnProperty.call(headMap, relPath) ? String(headMap[relPath] ?? '') : '';
+      let rightText = '';
+      if (isStaged && gs && (gs.staged instanceof Map || gs.stagedFiles instanceof Map)) {
+        const sMap = gs.staged instanceof Map ? gs.staged : gs.stagedFiles;
+        if (sMap.has(relPath)) {
+          const val = sMap.get(relPath);
+          rightText = val === null || val === undefined ? '' : String(val);
+        } else {
+          rightText = Object.prototype.hasOwnProperty.call(this.files, relPath) ? String(this.files[relPath] ?? '') : '';
+        }
+      } else {
+        rightText = Object.prototype.hasOwnProperty.call(this.files, relPath) ? String(this.files[relPath] ?? '') : '';
+      }
+      const leftLabel = Object.prototype.hasOwnProperty.call(headMap, relPath) ? `HEAD:${relPath}` : `${relPath} (Untracked)`;
+      const rightLabel = isStaged ? `Index (Staged): ${relPath}` : `Working Tree: ${relPath}`;
+      const diff = this._computeLineDiff(leftText, rightText);
+      const hasFileInWorktree = Object.prototype.hasOwnProperty.call(this.files, relPath);
+
+      const linesHtml = diff.hunks.map((h) => {
+        const cls = h.type === 'add'
+          ? 'codelab-diff-line--add codelab-scm-diff-line--add'
+          : (h.type === 'del' ? 'codelab-diff-line--del codelab-scm-diff-line--del' : 'codelab-diff-line--same');
+        const prefix = h.type === 'add' ? '+' : (h.type === 'del' ? '-' : ' ');
+        return `
+          <div class="codelab-diff-line ${cls}" data-diff-type="${h.type}">
+            <span class="codelab-diff-gutter">${h.oldLine || ''}</span>
+            <span class="codelab-diff-gutter">${h.newLine || ''}</span>
+            <span class="codelab-diff-prefix">${prefix}</span>
+            <span class="codelab-diff-code">${escapeHtml(h.text)}</span>
+          </div>
+        `;
+      }).join('');
+
+      hostEl.innerHTML = `
+        <div class="codelab-scm-diff-header">
+          <div class="codelab-scm-diff-header__title">
+            <strong>${escapeHtml(relPath)}</strong>
+            <span class="codelab-scm-diff-header__meta">${escapeHtml(leftLabel)} &rarr; ${escapeHtml(rightLabel)}</span>
+            <span class="codelab-scm-diff-stats">
+              <span class="codelab-scm-diff-stats__add">+${diff.added}</span>
+              <span class="codelab-scm-diff-stats__del">−${diff.removed}</span>
+            </span>
+          </div>
+          <div class="codelab-scm-diff-header__actions">
+            ${hasFileInWorktree ? `<button type="button" class="codelab-btn" data-cl-action="scm-diff-open-editor" data-scm-path="${escapeHtml(relPath)}" title="Open File in Editor">Open File</button>` : ''}
+            <button type="button" class="codelab-btn" data-cl-action="scm-close-diff" title="Close Diff View" aria-label="Close Diff">Close Diff</button>
+          </div>
+        </div>
+        <div class="codelab-scm-diff-body codelab-diff-unified">
+          ${linesHtml || '<div class="codelab-sidebar-empty">No line differences.</div>'}
+        </div>
+      `;
     }
 
     getDiagnostics() {
-      const diagMod = root.CodeLabDiagnostics;
-      if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
-        this._diagnosticsStore = diagMod.createDiagnosticsStore();
-      }
+      this._ensureDiagnosticsStore();
       if (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function') {
         return this._diagnosticsStore.getAll();
       }
       return [];
     }
 
-    showSearchModal(initialQuery = '') {
-      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
-      if (!slot) return;
-      const q = String(initialQuery || '');
-      const renderRows = (queryText) => {
-        const res = queryText ? this.searchWorkspace({ query: queryText }) : { matches: [], totalMatches: 0, filesMatched: 0 };
-        if (!queryText) {
-          return '<div style="color:var(--cl-fg-muted);font-size:12px;">Enter a query to search across workspace files.</div>';
-        }
-        if (!res.matches || res.matches.length === 0) {
-          return '<div style="color:var(--cl-fg-muted);font-size:12px;">No matches found in workspace.</div>';
-        }
-        return res.matches.map((m) => `
-          <div class="codelab-search-match" data-cl-file="${escapeHtml(m.file)}" data-cl-search-file="${escapeHtml(m.file)}" data-cl-search-line="${m.line || 1}" data-cl-search-col="${m.column || 1}" role="button" tabindex="0" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);cursor:pointer;font-family:var(--cl-font-mono);font-size:12px;">
-            <strong>${escapeHtml(m.file)}:${m.line}:${m.column}</strong> — <span>${escapeHtml(m.lineText)}</span>
-          </div>
-        `).join('');
-      };
-      slot.innerHTML = `
-        <div class="codelab-modal-backdrop">
-          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Search Across Workspace">
-            <div class="codelab-modal__header">
-              <span>Search &amp; Replace Across Workspace</span>
-              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
-            </div>
-            <div class="codelab-modal__body">
-              <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
-                <input id="cl-search-query-input" class="codelab-modal-input" type="text" value="${escapeHtml(q)}" placeholder="Search text or regex..." />
-                <input id="cl-search-replace-input" class="codelab-modal-input" type="text" placeholder="Replace with..." />
-                <button type="button" id="cl-search-replace-all-btn" class="codelab-btn codelab-btn--primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;">Replace All</button>
-              </div>
-              <div id="cl-search-results-list" style="max-height:320px;overflow-y:auto;">${renderRows(q)}</div>
-            </div>
-          </div>
-        </div>
-      `;
-      const queryInput = slot.querySelector('#cl-search-query-input');
-      const replaceInput = slot.querySelector('#cl-search-replace-input');
-      const replaceBtn = slot.querySelector('#cl-search-replace-all-btn');
-      const listEl = slot.querySelector('#cl-search-results-list');
-      if (queryInput && listEl) {
-        queryInput.addEventListener('input', () => {
-          listEl.innerHTML = renderRows(queryInput.value || '');
-        });
-        if (typeof queryInput.focus === 'function') queryInput.focus();
+    // ── Primary Side Bar, Activity Bar & Non-Modal View Controllers ─────────
+    setSidebarVisible(visible, opts = {}) {
+      const next = Boolean(visible);
+      this.sidebarVisible = next;
+      const shellEl = this.container ? this.container.querySelector('.codelab') : null;
+      if (shellEl) {
+        shellEl.classList.toggle('sidebar-collapsed', !next);
+        shellEl.classList.toggle('files-collapsed', !next);
       }
-      if (replaceBtn && queryInput && replaceInput && listEl) {
-        const triggerReplace = () => {
-          const queryVal = queryInput.value || '';
-          if (!queryVal) return;
-          this.replaceInWorkspace({ query: queryVal, replacement: replaceInput.value || '' });
-          listEl.innerHTML = renderRows(queryVal);
-        };
-        replaceBtn.addEventListener('click', triggerReplace);
-        replaceInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            if (e.isComposing || e.keyCode === 229) return;
-            e.preventDefault();
-            triggerReplace();
+      const toggleBtn = this.container ? this.container.querySelector('#cl-toggle-sidebar-btn') : null;
+      if (toggleBtn) {
+        toggleBtn.classList.toggle('active', next);
+        toggleBtn.setAttribute('aria-pressed', String(next));
+      }
+      this._syncSidebarDom();
+      if (!opts || !opts.fromConfig) {
+        if (this.configuration && typeof this.configuration.setUserSetting === 'function') {
+          try {
+            const curCfg = this.configuration.get('workbench.sideBar.visible', true);
+            if (Boolean(curCfg) !== next) {
+              const hadWs =
+                typeof this.configuration.inspect === 'function' &&
+                this.configuration.inspect('workbench.sideBar.visible').workspaceValue !== undefined;
+              this.configuration.setUserSetting('workbench.sideBar.visible', next);
+              if (hadWs && typeof this.configuration.setWorkspaceSetting === 'function') {
+                this.configuration.setWorkspaceSetting('workbench.sideBar.visible', next);
+                this._persistWorkspaceSettingsFromUi();
+              }
+            }
+          } catch (err) {
+            void err;
           }
-        });
+        }
+      }
+      if (this.editor && typeof this.editor.layout === 'function') {
+        this.editor.layout();
       }
     }
 
-    showScmModal() {
-      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
-      if (!slot) return;
-      const statusList = this.getGitStatus();
+    toggleSidebar() {
+      this.setSidebarVisible(!this.sidebarVisible);
+    }
+
+    setSidebarView(viewId, opts = {}) {
+      const target = String(viewId || 'explorer');
+      if (target === 'settings') {
+        this.openSettings();
+        return;
+      }
+      this.activeSidebarView = target;
+      if (!opts || opts.ensureOpen !== false) {
+        this.setSidebarVisible(true);
+      } else {
+        this._syncSidebarDom();
+      }
+      if (target === 'search') {
+        this._renderSearchSidebarResults();
+        if (opts && opts.focus !== false) {
+          const inp = this.container ? this.container.querySelector('#cl-search-input') : null;
+          if (inp && typeof inp.focus === 'function') inp.focus();
+        }
+      } else if (target === 'scm') {
+        this._renderScmSidebar();
+        if (opts && opts.focus !== false) {
+          const inp = this.container ? this.container.querySelector('#cl-sidebar-scm #cl-scm-commit-input, #cl-sidebar-scm #cl-scm-init-btn') : null;
+          if (inp && typeof inp.focus === 'function') inp.focus();
+        }
+      } else if (target.startsWith('plugin:')) {
+        this._renderActiveSidebarPlugin();
+      } else {
+        this._renderFileLists();
+        if (opts && opts.focus) {
+          const firstItem = this.container
+            ? this.container.querySelector('#cl-explorer-list .codelab-file-item, #cl-explorer-list .codelab-folder-item, #cl-sidebar-explorer [data-cl-action="new-file-root"]')
+            : null;
+          if (firstItem && typeof firstItem.focus === 'function') firstItem.focus();
+        }
+      }
+    }
+
+    _syncSidebarDom() {
+      if (!this.container) return;
+      const view = this.activeSidebarView || 'explorer';
+      const isPlugin = view.startsWith('plugin:');
+      const explorerEl = this.container.querySelector('#cl-sidebar-explorer');
+      const searchEl = this.container.querySelector('#cl-sidebar-search');
+      const scmEl = this.container.querySelector('#cl-sidebar-scm');
+      const pluginEl = this.container.querySelector('#cl-sidebar-plugin-host');
+
+      const setHidden = (el, hide) => {
+        if (!el) return;
+        el.hidden = hide;
+        if (el.style) el.style.display = hide ? 'none' : '';
+      };
+      setHidden(explorerEl, view !== 'explorer');
+      setHidden(searchEl, view !== 'search');
+      setHidden(scmEl, view !== 'scm');
+      setHidden(pluginEl, !isPlugin);
+
+      this.container.querySelectorAll('#cl-activitybar [data-cl-activity]').forEach(btn => {
+        const id = btn.dataset.clActivity;
+        if (id === 'settings') {
+          const sAct = Boolean(this.settingsTabOpen && this.activeTab === '__settings__');
+          btn.classList.toggle('active', sAct);
+          btn.setAttribute('aria-pressed', String(sAct));
+        } else {
+          const active = Boolean(this.sidebarVisible && id === view);
+          btn.classList.toggle('active', active);
+          btn.setAttribute('aria-pressed', String(active));
+        }
+      });
+    }
+
+    collapseAllFolders() {
+      const allFolders = new Set(Array.from(this.folders || []));
+      for (const fname of Object.keys(this.files || {})) {
+        const parts = fname.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          allFolders.add(parts.slice(0, i).join('/'));
+        }
+      }
+      for (const f of allFolders) {
+        this.collapsedFolders.add(f);
+      }
+      this._renderFileLists();
+    }
+
+    _refreshSidebarPluginContributions() {
+      if (!this.container) return;
+      const slot = this.container.querySelector('#cl-activitybar-plugins');
+      const activeSidebarPanels = [];
+      if (this.plugins && this.plugins.panels && typeof this.plugins.panels.values === 'function') {
+        for (const panel of this.plugins.panels.values()) {
+          if (panel && panel.id && panel.location === 'sidebar') {
+            activeSidebarPanels.push(panel);
+          }
+        }
+      }
+      if (slot) {
+        slot.innerHTML = activeSidebarPanels.map((panel) => {
+          const viewId = `plugin:${panel.id}`;
+          const isAct = Boolean(this.sidebarVisible && this.activeSidebarView === viewId);
+          return `<button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${isAct ? 'active' : ''}" data-cl-activity="${escapeHtml(viewId)}" title="${escapeHtml(panel.title || panel.id)}" aria-label="${escapeHtml(panel.title || panel.id)}" aria-pressed="${isAct}">${CL_ICONS.box}</button>`;
+        }).join('');
+      }
+      if (String(this.activeSidebarView || '').startsWith('plugin:')) {
+        const activeId = String(this.activeSidebarView).slice('plugin:'.length);
+        const stillExists = activeSidebarPanels.some(p => p.id === activeId);
+        if (!stillExists) {
+          const hostEl = this.container.querySelector('#cl-sidebar-plugin-host');
+          if (hostEl) hostEl.innerHTML = '';
+          this.setSidebarView('explorer', { ensureOpen: this.sidebarVisible, focus: false });
+          return;
+        }
+        this._renderActiveSidebarPlugin();
+      }
+    }
+
+    _renderActiveSidebarPlugin() {
+      if (!this.container) return;
+      const hostEl = this.container.querySelector('#cl-sidebar-plugin-host');
+      if (!hostEl) return;
+      const view = String(this.activeSidebarView || '');
+      if (!view.startsWith('plugin:')) return;
+      const panelId = view.slice('plugin:'.length);
+      const panel = (this.plugins && this.plugins.panels && typeof this.plugins.panels.get === 'function')
+        ? this.plugins.panels.get(panelId)
+        : null;
+      if (!panel) return;
+      hostEl.innerHTML = `
+        <div class="codelab-explorer__header">
+          <span>${escapeHtml(panel.title || panel.id)}</span>
+        </div>
+        <div class="codelab-sidebar__body" id="cl-sidebar-plugin-mount"></div>
+      `;
+      const mountEl = hostEl.querySelector('#cl-sidebar-plugin-mount') || hostEl;
+      if (typeof panel.render === 'function') {
+        try {
+          const rendered = panel.render(mountEl);
+          if (typeof rendered === 'string') {
+            mountEl.innerHTML = rendered;
+          }
+        } catch (err) {
+          mountEl.innerHTML = `<div class="codelab-sidebar-empty">Plugin view error: ${escapeHtml(String((err && err.message) || err))}</div>`;
+        }
+      }
+    }
+
+    _updateScmActivityBadge() {
+      if (!this.container) return;
+      const badgeEl = this.container.querySelector('#cl-activity-scm-badge');
+      if (!badgeEl) return;
       const gs = this._getGitState();
-      const branch = (gs && gs.branch) ? gs.branch : 'main';
-      const hasStaged = statusList.some((e) => e.staged);
-      const hasUnstaged = statusList.some((e) => !e.staged);
-      const rowsHtml = statusList.map((entry) => {
-        const badge = entry.staged ? `Staged (${entry.index})` : (entry.worktree !== ' ' ? entry.worktree : entry.index);
-        const actionBtn = entry.staged
-          ? `<button type="button" class="codelab-btn" data-cl-action="scm-unstage-file" data-scm-path="${escapeHtml(entry.path)}" style="padding:2px 8px;font-size:11px;">Unstage</button>`
-          : `<button type="button" class="codelab-btn" data-cl-action="scm-stage-file" data-scm-path="${escapeHtml(entry.path)}" style="padding:2px 8px;font-size:11px;">Stage</button>`;
+      const isInit = Boolean(gs && (gs.initialized || (gs.commits && gs.commits.length > 0) || (gs.staged && gs.staged.size > 0)));
+      const count = isInit ? this.getGitStatus().length : 0;
+      badgeEl.textContent = String(count);
+      badgeEl.hidden = count <= 0;
+      if (badgeEl.style) {
+        badgeEl.style.display = count > 0 ? 'inline-flex' : 'none';
+      }
+    }
+
+    _renderSearchSidebarResults() {
+      if (!this.container) return;
+      const resultsEl = this.container.querySelector('#cl-search-results');
+      if (!resultsEl) return;
+      const state = this._searchState || { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+      const queryText = String(state.query || '');
+      if (!queryText) {
+        resultsEl.innerHTML = '<div class="codelab-sidebar-empty">Type a search term to find matches across workspace files.</div>';
+        return;
+      }
+      let res;
+      try {
+        res = this.searchWorkspace({
+          query: queryText,
+          isRegex: Boolean(state.regex),
+          caseSensitive: Boolean(state.caseSensitive),
+          wholeWord: Boolean(state.wholeWord),
+          include: state.include ? String(state.include).trim() : undefined,
+          exclude: state.exclude ? String(state.exclude).trim() : undefined
+        });
+      } catch (err) {
+        resultsEl.innerHTML = `<div class="codelab-search-error" role="alert">Invalid regular expression: ${escapeHtml(String((err && err.message) || err))}</div>`;
+        return;
+      }
+      if (res && res.error) {
+        resultsEl.innerHTML = `<div class="codelab-search-error" role="alert">Invalid regular expression: ${escapeHtml(String(res.error))}</div>`;
+        return;
+      }
+      const groups = (res && Array.isArray(res.matches)) ? res.matches : [];
+      if (groups.length === 0) {
+        resultsEl.innerHTML = '<div class="codelab-sidebar-empty">No results found.</div>';
+        return;
+      }
+      const totalMatches = typeof res.totalMatches === 'number' ? res.totalMatches : groups.reduce((acc, g) => acc + (Array.isArray(g.matches) ? g.matches.length : 1), 0);
+      const filesCount = typeof res.filesMatched === 'number'
+        ? res.filesMatched
+        : (typeof res.fileCount === 'number' ? res.fileCount : groups.length);
+      const summaryHtml = `<div class="codelab-search-summary">${totalMatches} result${totalMatches === 1 ? '' : 's'} in ${filesCount} file${filesCount === 1 ? '' : 's'}</div>`;
+
+      const groupsHtml = groups.map((group) => {
+        const fileName = String(group.file || '');
+        const innerMatches = Array.isArray(group.matches)
+          ? group.matches
+          : [{ line: group.line || 1, col: group.col || group.column || 1, length: group.length || 0, lineText: group.lineText || '' }];
+        const rowsHtml = innerMatches.map((m) => {
+          const ln = Number(m.line || 1);
+          const col = Number(m.col || m.column || 1);
+          const lineStr = String(m.lineText !== undefined && m.lineText !== null ? m.lineText : '');
+          const matchLen = Math.max(0, Number(m.length || 0));
+          let snippetHtml = escapeHtml(lineStr.trim());
+          if (matchLen > 0 && col >= 1 && col - 1 + matchLen <= lineStr.length) {
+            const before = lineStr.slice(0, col - 1).trimStart();
+            const mid = lineStr.slice(col - 1, col - 1 + matchLen);
+            const after = lineStr.slice(col - 1 + matchLen).trimEnd();
+            snippetHtml = `${escapeHtml(before)}<mark class="codelab-search-highlight">${escapeHtml(mid)}</mark>${escapeHtml(after)}`;
+          }
+          return `
+            <div class="codelab-search-match" role="listitem">
+              <button type="button" class="codelab-search-match__jump" data-cl-search-file="${escapeHtml(fileName)}" data-cl-search-line="${ln}" data-cl-search-col="${col}" title="${escapeHtml(fileName)}:${ln}:${col}">
+                <span class="codelab-search-match__loc">${ln}:${col}</span>
+                <span class="codelab-search-match__text">${snippetHtml}</span>
+              </button>
+              <button type="button" class="codelab-explorer__btn codelab-search-match__replace" data-cl-action="replace-match" data-cl-search-target-file="${escapeHtml(fileName)}" data-cl-search-line="${ln}" data-cl-search-col="${col}" data-cl-search-len="${matchLen}" title="Replace Match" aria-label="Replace match in ${escapeHtml(fileName)} at line ${ln}">⇄</button>
+            </div>
+          `;
+        }).join('');
         return `
-          <div class="codelab-scm-entry" data-scm-path="${escapeHtml(entry.path)}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--cl-border);font-family:var(--cl-font-mono);font-size:12px;">
-            <span data-cl-action="scm-open-file" data-scm-path="${escapeHtml(entry.path)}" style="cursor:pointer;text-decoration:underline;">${escapeHtml(entry.path)}</span>
-            <span style="display:inline-flex;align-items:center;gap:8px;">
-              <span>${escapeHtml(badge)}</span>
-              ${actionBtn}
+          <div class="codelab-search-group" data-search-group-file="${escapeHtml(fileName)}">
+            <div class="codelab-search-group__header">
+              <span class="codelab-search-group__file">${escapeHtml(fileName)}</span>
+              <span class="codelab-search-group__actions">
+                <button type="button" class="codelab-explorer__btn codelab-search-group__replace" data-cl-action="replace-file" data-cl-search-target-file="${escapeHtml(fileName)}" title="Replace All in File" aria-label="Replace all matches in ${escapeHtml(fileName)}">⇄</button>
+                <span class="codelab-badge">${innerMatches.length}</span>
+              </span>
+            </div>
+            <div class="codelab-search-group__items" role="list">${rowsHtml}</div>
+          </div>
+        `;
+      }).join('');
+
+      resultsEl.innerHTML = summaryHtml + groupsHtml;
+    }
+
+    _executeSidebarReplaceAll() {
+      const state = this._searchState || { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+      const q = String(state.query || '');
+      if (!q) return null;
+      const res = this.replaceInWorkspace({
+        query: q,
+        replacement: String(state.replaceText || ''),
+        isRegex: Boolean(state.regex),
+        caseSensitive: Boolean(state.caseSensitive),
+        wholeWord: Boolean(state.wholeWord),
+        include: state.include ? String(state.include).trim() : undefined,
+        exclude: state.exclude ? String(state.exclude).trim() : undefined
+      });
+      this._renderSearchSidebarResults();
+      return res;
+    }
+
+    _executeSidebarReplaceFile(targetFile) {
+      if (!targetFile) return null;
+      const state = this._searchState || { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+      const q = String(state.query || '');
+      if (!q) return null;
+      const res = this.replaceInWorkspace({
+        query: q,
+        replacement: String(state.replaceText || ''),
+        isRegex: Boolean(state.regex),
+        caseSensitive: Boolean(state.caseSensitive),
+        wholeWord: Boolean(state.wholeWord),
+        targetFiles: [String(targetFile)]
+      });
+      this._renderSearchSidebarResults();
+      return res;
+    }
+
+    _executeSidebarReplaceMatch(targetFile, line, col, matchLen) {
+      if (!targetFile || !this.files || !Object.prototype.hasOwnProperty.call(this.files, targetFile)) {
+        return false;
+      }
+      const state = this._searchState || { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+      const q = String(state.query || '');
+      if (!q) return false;
+      const raw = String(this.files[targetFile] ?? '');
+      const lines = raw.split('\n');
+      const lineIdx = Math.max(0, Number(line || 1) - 1);
+      if (lineIdx >= lines.length) return false;
+      const lineStr = lines[lineIdx];
+      const startColIdx = Math.max(0, Number(col || 1) - 1);
+      const sliceLen = Math.max(0, Number(matchLen || 0));
+      if (startColIdx > lineStr.length) return false;
+      const matchedSlice = lineStr.slice(startColIdx, startColIdx + sliceLen);
+      const repStr = String(state.replaceText || '');
+      let computedRep = repStr;
+      if (state.regex) {
+        try {
+          const searchMod = root.CodeLabSearch;
+          const escFn = searchMod && typeof searchMod.escapeRegex === 'function'
+            ? searchMod.escapeRegex
+            : (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          void escFn;
+          const pat = state.wholeWord ? `\\b${q}\\b` : q;
+          const rx = new RegExp(pat, state.caseSensitive ? '' : 'i');
+          computedRep = matchedSlice.replace(rx, repStr);
+        } catch (_err) {
+          void _err;
+          return false;
+        }
+      }
+      lines[lineIdx] = lineStr.slice(0, startColIdx) + computedRep + lineStr.slice(startColIdx + sliceLen);
+      const nextContent = lines.join('\n');
+      this._applyInPlaceWorkspaceUpdates({ ...this.files, [targetFile]: nextContent }, [targetFile]);
+      this._renderSearchSidebarResults();
+      return true;
+    }
+
+    _executeSidebarReplaceOne() {
+      const state = this._searchState || { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+      const q = String(state.query || '');
+      if (!q) return false;
+      let res;
+      try {
+        res = this.searchWorkspace({
+          query: q,
+          isRegex: Boolean(state.regex),
+          caseSensitive: Boolean(state.caseSensitive),
+          wholeWord: Boolean(state.wholeWord),
+          include: state.include ? String(state.include).trim() : undefined,
+          exclude: state.exclude ? String(state.exclude).trim() : undefined
+        });
+      } catch (_err) {
+        void _err;
+        return false;
+      }
+      if (!res || res.error || !Array.isArray(res.matches) || res.matches.length === 0) {
+        return false;
+      }
+      const firstGroup = res.matches[0];
+      const firstMatch = firstGroup && Array.isArray(firstGroup.matches) ? firstGroup.matches[0] : null;
+      if (!firstGroup || !firstMatch) return false;
+      return this._executeSidebarReplaceMatch(
+        firstGroup.file,
+        firstMatch.line || 1,
+        firstMatch.col || firstMatch.column || 1,
+        firstMatch.length || 0
+      );
+    }
+
+    openSearchView(opts = {}) {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (slot && slot.innerHTML) slot.innerHTML = '';
+      if (!this._searchState) {
+        this._searchState = { query: '', replaceText: '', include: '', exclude: '', regex: false, caseSensitive: false, wholeWord: false };
+      }
+      if (typeof opts === 'string') {
+        this._searchState.query = opts;
+      } else if (opts && typeof opts.query === 'string') {
+        this._searchState.query = opts.query;
+      }
+      if (opts && typeof opts.replaceText === 'string') {
+        this._searchState.replaceText = opts.replaceText;
+      }
+      if (opts && typeof opts.include === 'string') {
+        this._searchState.include = opts.include;
+      }
+      if (opts && typeof opts.exclude === 'string') {
+        this._searchState.exclude = opts.exclude;
+      }
+      const inp = this.container ? this.container.querySelector('#cl-search-input') : null;
+      if (inp) inp.value = this._searchState.query || '';
+      const repInp = this.container ? this.container.querySelector('#cl-search-replace-input') : null;
+      if (repInp && opts && typeof opts.replaceText === 'string') repInp.value = this._searchState.replaceText;
+      const incInp = this.container ? this.container.querySelector('#cl-search-include') : null;
+      if (incInp) incInp.value = this._searchState.include || '';
+      const excInp = this.container ? this.container.querySelector('#cl-search-exclude') : null;
+      if (excInp) excInp.value = this._searchState.exclude || '';
+      this.setSidebarView('search', { ensureOpen: true, focus: !opts || opts.focus !== false });
+    }
+
+    showSearchModal(initialQuery = '') {
+      this.openSearchView({ query: String(initialQuery || '') });
+    }
+
+    _initGitRepoInScm() {
+      const scmMod = root.CodeLabScm;
+      this._syncFilesToShellVfs();
+      if (scmMod && typeof scmMod.initRepository === 'function') {
+        if (this.shell) {
+          scmMod.initRepository(this.shell, { snapshotExisting: false });
+        } else {
+          const gs = this._getGitState();
+          if (gs) scmMod.initRepository(gs, { snapshotExisting: false });
+        }
+      } else {
+        const gs = this._getGitState();
+        if (gs) gs.initialized = true;
+      }
+      this._saveState();
+      this._renderScmSidebar();
+      this._updateStatusBar();
+    }
+
+    _renderScmSidebar() {
+      if (!this.container) return;
+      const bodyEl = this.container.querySelector('#cl-scm-view-body');
+      if (!bodyEl) return;
+      const gs = this._getGitState();
+      const isInitialized = Boolean(
+        gs && (gs.initialized || (Array.isArray(gs.commits) && gs.commits.length > 0) || (gs.staged && gs.staged.size > 0))
+      );
+
+      if (!isInitialized) {
+        bodyEl.innerHTML = `
+          <div class="codelab-scm-empty">
+            <p class="codelab-sidebar-empty">The current workspace does not have an active Git repository.</p>
+            <button type="button" class="codelab-btn codelab-btn--primary" id="cl-scm-init-btn" data-cl-action="scm-init" style="width:100%;justify-content:center;">
+              Initialize Repository
+            </button>
+            <button type="button" class="codelab-btn" id="cl-scm-clone-btn" data-cl-action="open-clone-modal" style="width:100%;justify-content:center;margin-top:8px;">
+              Clone Repository
+            </button>
+          </div>
+        `;
+        this._updateScmActivityBadge();
+        return;
+      }
+
+      const branch = (gs && gs.branch) ? gs.branch : 'main';
+      const branches = this.listGitBranches();
+      const statusList = this.getGitStatus();
+      const stagedEntries = statusList.filter(e => e && e.staged);
+      const unstagedEntries = statusList.filter(e => e && !e.staged);
+      const existingInput = bodyEl.querySelector('#cl-scm-commit-input');
+      const hadCommitFocus = Boolean(
+        existingInput &&
+        typeof document !== 'undefined' &&
+        document.activeElement === existingInput
+      );
+      const selStart = existingInput && typeof existingInput.selectionStart === 'number' ? existingInput.selectionStart : null;
+      const selEnd = existingInput && typeof existingInput.selectionEnd === 'number' ? existingInput.selectionEnd : null;
+      const draftMsg = existingInput ? existingInput.value : '';
+
+      const renderEntryRow = (entry, isStaged) => {
+        const codeChar = isStaged
+          ? (entry.index && entry.index !== ' ' ? entry.index : 'M')
+          : (entry.worktree && entry.worktree !== ' ' ? entry.worktree : (entry.index || 'U'));
+        return `
+          <div class="codelab-scm-entry codelab-scm-item" role="listitem" data-cl-scm-file="${escapeHtml(entry.path)}" data-scm-path="${escapeHtml(entry.path)}" data-scm-staged="${isStaged}">
+            <button type="button" class="codelab-scm-entry__file" data-cl-action="scm-open-file" data-scm-path="${escapeHtml(entry.path)}" title="View Diff for ${escapeHtml(entry.path)}">
+              <span>${escapeHtml(entry.path)}</span>
+            </button>
+            <span class="codelab-scm-entry__actions">
+              ${isStaged
+                ? `<button type="button" class="codelab-explorer__btn" data-cl-action="scm-unstage-file" data-scm-path="${escapeHtml(entry.path)}" title="Unstage Changes" aria-label="Unstage ${escapeHtml(entry.path)}">&minus;</button>`
+                : `<button type="button" class="codelab-explorer__btn" data-cl-action="scm-discard-file" data-scm-path="${escapeHtml(entry.path)}" title="Discard Changes" aria-label="Discard ${escapeHtml(entry.path)}">&#x21BA;</button>
+                   <button type="button" class="codelab-explorer__btn" data-cl-action="scm-stage-file" data-scm-path="${escapeHtml(entry.path)}" title="Stage Changes" aria-label="Stage ${escapeHtml(entry.path)}">+</button>`}
+              <span class="codelab-scm-entry__status" title="${escapeHtml(entry.status || '')}">${escapeHtml(codeChar)}</span>
             </span>
           </div>
         `;
-      }).join('');
-      slot.innerHTML = `
-        <div class="codelab-modal-backdrop">
-          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Source Control">
-            <div class="codelab-modal__header">
-              <span>Source Control (Git Status · ${escapeHtml(branch)})</span>
-              <div style="display:flex;gap:6px;align-items:center;">
-                ${hasUnstaged ? `<button type="button" class="codelab-btn" data-cl-action="scm-stage-all" style="padding:3px 8px;font-size:11px;">Stage All</button>` : ''}
-                <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
-              </div>
+      };
+
+      const commits = this.getGitLog(10);
+      const totalCommits = (gs && Array.isArray(gs.commits)) ? gs.commits.length : commits.length;
+      const commitsHtml = commits.length > 0
+        ? `
+          <div class="codelab-scm-section" data-scm-section="commits">
+            <div class="codelab-scm-section__header">
+              <span>Commit History (${totalCommits})</span>
             </div>
-            <div class="codelab-modal__body">
-              <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
-                <input id="cl-scm-commit-input" class="codelab-modal-input" type="text" placeholder="Commit message (e.g. feat: update module)..." />
-                <button type="button" id="cl-scm-commit-btn" class="codelab-btn codelab-btn--primary" data-cl-action="scm-commit" ${hasStaged ? '' : 'disabled'} style="padding:5px 10px;font-size:12px;white-space:nowrap;">Commit</button>
-              </div>
-              <div id="cl-scm-status-list" style="max-height:300px;overflow-y:auto;">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">Working tree clean</div>'}</div>
+            <div class="codelab-scm-commits" role="list">
+              ${commits.map(c => `
+                <div class="codelab-scm-commit-row" role="listitem">
+                  <code>${escapeHtml(String(c.hash || '').slice(0, 7))}</code>
+                  <span>${escapeHtml(c.message || '')}</span>
+                </div>
+              `).join('')}
             </div>
           </div>
+        `
+        : '';
+
+      const branchOptionsHtml = branches.map(b =>
+        `<option value="${escapeHtml(b.name)}"${b.current ? ' selected' : ''}>${escapeHtml(b.name)}</option>`
+      ).join('');
+
+      const newBranchFormHtml = this._scmCreatingBranch
+        ? `
+          <div class="codelab-scm-new-branch-row">
+            <input id="cl-scm-new-branch-input" class="codelab-sidebar-input" type="text" placeholder="New branch name..." aria-label="New branch name" autocomplete="off" />
+            <button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="scm-create-branch-submit" title="Create and Switch Branch">Create</button>
+            <button type="button" class="codelab-btn" data-cl-action="scm-create-branch-cancel" title="Cancel Branch Creation">Cancel</button>
+          </div>
+        `
+        : '';
+
+      bodyEl.innerHTML = `
+        <div class="codelab-scm-branch-bar">
+          ${CL_ICONS.gitBranch}
+          <select id="cl-scm-branch-select" class="codelab-scm-branch-select" aria-label="Switch Git Branch" title="Active Git Branch">
+            ${branchOptionsHtml}
+          </select>
+          <button type="button" class="codelab-explorer__btn" data-cl-action="scm-new-branch-toggle" title="Create New Branch" aria-label="Create New Git Branch">+</button>
         </div>
+        ${newBranchFormHtml}
+        <div class="codelab-sidebar-field codelab-scm-commit-box">
+          <textarea id="cl-scm-commit-input" class="codelab-sidebar-input codelab-scm-commit-textarea" rows="2" placeholder="Message (⌘Enter to commit on '${escapeHtml(branch)}')" aria-label="Commit message">${escapeHtml(draftMsg)}</textarea>
+          <button type="button" id="cl-scm-commit-btn" class="codelab-btn codelab-btn--primary" data-cl-action="scm-commit" ${stagedEntries.length > 0 && draftMsg.trim().length > 0 ? '' : 'disabled'} style="width:100%;justify-content:center;">
+            Commit
+          </button>
+        </div>
+        ${stagedEntries.length > 0 ? `
+          <div class="codelab-scm-section" data-scm-section="staged">
+            <div class="codelab-scm-section__header">
+              <span>Staged Changes (${stagedEntries.length})</span>
+              <button type="button" class="codelab-explorer__btn" data-cl-action="scm-unstage-all" title="Unstage All Changes" aria-label="Unstage All Changes">&minus;</button>
+            </div>
+            <div class="codelab-scm-list" id="cl-scm-staged-list" role="list">${stagedEntries.map(e => renderEntryRow(e, true)).join('')}</div>
+          </div>
+        ` : ''}
+        <div class="codelab-scm-section" data-scm-section="unstaged">
+          <div class="codelab-scm-section__header">
+            <span>Changes (${unstagedEntries.length})</span>
+            ${unstagedEntries.length > 0 ? `<button type="button" class="codelab-explorer__btn" data-cl-action="scm-stage-all" title="Stage All Changes" aria-label="Stage All Changes">+</button>` : ''}
+          </div>
+          <div class="codelab-scm-list" id="cl-scm-status-list" role="list">
+            ${unstagedEntries.length > 0
+              ? unstagedEntries.map(e => renderEntryRow(e, false)).join('')
+              : (stagedEntries.length === 0 ? '<div class="codelab-sidebar-empty">Working tree clean.</div>' : '<div class="codelab-sidebar-empty">No unstaged changes.</div>')}
+          </div>
+        </div>
+        ${commitsHtml}
       `;
+      const restoredInput = bodyEl.querySelector('#cl-scm-commit-input');
+      if (restoredInput) {
+        if (restoredInput.value !== draftMsg) {
+          restoredInput.value = draftMsg;
+        }
+        if (hadCommitFocus && typeof restoredInput.focus === 'function') {
+          restoredInput.focus();
+          if (selStart !== null && selEnd !== null && typeof restoredInput.setSelectionRange === 'function') {
+            try { restoredInput.setSelectionRange(selStart, selEnd); } catch (_err) { void _err; }
+          }
+        }
+      }
+      this._updateScmActivityBadge();
+    }
+
+    openScmView() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (slot && slot.innerHTML) slot.innerHTML = '';
+      this.setSidebarView('scm', { ensureOpen: true, focus: true });
+    }
+
+    showScmModal() {
+      this.openScmView();
+    }
+
+    openProblemsPanel() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (slot && slot.innerHTML) slot.innerHTML = '';
+      this.setPanelVisible(true, { skipRender: true });
+      this.switchDrawerTab('problems', { ensureVisible: true });
     }
 
     showProblemsModal() {
-      this.switchDrawerTab('problems');
+      this.openProblemsPanel();
+    }
+
+    killActiveTerminalSession() {
+      this._ensureTerminalSessions();
+      return this.closeTerminalSession(this._activeTerminalSessionId);
+    }
+
+    // ── Topbar Menubar & Dropdown Engine (#cl-topbar-menu-slot) ─────────────
+    _getTopbarMenuDefinitions() {
+      let recentWorkspaces = [];
+      const wsMod = this._getWorkspaceStorageMod();
+      if (wsMod && typeof wsMod.listWorkspaces === 'function') {
+        try {
+          recentWorkspaces = wsMod.listWorkspaces().slice(0, 10);
+        } catch (err) {
+          void err;
+        }
+      }
+      const recentSubmenu = recentWorkspaces.length > 0
+        ? [
+            ...recentWorkspaces.map(ws => ({
+              label: `${ws.title || ws.labId}${ws.labId === this.labId ? ' (Current)' : ''}`,
+              cmd: `workspace:open:${ws.labId}`,
+              workspaceId: ws.labId
+            })),
+            { divider: true },
+            { label: 'More Recent Workspaces...', cmd: 'file:open-recent-picker' }
+          ]
+        : [{ label: 'No Recent Workspaces', disabled: true }];
+
+      const autoSaveMode = this.configuration
+        ? String(this.configuration.get('files.autoSave', 'afterDelay'))
+        : 'afterDelay';
+      const autoSaveOn = autoSaveMode !== 'off';
+
+      return {
+        file: [
+          { label: 'New File...', shortcut: '', cmd: 'file:new-file' },
+          { label: 'New Folder...', shortcut: '', cmd: 'file:new-folder' },
+          { divider: true },
+          { label: 'New Blank Workspace...', cmd: 'file:new-blank-workspace' },
+          { label: 'Clone Repository...', cmd: 'file:clone-repo' },
+          { label: 'Open Recent Workspace...', submenu: recentSubmenu },
+          { divider: true },
+          { label: 'Save', shortcut: '⌘S', cmd: 'file:save' },
+          { label: 'Save All', cmd: 'file:save-all' },
+          { label: `${autoSaveOn ? '✓ ' : ''}Auto Save`, cmd: 'file:toggle-autosave' },
+          { divider: true },
+          {
+            label: 'Preferences',
+            submenu: [
+              { label: 'Settings', shortcut: '⌘,', cmd: 'file:settings' },
+              { label: 'Open Workspace Settings (JSON)', cmd: 'file:settings-json' },
+              { label: 'Color Theme: Dark', cmd: 'view:theme-dark' },
+              { label: 'Color Theme: Light', cmd: 'view:theme-light' },
+              { label: 'Color Theme: High Contrast', cmd: 'view:theme-hc' }
+            ]
+          },
+          { divider: true },
+          { label: 'Export Workspace as ZIP', cmd: 'file:export-zip' },
+          { label: 'Reset Workspace...', cmd: 'file:reset-workspace' }
+        ],
+        edit: [
+          { label: 'Undo', shortcut: '⌘Z', cmd: 'edit:undo' },
+          { label: 'Redo', shortcut: '⇧⌘Z', cmd: 'edit:redo' },
+          { divider: true },
+          { label: 'Find', shortcut: '⌘F', cmd: 'edit:find' },
+          { label: 'Replace', shortcut: '⌥⌘F', cmd: 'edit:replace' },
+          { divider: true },
+          { label: 'Find in Files', shortcut: '⇧⌘F', cmd: 'edit:find-in-files' },
+          { label: 'Format Document', shortcut: '⇧⌥F', cmd: 'edit:format' }
+        ],
+        selection: [
+          { label: 'Select All', shortcut: '⌘A', cmd: 'selection:select-all' }
+        ],
+        view: [
+          { label: 'Command Palette...', shortcut: '⇧⌘P', cmd: 'view:command-palette' },
+          { divider: true },
+          { label: 'Explorer', shortcut: '⇧⌘E', cmd: 'view:explorer' },
+          { label: 'Search', shortcut: '⇧⌘F', cmd: 'view:search' },
+          { label: 'Source Control', shortcut: '⌃⇧G', cmd: 'view:scm' },
+          { divider: true },
+          { label: 'Problems', shortcut: '⇧⌘M', cmd: 'view:problems' },
+          { label: 'Output', cmd: 'view:output' },
+          { label: 'Terminal', shortcut: '⌃`', cmd: 'view:terminal' },
+          { divider: true },
+          { label: 'Toggle Primary Side Bar', shortcut: '⌘B', cmd: 'view:toggle-sidebar' },
+          { label: 'Toggle Panel', shortcut: '⌘J', cmd: 'view:toggle-panel' },
+          {
+            label: 'Appearance',
+            submenu: [
+              { label: 'Full Screen', cmd: 'view:fullscreen' },
+              { label: 'Move Primary Side Bar Left / Right', cmd: 'view:toggle-sidebar-side' },
+              { label: 'Toggle Status Bar', cmd: 'view:toggle-statusbar' },
+              { divider: true },
+              { label: 'Dark Theme', cmd: 'view:theme-dark' },
+              { label: 'Light Theme', cmd: 'view:theme-light' },
+              { label: 'High Contrast Theme', cmd: 'view:theme-hc' }
+            ]
+          }
+        ],
+        go: [
+          { label: 'Go to File...', shortcut: '⌘P', cmd: 'go:file' },
+          { label: 'Go to Line/Column...', shortcut: '⌃G', cmd: 'go:line' },
+          { divider: true },
+          { label: 'Next Problem', shortcut: 'F8', cmd: 'go:next-problem' },
+          { label: 'Previous Problem', shortcut: '⇧F8', cmd: 'go:prev-problem' }
+        ],
+        run: [
+          { label: 'Run Code', shortcut: '⌘↵', cmd: 'run:code' },
+          { label: 'Run Active File', shortcut: '⇧⌘↵', cmd: 'run:active' },
+          { label: 'Run Tests', cmd: 'run:tests' },
+          { label: 'Stop Execution', cmd: 'run:stop' }
+        ],
+        terminal: [
+          { label: 'New Terminal', shortcut: '⌃⇧`', cmd: 'terminal:new' },
+          { label: 'Focus Terminal', shortcut: '⌃`', cmd: 'terminal:focus' },
+          { divider: true },
+          { label: 'Clear Terminal', cmd: 'terminal:clear' },
+          { label: 'Kill Terminal', cmd: 'terminal:kill' }
+        ],
+        help: [
+          { label: 'Welcome', cmd: 'help:welcome' },
+          { label: 'Keyboard Shortcuts Reference', cmd: 'help:shortcuts' },
+          { divider: true },
+          { label: 'About CodeLab', cmd: 'help:about' }
+        ]
+      };
+    }
+
+    _openTopbarMenu(menuId, opts = {}) {
+      if (!this.container) return;
+      const defs = this._getTopbarMenuDefinitions();
+      const items = defs[menuId];
+      if (!items) return;
+      const slot = this.container.querySelector('#cl-topbar-menu-slot');
+      const menubar = this.container.querySelector('#cl-menubar');
+      if (!slot || !menubar) return;
+
+      if (!this._activeTopMenu && typeof document !== 'undefined' && this.container) {
+        const ae = document.activeElement;
+        if (
+          ae &&
+          ae !== document.body &&
+          ae !== document.documentElement &&
+          typeof this.container.contains === 'function' &&
+          this.container.contains(ae) &&
+          (!ae.closest || !ae.closest('#cl-menubar, #cl-topbar-menu-slot'))
+        ) {
+          this._menuReturnFocusEl = ae;
+        }
+      }
+      this._activeTopMenu = menuId;
+      this._activeTopMenuOpenedViaHover = Boolean(opts && opts.viaHover);
+      this._activeTopMenuOpenedAt = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const triggers = Array.from(menubar.querySelectorAll('.codelab-menubar__trigger'));
+      let activeTrigger = null;
+      triggers.forEach(btn => {
+        const isTarget = btn.dataset.clMenu === menuId;
+        btn.classList.toggle('active', isTarget);
+        btn.setAttribute('aria-expanded', String(isTarget));
+        if (isTarget) {
+          btn.setAttribute('tabindex', '0');
+          activeTrigger = btn;
+        } else {
+          btn.setAttribute('tabindex', '-1');
+        }
+      });
+
+      const renderMenuItems = (list) => list.map(entry => {
+        if (entry.divider) {
+          return '<div class="codelab-topbar-menu__sep" role="separator"></div>';
+        }
+        if (Array.isArray(entry.submenu)) {
+          return `<div class="codelab-topbar-menu__has-sub"><button type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" class="codelab-topbar-menu__item" data-cl-submenu="true"><span class="codelab-topbar-menu__label">${escapeHtml(entry.label)}</span> <span class="codelab-topbar-menu__arrow" aria-hidden="true">▸</span></button><div class="codelab-topbar-submenu" role="menu" aria-label="${escapeHtml(entry.label)}">${renderMenuItems(entry.submenu)}</div></div>`;
+        }
+        return `<button type="button" role="menuitem" class="codelab-topbar-menu__item" data-cl-menu-cmd="${escapeHtml(entry.cmd || '')}"${entry.workspaceId ? ` data-cl-workspace="${escapeHtml(entry.workspaceId)}"` : ''} ${entry.disabled ? 'disabled' : ''}><span class="codelab-topbar-menu__label">${escapeHtml(entry.label)}</span>${entry.shortcut ? ` <span class="codelab-topbar-menu__kbd" aria-hidden="true">${escapeHtml(entry.shortcut)}</span>` : ''}</button>`;
+      }).join('');
+
+      let prefX = 48;
+      let prefY = 38;
+      if (activeTrigger && typeof activeTrigger.getBoundingClientRect === 'function') {
+        try {
+          const r = activeTrigger.getBoundingClientRect();
+          if (r && (r.width > 0 || r.height > 0)) {
+            prefX = r.left;
+            prefY = r.bottom + 2;
+          }
+        } catch (err) {
+          void err;
+        }
+      }
+
+      slot.innerHTML = `
+        <div class="codelab-topbar-menu" role="menu" data-menu-id="${escapeHtml(menuId)}" aria-label="${escapeHtml(menuId)} menu" style="left:${Math.round(prefX)}px;top:${Math.round(prefY)}px;">
+          ${renderMenuItems(items)}
+        </div>
+      `;
+      const menuEl = slot.querySelector('.codelab-topbar-menu');
+      if (menuEl) {
+        this._clampMenuToViewport(menuEl, prefX, prefY);
+        if (opts && opts.focusFirstItem) {
+          const firstBtn = menuEl.querySelector('.codelab-topbar-menu__item');
+          if (firstBtn && typeof firstBtn.focus === 'function') {
+            firstBtn.focus();
+          }
+        }
+      }
+    }
+
+    _closeTopbarMenu(opts = {}) {
+      const prevMenu = this._activeTopMenu;
+      this._activeTopMenu = null;
+      if (!this.container) return;
+      const slot = this.container.querySelector('#cl-topbar-menu-slot');
+      if (slot) slot.innerHTML = '';
+      const menubar = this.container.querySelector('#cl-menubar');
+      if (menubar) {
+        let triggerToFocus = null;
+        menubar.querySelectorAll('.codelab-menubar__trigger').forEach(btn => {
+          btn.classList.remove('active');
+          btn.setAttribute('aria-expanded', 'false');
+          if (prevMenu && btn.dataset.clMenu === prevMenu) {
+            triggerToFocus = btn;
+          }
+        });
+        if (opts && opts.restoreFocus && triggerToFocus && typeof triggerToFocus.focus === 'function') {
+          triggerToFocus.focus();
+        }
+      }
+    }
+
+    _executeTopbarMenuCommand(cmd) {
+      if (!cmd) return;
+      if (cmd.startsWith('workspace:open:')) {
+        const targetLabId = cmd.slice('workspace:open:'.length);
+        if (targetLabId) this.switchWorkspace(targetLabId);
+        return;
+      }
+      if (cmd === 'file:new-file') {
+        this.setSidebarView('explorer', { ensureOpen: true, focus: false });
+        this.startInlineCreate('file', this.explorerFolder || '');
+      } else if (cmd === 'file:new-folder') {
+        this.setSidebarView('explorer', { ensureOpen: true, focus: false });
+        this.startInlineCreate('folder', this.explorerFolder || '');
+      } else if (cmd === 'file:new-blank-workspace') {
+        this.openBlankWorkspace();
+      } else if (cmd === 'file:clone-repo') {
+        this.openCloneDialog();
+      } else if (cmd === 'file:open-recent-picker') {
+        this.showOpenRecentWorkspaceModal();
+      } else if (cmd === 'file:save') {
+        this.saveActiveFile({ manual: true });
+      } else if (cmd === 'file:save-all') {
+        this.saveWorkspace();
+      } else if (cmd === 'file:toggle-autosave') {
+        if (this.configuration && typeof this.configuration.setUserSetting === 'function') {
+          const cur = String(this.configuration.get('files.autoSave', 'afterDelay'));
+          const next = cur === 'off' ? 'afterDelay' : 'off';
+          this.configuration.setUserSetting('files.autoSave', next);
+          if (next !== 'off' && ((this._dirtyFiles && this._dirtyFiles.size > 0) || this.saveStatusState === 'dirty')) {
+            this.saveActiveFile({ manual: false, all: true });
+          }
+          this._updateStatusBar();
+        }
+      } else if (cmd === 'file:settings') {
+        this.openSettings();
+      } else if (cmd === 'file:settings-json') {
+        this.openWorkspaceSettingsJson();
+      } else if (cmd === 'file:export-zip') {
+        this.exportProjectZip({ download: true });
+      } else if (cmd === 'file:reset-workspace') {
+        this.resetLab({ ui: true });
+      } else if (cmd === 'edit:undo') {
+        if (this.editor && typeof this.editor.trigger === 'function') {
+          this.editor.focus();
+          this.editor.trigger('menubar', 'undo', null);
+        } else {
+          const sqlTa = this.container ? this.container.querySelector('#cl-sql-editor-host .cl-sql-textarea') : null;
+          const sqlHost = this.container ? this.container.querySelector('#cl-sql-editor-host') : null;
+          if (sqlTa && sqlHost && sqlHost.style && sqlHost.style.display !== 'none') {
+            if (typeof sqlTa.focus === 'function') sqlTa.focus();
+            try { document.execCommand('undo'); } catch (_err) { void _err; }
+          } else if (!this._applyFallbackHistoryStep('undo') && this.container) {
+            const fb = this.container.querySelector('#cl-fallback-editor');
+            if (fb && typeof fb.focus === 'function') {
+              fb.focus();
+              try { document.execCommand('undo'); } catch (_err) { void _err; }
+            }
+          }
+        }
+      } else if (cmd === 'edit:redo') {
+        if (this.editor && typeof this.editor.trigger === 'function') {
+          this.editor.focus();
+          this.editor.trigger('menubar', 'redo', null);
+        } else {
+          const sqlTa = this.container ? this.container.querySelector('#cl-sql-editor-host .cl-sql-textarea') : null;
+          const sqlHost = this.container ? this.container.querySelector('#cl-sql-editor-host') : null;
+          if (sqlTa && sqlHost && sqlHost.style && sqlHost.style.display !== 'none') {
+            if (typeof sqlTa.focus === 'function') sqlTa.focus();
+            try { document.execCommand('redo'); } catch (_err) { void _err; }
+          } else if (!this._applyFallbackHistoryStep('redo') && this.container) {
+            const fb = this.container.querySelector('#cl-fallback-editor');
+            if (fb && typeof fb.focus === 'function') {
+              fb.focus();
+              try { document.execCommand('redo'); } catch (_err) { void _err; }
+            }
+          }
+        }
+      } else if (cmd === 'edit:find') {
+        if (this.editor && typeof this.editor.getAction === 'function') {
+          const act = this.editor.getAction('actions.find');
+          if (act && typeof act.run === 'function') {
+            act.run();
+            return;
+          }
+        }
+        this.openSearchView();
+      } else if (cmd === 'edit:replace') {
+        if (this.editor && typeof this.editor.getAction === 'function') {
+          const act = this.editor.getAction('editor.action.startFindReplaceAction');
+          if (act && typeof act.run === 'function') {
+            act.run();
+            return;
+          }
+        }
+        this.openSearchView();
+      } else if (cmd === 'edit:find-in-files') {
+        this.openSearchView();
+      } else if (cmd === 'edit:format') {
+        this.formatActiveDocument();
+      } else if (cmd === 'selection:select-all') {
+        if (this.editor && this.editor.getModel && this.editor.getModel()) {
+          const m = this.editor.getModel();
+          const fullRange = m.getFullModelRange ? m.getFullModelRange() : null;
+          if (fullRange && typeof this.editor.setSelection === 'function') {
+            this.editor.setSelection(fullRange);
+            this.editor.focus();
+            return;
+          }
+        }
+        const fb = this.container ? this.container.querySelector('#cl-fallback-editor') : null;
+        if (fb && typeof fb.select === 'function') {
+          fb.focus();
+          fb.select();
+        }
+      } else if (cmd === 'view:command-palette') {
+        this.openCommandPalette('commands');
+      } else if (cmd === 'view:explorer') {
+        this.setSidebarView('explorer', { ensureOpen: true, focus: true });
+      } else if (cmd === 'view:search') {
+        this.openSearchView();
+      } else if (cmd === 'view:scm') {
+        this.openScmView();
+      } else if (cmd === 'view:problems') {
+        this.openProblemsPanel();
+      } else if (cmd === 'view:output') {
+        this.switchDrawerTab('output');
+      } else if (cmd === 'view:terminal') {
+        this.switchDrawerTab('terminal');
+      } else if (cmd === 'view:toggle-sidebar') {
+        this.toggleSidebar();
+      } else if (cmd === 'view:toggle-panel') {
+        this.togglePanel();
+      } else if (cmd === 'view:fullscreen') {
+        this.toggleFullscreen();
+      } else if (cmd === 'view:toggle-sidebar-side') {
+        if (this.configuration && typeof this.configuration.setUserSetting === 'function') {
+          const cur = this.configuration.get('workbench.sidebar.defaultLocation', 'left');
+          const nextLoc = cur === 'right' ? 'left' : 'right';
+          const hadWs =
+            typeof this.configuration.inspect === 'function' &&
+            this.configuration.inspect('workbench.sidebar.defaultLocation').workspaceValue !== undefined;
+          this.configuration.setUserSetting('workbench.sidebar.defaultLocation', nextLoc);
+          if (hadWs && typeof this.configuration.setWorkspaceSetting === 'function') {
+            this.configuration.setWorkspaceSetting('workbench.sidebar.defaultLocation', nextLoc);
+            this._persistWorkspaceSettingsFromUi();
+          }
+        }
+      } else if (cmd === 'view:toggle-statusbar') {
+        if (this.configuration && typeof this.configuration.setUserSetting === 'function') {
+          const cur = this.configuration.get('workbench.statusBar.visible', true) !== false;
+          const nextVis = !cur;
+          const hadWs =
+            typeof this.configuration.inspect === 'function' &&
+            this.configuration.inspect('workbench.statusBar.visible').workspaceValue !== undefined;
+          this.configuration.setUserSetting('workbench.statusBar.visible', nextVis);
+          if (hadWs && typeof this.configuration.setWorkspaceSetting === 'function') {
+            this.configuration.setWorkspaceSetting('workbench.statusBar.visible', nextVis);
+            this._persistWorkspaceSettingsFromUi();
+          }
+        }
+      } else if (cmd === 'view:theme-dark') {
+        this.setTheme('dark');
+      } else if (cmd === 'view:theme-light') {
+        this.setTheme('light');
+      } else if (cmd === 'view:theme-hc') {
+        this.setTheme('high-contrast');
+      } else if (cmd === 'go:file') {
+        this.openCommandPalette('files');
+      } else if (cmd === 'go:line') {
+        this.promptGoToLine();
+      } else if (cmd === 'go:next-problem') {
+        this.goToNextProblem(false);
+      } else if (cmd === 'go:prev-problem') {
+        this.goToNextProblem(true);
+      } else if (cmd === 'run:code') {
+        this.runCode();
+      } else if (cmd === 'run:active') {
+        this.runActiveFile();
+      } else if (cmd === 'run:tests') {
+        this.runTests();
+      } else if (cmd === 'run:stop') {
+        this.stopExecution();
+      } else if (cmd === 'terminal:new') {
+        this.createTerminalSession();
+        this.switchDrawerTab('terminal');
+      } else if (cmd === 'terminal:focus') {
+        this.switchDrawerTab('terminal');
+      } else if (cmd === 'terminal:clear') {
+        this._clearTerminalLogs();
+        this._renderDrawerBody();
+      } else if (cmd === 'terminal:kill') {
+        this.killActiveTerminalSession();
+      } else if (cmd === 'help:welcome') {
+        this.closeAllTabs();
+      } else if (cmd === 'help:shortcuts') {
+        this.showKeyboardShortcutsReference();
+      } else if (cmd === 'help:about') {
+        this.showAboutModal();
+      }
+    }
+
+    _needsWorkspaceConfirm() {
+      if (this._dirtyFiles && this._dirtyFiles.size > 0) return true;
+      return Object.keys(this.files || {}).length > 0;
+    }
+
+    _showWorkspaceConfirmModal(opts = {}) {
       const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
-      if (!slot) return;
-      const items = this.getDiagnostics();
-      const rowsHtml = items.map((d) => {
-        const col = d.col || d.column || 1;
-        return `
-          <div class="codelab-problem-entry" data-problem-file="${escapeHtml(d.file || '')}" data-cl-problem-file="${escapeHtml(d.file || '')}" data-cl-problem-line="${d.line || 1}" data-cl-problem-col="${col}" role="button" tabindex="0" style="padding:6px 8px;border-bottom:1px solid var(--cl-border);cursor:pointer;font-family:var(--cl-font-mono);font-size:12px;">
-            <strong>[${escapeHtml(d.severity)}] ${escapeHtml(d.file || '')}:${d.line || 1}:${col}</strong> — ${escapeHtml(d.message || '')}
+      if (!slot) return Promise.resolve('isolated');
+      const titleText = opts.title || 'Open New Workspace';
+      const descText = opts.message || 'Your current workspace contains files or unsaved changes. Would you like to open a new isolated workspace (preserving your current work in Recent Workspaces) or replace the current workspace?';
+      const isolateLabel = opts.isolateLabel || 'New Isolated Workspace';
+      const replaceLabel = opts.replaceLabel || 'Replace Current Workspace';
+      this._captureModalReturnFocus();
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (choice) => {
+          if (settled) return;
+          settled = true;
+          this._onModalClosedCallback = null;
+          resolve(choice);
+        };
+        this._onModalClosedCallback = () => finish('cancel');
+        slot.innerHTML = `
+          <div class="codelab-modal-backdrop" data-cl-backdrop="workspace-confirm">
+            <div class="codelab-modal codelab-confirm-modal" id="workspace-confirm-modal" data-cl-modal="workspace-confirm" role="dialog" aria-modal="true" aria-labelledby="cl-ws-confirm-title" aria-describedby="cl-ws-confirm-desc" style="max-width:480px;">
+              <div class="codelab-modal__header">
+                <span id="cl-ws-confirm-title">${escapeHtml(titleText)}</span>
+                <button type="button" class="codelab-btn" data-cl-action="close-modal" aria-label="Close">✕</button>
+              </div>
+              <div class="codelab-modal__body">
+                <p id="cl-ws-confirm-desc" style="margin:0 0 16px;color:var(--cl-fg);line-height:1.5;">
+                  ${escapeHtml(descText)}
+                </p>
+                <div class="codelab-modal__footer codelab-confirm-modal__actions">
+                  <button type="button" class="codelab-btn" data-cl-confirm="cancel" data-cl-action="close-modal">Cancel</button>
+                  <button type="button" class="codelab-btn codelab-btn--danger" data-cl-confirm="replace">${escapeHtml(replaceLabel)}</button>
+                  <button type="button" class="codelab-btn codelab-btn--primary" data-cl-confirm="isolated">${escapeHtml(isolateLabel)}</button>
+                </div>
+              </div>
+            </div>
           </div>
         `;
-      }).join('');
+        const isoBtn = slot.querySelector('[data-cl-confirm="isolated"]');
+        const repBtn = slot.querySelector('[data-cl-confirm="replace"]');
+        const canBtn = slot.querySelector('[data-cl-confirm="cancel"]');
+        if (isoBtn) {
+          isoBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._onModalClosedCallback = null;
+            this.closeModal({ restoreFocus: false });
+            finish('isolated');
+          });
+          if (typeof isoBtn.focus === 'function') isoBtn.focus();
+        }
+        if (repBtn) {
+          repBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._onModalClosedCallback = null;
+            this.closeModal({ restoreFocus: false });
+            finish('replace');
+          });
+        }
+        if (canBtn) {
+          canBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._onModalClosedCallback = null;
+            this.closeModal({ restoreFocus: true });
+            finish('cancel');
+          });
+        }
+      });
+    }
+
+    showOpenRecentWorkspaceModal() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      const wsMod = this._getWorkspaceStorageMod();
+      const list = (wsMod && typeof wsMod.listWorkspaces === 'function') ? wsMod.listWorkspaces() : [];
+      this._captureModalReturnFocus();
+      const rowsHtml = list.length > 0
+        ? list.map((ws) => `
+            <button type="button" class="codelab-recent-ws-item" data-cl-workspace="${escapeHtml(ws.labId)}" style="display:flex;width:100%;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-surface);color:var(--cl-fg);cursor:pointer;text-align:left;">
+              <span>
+                <strong>${escapeHtml(ws.title || ws.labId)}</strong>
+                ${ws.labId === this.labId ? '<span style="opacity:0.7;margin-left:6px;">(Current)</span>' : ''}
+              </span>
+              <code style="font-size:11px;opacity:0.75;">${escapeHtml(ws.labId)}</code>
+            </button>
+          `).join('')
+        : '<p style="margin:0;color:var(--cl-fg-muted);">No saved workspaces found yet.</p>';
       slot.innerHTML = `
         <div class="codelab-modal-backdrop">
-          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Problems and Diagnostics">
+          <div class="codelab-modal" data-cl-modal="recent-workspaces" role="dialog" aria-modal="true" aria-labelledby="cl-recent-ws-title" style="max-width:480px;">
             <div class="codelab-modal__header">
-              <span>Problems (${items.length})</span>
-              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+              <span id="cl-recent-ws-title">Open Recent Workspace</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal" aria-label="Close">✕</button>
             </div>
-            <div class="codelab-modal__body">
-              <div id="cl-problems-list">${rowsHtml || '<div style="color:var(--cl-fg-muted);font-size:12px;">No problems have been detected in the workspace.</div>'}</div>
+            <div class="codelab-modal__body" style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;">
+              ${rowsHtml}
             </div>
           </div>
         </div>
       `;
+      slot.querySelectorAll('[data-cl-workspace]').forEach((btn) => {
+        btn.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const targetId = btn.getAttribute('data-cl-workspace');
+          this.closeModal({ restoreFocus: false });
+          if (targetId) this.switchWorkspace(targetId);
+        });
+      });
+    }
+
+    _updateWorkspaceUrlParam(workspaceId) {
+      if (typeof window !== 'undefined' && window.location && window.history && typeof window.history.replaceState === 'function') {
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('workspace', workspaceId);
+          window.history.replaceState(null, '', url.toString());
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+
+    _updateTopbarBrandTitle() {
+      const brandSpan = this.container ? this.container.querySelector('.codelab-brand span:last-child') : null;
+      if (brandSpan) {
+        brandSpan.textContent = (this.title && this.title !== 'custom-lab' && this.title !== this.labId) ? this.title : 'code-lab';
+      }
+    }
+
+    _createIsolatedBlankWorkspace(titleOverride) {
+      this._saveState({ flushFiles: true });
+      const wsMod = this._getWorkspaceStorageMod();
+      const nextId = (wsMod && typeof wsMod.createBlankWorkspaceId === 'function')
+        ? wsMod.createBlankWorkspaceId()
+        : `workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      this.labId = nextId;
+      this.title = (typeof titleOverride === 'string' && titleOverride.trim()) ? titleOverride.trim() : 'Blank Workspace';
+      this.repo = null;
+      if (this.options && typeof this.options === 'object') {
+        delete this.options.repo;
+        this.options.blank = true;
+      }
+      this._isBlankBase = true;
+      this.hasGuidedLab = false;
+      this.referenceFiles = {};
+      this.storageKey = `${STORAGE_PREFIX}${this.labId}`;
+      this.savedState = this._loadState();
+      this.settingsTabOpen = false;
+      this.activeTab = null;
+      if (this._dirtyFiles) this._dirtyFiles.clear();
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.clear === 'function') {
+        try { this._diagnosticsStore.clear(); } catch (_err) { void _err; }
+      }
+      this.openTabs = [];
+      this.activeFile = null;
+      this.setFiles({}, { preserveBlankFlag: true });
+      this._restoreSavedGitState({ initialized: false });
+      this._renderScmSidebar();
+      this._updateWorkspaceUrlParam(nextId);
+      this._updateTopbarBrandTitle();
+      this._registerWorkspaceMetaInStorage({ kind: 'blank', title: this.title, fileCount: 0 });
+      this._saveState({ flushFiles: true });
+      this._emitEvent('workspace:switched', { labId: nextId, kind: 'blank' });
+      this._showToast(`Created blank workspace (${nextId})`, 'info');
+      return nextId;
+    }
+
+    _replaceCurrentWithBlankWorkspace(titleOverride) {
+      if (typeof titleOverride === 'string' && titleOverride.trim()) {
+        this.title = titleOverride.trim();
+      }
+      this.repo = null;
+      if (this.options && typeof this.options === 'object') {
+        delete this.options.repo;
+        this.options.blank = true;
+      }
+      this._isBlankBase = true;
+      this.hasGuidedLab = false;
+      this.referenceFiles = {};
+      if (this.labId === this._initialLabId) {
+        this._initialReferenceFiles = {};
+        this._initialHasGuidedLab = false;
+      }
+      this.settingsTabOpen = false;
+      this.activeTab = null;
+      if (this._dirtyFiles) this._dirtyFiles.clear();
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.clear === 'function') {
+        try { this._diagnosticsStore.clear(); } catch (_err) { void _err; }
+      }
+      this.openTabs = [];
+      this.activeFile = null;
+      this.setFiles({}, { preserveBlankFlag: true });
+      this._restoreSavedGitState({ initialized: false });
+      this._renderScmSidebar();
+      this._updateTopbarBrandTitle();
+      this._registerWorkspaceMetaInStorage({ kind: 'blank', title: this.title || this.labId, fileCount: 0 });
+      this._saveState({ flushFiles: true });
+      this._emitEvent('workspace:switched', { labId: this.labId, kind: 'blank', replaced: true });
+      this._showToast('Replaced workspace with empty workspace', 'info');
+      return this.labId;
+    }
+
+    async openBlankWorkspace(opts = {}) {
+      const force = Boolean(opts && opts.force);
+      const isInteractiveBrowser = Boolean((opts && opts.ui) || this._isRealBrowserDom());
+      if (!force && isInteractiveBrowser && this._needsWorkspaceConfirm()) {
+        const choice = await this._showWorkspaceConfirmModal({
+          title: 'New Blank Workspace',
+          message: 'Your current workspace contains files or unsaved edits. Create a new isolated blank workspace (preserving your current work in Recent Workspaces) or replace the current workspace?',
+          isolateLabel: 'New Isolated Workspace',
+          replaceLabel: 'Replace Current Workspace'
+        });
+        if (choice === 'cancel') return null;
+        if (choice === 'replace') {
+          return this._replaceCurrentWithBlankWorkspace(opts && opts.title);
+        }
+      }
+      return this._createIsolatedBlankWorkspace(opts && opts.title);
+    }
+
+    newBlankWorkspace(titleOverride) {
+      if (titleOverride && typeof titleOverride === 'object') {
+        return this.openBlankWorkspace(titleOverride);
+      }
+      return this._createIsolatedBlankWorkspace(titleOverride);
+    }
+
+    async switchWorkspace(targetLabId, opts = {}) {
+      const cleanId = String(targetLabId || '').trim();
+      if (!cleanId) return false;
+      if (cleanId === this.labId && !(opts && opts.forceReload)) return true;
+      this._saveState({ flushFiles: true });
+      if (this._idbSaveChain) {
+        try { await Promise.resolve(this._idbSaveChain); } catch (_err) { void _err; }
+      }
+      if (this._destroyed) return false;
+
+      const wsMod = this._getWorkspaceStorageMod();
+      const meta = (wsMod && typeof wsMod.getWorkspaceMeta === 'function')
+        ? wsMod.getWorkspaceMeta(cleanId)
+        : null;
+      this.labId = cleanId;
+      this.storageKey = `${STORAGE_PREFIX}${this.labId}`;
+      this.title = (meta && meta.title) ? meta.title : cleanId;
+      this.repo = (meta && meta.repo) ? meta.repo : null;
+      this.settingsTabOpen = false;
+      this.activeTab = null;
+      if (this._dirtyFiles) this._dirtyFiles.clear();
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.clear === 'function') {
+        try { this._diagnosticsStore.clear(); } catch (_err) { void _err; }
+      }
+
+      const snap = this._loadState();
+      this.savedState = snap || {};
+
+      if (snap && typeof snap.isBlankBase === 'boolean') {
+        this._isBlankBase = snap.isBlankBase;
+      } else {
+        this._isBlankBase = Boolean(
+          (meta && meta.kind === 'blank') ||
+          cleanId.startsWith('blank-') ||
+          cleanId.startsWith('workspace-')
+        );
+      }
+      const guidedForTarget = root.GUIDED_LABS_DATA && root.GUIDED_LABS_DATA[cleanId];
+      this.hasGuidedLab = (!this._isBlankBase && !this.repo)
+        ? (cleanId === this._initialLabId
+            ? Boolean(this._initialHasGuidedLab)
+            : Boolean(guidedForTarget && Array.isArray(guidedForTarget.steps) && guidedForTarget.steps.length > 0))
+        : false;
+      if (this._isBlankBase || this.repo) {
+        this.referenceFiles = {};
+      } else if (cleanId === this._initialLabId && this._initialReferenceFiles) {
+        this.referenceFiles = { ...this._initialReferenceFiles };
+      } else {
+        const implForTarget = root.IMPLEMENTATIONS_DATA && root.IMPLEMENTATIONS_DATA[cleanId];
+        this.referenceFiles = (implForTarget && implForTarget.files && Object.keys(implForTarget.files).length > 0)
+          ? { ...implForTarget.files }
+          : { ...DEFAULT_STANDALONE_FILES };
+      }
+
+      if (snap && (snap.mode === 'guided' || snap.mode === 'sandbox')) {
+        this.mode = snap.mode;
+      } else {
+        this.mode = this.hasGuidedLab ? 'guided' : 'sandbox';
+      }
+      const snapLang = (snap && (snap.lang === 'js' || snap.lang === 'ts' || snap.lang === 'cpp' || snap.lang === 'py' || snap.lang === 'sql'))
+        ? snap.lang
+        : null;
+      this.lang = snapLang || ((meta && meta.kind === 'sql') ? 'sql' : ((cleanId === this._initialLabId && this._initialLang) ? this._initialLang : 'js'));
+      if (this.enabledLanguages instanceof Set) {
+        this.enabledLanguages.add(this.lang);
+      }
+      if (this.contextKeys) {
+        this.contextKeys.setContext('workbenchMode', this.mode);
+        this.contextKeys.setContext('editorLangId', this.lang);
+        this.contextKeys.setContext('isGuidedLab', this.hasGuidedLab);
+      }
+      if (this.plugins && typeof this.plugins.fireActivationEvent === 'function') {
+        this.plugins.fireActivationEvent(`onLanguage:${this.lang}`).catch(() => {});
+      }
+
+      const slotKey = `${this.mode}:${this.lang}`;
+      let targetFiles = null;
+      if (snap && snap.customFiles && typeof snap.customFiles === 'object') {
+        if (snap.hasSnapshot && snap.hasSnapshot[slotKey] && snap.customFiles[slotKey] && typeof snap.customFiles[slotKey] === 'object') {
+          targetFiles = { ...snap.customFiles[slotKey] };
+        } else if (snap.customFiles[slotKey] && Object.keys(snap.customFiles[slotKey]).length > 0) {
+          targetFiles = { ...snap.customFiles[slotKey] };
+        } else {
+          for (const [k, filesObj] of Object.entries(snap.customFiles)) {
+            if (filesObj && typeof filesObj === 'object' && (Object.keys(filesObj).length > 0 || (snap.hasSnapshot && snap.hasSnapshot[k]))) {
+              targetFiles = { ...filesObj };
+              break;
+            }
+          }
+        }
+      }
+      if (!targetFiles && snap && snap.files && typeof snap.files === 'object') {
+        targetFiles = { ...snap.files };
+      }
+      const loadedFromSnap = targetFiles !== null;
+      const snapUpdatedAt = (snap && typeof snap.updatedAt === 'number' && Number.isFinite(snap.updatedAt))
+        ? snap.updatedAt
+        : 0;
+
+      let loadedFromIdb = false;
+      let idbLoadFailed = false;
+      if (wsMod && typeof wsMod.createWorkspaceStorage === 'function') {
+        try {
+          if (!this._idbStorage) {
+            this._idbStorage = wsMod.createWorkspaceStorage();
+          }
+          if (this._idbStorage && typeof this._idbStorage.loadProject === 'function') {
+            const proj = await this._idbStorage.loadProject(cleanId);
+            if (this._destroyed || this.labId !== cleanId) return false;
+            const projFiles = (proj && proj.files && typeof proj.files === 'object') ? proj.files : null;
+            const projUpdatedAt = (proj && typeof proj.updatedAt === 'number' && Number.isFinite(proj.updatedAt))
+              ? proj.updatedAt
+              : 0;
+            if (projFiles) {
+              const projHasFiles = Object.keys(projFiles).length > 0;
+              if (!targetFiles && (projHasFiles || this._isBlankBase)) {
+                targetFiles = { ...projFiles };
+                loadedFromIdb = true;
+              } else if (targetFiles && projHasFiles && projUpdatedAt > snapUpdatedAt) {
+                targetFiles = { ...projFiles };
+                loadedFromIdb = true;
+              }
+            }
+          }
+        } catch (_err) {
+          idbLoadFailed = true;
+          void _err;
+        }
+      }
+      if (!targetFiles) {
+        targetFiles = this._isBlankBase ? {} : this._getBaseFilesForModeAndLang(this.mode, this.lang);
+      }
+
+      this.setFiles(targetFiles, {
+        preserveBlankFlag: true,
+        skipSave: true,
+        folders: (snap && Array.isArray(snap.folders)) ? snap.folders : undefined
+      });
+      if (snap && Array.isArray(snap.openTabs)) {
+        const validSavedTabs = snap.openTabs.filter(f => this.files[f] !== undefined);
+        if (validSavedTabs.length > 0 || Object.keys(this.files).length === 0) {
+          this.openTabs = validSavedTabs;
+        }
+      }
+      if (snap && typeof snap.activeFile === 'string' && this.files[snap.activeFile] !== undefined) {
+        this.activeFile = snap.activeFile;
+        this.activeTab = snap.activeFile;
+      } else if (Object.keys(this.files).length === 0) {
+        this.activeFile = null;
+        this.activeTab = null;
+      }
+
+      this._restoreSavedGitState(snap ? snap.gitState : null);
+      if (typeof this._refreshToolbarAndTabs === 'function') {
+        this._refreshToolbarAndTabs();
+      } else if (typeof this._refreshLanguageSwitcher === 'function') {
+        this._refreshLanguageSwitcher();
+      }
+      if (this.container) {
+        this.container.querySelectorAll('[data-cl-lang]').forEach(btn => {
+          const isActive = btn.dataset.clLang === this.lang;
+          btn.classList.toggle('active', isActive);
+          btn.setAttribute('aria-pressed', String(isActive));
+        });
+        this.container.querySelectorAll('[data-cl-mode]').forEach(btn => {
+          const isActive = btn.dataset.clMode === this.mode;
+          btn.classList.toggle('active', isActive);
+          btn.setAttribute('aria-selected', String(isActive));
+        });
+        const shell = this.container.querySelector('.codelab');
+        if (shell) {
+          const isGuideCollapsed = !this.hasGuidedLab || this.mode === 'sandbox' || !this.steps.length;
+          shell.classList.toggle('guide-collapsed', isGuideCollapsed);
+        }
+      }
+      this._renderGuidePane();
+      this._renderScmSidebar();
+      this._syncAllModels();
+      this._syncActiveFileToView();
+      this._updateWorkspaceUrlParam(cleanId);
+      this._updateTopbarBrandTitle();
+      this._registerWorkspaceMetaInStorage({ updatedAt: Date.now(), fileCount: Object.keys(this.files).length });
+
+      const hadExpectedSavedData = Boolean(
+        meta && (meta.kind === 'repo' || (typeof meta.fileCount === 'number' && meta.fileCount > 0))
+      );
+      if ((loadedFromIdb && !loadedFromSnap) || (!loadedFromSnap && !loadedFromIdb && (idbLoadFailed || hadExpectedSavedData))) {
+        this._buildSavedStateSnapshot({ flushSnapshotOnly: true });
+        this.saveStatusState = 'saved';
+        this.saveStatusError = null;
+        this._updateStatusBar();
+      } else {
+        this._saveState({ flushSnapshotOnly: true });
+      }
+      this._emitEvent('workspace:switched', { labId: cleanId });
+      this._showToast(`Switched workspace to ${this.title || cleanId}`, 'info');
+      return true;
+    }
+
+    openCloneDialog(opts) {
+      return this.showCloneRepoModal(opts);
+    }
+
+    openCloneWorkspaceDialog(opts) {
+      return this.showCloneRepoModal(opts);
+    }
+
+    promptGoToLine() {
+      if (this.editor && typeof this.editor.getAction === 'function') {
+        const act = this.editor.getAction('editor.action.gotoLine');
+        if (act && typeof act.run === 'function') {
+          this.editor.focus();
+          act.run();
+          return;
+        }
+      }
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      this._captureModalReturnFocus();
+      const curLn = (this.cursorPos && (this.cursorPos.lineNumber || this.cursorPos.ln)) || 1;
+      const curCol = (this.cursorPos && (this.cursorPos.column || this.cursorPos.col)) || 1;
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Go to Line and Column" style="max-width:380px;">
+            <div class="codelab-modal__header">
+              <span>Go to Line/Column</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close</button>
+            </div>
+            <div class="codelab-modal__body">
+              <form id="cl-goto-line-form" style="display:flex;gap:8px;align-items:center;">
+                <input id="cl-goto-line-input" class="codelab-modal-input" type="text" value="${curLn}:${curCol}" placeholder="line[:column]" aria-label="Line and optional column" />
+                <button type="submit" class="codelab-btn codelab-btn--primary">Go</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      `;
+      const form = slot.querySelector('#cl-goto-line-form');
+      const input = slot.querySelector('#cl-goto-line-input');
+      if (input && typeof input.focus === 'function') {
+        input.focus();
+        if (typeof input.select === 'function') input.select();
+      }
+      if (form && input) {
+        form.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          const parts = String(input.value || '').split(':');
+          const ln = Math.max(1, parseInt(parts[0], 10) || 1);
+          const col = Math.max(1, parseInt(parts[1], 10) || 1);
+          this.closeModal();
+          if (this.editor && typeof this.editor.setPosition === 'function') {
+            this.cursorPos = { lineNumber: ln, column: col, ln, col };
+            this.editor.revealLineInCenter(ln);
+            this.editor.setPosition({ lineNumber: ln, column: col });
+            this.editor.focus();
+          } else if (this.container) {
+            const sqlHost = this.container.querySelector('#cl-sql-editor-host');
+            const sqlTa = (sqlHost && sqlHost.style && sqlHost.style.display !== 'none')
+              ? sqlHost.querySelector('.cl-sql-textarea')
+              : null;
+            const fb = sqlTa || this.container.querySelector('#cl-fallback-editor');
+            if (fb && typeof fb.value === 'string') {
+              const lines = fb.value.split('\n');
+              const clampedLn = Math.min(Math.max(1, ln), Math.max(1, lines.length));
+              let offset = 0;
+              for (let i = 0; i < clampedLn - 1; i++) {
+                offset += lines[i].length + 1;
+              }
+              const lineText = lines[clampedLn - 1] || '';
+              const clampedCol = Math.min(Math.max(1, col), lineText.length + 1);
+              const pos = offset + (clampedCol - 1);
+              this.cursorPos = { lineNumber: clampedLn, column: clampedCol, ln: clampedLn, col: clampedCol };
+              if (typeof fb.focus === 'function') fb.focus();
+              if (typeof fb.setSelectionRange === 'function') {
+                try { fb.setSelectionRange(pos, pos); } catch (_err) { void _err; }
+              } else {
+                fb.selectionStart = pos;
+                fb.selectionEnd = pos;
+              }
+              const lineHeightPx = parseFloat((fb.style && fb.style.lineHeight) || '') || 20;
+              const nextScroll = Math.max(0, (clampedLn - 3) * lineHeightPx);
+              fb.scrollTop = nextScroll;
+              const gutterEl = this.container.querySelector('#cl-fallback-gutter');
+              if (gutterEl && fb.id === 'cl-fallback-editor') gutterEl.scrollTop = nextScroll;
+            } else {
+              this.cursorPos = { lineNumber: ln, column: col, ln, col };
+            }
+          } else {
+            this.cursorPos = { lineNumber: ln, column: col, ln, col };
+          }
+          this._updateStatusBar();
+          this._renderBreadcrumbs();
+        });
+      }
+    }
+
+    showKeyboardShortcutsReference() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      this._captureModalReturnFocus();
+      const rows = [
+        ['Show All Commands', '⇧⌘P / F1'],
+        ['Go to File', '⌘P'],
+        ['Save Active File', '⌘S / Ctrl+S'],
+        ['Open Settings', '⌘, / Ctrl+,'],
+        ['Toggle Primary Side Bar', '⌘B / Ctrl+B'],
+        ['Toggle Panel', '⌘J / Ctrl+J'],
+        ['Toggle Terminal', '⌃`'],
+        ['New Terminal', '⌃⇧`'],
+        ['Focus Explorer', '⇧⌘E'],
+        ['Search in Files', '⇧⌘F'],
+        ['Source Control', '⌃⇧G'],
+        ['Show Problems', '⇧⌘M'],
+        ['Run Code', '⌘↵']
+      ];
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
+            <div class="codelab-modal__header">
+              <span>Keyboard Shortcuts</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+            </div>
+            <div class="codelab-modal__body">
+              <div style="display:grid;grid-template-columns:1fr auto;gap:6px 16px;font-size:12px;">
+                ${rows.map(([label, kbd]) => `<span>${escapeHtml(label)}</span><kbd style="font-family:var(--cl-font-mono);">${escapeHtml(kbd)}</kbd>`).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const closeBtn = slot.querySelector('[data-cl-action="close-modal"]');
+      if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
+    }
+
+    showAboutModal() {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
+      if (!slot) return;
+      this._captureModalReturnFocus();
+      slot.innerHTML = `
+        <div class="codelab-modal-backdrop">
+          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="About CodeLab" style="max-width:420px;">
+            <div class="codelab-modal__header">
+              <span>About CodeLab</span>
+              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+            </div>
+            <div class="codelab-modal__body" style="font-size:13px;line-height:1.5;">
+              <p style="margin:0 0 8px;"><strong>@innovatorved/code-lab</strong> — Full-featured in-browser IDE &amp; runtime workbench.</p>
+              <p style="margin:0;color:var(--cl-fg-muted);font-size:12px;">Node.js v22 Worker · TypeScript 5.x · C++20 WASI · Python 3.12 WASI · SQLite / PostgreSQL</p>
+            </div>
+          </div>
+        </div>
+      `;
+      const closeBtn = slot.querySelector('[data-cl-action="close-modal"]');
+      if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
     }
 
     _clearTerminalLogs() {
-      if (Array.isArray(this.terminalLogs)) {
-        this.terminalLogs.length = 0;
-      } else {
-        this.terminalLogs = [];
-      }
+      const fresh = [];
+      this.terminalLogs = fresh;
       if (Array.isArray(this._terminalSessions)) {
         const active = this._terminalSessions.find((s) => s.id === this._activeTerminalSessionId);
         if (active) {
-          active.logs = this.terminalLogs;
+          active.logs = fresh;
         }
       }
     }
@@ -11501,25 +18981,72 @@ int main() {
       const bar = this.container.querySelector('#cl-terminal-sessions');
       if (!bar) return;
       const sessions = this._ensureTerminalSessions();
-      if (sessions.length <= 1) {
+      if (sessions.length === 0) {
         bar.innerHTML = '';
         return;
       }
       bar.innerHTML = sessions.map((s) => {
         const isActive = s.id === this._activeTerminalSessionId;
         return `
-          <span class="codelab-session-pill ${isActive ? 'active' : ''}" data-cl-action="switch-terminal-session" data-session-id="${escapeHtml(s.id)}" role="button" tabindex="0" title="Switch to ${escapeHtml(s.name)}">
+          <span class="codelab-session-pill ${isActive ? 'active' : ''}" data-cl-action="switch-terminal-session" data-session-id="${escapeHtml(s.id)}" role="button" tabindex="0" aria-pressed="${isActive}" title="Switch to ${escapeHtml(s.name)}">
             <span>${escapeHtml(s.name)}</span>
-            <span data-cl-action="close-terminal-session" data-session-id="${escapeHtml(s.id)}" title="Close session" style="margin-left:2px;opacity:0.75;">&times;</span>
+            <span data-cl-action="close-terminal-session" data-session-id="${escapeHtml(s.id)}" role="button" tabindex="0" title="Close ${escapeHtml(s.name)}" aria-label="Close ${escapeHtml(s.name)}" style="margin-left:2px;opacity:0.75;">&times;</span>
           </span>
         `;
       }).join('');
     }
 
+    _saveActiveTerminalSessionState() {
+      if (!Array.isArray(this._terminalSessions)) return;
+      const active = this._terminalSessions.find((s) => s.id === this._activeTerminalSessionId);
+      if (!active) return;
+      active.cwd = this.cwd || (this.shell && this.shell.cwd) || '/workspace';
+      active.inRepl = Boolean(this.inRepl);
+      active.replLang = this.replLang || 'node';
+      active.replHistory = Array.isArray(this.replHistory) ? this.replHistory.slice() : [];
+      active.replHistoryIdx = typeof this.replHistoryIdx === 'number' ? this.replHistoryIdx : -1;
+      active.beforeCursor = this._ptyInputBeforeCursor || '';
+      active.afterCursor = this._ptyInputAfterCursor || '';
+      if (Array.isArray(this.terminalLogs)) {
+        active.logs = this.terminalLogs;
+      }
+    }
+
+    _applyTerminalSessionState(target) {
+      if (!target) return;
+      this._activeTerminalSessionId = target.id;
+      if (!Array.isArray(target.logs)) target.logs = [];
+      this.terminalLogs = target.logs;
+      this.cwd = target.cwd || '/workspace';
+      if (this.shell) {
+        this.shell.cwd = this.cwd;
+        if (this.shell.env && typeof this.shell.env === 'object') {
+          this.shell.env.PWD = this.cwd;
+        }
+      }
+      this.inRepl = Boolean(target.inRepl);
+      this.replLang = target.replLang || 'node';
+      this.replHistory = Array.isArray(target.replHistory) ? target.replHistory.slice() : [];
+      this.replHistoryIdx = typeof target.replHistoryIdx === 'number' ? target.replHistoryIdx : -1;
+      this._ptyInputBeforeCursor = target.beforeCursor || '';
+      this._ptyInputAfterCursor = target.afterCursor || '';
+    }
+
     _ensureTerminalSessions() {
       if (!Array.isArray(this._terminalSessions) || this._terminalSessions.length === 0) {
         this._terminalSessions = [
-          { id: 'session-1', name: 'bash-1', logs: this.terminalLogs || [] }
+          {
+            id: 'session-1',
+            name: 'bash-1',
+            cwd: this.cwd || (this.shell && this.shell.cwd) || '/workspace',
+            logs: Array.isArray(this.terminalLogs) ? this.terminalLogs : (this.terminalLogs = []),
+            inRepl: Boolean(this.inRepl),
+            replLang: this.replLang || 'node',
+            replHistory: Array.isArray(this.replHistory) ? this.replHistory.slice() : [],
+            replHistoryIdx: typeof this.replHistoryIdx === 'number' ? this.replHistoryIdx : -1,
+            beforeCursor: this._ptyInputBeforeCursor || '',
+            afterCursor: this._ptyInputAfterCursor || ''
+          }
         ];
         this._activeTerminalSessionId = 'session-1';
       }
@@ -11527,10 +19054,13 @@ int main() {
     }
 
     listTerminalSessions() {
+      this._saveActiveTerminalSessionState();
       const sessions = this._ensureTerminalSessions();
       return sessions.map((s) => ({
         id: s.id,
         name: s.name,
+        cwd: s.cwd || '/workspace',
+        inRepl: Boolean(s.inRepl),
         active: s.id === this._activeTerminalSessionId,
         logCount: Array.isArray(s.logs) ? s.logs.length : 0
       }));
@@ -11538,13 +19068,24 @@ int main() {
 
     createTerminalSession(name) {
       const sessions = this._ensureTerminalSessions();
+      this._saveActiveTerminalSessionState();
       const nextNum = sessions.length + 1;
       const id = `session-${Date.now()}-${nextNum}`;
       const label = name ? String(name).trim() : `bash-${nextNum}`;
-      const newLogs = [];
-      sessions.push({ id, name: label, logs: newLogs });
-      this._activeTerminalSessionId = id;
-      this.terminalLogs = newLogs;
+      const newSession = {
+        id,
+        name: label,
+        cwd: '/workspace',
+        logs: [],
+        inRepl: false,
+        replLang: 'node',
+        replHistory: [],
+        replHistoryIdx: -1,
+        beforeCursor: '',
+        afterCursor: ''
+      };
+      sessions.push(newSession);
+      this._applyTerminalSessionState(newSession);
       this._renderDrawerBody();
       return id;
     }
@@ -11553,22 +19094,61 @@ int main() {
       const sessions = this._ensureTerminalSessions();
       const target = sessions.find((s) => s.id === id || s.name === id);
       if (!target) return false;
-      this._activeTerminalSessionId = target.id;
-      this.terminalLogs = target.logs;
+      if (target.id !== this._activeTerminalSessionId) {
+        this._saveActiveTerminalSessionState();
+        this._applyTerminalSessionState(target);
+      }
       this._renderDrawerBody();
       return true;
     }
 
     closeTerminalSession(id) {
       const sessions = this._ensureTerminalSessions();
-      if (sessions.length <= 1) return false;
-      const idx = sessions.findIndex((s) => s.id === id || s.name === id);
+      const idx = id
+        ? sessions.findIndex((s) => s.id === id || s.name === id)
+        : sessions.findIndex((s) => s.id === this._activeTerminalSessionId);
       if (idx === -1) return false;
+
+      if (sessions.length === 1) {
+        if (this._activeCommandAbortController) {
+          try { this._activeCommandAbortController.abort(); } catch (_err) { void _err; }
+          this._activeCommandAbortController = null;
+        }
+        this.isRunning = false;
+        const freshSession = {
+          id: 'session-1',
+          name: 'bash-1',
+          cwd: '/workspace',
+          logs: [],
+          inRepl: false,
+          replLang: 'node',
+          replHistory: [],
+          replHistoryIdx: -1,
+          beforeCursor: '',
+          afterCursor: ''
+        };
+        sessions[0] = freshSession;
+        this._applyTerminalSessionState(freshSession);
+        if (typeof this._updateRunStateUI === 'function') {
+          this._updateRunStateUI();
+        }
+        this._renderDrawerBody();
+        return true;
+      }
+
+      this._saveActiveTerminalSessionState();
       const removed = sessions.splice(idx, 1)[0];
       if (this._activeTerminalSessionId === removed.id) {
+        if (this._activeCommandAbortController) {
+          try { this._activeCommandAbortController.abort(); } catch (_err) { void _err; }
+          this._activeCommandAbortController = null;
+          this.isRunning = false;
+          if (typeof this._updateRunStateUI === 'function') {
+            this._updateRunStateUI();
+          }
+        }
         const next = sessions[Math.max(0, idx - 1)] || sessions[0];
-        this._activeTerminalSessionId = next.id;
-        this.terminalLogs = next.logs;
+        this._applyTerminalSessionState(next);
       }
       this._renderDrawerBody();
       return true;
@@ -11578,8 +19158,10 @@ int main() {
       return { ...this.files };
     }
 
-    setFiles(filesMap) {
+    setFiles(filesMap, opts = {}) {
       if (!filesMap || typeof filesMap !== 'object') return;
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
+      if (this._fallbackHistory) this._fallbackHistory.clear();
       for (const model of this.models.values()) {
         try { model.dispose(); } catch (err) { this.logger.debug('model.dispose failed during setFiles.', err); }
       }
@@ -11595,27 +19177,77 @@ int main() {
           this.folders.add(parts.slice(0, i).join('/'));
         }
       }
-      this.openTabs = this._orderedFileNames();
-      if (!this.activeFile || this.files[this.activeFile] === undefined) {
-        this.activeFile = this._pickDefaultFile();
+      if (opts && Array.isArray(opts.folders)) {
+        for (const rawFolder of opts.folders) {
+          const cf = this._normalizeWorkspaceRelPath(rawFolder);
+          if (!cf) continue;
+          const parts = cf.split('/');
+          let cur = '';
+          for (let i = 0; i < parts.length; i++) {
+            cur = cur ? `${cur}/${parts[i]}` : parts[i];
+            this.folders.add(cur);
+          }
+        }
       }
-      this._saveState();
-      if (this.kernel && this.kernel.fs) {
-        this.kernel.fs.loadRecord(this.files, '/workspace');
+      this._savedSnapshot = { ...this.files };
+      if (this._dirtyFiles) {
+        for (const df of Array.from(this._dirtyFiles)) {
+          if (this.files[df] === undefined) this._dirtyFiles.delete(df);
+        }
+      }
+      const ordered = this._orderedFileNames();
+      if (ordered.length === 0) {
+        this.openTabs = [];
+        this.activeFile = null;
+        this.activeTab = this.settingsTabOpen && this.activeTab === '__settings__' ? '__settings__' : null;
+      } else if (ordered.length > 8) {
+        const primary = this._pickPrimaryCloneFile(ordered);
+        this.openTabs = primary ? [primary] : [ordered[0]];
+        if (!this.activeFile || this.files[this.activeFile] === undefined || !this.openTabs.includes(this.activeFile)) {
+          this.activeFile = this.openTabs[0] || null;
+        }
+        this.activeTab = this.settingsTabOpen && this.activeTab === '__settings__' ? '__settings__' : this.activeFile;
+      } else {
+        this.openTabs = ordered;
+        if (!this.activeFile || this.files[this.activeFile] === undefined) {
+          this.activeFile = this._pickDefaultFile() || ordered[0] || null;
+        }
+        this.activeTab = this.settingsTabOpen && this.activeTab === '__settings__' ? '__settings__' : this.activeFile;
+      }
+      this._syncFilesToShellVfs({ pruneExtraneous: true, keepGitDir: Boolean(opts && opts.keepGitDir) });
+      if (!(opts && opts.skipSave)) {
+        this._saveState({ flushFiles: true });
+      }
+      if (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function' && typeof this._diagnosticsStore.remove === 'function') {
+        const stale = this._diagnosticsStore.getAll().filter((d) => d && d.file && !Object.prototype.hasOwnProperty.call(this.files, d.file));
+        if (stale.length > 0) {
+          const pruneFn = () => {
+            for (const d of stale) {
+              if (d && d.id) this._diagnosticsStore.remove(d.id);
+            }
+          };
+          if (typeof this._diagnosticsStore.batch === 'function') {
+            this._diagnosticsStore.batch(pruneFn);
+          } else {
+            pruneFn();
+          }
+        }
       }
       this._syncDotCodelabConfig({ isInitialMount: false });
       this._syncAllModels();
+      this._lintAllWorkspaceFiles();
       this._syncActiveFileToView();
     }
 
     getFile(path) {
       const clean = String(path || '').trim().replace(/^\/+/, '');
-      return this.files[clean];
+      return this.files ? this.files[clean] : undefined;
     }
 
     setFile(path, content, options = {}) {
       const clean = String(path || '').trim().replace(/^\/+/, '');
       if (!clean) return;
+      this._userEditSeq = (this._userEditSeq || 0) + 1;
       const isNew = this.files[clean] === undefined;
       const parts = clean.split('/');
       for (let i = 1; i < parts.length; i++) {
@@ -11627,6 +19259,7 @@ int main() {
       }
       if (options.open === true) {
         this.activeFile = clean;
+        this.activeTab = clean;
       }
       this._saveState();
       this._getOrCreateModel(clean);
@@ -11635,6 +19268,20 @@ int main() {
       }
       this._notifyCodeChange(clean, this.files[clean]);
       this._syncActiveFileToView();
+    }
+
+    toggleMarkdownPreview(force) {
+      this._mdPreviewOpen = typeof force === 'boolean' ? force : !this._mdPreviewOpen;
+      this._syncActiveFileToView();
+      if (!this._mdPreviewOpen) {
+        if (this.editor && typeof this.editor.focus === 'function') {
+          this.editor.focus();
+        } else if (this.container) {
+          const fb = this.container.querySelector('#cl-fallback-editor');
+          if (fb && typeof fb.focus === 'function') fb.focus();
+        }
+      }
+      return this._mdPreviewOpen;
     }
 
     _toggleMarkdownTask(filename, targetTaskIdx, newCheckedState) {
@@ -11691,42 +19338,297 @@ int main() {
       return Array.isArray(this.openTabs) ? [...this.openTabs] : [];
     }
 
-    showCloneRepoModal() {
-      const slot = this.container.querySelector('#cl-modal-slot');
+    cancelClone() {
+      const wasInFlight = Boolean(this._cloneInFlight || this._activeCloneAbortController);
+      this._cloneCancelledByUser = true;
+      if (this._activeCloneAbortController) {
+        try {
+          this._activeCloneAbortController.abort('Cancelled by user');
+        } catch (_err) {
+          void _err;
+        }
+        this._activeCloneAbortController = null;
+      }
+      this._cloneInFlight = false;
+      return wasInFlight;
+    }
+
+    _parseSafeGitHubRepo(rawInput, branchOverride = '') {
+      if (!parseGitHubRepoUrl || typeof rawInput !== 'string') return null;
+      const raw = rawInput.trim();
+      if (!raw) return null;
+      if (/[\x00-\x1f\x7f\\\s]/.test(raw) || /%(?:2e|2f|5c|00)/i.test(raw)) return null;
+      const strippedProto = raw.replace(/^https?:\/\//i, '');
+      const rawSegs = strippedProto.split(/[/:@#?]/);
+      for (const seg of rawSegs) {
+        if (seg === '.' || seg === '..') return null;
+      }
+
+      const parsed = parseGitHubRepoUrl(raw);
+      if (!parsed || typeof parsed.owner !== 'string' || typeof parsed.repo !== 'string') return null;
+
+      const isValidSlug = (s, isOwner) => {
+        if (!s || s.length > 100) return false;
+        if (s === '.' || s === '..' || s.startsWith('.') || s.endsWith('.')) return false;
+        if (isOwner && (s.startsWith('-') || s.endsWith('-'))) return false;
+        if (s.includes('..') || s.includes('/') || s.includes('\\') || s.includes('\0')) return false;
+        return /^[A-Za-z0-9_.-]+$/.test(s);
+      };
+      if (!isValidSlug(parsed.owner, true) || !isValidSlug(parsed.repo, false)) return null;
+
+      const isSafeRefOrSubpath = (val, isRef) => {
+        if (val === null || val === undefined || val === '') return true;
+        if (typeof val !== 'string') return false;
+        const t = val.trim();
+        if (!t) return true;
+        if (/[\x00-\x1f\x7f\\]/.test(t) || /%(?:2e|2f|5c|00)/i.test(t)) return false;
+        if (t.includes('..') || t.startsWith('/') || t.endsWith('/') || t.includes('//')) return false;
+        if (isRef && (t.startsWith('-') || t.startsWith('.') || t.endsWith('.') || t.endsWith('.lock') || /\s|[~^:?*[\]@{]/.test(t))) {
+          return false;
+        }
+        for (const seg of t.split('/')) {
+          if (!seg || seg === '.' || seg === '..') return false;
+        }
+        return true;
+      };
+
+      if (!isSafeRefOrSubpath(parsed.branch, true)) return null;
+      if (!isSafeRefOrSubpath(parsed.subpath, false)) return null;
+      if (!isSafeRefOrSubpath(branchOverride, true)) return null;
+      return parsed;
+    }
+
+    showCloneRepoModal(initialOpts = {}) {
+      const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
       if (!slot) return;
+      if (initialOpts && initialOpts.returnFocusEl) {
+        this._modalReturnFocusEl = initialOpts.returnFocusEl;
+      } else if (!initialOpts || !initialOpts.skipReturnFocusCapture) {
+        this._captureModalReturnFocus();
+      }
+      const presetRepo = (initialOpts && typeof initialOpts.repo === 'string') ? initialOpts.repo : '';
+      const presetBranch = (initialOpts && typeof initialOpts.branch === 'string') ? initialOpts.branch : '';
+
       slot.innerHTML = `
-        <div class="codelab-modal-backdrop">
-          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="Clone Public GitHub Repository">
+        <div class="codelab-modal-backdrop" data-cl-backdrop="clone-repo">
+          <div class="codelab-modal codelab-clone-modal" data-cl-modal="clone-repo" role="dialog" aria-modal="true" aria-labelledby="cl-clone-modal-title" aria-describedby="cl-clone-modal-desc" style="max-width:520px;">
             <div class="codelab-modal__header">
-              <span style="display:inline-flex;align-items:center;gap:6px;">${CL_ICONS.terminal || CL_ICONS.folder}<span>Clone Public GitHub Repository</span></span>
-              <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
+              <span id="cl-clone-modal-title" style="display:inline-flex;align-items:center;gap:6px;">${CL_ICONS.gitBranch || CL_ICONS.terminal || CL_ICONS.folder}<span>Clone Public GitHub Repository</span></span>
+              <button type="button" class="codelab-btn" id="cl-clone-close-btn" data-cl-action="close-modal" aria-label="Close">✕</button>
             </div>
             <div class="codelab-modal__body" style="font-family:var(--cl-font-sans);">
-              <p style="margin:0 0 12px;font-size:12.5px;color:var(--cl-fg-muted);">
-                Enter any public GitHub repository URL or <code>owner/repo</code> slug. Files will be cloned directly into the in-memory Virtual Filesystem (VFS) with zero authentication required.
+              <p id="cl-clone-modal-desc" style="margin:0 0 12px;font-size:12.5px;color:var(--cl-fg-muted);line-height:1.45;">
+                Enter a public GitHub repository URL or <code>owner/repo</code> slug. Files are cloned transactionally into the Virtual Filesystem (VFS).
               </p>
-              <div style="display:flex;gap:8px;">
-                <input id="cl-clone-repo-input" type="text" placeholder="e.g. mdn/todo-react or https://github.com/owner/repo" style="flex:1;height:34px;padding:0 10px;background:var(--cl-bg);border:1px solid var(--cl-border-strong);border-radius:var(--cl-radius-sm);color:var(--cl-fg);font-family:var(--cl-font-mono);font-size:12px;outline:none;" />
-                <button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="confirm-clone-repo">Clone Repo</button>
-              </div>
+              <form id="cl-clone-repo-form" class="codelab-clone-form" novalidate>
+                <div class="codelab-clone-field">
+                  <label for="cl-clone-repo-input" class="codelab-clone-label">Repository URL or owner/repo</label>
+                  <input id="cl-clone-repo-input" name="repo" type="text" value="${escapeHtml(presetRepo)}" placeholder="e.g. octocat/Hello-World or https://github.com/owner/repo" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-invalid="false" class="codelab-clone-input" />
+                </div>
+                <div class="codelab-clone-field" style="margin-top:10px;">
+                  <label for="cl-clone-branch-input" class="codelab-clone-label">Branch / Tag (optional)</label>
+                  <input id="cl-clone-branch-input" name="branch" type="text" value="${escapeHtml(presetBranch)}" placeholder="Default branch (e.g. main)" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" aria-invalid="false" class="codelab-clone-input" />
+                </div>
+                <div id="cl-clone-error-banner" class="codelab-clone-error" role="alert" hidden></div>
+                <div id="cl-clone-progress-wrap" class="codelab-clone-progress" role="progressbar" aria-label="Cloning repository" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
+                  <div class="codelab-clone-progress__bar"><div class="codelab-clone-progress__fill" id="cl-clone-progress-fill" style="width:12%;"></div></div>
+                  <div class="codelab-clone-progress__status" id="cl-clone-progress-text" aria-live="polite">Connecting to GitHub...</div>
+                </div>
+                <div class="codelab-modal__footer codelab-clone-actions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+                  <button type="button" class="codelab-btn" id="cl-clone-cancel-btn" data-cl-action="close-modal">Cancel</button>
+                  <button type="submit" class="codelab-btn codelab-btn--primary" id="cl-clone-submit-btn">Clone Repository</button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
       `;
-      const input = slot.querySelector('#cl-clone-repo-input');
-      if (input) {
-        input.focus();
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && input.value.trim()) {
-            if (e.isComposing || e.keyCode === 229) return;
+
+      const form = slot.querySelector('#cl-clone-repo-form');
+      const repoInputEl = slot.querySelector('#cl-clone-repo-input');
+      const branchInputEl = slot.querySelector('#cl-clone-branch-input');
+      const errBanner = slot.querySelector('#cl-clone-error-banner');
+      const progWrap = slot.querySelector('#cl-clone-progress-wrap');
+      const progFill = slot.querySelector('#cl-clone-progress-fill');
+      const progText = slot.querySelector('#cl-clone-progress-text');
+      const cancelBtn = slot.querySelector('#cl-clone-cancel-btn');
+      const closeBtn = slot.querySelector('#cl-clone-close-btn');
+      const submitBtn = slot.querySelector('#cl-clone-submit-btn');
+
+      const setError = (msg, targetEl = null) => {
+        if (!errBanner || !repoInputEl) return;
+        if (!msg) {
+          errBanner.hidden = true;
+          errBanner.textContent = '';
+          repoInputEl.setAttribute('aria-invalid', 'false');
+          repoInputEl.removeAttribute('aria-describedby');
+          if (branchInputEl) {
+            branchInputEl.setAttribute('aria-invalid', 'false');
+            branchInputEl.removeAttribute('aria-describedby');
+          }
+        } else {
+          errBanner.textContent = String(msg);
+          errBanner.hidden = false;
+          const invalidTarget = targetEl || repoInputEl;
+          if (invalidTarget === branchInputEl && branchInputEl) {
+            repoInputEl.setAttribute('aria-invalid', 'false');
+            repoInputEl.removeAttribute('aria-describedby');
+            branchInputEl.setAttribute('aria-invalid', 'true');
+            branchInputEl.setAttribute('aria-describedby', 'cl-clone-error-banner');
+          } else {
+            repoInputEl.setAttribute('aria-invalid', 'true');
+            repoInputEl.setAttribute('aria-describedby', 'cl-clone-error-banner');
+            if (branchInputEl) {
+              branchInputEl.setAttribute('aria-invalid', 'false');
+              branchInputEl.removeAttribute('aria-describedby');
+            }
+          }
+        }
+      };
+
+      const setInFlightUi = (inFlight) => {
+        if (repoInputEl) repoInputEl.disabled = inFlight;
+        if (branchInputEl) branchInputEl.disabled = inFlight;
+        if (submitBtn) {
+          submitBtn.disabled = inFlight;
+          submitBtn.textContent = inFlight ? 'Cloning...' : 'Clone Repository';
+        }
+        if (progWrap) {
+          progWrap.hidden = !inFlight;
+        }
+        if (cancelBtn) {
+          cancelBtn.setAttribute('data-cl-action', inFlight ? 'cancel-clone' : 'close-modal');
+          cancelBtn.textContent = inFlight ? 'Cancel Clone' : 'Cancel';
+        }
+        if (closeBtn) {
+          closeBtn.setAttribute('data-cl-action', inFlight ? 'cancel-clone' : 'close-modal');
+        }
+      };
+
+      const executeModalClone = async (repoVal, branchVal, resolution) => {
+        setError('');
+        setInFlightUi(true);
+        try {
+          await this.cloneRepo(repoVal, {
+            intoRoot: true,
+            branch: branchVal || undefined,
+            force: true,
+            isolate: resolution === 'isolated',
+            replace: resolution === 'replace',
+            onProgress: (info) => {
+              if (!progWrap || progWrap.hidden) return;
+              const done = Number((info && (info.completed ?? info.done ?? info.loaded)) || 0);
+              const total = Number((info && (info.total ?? info.count)) || 0);
+              const pct = total > 0 ? Math.min(98, Math.max(10, Math.round((done / total) * 100))) : 35;
+              progWrap.setAttribute('aria-valuenow', String(pct));
+              if (progFill) progFill.style.width = `${pct}%`;
+              if (progText) {
+                const fileLabel = (info && (info.path || info.file)) ? ` — ${info.path || info.file}` : '';
+                progText.textContent = total > 0
+                  ? `Downloading files (${done}/${total})${fileLabel}`
+                  : `Fetching repository tree${fileLabel}...`;
+              }
+            }
+          });
+          if (!this._cloneCancelledByUser) {
+            this.closeModal({ restoreFocus: false });
+          }
+        } catch (err) {
+          if (this._cloneCancelledByUser) {
+            return;
+          }
+          setInFlightUi(false);
+          const msg = err && err.message ? err.message : String(err);
+          setError(msg);
+          if (repoInputEl && typeof repoInputEl.focus === 'function') {
+            repoInputEl.focus();
+          }
+        }
+      };
+
+      this._submitCloneModal = async () => {
+        if (this._cloneInFlight) return;
+        const repoVal = repoInputEl ? repoInputEl.value.trim() : '';
+        const branchVal = branchInputEl ? branchInputEl.value.trim() : '';
+        if (!repoVal) {
+          setError('Please enter a GitHub repository URL or owner/repo slug (for example, octocat/Hello-World).');
+          if (repoInputEl) repoInputEl.focus();
+          return;
+        }
+        const parsed = this._parseSafeGitHubRepo(repoVal, branchVal);
+        if (!parsed) {
+          const badBranchOnly = Boolean(branchVal && this._parseSafeGitHubRepo(repoVal, '') && !this._parseSafeGitHubRepo(repoVal, branchVal));
+          const targetInput = badBranchOnly && branchInputEl ? branchInputEl : repoInputEl;
+          setError(
+            badBranchOnly
+              ? `Invalid branch or tag "${branchVal}". Branch names cannot contain ".." or invalid ref characters.`
+              : `Invalid GitHub repository "${repoVal}". Enter a valid https://github.com/owner/repo URL or owner/repo slug.`,
+            targetInput
+          );
+          if (targetInput && typeof targetInput.focus === 'function') targetInput.focus();
+          return;
+        }
+        setError('');
+        let resolution = 'replace';
+        if (this._needsWorkspaceConfirm()) {
+          const savedReturnFocus = this._modalReturnFocusEl || null;
+          const choice = await this._showWorkspaceConfirmModal({
+            title: 'Clone Repository Into Workspace',
+            message: `Your current workspace contains files or unsaved edits. Clone "${parsed.owner}/${parsed.repo}" into a new isolated workspace or replace the current workspace?`,
+            isolateLabel: 'New Isolated Workspace',
+            replaceLabel: 'Replace Current Workspace'
+          });
+          if (choice === 'cancel') {
+            this.showCloneRepoModal({ repo: repoVal, branch: branchVal, skipReturnFocusCapture: true, returnFocusEl: savedReturnFocus });
+            return;
+          }
+          resolution = choice;
+          this.showCloneRepoModal({ repo: repoVal, branch: branchVal, skipReturnFocusCapture: true, returnFocusEl: savedReturnFocus });
+          const nextSubmit = this._activeCloneModalExecute;
+          if (typeof nextSubmit === 'function') {
+            await nextSubmit(repoVal, branchVal, resolution);
+          }
+          return;
+        }
+        await executeModalClone(repoVal, branchVal, resolution);
+      };
+      this._activeCloneModalExecute = executeModalClone;
+
+      if (repoInputEl) {
+        repoInputEl.addEventListener('input', () => {
+          if (errBanner && !errBanner.hidden) {
+            setError('');
+          }
+        });
+        repoInputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
             e.preventDefault();
-            const val = input.value.trim();
-            this.closeModal();
-            this.cloneRepo(val, { intoRoot: true }).catch(() => {});
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
+            if (this._cloneInFlight) this.cancelClone();
             this.closeModal();
           }
+        });
+        if (!initialOpts || initialOpts.autoFocus !== false) {
+          repoInputEl.focus();
+        }
+      }
+      if (branchInputEl) {
+        branchInputEl.addEventListener('input', () => {
+          if (errBanner && !errBanner.hidden) {
+            setError('');
+          }
+        });
+        branchInputEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            if (this._cloneInFlight) this.cancelClone();
+            this.closeModal();
+          }
+        });
+      }
+      if (form) {
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          this._submitCloneModal();
         });
       }
     }
@@ -11735,99 +19637,261 @@ int main() {
       if (!parseGitHubRepoUrl || !cloneGitHubRepository) {
         throw new Error('CodeLabShell GitHub clone engine is not loaded');
       }
-      const parsed = parseGitHubRepoUrl(repoInput);
+      const cleanInput = String(repoInput || '').trim();
+      const branchOpt = (options && options.branch !== undefined && options.branch !== null) ? String(options.branch) : '';
+      const parsed = this._parseSafeGitHubRepo(cleanInput, branchOpt);
       if (!parsed) {
-        const errMsg = `fatal: repository '${repoInput}' does not exist or is not a valid GitHub repository URL`;
-        this.terminalLogs.push({ type: 'stderr', text: errMsg });
+        const errMsg = `fatal: repository '${cleanInput}' does not exist or is not a valid GitHub repository URL`;
+        this._pushTerminalLog({ type: 'stderr', text: errMsg });
         this._renderDrawerBody();
         throw new Error(errMsg);
+      }
+
+      const intoRoot = options.intoRoot !== false;
+      let shouldIsolate = Boolean(options && options.isolate);
+      const isInteractiveBrowser = Boolean(
+        options &&
+        options.confirm === true &&
+        !options.force &&
+        intoRoot &&
+        this._isRealBrowserDom()
+      );
+      if (isInteractiveBrowser && this._needsWorkspaceConfirm()) {
+        const choice = await this._showWorkspaceConfirmModal({
+          title: 'Clone Repository Into Workspace',
+          message: `Your current workspace contains files or unsaved edits. Clone "${parsed.owner}/${parsed.repo}" into a new isolated workspace or replace the current workspace?`,
+          isolateLabel: 'New Isolated Workspace',
+          replaceLabel: 'Replace Current Workspace'
+        });
+        if (choice === 'cancel') {
+          const cancelErr = new Error('Clone cancelled by user');
+          cancelErr.name = 'AbortError';
+          throw cancelErr;
+        }
+        shouldIsolate = choice === 'isolated';
       }
 
       if (!this.shell) {
         this._initShell();
       }
 
-      const intoRoot = options.intoRoot !== false;
       const targetDir = intoRoot ? '/workspace' : `/workspace/${parsed.repo}`;
-      const cmdDisplay = `git clone ${repoInput}${intoRoot ? ' .' : ''}`;
+      const cmdDisplay = `git clone ${cleanInput}${intoRoot ? ' .' : ''}`;
       this.drawerTab = 'terminal';
-      this.terminalLogs.push({ type: 'cmd', text: cmdDisplay });
+      this._pushTerminalLog({ type: 'cmd', text: cmdDisplay });
       this.isRunning = true;
+      this._cloneInFlight = true;
+      this._cloneCancelledByUser = false;
       const abortCtrl = new AbortController();
+      this._activeCloneAbortController = abortCtrl;
       this._activeCommandAbortController = abortCtrl;
+      if (options.signal && typeof options.signal.addEventListener === 'function') {
+        if (options.signal.aborted) {
+          this._cloneCancelledByUser = true;
+          abortCtrl.abort();
+        } else {
+          options.signal.addEventListener('abort', () => {
+            this._cloneCancelledByUser = true;
+            abortCtrl.abort();
+          }, { once: true });
+        }
+      }
       this._renderDrawerBody();
       this._updateRunStateUI();
 
-      try {
-        if (intoRoot && this.shell && this.shell.vfs) {
-          // Clear previous workspace files before cloning into root
-          if (this.shell.vfs.files instanceof Map) {
-            for (const k of Array.from(this.shell.vfs.files.keys())) {
-              if (k.startsWith('/workspace/')) this.shell.vfs.files.delete(k);
-            }
-          }
-          if (this.shell.vfs.dirs instanceof Set) {
-            for (const d of Array.from(this.shell.vfs.dirs)) {
-              if (d.startsWith('/workspace/')) this.shell.vfs.dirs.delete(d);
-            }
-          }
-        }
+      // Transactional Staging VFS: NEVER mutate live workspace files/VFS/gitState until clone succeeds 100%
+      const stagingShell = typeof createPosixShell === 'function'
+        ? createPosixShell({ cwd: '/workspace', files: {} })
+        : null;
+      const stagingVfs = (stagingShell && stagingShell.vfs) ? stagingShell.vfs : this.shell.vfs;
 
-        const result = await cloneGitHubRepository(repoInput, this.shell.vfs, {
+      const baseFetch = options.fetchImpl
+        || (this.shell && this.shell.options && this.shell.options.fetchImpl)
+        || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+
+      let failedBlobs = 0;
+      let blobAbortError = null;
+      const wrappedFetch = baseFetch ? async (url, init = {}) => {
+        const urlStr = String(url || '');
+        const isJsDelivrFallback = urlStr.includes('cdn.jsdelivr.net/gh/');
+        try {
+          const res = await baseFetch(url, { ...init, signal: abortCtrl.signal });
+          if (isJsDelivrFallback && (!res || !res.ok)) {
+            failedBlobs++;
+            blobAbortError = new Error(`Network error while downloading repository blob (${res ? res.status : 'failed'}). Workspace rolled back cleanly.`);
+            try { abortCtrl.abort(); } catch (_e) { void _e; }
+            return res;
+          }
+          if (isJsDelivrFallback && res && res.ok && typeof res.text === 'function') {
+            const origText = res.text.bind(res);
+            const guardedText = async () => {
+              try {
+                return await origText();
+              } catch (streamErr) {
+                if (!this._cloneCancelledByUser) {
+                  failedBlobs++;
+                  blobAbortError = new Error(`Network stream interrupted while downloading repository blob: ${(streamErr && streamErr.message) || streamErr}. Workspace rolled back cleanly.`);
+                  try { abortCtrl.abort(); } catch (_e) { void _e; }
+                }
+                throw streamErr;
+              }
+            };
+            try {
+              Object.defineProperty(res, 'text', { value: guardedText, configurable: true, writable: true });
+              return res;
+            } catch (_defErr) {
+              return new Proxy({}, {
+                get(_target, prop) {
+                  if (prop === 'text') return guardedText;
+                  const val = Reflect.get(res, prop, res);
+                  return typeof val === 'function' ? val.bind(res) : val;
+                }
+              });
+            }
+          }
+          return res;
+        } catch (fetchErr) {
+          if (isJsDelivrFallback && !this._cloneCancelledByUser) {
+            failedBlobs++;
+            blobAbortError = new Error(`Network connection interrupted while cloning repository: ${(fetchErr && fetchErr.message) || fetchErr}. Workspace rolled back cleanly.`);
+            try { abortCtrl.abort(); } catch (_e) { void _e; }
+          }
+          throw fetchErr;
+        }
+      } : undefined;
+
+      try {
+        const result = await cloneGitHubRepository(cleanInput, stagingVfs, {
           targetDir,
           branch: options.branch || parsed.branch || null,
           maxFiles: options.maxFiles || 250,
           maxFileSize: options.maxFileSize || 512 * 1024,
-          fetchImpl: options.fetchImpl || (this.shell && this.shell.options ? this.shell.options.fetchImpl : undefined),
+          fetchImpl: wrappedFetch,
           signal: abortCtrl.signal,
           onProgress: options.onProgress
         });
 
-        if (this.shell && this.shell.gitState) {
-          const gs = this.shell.gitState;
-          gs.branch = result.branch;
-          if (!(gs.branches instanceof Set)) gs.branches = new Set();
-          gs.branches.add(result.branch);
-          gs.remoteUrl = result.url;
-          gs.remotes = { origin: result.url };
-          gs.repoRoot = targetDir;
-          gs.headSnapshot = Object.assign({}, result.headSnapshot);
-          gs.commits = result.commits;
-          gs.staged = new Set();
+        if (failedBlobs > 0) {
+          throw blobAbortError || new Error('Repository clone failed mid-transfer. Workspace rolled back cleanly.');
+        }
+        if (this._cloneCancelledByUser || abortCtrl.signal.aborted) {
+          const abortErr = new Error('Clone cancelled by user');
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
+
+        const hiddenVfsSegRe = /(?:^|\/)(?:\.git|node_modules)(?:\/|$)/;
+        const cleanSnapshot = {};
+        for (const [rawPath, content] of Object.entries(result.headSnapshot || {})) {
+          const rel = String(rawPath || '').replace(/^\/+/, '');
+          if (!rel || hiddenVfsSegRe.test(rel)) continue;
+          cleanSnapshot[rel] = String(content ?? '');
+        }
+
+        if (shouldIsolate && intoRoot) {
+          this._saveState({ flushFiles: true });
+          const slugSafe = `${parsed.owner}-${parsed.repo}`.toLowerCase().replace(/[^a-z0-9._-]+/g, '-');
+          const nextId = `repo-${slugSafe}-${Date.now().toString(36)}`;
+          this.labId = nextId;
+          this.storageKey = `${STORAGE_PREFIX}${this.labId}`;
+          this.savedState = {};
+          this.settingsTabOpen = false;
+          this._updateWorkspaceUrlParam(nextId);
         }
 
         if (intoRoot) {
-          this.setFiles(result.headSnapshot);
-          const preferred = [
-            'README.md',
-            'readme.md',
-            'src/index.ts',
-            'src/index.js',
-            'index.ts',
-            'index.js',
-            'main.js',
-            'app.js',
-            'package.json'
-          ];
+          this.repo = `${parsed.owner}/${parsed.repo}`;
+          this.title = `${parsed.owner}/${parsed.repo}`;
+          this._isBlankBase = false;
+          this.hasGuidedLab = false;
+          this.referenceFiles = {};
+          if (this.labId === this._initialLabId) {
+            this._initialReferenceFiles = {};
+            this._initialHasGuidedLab = false;
+          }
+          if (this._dirtyFiles) this._dirtyFiles.clear();
+          if (this._diagnosticsStore && typeof this._diagnosticsStore.clear === 'function') {
+            try { this._diagnosticsStore.clear(); } catch (_err) { void _err; }
+          }
+
+          const stagedCleanFolders = this._collectCleanVfsFolders(stagingVfs, '/workspace');
+          if (stagingVfs !== this.shell.vfs && this.shell && this.shell.vfs) {
+            this._pruneWorkspaceVfs(false);
+            this._copyVfsTree(stagingVfs, this.shell.vfs, '/workspace');
+          }
+
+          this.setFiles(cleanSnapshot, {
+            keepGitDir: true,
+            folders: stagedCleanFolders,
+            skipSave: true
+          });
           const allNames = Object.keys(this.files);
-          const pick = preferred.find((p) => this.files[p] !== undefined) || allNames[0] || null;
-          if (pick) {
-            this.activeFile = pick;
+          const pick = this._pickPrimaryCloneFile(allNames);
+          this.openTabs = pick ? [pick] : [];
+          this.activeFile = pick || null;
+          this.activeTab = this.activeFile;
+
+          const gs = this._getGitState();
+          if (gs) {
+            gs.initialized = true;
+            gs.branch = result.branch || 'main';
+            gs.branches = new Set([gs.branch]);
+            gs.remoteUrl = result.url;
+            gs.remotes = { origin: result.url };
+            gs.repoRoot = targetDir;
+            gs.headCommit = (Array.isArray(result.commits) && result.commits[0] && result.commits[0].hash) ? result.commits[0].hash : '';
+            this._syncGitHeadState(gs, cleanSnapshot);
+            if (gs.staged && typeof gs.staged.clear === 'function') gs.staged.clear();
+            else gs.staged = new Map();
+            if (gs.stagedFiles && typeof gs.stagedFiles.clear === 'function') gs.stagedFiles.clear();
+            gs.commits = Array.isArray(result.commits) ? result.commits : [];
           }
-          this.openTabs = allNames.slice(0, 5);
-          if (pick && !this.openTabs.includes(pick)) {
-            this.openTabs.unshift(pick);
-          }
-          this._saveState();
+
+          this._updateTopbarBrandTitle();
+          this._registerWorkspaceMetaInStorage({
+            kind: 'repo',
+            repo: `${parsed.owner}/${parsed.repo}`,
+            title: `${parsed.owner}/${parsed.repo}`,
+            fileCount: allNames.length
+          });
+          this._saveState({ flushFiles: true });
           this._syncAllModels();
           this._syncActiveFileToView();
+          this._renderScmSidebar();
+          this._updateStatusBar();
         } else {
-          this._syncVfsSnapshot(null, false);
+          const hadOpenTabs = Array.isArray(this.openTabs) && this.openTabs.length > 0;
+          if (stagingVfs !== this.shell.vfs && this.shell && this.shell.vfs) {
+            if (
+              targetDir.startsWith('/workspace/') &&
+              targetDir !== '/workspace' &&
+              typeof this.shell.vfs.existsSync === 'function' &&
+              this.shell.vfs.existsSync(targetDir) &&
+              typeof this.shell.vfs.rmSync === 'function'
+            ) {
+              try { this.shell.vfs.rmSync(targetDir, { recursive: true, force: true }); } catch (_e) { void _e; }
+            }
+            this._copyVfsTree(stagingVfs, this.shell.vfs, targetDir);
+          }
+          this._syncVfsSnapshot(null, false, { suppressAutoOpenTabs: true });
+          if (!hadOpenTabs) {
+            const subPrefix = `${parsed.repo}/`;
+            const subRels = Object.keys(this.files).filter((f) => f.startsWith(subPrefix));
+            const stripped = subRels.map((f) => f.slice(subPrefix.length));
+            const primaryRel = this._pickPrimaryCloneFile(stripped);
+            const pick = primaryRel ? `${subPrefix}${primaryRel}` : (subRels[0] || null);
+            this.openTabs = pick ? [pick] : [];
+            this.activeFile = pick || null;
+            this.activeTab = (this.settingsTabOpen && this.activeTab === '__settings__') ? '__settings__' : this.activeFile;
+            this._renderTabs();
+            this._syncActiveFileToView();
+          }
+          this._lintAllWorkspaceFiles();
         }
 
         const count = Math.max(1, result.filesWritten);
         const kb = Math.max(0.1, result.totalBytes / 1024).toFixed(1);
-        this.terminalLogs.push({
+        this._pushTerminalLog({
           type: 'stdout',
           text:
             `Cloning into '${intoRoot ? '.' : parsed.repo}'...\n` +
@@ -11843,6 +19907,7 @@ int main() {
           branch: result.branch,
           url: result.url,
           targetDir: result.targetDir,
+          labId: this.labId,
           count: result.filesWritten,
           fileCount: result.filesWritten,
           totalBytes: result.totalBytes
@@ -11851,13 +19916,27 @@ int main() {
         this._emitEvent('repo:cloned', eventDetail);
         return result;
       } catch (err) {
-        if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-          const msg = err && err.message ? err.message : String(err);
-          this.terminalLogs.push({ type: 'stderr', text: msg });
+        if (failedBlobs > 0 && blobAbortError) {
+          this._pushTerminalLog({ type: 'stderr', text: blobAbortError.message });
+          this._renderDrawerBody();
+          throw blobAbortError;
         }
+        if (this._cloneCancelledByUser || abortCtrl.signal.aborted || (err && err.name === 'AbortError')) {
+          this._pushTerminalLog({ type: 'stderr', text: '^C Clone cancelled. Previous workspace preserved.' });
+          this._renderDrawerBody();
+          const abortErr = err && err.name === 'AbortError' ? err : new Error('Clone cancelled by user');
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
+        const msg = err && err.message ? err.message : String(err);
+        this._pushTerminalLog({ type: 'stderr', text: msg });
         this._renderDrawerBody();
         throw err;
       } finally {
+        this._cloneInFlight = false;
+        if (this._activeCloneAbortController === abortCtrl) {
+          this._activeCloneAbortController = null;
+        }
         if (this._activeCommandAbortController === abortCtrl) {
           this._activeCommandAbortController = null;
         }
@@ -11866,8 +19945,8 @@ int main() {
       }
     }
 
-    reset() {
-      return this.resetLab();
+    reset(opts) {
+      return this.resetLab(opts);
     }
 
     on(eventName, handler) {
@@ -11907,11 +19986,18 @@ int main() {
       } else {
         this._refreshLanguageSwitcher();
       }
+      if (!this._isBooting) {
+        this._lintAllWorkspaceFiles();
+      }
       return this;
     }
 
     destroy() {
       this._destroyed = true;
+      if (typeof this._activeSplitterCleanup === 'function') {
+        try { this._activeSplitterCleanup(); } catch (_err) { void _err; }
+        this._activeSplitterCleanup = null;
+      }
       this.flushState();
       this.stopExecution();
       if (this._settingsDialog && typeof this._settingsDialog.dispose === 'function') {
@@ -11941,6 +20027,14 @@ int main() {
       if (this._saveDebounceTimer) {
         clearTimeout(this._saveDebounceTimer);
         this._saveDebounceTimer = null;
+      }
+      if (this._autoSaveTimer) {
+        clearTimeout(this._autoSaveTimer);
+        this._autoSaveTimer = null;
+      }
+      if (this._lintDebounceTimer) {
+        clearTimeout(this._lintDebounceTimer);
+        this._lintDebounceTimer = null;
       }
       if (this._breadcrumbRafId && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this._breadcrumbRafId);
@@ -11972,6 +20066,18 @@ int main() {
       }
       if (this._escHandler && typeof document !== 'undefined') {
         document.removeEventListener('keydown', this._escHandler);
+      }
+      if (this._topbarMenuOutsideHandler && typeof document !== 'undefined') {
+        document.removeEventListener('pointerdown', this._topbarMenuOutsideHandler);
+        this._topbarMenuOutsideHandler = null;
+      }
+      if (this._captureKeydownHandler && this.container && typeof this.container.removeEventListener === 'function') {
+        this.container.removeEventListener('keydown', this._captureKeydownHandler, true);
+        this._captureKeydownHandler = null;
+      }
+      if (this._documentKeydownHandler && typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('keydown', this._documentKeydownHandler);
+        this._documentKeydownHandler = null;
       }
       if (this._beforeUnloadHandler && typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', this._beforeUnloadHandler);
@@ -12011,8 +20117,55 @@ int main() {
       if (this._eventListeners) {
         this._eventListeners.clear();
       }
+      if (CodeLabWorkbench._instances) {
+        CodeLabWorkbench._instances.delete(this);
+      }
+      if (CodeLabWorkbench._lastActiveInstance === this) {
+        CodeLabWorkbench._lastActiveInstance = null;
+      }
+      if (this.container) {
+        const shellEl = typeof this.container.querySelector === 'function' ? this.container.querySelector('.codelab') : null;
+        if (shellEl && typeof shellEl.remove === 'function') {
+          shellEl.remove();
+        } else if ('innerHTML' in this.container) {
+          this.container.innerHTML = '';
+        }
+        if (this.container._codeLabInstance === this) {
+          this.container._codeLabInstance = null;
+        }
+      }
     }
   }
+
+  CodeLabWorkbench._instances = new Set();
+  CodeLabWorkbench._lastActiveInstance = null;
+  CodeLabWorkbench._isInstanceVisible = (wb) => {
+    if (!wb || wb._destroyed || !wb.container) return false;
+    const shell = typeof wb.container.querySelector === 'function' ? wb.container.querySelector('.codelab') : null;
+    if (!shell) return false;
+    if (typeof shell.isConnected === 'boolean' && !shell.isConnected) return false;
+    if (typeof shell.offsetParent !== 'undefined' && shell.offsetParent === null) {
+      if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        try {
+          const cs = window.getComputedStyle(shell);
+          if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+          if (cs.position !== 'fixed') return false;
+          let anc = wb.container;
+          while (anc && anc.nodeType === 1) {
+            const acs = window.getComputedStyle(anc);
+            if (acs.display === 'none' || acs.visibility === 'hidden') return false;
+            anc = anc.parentElement;
+          }
+        } catch (err) {
+          void err;
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+    return true;
+  };
 
   // ── Register <code-lab> Custom Element ───────────────────────────────────
   let CodeLabElementClass = null;
@@ -12080,6 +20233,7 @@ int main() {
           testEntry: this.getAttribute('test-entry') || inlineConfig.testEntry || undefined,
           repo: this.getAttribute('repo') || inlineConfig.repo || undefined,
           branch: this.getAttribute('branch') || inlineConfig.branch || undefined,
+          fullbleed: this.hasAttribute('fullbleed') || Boolean(inlineConfig.fullbleed),
           ...(attrFiles ? { files: attrFiles } : {})
         });
       }
@@ -12089,10 +20243,10 @@ int main() {
       getFile(path) { return this._instance ? this._instance.getFile(path) : null; }
       setFile(path, content, opts) { return this._instance ? this._instance.setFile(path, content, opts) : undefined; }
       createFile(path, content) { return this._instance ? this._instance.createFile(path, content) : null; }
-      deleteFile(path) { return this._instance ? this._instance.deleteFile(path) : false; }
+      deleteFile(path, opts) { return this._instance ? this._instance.deleteFile(path, opts) : false; }
       renameFile(oldPath, newPath) { return this._instance ? this._instance.renameFile(oldPath, newPath) : false; }
       createFolder(path) { return this._instance ? this._instance.createFolder(path) : false; }
-      deleteFolder(path) { return this._instance ? this._instance.deleteFolder(path) : false; }
+      deleteFolder(path, opts) { return this._instance ? this._instance.deleteFolder(path, opts) : false; }
       renameFolder(oldPath, newPath) { return this._instance ? this._instance.renameFolder(oldPath, newPath) : false; }
       moveFile(oldPath, newPath) { return this._instance ? this._instance.moveFile(oldPath, newPath) : false; }
       movePath(sourcePath, targetFolder) { return this._instance ? this._instance.movePath(sourcePath, targetFolder) : false; }
@@ -12105,11 +20259,16 @@ int main() {
       getOpenTabs() { return this._instance ? this._instance.getOpenTabs() : []; }
       setTheme(theme) { return this._instance ? this._instance.setTheme(theme) : undefined; }
       getTheme() { return this._instance ? this._instance.getTheme() : 'auto'; }
+      setLanguage(lang) { if (this._instance) this._instance.setLanguage(lang); }
+      setMode(mode) { if (this._instance) this._instance.setMode(mode); }
       switchDrawerTab(tab) { if (this._instance) this._instance.switchDrawerTab(tab); }
       toggleWebPreview() { if (this._instance) this._instance.toggleWebPreview(); }
       openCommandPalette(mode) { if (this._instance) this._instance.openCommandPalette(mode); }
       closeCommandPalette() { if (this._instance) this._instance.closeCommandPalette(); }
       showDiffModal(file, target) { if (this._instance) this._instance.showDiffModal(file, target); }
+      openCloneDialog(opts) { if (this._instance) this._instance.openCloneDialog(opts); }
+      showCloneRepoModal(opts) { if (this._instance) this._instance.showCloneRepoModal(opts); }
+      cancelClone() { return this._instance ? this._instance.cancelClone() : false; }
       cloneRepo(repoInput, opts) { return this._instance ? this._instance.cloneRepo(repoInput, opts) : Promise.reject(new Error('Workbench not mounted')); }
       runCode() { return this._instance ? this._instance.runCode() : Promise.resolve(); }
       runProject() { return this._instance ? this._instance.runProject() : Promise.resolve(); }
@@ -12123,7 +20282,8 @@ int main() {
       previewApp() { return this._instance ? this._instance.previewApp() : Promise.resolve(null); }
       stopExecution() { if (this._instance) this._instance.stopExecution(); }
       cancelExecution() { if (this._instance) this._instance.cancelExecution(); }
-      reset() { return this._instance ? this._instance.reset() : undefined; }
+      reset(opts) { return this._instance ? this._instance.reset(opts) : undefined; }
+      resetLab(opts) { return this._instance ? this._instance.resetLab(opts) : undefined; }
       exportWorkspace(opts) { return this._instance ? this._instance.exportWorkspace(opts) : null; }
       importWorkspace(snap) { return this._instance ? this._instance.importWorkspace(snap) : false; }
       exportProjectZip(opts) { return this._instance ? this._instance.exportProjectZip(opts) : null; }
@@ -12133,15 +20293,47 @@ int main() {
       searchWorkspace(opts) { return this._instance ? this._instance.searchWorkspace(opts) : null; }
       replaceInWorkspace(opts) { return this._instance ? this._instance.replaceInWorkspace(opts) : null; }
       getGitStatus() { return this._instance ? this._instance.getGitStatus() : []; }
+      stageGitFile(p) { return this._instance ? this._instance.stageGitFile(p) : false; }
+      unstageGitFile(p) { return this._instance ? this._instance.unstageGitFile(p) : false; }
+      stageAllGitFiles() { return this._instance ? this._instance.stageAllGitFiles() : false; }
+      unstageAllGitFiles() { return this._instance ? this._instance.unstageAllGitFiles() : false; }
+      discardGitFile(p) { return this._instance ? this._instance.discardGitFile(p) : false; }
+      commitGitChanges(msg) { return this._instance ? this._instance.commitGitChanges(msg) : null; }
+      listGitBranches() { return this._instance ? this._instance.listGitBranches() : []; }
+      createGitBranch(name, checkout) { return this._instance ? this._instance.createGitBranch(name, checkout) : false; }
+      checkoutGitBranch(name) { return this._instance ? this._instance.checkoutGitBranch(name) : false; }
+      getGitLog(limit) { return this._instance ? this._instance.getGitLog(limit) : []; }
+      openScmDiff(p, opts) { return this._instance ? this._instance.openScmDiff(p, opts) : false; }
+      closeScmDiff() { return this._instance ? this._instance.closeScmDiff() : false; }
       getDiagnostics() { return this._instance ? this._instance.getDiagnostics() : []; }
+      goToNextProblem(rev) { return this._instance ? this._instance.goToNextProblem(rev) : false; }
+      openSearchView(opts) { if (this._instance) this._instance.openSearchView(opts); }
+      openScmView() { if (this._instance) this._instance.openScmView(); }
+      openProblemsPanel() { if (this._instance) this._instance.openProblemsPanel(); }
       showSearchModal(q) { if (this._instance) this._instance.showSearchModal(q); }
       showScmModal() { if (this._instance) this._instance.showScmModal(); }
       showProblemsModal() { if (this._instance) this._instance.showProblemsModal(); }
+      setSidebarVisible(vis) { if (this._instance) this._instance.setSidebarVisible(vis); }
+      toggleSidebar() { if (this._instance) this._instance.toggleSidebar(); }
+      setSidebarView(viewId, opts) { if (this._instance) this._instance.setSidebarView(viewId, opts); }
+      setPanelVisible(vis) { if (this._instance) this._instance.setPanelVisible(vis); }
+      togglePanel() { if (this._instance) this._instance.togglePanel(); }
+      toggleDrawer() { if (this._instance) this._instance.toggleDrawer(); }
+      setPanelMaximized(max) { if (this._instance) this._instance.setPanelMaximized(max); }
+      toggleTerminal() { if (this._instance) this._instance.toggleTerminal(); }
       listTerminalSessions() { return this._instance ? this._instance.listTerminalSessions() : []; }
       createTerminalSession(name) { return this._instance ? this._instance.createTerminalSession(name) : null; }
       switchTerminalSession(id) { return this._instance ? this._instance.switchTerminalSession(id) : false; }
       closeTerminalSession(id) { return this._instance ? this._instance.closeTerminalSession(id) : false; }
-      openSettings() { if (this._instance) this._instance.openSettings(); }
+      killActiveTerminalSession() { return this._instance ? this._instance.killActiveTerminalSession() : false; }
+      saveActiveFile(opts) { return this._instance ? this._instance.saveActiveFile(opts) : Promise.resolve(false); }
+      saveFile(path) { return this._instance ? this._instance.saveFile(path) : false; }
+      saveAllFiles() { return this._instance ? this._instance.saveAllFiles() : false; }
+      saveWorkspace() { return this._instance ? this._instance.saveWorkspace() : Promise.resolve(false); }
+      openBlankWorkspace(opts) { return this._instance ? this._instance.openBlankWorkspace(opts) : Promise.resolve(null); }
+      newBlankWorkspace(title) { return this._instance ? this._instance.newBlankWorkspace(title) : null; }
+      switchWorkspace(id, opts) { return this._instance ? this._instance.switchWorkspace(id, opts) : Promise.resolve(false); }
+      openSettings(opts) { if (this._instance) this._instance.openSettings(opts); }
       closeSettings() { if (this._instance) this._instance.closeSettings(); }
       openWorkspaceSettingsJson() { if (this._instance) this._instance.openWorkspaceSettingsJson(); }
       runSql(mode, payload) { return this._instance ? this._instance.runSql(mode, payload) : Promise.resolve(null); }
@@ -12238,9 +20430,13 @@ int main() {
     create: mountCodeLab,
     unmount(container) {
       const el = typeof container === 'string' ? document.querySelector(container) : container;
-      if (el && el._codeLabInstance) {
+      if (!el) return;
+      if (el._codeLabInstance) {
         el._codeLabInstance.destroy();
         el._codeLabInstance = null;
+      }
+      if ('innerHTML' in el) {
+        el.innerHTML = '';
       }
     }
   };

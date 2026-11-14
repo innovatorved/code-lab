@@ -183,13 +183,14 @@ code-lab,
 
 .codelab,
 .codelab-workbench {
-  --cl-guide-width: 380px;
-  --cl-drawer-height: 240px;
+  --cl-guide-width: 360px;
+  --cl-explorer-width: 260px;
+  --cl-drawer-height: 220px;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: calc(100vh - 150px);
-  min-height: 640px;
+  min-height: min(640px, 100vh);
   max-height: 940px;
   background: var(--cl-bg);
   border: 1px solid var(--cl-border);
@@ -198,10 +199,29 @@ code-lab,
   position: relative;
 }
 
+.codelab.codelab--fullbleed,
+.codelab-workbench.codelab--fullbleed,
+.codelab-fullbleed > .codelab,
+.codelab-fullbleed > .codelab-workbench {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+}
+
 .codelab.is-resizing,
 .codelab-workbench.is-resizing {
   user-select: none !important;
   cursor: col-resize;
+}
+
+.codelab.is-switching-theme,
+.codelab.is-switching-theme *,
+.codelab.is-switching-theme *::before,
+.codelab.is-switching-theme *::after {
+  transition: none !important;
 }
 
 .codelab.is-resizing-row,
@@ -222,26 +242,30 @@ code-lab,
   border: none !important;
 }
 
-/* ── Top Workbench Toolbar (44px height, 0 14px horizontal padding) ───────── */
+/* ── Top Workbench Titlebar (38px compact height, 3-section VS Code bar) ── */
 .codelab-topbar,
+.codelab-titlebar,
 .codelab-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 44px;
-  padding: 0 14px;
+  height: 38px;
+  padding: 0 10px;
   background: var(--cl-bg-elevated);
   border-bottom: 1px solid var(--cl-border);
-  gap: 12px;
+  gap: 8px;
   flex-shrink: 0;
   user-select: none;
+  position: relative;
+  z-index: 30;
 }
 
 .codelab-topbar__left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .codelab-toolbar__sep {
@@ -549,28 +573,16 @@ code-lab,
   letter-spacing: -0.02em;
 }
 
-/* ── 3-Pane Split Body with Interactive Vertical Splitter ────────────────── */
+/* ── 5-Region Horizontal Flex Body (ActivityBar + Optional Guide + Sidebar + Main) ── */
 .codelab-body {
-  display: grid;
-  grid-template-columns: var(--cl-guide-width, 380px) 5px 1fr;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   width: 100%;
-}
-
-.codelab.guide-collapsed .codelab-body,
-.codelab-workbench.guide-collapsed .codelab-body,
-.guide-collapsed .codelab-body {
-  grid-template-columns: 1fr;
-}
-
-.codelab.guide-collapsed .codelab-main,
-.codelab-workbench.guide-collapsed .codelab-main,
-.guide-collapsed .codelab-main {
-  grid-column: 1 / -1;
-  width: 100%;
-  min-width: 0;
 }
 
 .codelab.guide-collapsed .codelab-splitter-v,
@@ -583,12 +595,14 @@ code-lab,
 
 .codelab-splitter-v {
   width: 5px;
+  flex: 0 0 5px;
   background: var(--cl-bg-elevated);
   border-right: 1px solid var(--cl-border);
   cursor: col-resize;
   position: relative;
   z-index: 10;
   transition: background 120ms ease;
+  order: 3;
 }
 
 .codelab-splitter-v:hover,
@@ -598,6 +612,7 @@ code-lab,
 
 .codelab-splitter-h {
   height: 5px;
+  flex: 0 0 5px;
   background: var(--cl-bg-elevated);
   border-top: 1px solid var(--cl-border);
   cursor: row-resize;
@@ -617,13 +632,18 @@ code-lab,
 .codelab-pane-left {
   display: flex;
   flex-direction: column;
+  width: var(--cl-guide-width, 360px);
+  min-width: 220px;
+  max-width: 55%;
+  flex: 0 0 var(--cl-guide-width, 360px);
   background: var(--cl-bg-elevated);
   border-right: 1px solid var(--cl-border);
   min-height: 0;
   overflow: hidden;
+  order: 2;
 }
 
-.codelab-guide__tabs {
+.codelab-guide__bar {
   display: flex;
   align-items: center;
   height: 36px;
@@ -632,6 +652,13 @@ code-lab,
   padding: 0 12px;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.codelab-guide__tabs {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: 6px;
 }
 
 .codelab-guide__tab {
@@ -1028,40 +1055,69 @@ code-lab,
   gap: 6px;
 }
 
-/* ── Right Pane: Editor + Bottom Console/Test Split ──────────────────────── */
+/* ── Right Pane: Editor Row + Separated Bottom Panel ─────────────────────── */
+.codelab-workbench-main,
 .codelab-main {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: var(--cl-bg);
+  order: 6;
 }
 
+.codelab-editor-row,
 .codelab-workspace {
   display: grid;
-  grid-template-columns: var(--cl-explorer-width, 196px) 4px 1fr;
-  flex: 1;
-  min-height: 160px;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 120px;
+  min-width: 0;
   overflow: hidden;
 }
 
-.codelab.files-collapsed .codelab-workspace {
-  grid-template-columns: 0px 0px 1fr;
+.codelab.panel-collapsed .codelab-splitter-h,
+.codelab.panel-collapsed .codelab-drawer,
+.codelab-workbench.panel-collapsed .codelab-splitter-h,
+.codelab-workbench.panel-collapsed .codelab-drawer {
+  display: none !important;
 }
 
-.codelab.files-collapsed .codelab-splitter-files {
-  display: none;
+.codelab.panel-maximized .codelab-editor-row,
+.codelab.panel-maximized .codelab-workspace,
+.codelab.panel-maximized .codelab-splitter-h {
+  display: none !important;
 }
 
-/* Explorer Resize Splitter */
+.codelab.panel-maximized .codelab-drawer,
+.codelab.panel-maximized .codelab-bottom {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  max-height: none !important;
+}
+
+.codelab.files-collapsed .codelab-sidebar,
+.codelab.files-collapsed .codelab-explorer,
+.codelab.files-collapsed .codelab-splitter-files,
+.codelab.sidebar-collapsed .codelab-sidebar,
+.codelab.sidebar-collapsed .codelab-explorer,
+.codelab.sidebar-collapsed .codelab-splitter-files {
+  display: none !important;
+}
+
+/* Explorer / Primary Sidebar Resize Splitter */
 .codelab-splitter-files {
   width: 4px;
+  flex: 0 0 4px;
   background: transparent;
   cursor: col-resize;
   position: relative;
   z-index: 6;
   transition: background 120ms ease;
+  order: 5;
 }
 
 .codelab-splitter-files:hover,
@@ -1069,37 +1125,60 @@ code-lab,
   background: var(--cl-border-strong);
 }
 
-/* File Explorer Sidebar */
+/* Primary Sidebar (Explorer, Search, Source Control, Plugins) */
+.codelab-sidebar,
 .codelab-explorer {
   display: flex;
   flex-direction: column;
+  width: var(--cl-explorer-width, 220px);
+  min-width: 160px;
+  max-width: 520px;
+  flex: 0 0 var(--cl-explorer-width, 220px);
+  height: 100%;
+  min-height: 0;
   background: var(--cl-bg-elevated);
   border-right: 1px solid var(--cl-border);
-  overflow-y: auto;
+  overflow: hidden;
   user-select: none;
+  order: 4;
+}
+
+.codelab-sidebar__view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.codelab-sidebar__view[hidden] {
+  display: none !important;
+}
+
+.codelab-explorer__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .codelab-explorer__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 36px;
+  height: 35px;
   padding: 0 12px;
   font-family: var(--cl-font-mono);
   font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--cl-fg-faint);
+  color: var(--cl-fg-muted);
   border-bottom: 1px solid var(--cl-border);
   flex-shrink: 0;
-}
-
-.codelab-explorer__list {
-  padding: 8px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .codelab-file-item {
@@ -1319,17 +1398,37 @@ code-lab,
   background: var(--cl-bg);
 }
 
-/* File Tab Bar (36px height, file badges, + New File, 📦 Packages) */
+/* File Tab Bar (35px height, WAI-ARIA tablist + sibling actions) */
+.codelab-tabs-bar {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  background: var(--cl-bg-elevated);
+  border-bottom: 1px solid var(--cl-border);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
 .codelab-tabs,
 .codelab-file-tabs {
   display: flex;
   align-items: center;
-  height: 36px;
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   background: var(--cl-bg-elevated);
-  border-bottom: 1px solid var(--cl-border);
   overflow-x: auto;
-  flex-shrink: 0;
   scrollbar-width: none;
+}
+
+.codelab-tabs-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 100%;
+  flex-shrink: 0;
+  background: var(--cl-bg-elevated);
 }
 
 .codelab-tabs::-webkit-scrollbar,
@@ -1342,7 +1441,7 @@ code-lab,
   align-items: center;
   gap: 7px;
   height: 100%;
-  padding: 0 13px;
+  padding: 0 12px;
   font-family: var(--cl-font-mono);
   font-size: 12px;
   color: var(--cl-fg-muted);
@@ -1351,7 +1450,9 @@ code-lab,
   background: var(--cl-bg-elevated);
   cursor: pointer;
   white-space: nowrap;
-  transition: all 100ms ease;
+  position: relative;
+  user-select: none;
+  transition: background 100ms ease, color 100ms ease;
 }
 
 .codelab-tab:hover {
@@ -1359,11 +1460,12 @@ code-lab,
   background: var(--cl-bg-hover);
 }
 
-.codelab-tab.active {
+.codelab-tab.active,
+.codelab-tab[aria-selected="true"] {
   color: var(--cl-fg);
   background: var(--cl-bg);
   font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--cl-fg);
+  box-shadow: inset 0 2px 0 var(--cl-accent);
 }
 
 .codelab-tab__ext {
@@ -1836,7 +1938,7 @@ code-lab,
 .codelab-bottom {
   display: flex;
   flex-direction: column;
-  height: var(--cl-drawer-height, 240px);
+  height: var(--cl-drawer-height, 220px);
   min-height: 110px;
   max-height: 70%;
   background: var(--cl-bg-elevated);
@@ -2243,37 +2345,66 @@ code-lab,
   white-space: pre;
 }
 
-/* ── Sleek 26px IDE Status Bar Footer (.codelab-statusbar) ───────────────── */
+/* ── Sleek 24px IDE Status Bar Footer (.codelab-statusbar) ───────────────── */
 .codelab-statusbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 26px;
-  padding: 0 12px;
-  background: var(--cl-bg);
+  height: 24px;
+  padding: 0 10px;
+  background: var(--cl-bg-elevated);
   border-top: 1px solid var(--cl-border);
   font-family: var(--cl-font-mono);
   font-size: 11px;
   color: var(--cl-fg-muted);
   user-select: none;
   flex-shrink: 0;
-  gap: 12px;
+  gap: 8px;
+}
+
+.codelab.statusbar-hidden .codelab-statusbar,
+.codelab-workbench.statusbar-hidden .codelab-statusbar {
+  display: none !important;
 }
 
 .codelab-statusbar__left,
 .codelab-statusbar__right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 
 .codelab-statusbar__item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.codelab-statusbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.codelab-statusbar__btn:hover,
+.codelab-statusbar__btn:focus-visible {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
 }
 
 .codelab-statusbar__sep {
@@ -2814,7 +2945,7 @@ code-lab,
 /* ── Right-Click Context Menu ──────────────────────────────────────────── */
 .codelab-context-menu {
   position: fixed;
-  z-index: 100;
+  z-index: 1200;
   min-width: 195px;
   padding: 4px;
   background: var(--cl-bg-elevated);
@@ -2975,20 +3106,13 @@ code-lab,
 }
 
 @media (max-width: 1024px) {
-  .codelab-body {
-    grid-template-columns: 1fr;
-  }
-  .codelab-splitter-v {
-    display: none;
-  }
-  .codelab-guide,
-  .codelab-pane-left {
-    max-height: 250px;
-    border-right: none;
-    border-bottom: 1px solid var(--cl-border);
+  .codelab,
+  .codelab-workbench {
+    --cl-guide-width: 280px;
+    --cl-explorer-width: 185px;
   }
   .codelab-workspace {
-    grid-template-columns: 155px 4px 1fr;
+    grid-template-columns: 1fr;
   }
   .codelab-inspector-grid {
     grid-template-columns: 1fr;
@@ -2999,12 +3123,22 @@ code-lab,
 }
 
 @media (max-width: 680px) {
+  .codelab,
+  .codelab-workbench {
+    --cl-explorer-width: 145px;
+  }
   .codelab-workspace {
     grid-template-columns: 1fr;
   }
-  .codelab-explorer,
-  .codelab-splitter-files {
+  .codelab-guide,
+  .codelab-pane-left,
+  .codelab-splitter-v {
     display: none;
+  }
+  .codelab-sidebar,
+  .codelab-explorer {
+    min-width: 115px;
+    max-width: min(170px, 35vw);
   }
   .codelab-topbar__center {
     display: none;
@@ -4469,11 +4603,11 @@ code-lab,
 
 /* ── Split-Pane Web Preview, Maximize Mode & Inline Console ─────────────── */
 .codelab-workspace.has-preview-split {
-  grid-template-columns: var(--cl-explorer-width, 196px) 4px minmax(260px, 1fr) 5px minmax(240px, var(--cl-preview-split-width, 44%));
+  grid-template-columns: minmax(260px, 1fr) 5px minmax(240px, var(--cl-preview-split-width, 44%));
 }
 
 .codelab.files-collapsed .codelab-workspace.has-preview-split {
-  grid-template-columns: 0px 0px minmax(260px, 1fr) 5px minmax(240px, var(--cl-preview-split-width, 44%));
+  grid-template-columns: minmax(260px, 1fr) 5px minmax(240px, var(--cl-preview-split-width, 44%));
 }
 
 .codelab-preview-split {
@@ -5145,18 +5279,19 @@ code-lab,
 
   /* Keep the split, but give the editor a floor and cap the preview share. */
   .codelab-workspace.has-preview-split {
-    grid-template-columns: 155px 4px minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
+    grid-template-columns: minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
   }
   .codelab.files-collapsed .codelab-workspace.has-preview-split {
-    grid-template-columns: 0px 0px minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
+    grid-template-columns: minmax(180px, 1fr) 5px minmax(200px, min(42%, var(--cl-preview-split-width, 44%)));
   }
 }
 
 @media (max-width: 680px) {
   /* A five-column split cannot fit a phone: stack the preview under the editor
-     instead of letting both shrink to nothing. The explorer and its splitter are
-     hidden at this width, so only editor, splitter and preview are placed. */
-  .codelab-workspace.has-preview-split {
+     instead of letting both shrink to nothing. */
+  .codelab-workspace.has-preview-split,
+  .codelab.files-collapsed .codelab-workspace.has-preview-split,
+  .codelab.sidebar-collapsed .codelab-workspace.has-preview-split {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(140px, 1fr) 5px 45%;
   }
@@ -5344,7 +5479,7 @@ code-lab,
 .codelab-btn-split .codelab-btn-split__main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  border-right: 1px solid rgba(0, 0, 0, 0.25);
 }
 .codelab-btn-split .codelab-btn-split__trigger {
   border-top-left-radius: 0;
@@ -5357,10 +5492,10 @@ code-lab,
   top: calc(100% + 4px);
   right: 0;
   background: var(--cl-bg-elevated, #252526);
-  border: 1px solid var(--cl-border, #3c3c3c);
+  border: 1px solid var(--cl-border-strong, var(--cl-border, #3c3c3c));
   border-radius: var(--cl-radius, 6px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 1200;
   min-width: 220px;
   padding: 4px 0;
   display: none;
@@ -5382,29 +5517,35 @@ code-lab,
   cursor: pointer;
   text-align: left;
 }
-.codelab-split-menu__item:hover {
-  background: var(--cl-accent, #007acc);
-  color: #ffffff;
+.codelab-split-menu__item:hover,
+.codelab-split-menu__item:focus-visible {
+  background: var(--cl-accent, #38bdf8);
+  color: var(--cl-accent-fg, #06131f);
+  outline: none;
 }
 
 /* ── Command Palette Trigger Pill ── */
 .codelab-cmd-trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 3px 10px;
+  padding: 3px 12px;
+  min-width: 190px;
   border-radius: var(--cl-radius, 6px);
-  background: var(--cl-input-bg, rgba(255, 255, 255, 0.06));
+  background: var(--cl-bg-hover, rgba(128, 128, 128, 0.12));
   border: 1px solid var(--cl-border, #3c3c3c);
   color: var(--cl-fg-muted, #858585);
-  font-size: 11px;
+  font-size: 11.5px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.codelab-cmd-trigger:hover {
-  background: var(--cl-input-bg-focus, rgba(255, 255, 255, 0.12));
+.codelab-cmd-trigger:hover,
+.codelab-cmd-trigger:focus-visible {
+  background: var(--cl-bg-active, rgba(128, 128, 128, 0.2));
   color: var(--cl-fg, #cccccc);
-  border-color: var(--cl-accent, #007acc);
+  border-color: var(--cl-accent, #38bdf8);
+  outline: none;
 }
 
 /* ── HUD Telemetry Pill ── */
@@ -5668,12 +5809,16 @@ dialog.cl-settings-dialog {
 }
 
 /* Single-file SQL Guided Lab / Workbench mode hides irrelevant multi-file chrome */
+.codelab.is-sql-single-file .codelab-activitybar,
+.codelab.is-sql-single-file .codelab-sidebar,
 .codelab.is-sql-single-file .codelab-explorer,
 .codelab.is-sql-single-file .codelab-splitter-files {
   display: none;
 }
 
 .codelab-sql-host {
+  position: absolute;
+  inset: 0;
   flex: 1;
   width: 100%;
   height: 100%;
@@ -5814,5 +5959,1315 @@ dialog.cl-settings-dialog {
     scroll-behavior: auto !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sub-Milestone M2.1: VS Code 5-Region Workbench Shell, Menubar, Activity Bar,
+   Sidebar Views (Explorer / Search / SCM / Plugins), Non-Destructive Settings
+   Tab, Contextual Drawer Actions & WCAG AA Contrast Polish
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Topbar Application Menubar & Portal Dropdowns (#cl-topbar-menu-slot) ── */
+.codelab-menubar {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 28px;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.codelab-menubar__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.codelab-menubar__trigger:hover,
+.codelab-menubar__trigger:focus-visible,
+.codelab-menubar__trigger[aria-expanded="true"] {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+}
+
+.codelab-menubar__trigger[aria-expanded="true"] {
+  background: var(--cl-bg-active);
+  border-color: var(--cl-border);
+}
+
+@media (max-width: 860px) {
+  .codelab-menubar {
+    overflow-x: auto;
+    max-width: 240px;
+    scrollbar-width: none;
+  }
+  .codelab-menubar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.codelab-topbar-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 196px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--cl-bg-elevated);
+  border: 1px solid var(--cl-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+.codelab-topbar-menu__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 26px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cl-fg);
+  font-family: var(--cl-font-sans);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codelab-topbar-menu__item:hover,
+.codelab-topbar-menu__item:focus-visible,
+.codelab-topbar-menu__item.is-active {
+  background: var(--cl-accent);
+  color: var(--cl-accent-fg);
+  outline: none;
+}
+
+.codelab-topbar-menu__item[aria-disabled="true"],
+.codelab-topbar-menu__item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.codelab-topbar-menu__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-topbar-menu__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.codelab-topbar-menu__kbd {
+  font-family: var(--cl-font-mono);
+  font-size: 10.5px;
+  color: var(--cl-fg-muted);
+  margin-left: auto;
+  padding-left: 12px;
+  flex-shrink: 0;
+}
+
+.codelab-topbar-menu__item:hover .codelab-topbar-menu__kbd,
+.codelab-topbar-menu__item:focus-visible .codelab-topbar-menu__kbd,
+.codelab-topbar-menu__item.is-active .codelab-topbar-menu__kbd {
+  color: var(--cl-accent-fg);
+  opacity: 0.9;
+}
+
+.codelab-topbar-menu__sep {
+  height: 1px;
+  margin: 4px 4px;
+  background: var(--cl-border);
+  flex-shrink: 0;
+}
+
+.codelab-topbar-submenu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  z-index: 1210;
+  min-width: 210px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--cl-bg-elevated);
+  border: 1px solid var(--cl-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48);
+  display: none;
+  flex-direction: column;
+}
+
+.codelab-topbar-submenu.open {
+  display: flex;
+}
+
+/* ── 48px Vertical Activity Bar (nav#cl-activitybar) ─────────────────────── */
+.codelab-activitybar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  flex: 0 0 48px;
+  height: 100%;
+  padding: 4px 0;
+  background: var(--cl-bg-elevated);
+  border-right: 1px solid var(--cl-border);
+  user-select: none;
+  z-index: 12;
+  order: 1;
+}
+
+.codelab-activitybar__top,
+.codelab-activitybar__bottom,
+.codelab-activitybar__plugins {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.codelab-activitybar__btn,
+.codelab-activitybar__item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--cl-fg-muted);
+  cursor: pointer;
+  transition: color 100ms ease, background 100ms ease;
+}
+
+.codelab-activitybar__btn:hover,
+.codelab-activitybar__btn:focus-visible,
+.codelab-activitybar__item:hover,
+.codelab-activitybar__item:focus-visible {
+  color: var(--cl-fg);
+  background: var(--cl-bg-hover);
+}
+
+.codelab-activitybar__btn.active,
+.codelab-activitybar__btn[aria-pressed="true"],
+.codelab-activitybar__item.active,
+.codelab-activitybar__item[aria-pressed="true"] {
+  color: var(--cl-fg);
+  box-shadow: inset 2px 0 0 var(--cl-accent);
+}
+
+.codelab.sidebar-right .codelab-activitybar__btn.active,
+.codelab.sidebar-right .codelab-activitybar__btn[aria-pressed="true"],
+.codelab.sidebar-right .codelab-activitybar__item.active,
+.codelab.sidebar-right .codelab-activitybar__item[aria-pressed="true"] {
+  box-shadow: inset -2px 0 0 var(--cl-accent);
+}
+
+.codelab-activitybar__badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--cl-accent);
+  color: var(--cl-accent-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.codelab-activitybar__badge[hidden] {
+  display: none !important;
+}
+
+/* Right-docked sidebar location (workbench.sidebar.defaultLocation = "right") */
+.codelab.sidebar-right .codelab-guide,
+.codelab.sidebar-right .codelab-pane-left {
+  order: 1;
+}
+.codelab.sidebar-right .codelab-splitter-v {
+  order: 2;
+}
+.codelab.sidebar-right .codelab-workbench-main,
+.codelab.sidebar-right .codelab-main {
+  order: 3;
+}
+.codelab.sidebar-right .codelab-splitter-files {
+  order: 4;
+}
+.codelab.sidebar-right .codelab-sidebar,
+.codelab.sidebar-right .codelab-explorer {
+  order: 5;
+  border-right: none;
+  border-left: 1px solid var(--cl-border);
+}
+.codelab.sidebar-right .codelab-activitybar {
+  order: 6;
+  border-right: none;
+  border-left: 1px solid var(--cl-border);
+}
+
+/* ── Sidebar Search & Source Control Views ───────────────────────────────── */
+.codelab-sidebar__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  gap: 8px;
+}
+
+.codelab-sidebar-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.codelab-sidebar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--cl-border-strong);
+  background: var(--cl-bg);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 12px;
+  outline: none;
+}
+
+.codelab-sidebar-input:focus {
+  border-color: var(--cl-accent);
+}
+
+.codelab-search-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.codelab-search-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg);
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.codelab-search-toggle:hover {
+  color: var(--cl-fg);
+  background: var(--cl-bg-hover);
+}
+
+.codelab-search-toggle.active,
+.codelab-search-toggle[aria-pressed="true"] {
+  background: var(--cl-accent);
+  color: var(--cl-accent-fg);
+  border-color: var(--cl-accent);
+}
+
+.codelab-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.codelab-search-group {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--cl-border);
+  border-radius: 5px;
+  background: var(--cl-bg);
+  overflow: hidden;
+}
+
+.codelab-search-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  background: var(--cl-bg-panel);
+  border-bottom: 1px solid var(--cl-border);
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cl-fg);
+}
+
+.codelab-search-match {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codelab-search-match:hover,
+.codelab-search-match:focus-visible {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+}
+
+.codelab-search-match__line {
+  color: var(--cl-fg-faint);
+  font-size: 10.5px;
+  flex-shrink: 0;
+  min-width: 28px;
+}
+
+.codelab-search-match__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-scm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codelab-scm-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--cl-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cl-fg-muted);
+  padding: 4px 2px;
+}
+
+.codelab-scm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  color: var(--cl-fg);
+}
+
+.codelab-scm-row__file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.codelab-scm-row__file:hover {
+  text-decoration: underline;
+}
+
+.codelab-scm-status {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.codelab-scm-status--M { color: var(--cl-amber); }
+.codelab-scm-status--A,
+.codelab-scm-status--U { color: var(--cl-green); }
+.codelab-scm-status--D { color: var(--cl-red); }
+
+/* ── Non-Destructive Inline Settings Host (#cl-settings-host) ────────────── */
+.codelab-settings-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--cl-bg);
+  color: var(--cl-fg);
+  z-index: 4;
+}
+
+.codelab-settings-host[hidden] {
+  display: none !important;
+}
+
+.codelab-settings-host .cl-settings-inline {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+
+.codelab-settings-host [data-settings-action="close"] {
+  display: none;
+}
+
+.codelab-settings-host .cl-settings-body {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@media (max-width: 680px) {
+  .codelab-settings-host .cl-settings-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.codelab-badge.has-errors {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #b91c1c;
+}
+
+.codelab-badge.has-warnings {
+  background: #b45309;
+  color: #ffffff;
+  border-color: #92400e;
+}
+
+/* ── Contextual Bottom Panel Controls & Tab Dirty Dot ────────────────────── */
+.codelab-drawer__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.codelab-drawer__term-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.codelab-tab__dirty,
+.codelab-file-dirty {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cl-fg-muted);
+  flex-shrink: 0;
+}
+
+.codelab-file-dirty {
+  margin-left: 4px;
+}
+
+.codelab-breadcrumbs[hidden] {
+  display: none !important;
+}
+
+/* Light-theme WCAG AA >= 4.5:1 badge contrast reinforcement */
+[data-theme="light"] .codelab-tab__ext--js,
+[data-cl-theme="light"] .codelab-tab__ext--js {
+  color: #9a3412;
+  background: rgba(194, 65, 12, 0.12);
+}
+
+[data-theme="light"] .codelab-tab__ext--ts,
+[data-cl-theme="light"] .codelab-tab__ext--ts {
+  color: #0369a1;
+  background: rgba(3, 105, 161, 0.12);
+}
+
+[data-theme="light"] .codelab-problem-item--error,
+[data-cl-theme="light"] .codelab-problem-item--error {
+  color: #b91c1c;
+}
+
+[data-theme="light"] .codelab-problem-item--warning,
+[data-cl-theme="light"] .codelab-problem-item--warning {
+  color: #92400e;
+}
+
+[data-theme="light"] .codelab-problem-item--info,
+[data-cl-theme="light"] .codelab-problem-item--info {
+  color: #0369a1;
+}
+
+/* ── M2.2 Explorer Inline Validation, Welcome CTAs, Workspace Confirm & Clone Modal ── */
+.codelab [hidden],
+.codelab-workbench [hidden] {
+  display: none !important;
+}
+
+.codelab-tree-create-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.codelab-inline-input[aria-invalid="true"],
+.codelab-clone-input[aria-invalid="true"] {
+  border-color: var(--cl-red, #dc2626) !important;
+  outline: 1px solid var(--cl-red, #dc2626);
+}
+
+.codelab-tree-input-error {
+  margin: 2px 8px 4px 20px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  border-radius: var(--cl-radius-sm, 4px);
+  background: #450a0a;
+  border: 1px solid #ef4444;
+  color: #fecaca;
+  word-break: break-word;
+}
+
+[data-theme="light"] .codelab-tree-input-error,
+[data-cl-theme="light"] .codelab-tree-input-error,
+.codelab[data-theme="light"] .codelab-tree-input-error {
+  background: #fef2f2;
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+[data-theme="high-contrast"] .codelab-tree-input-error,
+[data-cl-theme="high-contrast"] .codelab-tree-input-error,
+.codelab[data-theme="high-contrast"] .codelab-tree-input-error {
+  background: #000000;
+  border: 2px solid #ff6b6b;
+  color: #ffffff;
+}
+
+.codelab-explorer-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 12px;
+}
+
+.codelab-explorer-welcome__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--cl-fg-muted);
+}
+
+.codelab-explorer-welcome__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.codelab-explorer-welcome__btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.codelab-btn--danger {
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #ffffff;
+}
+
+.codelab-btn--danger:hover:not(:disabled) {
+  background: #991b1b;
+  border-color: #7f1d1d;
+  color: #ffffff;
+}
+
+[data-theme="high-contrast"] .codelab-btn--danger,
+[data-cl-theme="high-contrast"] .codelab-btn--danger,
+.codelab[data-theme="high-contrast"] .codelab-btn--danger {
+  background: #000000;
+  border: 2px solid #ff6b6b;
+  color: #ffffff;
+}
+
+.codelab-confirm-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.codelab-clone-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.codelab-clone-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.codelab-clone-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cl-fg);
+}
+
+.codelab-clone-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border-strong);
+  border-radius: var(--cl-radius-sm, 4px);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 12px;
+}
+
+.codelab-clone-input:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: 1px;
+}
+
+.codelab-clone-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--cl-radius-sm, 4px);
+  font-size: 12px;
+  line-height: 1.4;
+  background: #450a0a;
+  border: 1px solid #ef4444;
+  color: #fecaca;
+}
+
+[data-theme="light"] .codelab-clone-error,
+[data-cl-theme="light"] .codelab-clone-error,
+.codelab[data-theme="light"] .codelab-clone-error {
+  background: #fef2f2;
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+[data-theme="high-contrast"] .codelab-clone-error,
+[data-cl-theme="high-contrast"] .codelab-clone-error,
+.codelab[data-theme="high-contrast"] .codelab-clone-error {
+  background: #000000;
+  border: 2px solid #ff6b6b;
+  color: #ffffff;
+}
+
+.codelab-clone-progress {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.codelab-clone-progress__bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cl-bg-active);
+  overflow: hidden;
+  border: 1px solid var(--cl-border);
+}
+
+.codelab-clone-progress__fill {
+  height: 100%;
+  background: var(--cl-accent);
+  transition: width 120ms ease-out;
+}
+
+.codelab-clone-progress__status {
+  font-size: 11.5px;
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+}
+
+.codelab-recent-ws-item:hover,
+.codelab-recent-ws-item:focus-visible {
+  background: var(--cl-bg-hover) !important;
+  border-color: var(--cl-border-strong) !important;
+  outline: 2px solid var(--cl-accent);
+  outline-offset: -1px;
+}
+
+/* ── M2.3 Search & Replace, Source Control Inline Diff, Problems Filters & Multi-Session Terminal ── */
+.codelab-problems-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.codelab-problems-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--cl-border);
+  background: var(--cl-bg-panel);
+  flex-shrink: 0;
+}
+
+.codelab-problems-filter-input {
+  flex: 1 1 180px;
+  min-width: 140px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+.codelab-problems-severity {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.codelab-problems-sev-btn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg);
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-sans, system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.codelab-problems-sev-btn:hover {
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+}
+
+.codelab-problems-sev-btn:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: 1px;
+}
+
+.codelab-problems-sev-btn.active,
+.codelab-problems-sev-btn[aria-pressed="true"] {
+  background: var(--cl-accent);
+  color: var(--cl-accent-fg, #ffffff);
+  border-color: var(--cl-accent);
+}
+
+.codelab-problems-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.codelab-problems-group__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-bottom: 1px solid var(--cl-border);
+  background: var(--cl-bg-panel);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codelab-problems-group__header:hover {
+  background: var(--cl-bg-hover);
+}
+
+.codelab-problems-group__header:focus-visible,
+.codelab-problem-item:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: -2px;
+}
+
+.codelab-problems-group__chevron {
+  width: 12px;
+  text-align: center;
+  color: var(--cl-fg-muted);
+  flex-shrink: 0;
+}
+
+.codelab-problems-group__file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-problem-item__msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-problem-item__source {
+  color: var(--cl-fg-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.codelab-problem-item__location,
+.codelab-problem-item__loc {
+  margin-left: 4px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.codelab-search-replace-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.codelab-search-replace-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.codelab-search-replace-actions .codelab-btn {
+  flex: 1 1 0;
+  justify-content: center;
+  font-size: 11.5px;
+  height: 26px;
+}
+
+.codelab-search-glob-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codelab-sidebar-input--compact {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.codelab-search-error {
+  padding: 6px 8px;
+  border-radius: var(--cl-radius-sm, 4px);
+  font-size: 11.5px;
+  line-height: 1.4;
+  background: #450a0a;
+  border: 1px solid #ef4444;
+  color: #fecaca;
+  word-break: break-word;
+}
+
+[data-theme="light"] .codelab-search-error,
+[data-cl-theme="light"] .codelab-search-error,
+.codelab[data-theme="light"] .codelab-search-error {
+  background: #fef2f2;
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+[data-theme="high-contrast"] .codelab-search-error,
+[data-cl-theme="high-contrast"] .codelab-search-error,
+.codelab[data-theme="high-contrast"] .codelab-search-error {
+  background: #000000;
+  border: 2px solid #ff6b6b;
+  color: #ffffff;
+}
+
+.codelab-search-summary {
+  font-size: 11px;
+  color: var(--cl-fg-muted);
+  padding: 2px 2px 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.codelab-search-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--cl-bg-panel);
+  border-bottom: 1px solid var(--cl-border);
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cl-fg);
+}
+
+.codelab-search-group__file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codelab-search-group__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.codelab-search-match {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 6px;
+  box-sizing: border-box;
+}
+
+.codelab-search-match__jump {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codelab-search-match__jump:hover,
+.codelab-search-match__jump:focus-visible {
+  background: var(--cl-bg-hover);
+  outline: none;
+}
+
+.codelab-search-match__jump:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: -1px;
+}
+
+.codelab-search-match__loc {
+  color: var(--cl-fg-muted);
+  font-size: 10.5px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.codelab-search-highlight {
+  background: rgba(234, 179, 8, 0.28);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.codelab-scm-branch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+
+.codelab-scm-branch-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+}
+
+.codelab-scm-branch-select:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: 1px;
+}
+
+.codelab-scm-new-branch-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.codelab-scm-commit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.codelab-scm-commit-textarea {
+  min-height: 52px;
+  height: auto;
+  padding: 6px 8px;
+  resize: vertical;
+  line-height: 1.4;
+  font-family: var(--cl-font-sans, system-ui, sans-serif);
+}
+
+.codelab-scm-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cl-fg-muted);
+  padding: 4px 2px;
+}
+
+.codelab-scm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.codelab-scm-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border);
+  cursor: pointer;
+}
+
+.codelab-scm-entry:hover {
+  background: var(--cl-bg-hover);
+}
+
+.codelab-scm-entry__file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.codelab-scm-entry__file:hover {
+  text-decoration: underline;
+}
+
+.codelab-scm-entry__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.codelab-scm-entry__status {
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cl-fg-muted);
+  min-width: 14px;
+  text-align: center;
+}
+
+.codelab-scm-commits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codelab-scm-commit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border);
+  font-size: 11.5px;
+  color: var(--cl-fg);
+}
+
+.codelab-scm-commit-row code {
+  font-family: var(--cl-font-mono);
+  font-size: 11px;
+  color: var(--cl-accent);
+  flex-shrink: 0;
+}
+
+.codelab-inline-diff-host,
+#cl-inline-diff-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--cl-bg);
+  color: var(--cl-fg);
+  z-index: 3;
+  overflow: hidden;
+}
+
+.codelab-inline-diff-host[hidden],
+#cl-inline-diff-container[hidden] {
+  display: none !important;
+}
+
+.codelab-scm-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--cl-bg-panel);
+  border-bottom: 1px solid var(--cl-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.codelab-scm-diff-header__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.codelab-scm-diff-header__meta {
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+}
+
+.codelab-scm-diff-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--cl-font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.codelab-scm-diff-stats__add {
+  color: #4ade80;
+}
+
+.codelab-scm-diff-stats__del {
+  color: #f87171;
+}
+
+[data-theme="light"] .codelab-scm-diff-stats__add,
+[data-cl-theme="light"] .codelab-scm-diff-stats__add {
+  color: #15803d;
+}
+
+[data-theme="light"] .codelab-scm-diff-stats__del,
+[data-cl-theme="light"] .codelab-scm-diff-stats__del {
+  color: #b91c1c;
+}
+
+.codelab-scm-diff-header__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.codelab-scm-diff-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+  font-family: var(--cl-font-mono);
+  font-size: 12px;
+}
+
+
+
 
 

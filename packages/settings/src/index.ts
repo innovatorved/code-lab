@@ -24,6 +24,7 @@ export {
 
 export {
   type ConfigurationTarget,
+  type ConfigurationResetScope,
   type SettingDiagnostic,
   type ConfigurationChangeEvent,
   type SettingInspection,

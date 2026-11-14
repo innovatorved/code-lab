@@ -95,8 +95,8 @@ bun install
 bun run build                  # Build all ESM, CJS, UMD bundles and TypeScript declarations
 bun run check:boundaries       # Verify 4-layer package boundaries and zero circular imports
 bun run check:size             # Enforce gzip bundle size budgets
-bun run test:all               # Run all 47 suites plus Playwright browser tests
-node tests/run-all.js          # Run the same 47 suites under Node 20, 22, and 24
+bun run test:all               # Run all 49 suites plus Playwright browser tests
+node tests/run-all.js          # Run the same 49 suites under Node 20, 22, and 24
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.

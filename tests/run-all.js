@@ -65,10 +65,12 @@ const SUITES = [
   'tests/test-p0-audit-regressions.js',
   'tests/test-p1-audit-regressions.js',
   'tests/test-modular-packages.js',
+  'tests/test-vscode-platform.js',
   'tests/test-sql-playground.js',
   'tests/test-version-sync.js',
   'tests/test-typescript-consolidation.js',
   'tests/test-untracked-dist.js',
+  'tests/test-vscode-workbench.js',
   'tests/e2e/run-all-e2e.js'
 ];
 

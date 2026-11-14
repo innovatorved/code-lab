@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
  * Verifies in real headless Chromium:
  *   1. Modular IDE Workbench:
  *      - File creation & renaming, running code, terminal command
- *      - Native `<dialog closedby="any">` Settings UI (`openSettings()`, search, live toggle)
+ *      - Non-destructive Settings Editor Tab (`openSettings()`, `[data-cl-tab="__settings__"]`, `#cl-settings-host`, search, close tab)
  *      - Live `.codelab/settings.json` update changing editor `fontSize` & theme with zero reload
  *      - Command Palette (`Cmd/Ctrl+K`), Quick Open, reload persistence, Observability drawer,
  *        and declarative Plugin contribution
@@ -27,7 +27,7 @@ test.describe('Modular IDE Workbench in Chromium', () => {
     await page.route('https://cdn.jsdelivr.net/**', (route) => route.abort());
   });
 
-  test('settings <dialog>, live .codelab/settings.json sync, command palette, observability, and plugins work with 0 page errors', async ({
+  test('non-destructive Settings tab, live .codelab/settings.json sync, command palette, observability, and plugins work with 0 page errors', async ({
     page
   }) => {
     const pageErrors: string[] = [];
@@ -36,18 +36,21 @@ test.describe('Modular IDE Workbench in Chromium', () => {
     await page.goto('/tests/browser/fixtures/');
     await expect(page.locator('.codelab-workbench')).toBeVisible();
 
-    // 1. Open native <dialog> Settings UI, filter settings, and close cleanly
+    // 1. Open non-destructive Settings tab (zero modal <dialog>), filter settings, and close cleanly
     await page.evaluate(() => (window as any).__codelabTest.ide.openSettings());
-    const dialog = page.locator('dialog.cl-settings-dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toHaveAttribute('closedby', 'any');
+    await expect(page.locator('dialog.cl-settings-dialog[open]')).toHaveCount(0);
+    const settingsTab = page.locator('.codelab-editor-col [data-cl-tab="__settings__"]');
+    const settingsHost = page.locator('#cl-settings-host');
+    await expect(settingsTab).toBeVisible();
+    await expect(settingsHost).toBeVisible();
 
-    const searchInput = dialog.locator('[data-role="settings-search"]');
+    const searchInput = settingsHost.locator('[data-role="settings-search"]');
     await searchInput.fill('fontSize');
-    await expect(dialog.locator('[data-role="settings-list"]')).toContainText('Font Size');
+    await expect(settingsHost.locator('[data-role="settings-list"]')).toContainText('Font Size');
 
-    await dialog.locator('[data-settings-action="close"]').click();
-    await expect(dialog).toBeHidden();
+    await page.locator('[data-action="close-tab"][data-cl-close-tab="__settings__"]').click();
+    await expect(settingsHost).toBeHidden();
+    await expect(settingsTab).toHaveCount(0);
 
     // 2. Live .codelab/settings.json edit updates editor fontSize & theme without page reload
     await page.evaluate(() => {

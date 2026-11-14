@@ -238,7 +238,7 @@ class DOMElement extends DOMNode {
   get className() { return this.getAttribute('class') || ''; }
   set className(v) { this.setAttribute('class', v); }
 
-  get value() { return this._value; }
+  get value() { return (this._value !== undefined && this._value !== '') ? this._value : (this.getAttribute('value') || ''); }
   set value(v) { this._value = String(v); }
 
   get disabled() { return this.hasAttribute('disabled'); }
@@ -258,7 +258,11 @@ class DOMElement extends DOMNode {
     return this.attributes.get(name.toLowerCase()) ?? null;
   }
   setAttribute(name, val) {
-    this.attributes.set(name.toLowerCase(), String(val));
+    const lower = name.toLowerCase();
+    this.attributes.set(lower, String(val));
+    if (lower === 'value') {
+      this._value = String(val);
+    }
   }
   removeAttribute(name) {
     this.attributes.delete(name.toLowerCase());

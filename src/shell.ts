@@ -2006,6 +2006,415 @@
     return snap;
   }
 
+  function computeGitShortHash(input) {
+    const str = String(input || '');
+    let h1 = 0xdeadbeef ^ str.length;
+    let h2 = 0x41c6ce57 ^ str.length;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const combined = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+    return combined.toString(16).padStart(7, '0').slice(0, 7);
+  }
+
+  function normalizeGitRelPath(rawPath, repoRoot) {
+    if (!rawPath || typeof rawPath !== 'string') return '';
+    let p = rawPath.trim().replace(/\\/g, '/');
+    if (!p) return '';
+    const cleanRoot = PosixPath.normalize(repoRoot || '/workspace');
+    const prefix = cleanRoot === '/' ? '/' : cleanRoot + '/';
+    if (p === cleanRoot) return '';
+    if (p.startsWith(prefix)) {
+      p = p.slice(prefix.length);
+    } else if (p.startsWith('/workspace/')) {
+      p = p.slice('/workspace/'.length);
+    }
+    while (p.startsWith('./')) p = p.slice(2);
+    if (p.startsWith('/')) p = p.replace(/^\/+/, '');
+
+    const out = [];
+    for (const seg of p.split('/')) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') {
+        if (out.length === 0) return '';
+        out.pop();
+        continue;
+      }
+      out.push(seg);
+    }
+    const normalized = out.join('/');
+    if (
+      !normalized ||
+      normalized === '.git' ||
+      normalized.startsWith('.git/') ||
+      normalized.includes('/.git/') ||
+      normalized.endsWith('/.git') ||
+      normalized === 'node_modules' ||
+      normalized.startsWith('node_modules/') ||
+      normalized.includes('/node_modules/') ||
+      normalized.endsWith('/node_modules')
+    ) {
+      return '';
+    }
+    return normalized;
+  }
+
+  function isUnbornShellHead(gitState) {
+    return (
+      (!Array.isArray(gitState && gitState.commits) || gitState.commits.length === 0) &&
+      !(gitState && gitState.headCommit)
+    );
+  }
+
+  function isEffectiveShellStagedChange(gitState, relPath, stagedVal, resolvedHeadFiles) {
+    if (!relPath) return false;
+    const headFiles =
+      resolvedHeadFiles || (gitState && (gitState.headSnapshot || gitState.headFiles)) || {};
+    const inHead = Object.prototype.hasOwnProperty.call(headFiles, relPath);
+    const normalizedVal = stagedVal === undefined || stagedVal === null ? null : String(stagedVal);
+
+    if (normalizedVal === null) {
+      return inHead;
+    }
+    if (!inHead || isUnbornShellHead(gitState)) {
+      return true;
+    }
+    return normalizedVal !== headFiles[relPath];
+  }
+
+  function applyShellStagedEntry(gitState, map, rawPath, rawVal, resolvedHeadFiles) {
+    const root = (gitState && gitState.repoRoot) || '/workspace';
+    const rel = normalizeGitRelPath(rawPath, root);
+    if (!rel) return;
+    const normalizedVal = rawVal === undefined || rawVal === null ? null : String(rawVal);
+    if (isEffectiveShellStagedChange(gitState, rel, normalizedVal, resolvedHeadFiles)) {
+      map.set(rel, normalizedVal);
+    } else {
+      map.delete(rel);
+    }
+  }
+
+  function pruneShellStagedMap(gitState, map, resolvedHeadFiles) {
+    if (!(map instanceof Map)) return;
+    const root = (gitState && gitState.repoRoot) || '/workspace';
+    const headFiles =
+      resolvedHeadFiles || (gitState && (gitState.headSnapshot || gitState.headFiles)) || {};
+    for (const [rawK, rawV] of Array.from(map.entries())) {
+      const rel = normalizeGitRelPath(rawK, root);
+      if (rel !== rawK) {
+        map.delete(rawK);
+      }
+      if (!rel) {
+        map.delete(rawK);
+        continue;
+      }
+      const normalizedVal = rawV === undefined || rawV === null ? null : String(rawV);
+      if (isEffectiveShellStagedChange(gitState, rel, normalizedVal, headFiles)) {
+        map.set(rel, normalizedVal);
+      } else {
+        map.delete(rel);
+      }
+    }
+  }
+
+  function getBootSnapshotForDir(shell, initDir) {
+    if (!shell || !shell._initialBootSnapshot || !shell._initialBootRoot) return {};
+    const normInit = PosixPath.normalize(initDir);
+    const normBoot = shell._initialBootRoot;
+    if (normInit === normBoot) {
+      return shell._initialBootSnapshot;
+    }
+    const prefix = normBoot === '/' ? '/' : normBoot + '/';
+    if (normInit.startsWith(prefix)) {
+      const subRel = normInit.slice(prefix.length) + '/';
+      const subSnap = {};
+      for (const [k, v] of Object.entries(shell._initialBootSnapshot)) {
+        if (k.startsWith(subRel)) {
+          subSnap[k.slice(subRel.length)] = v;
+        }
+      }
+      return subSnap;
+    }
+    return {};
+  }
+
+  function attachShellStagedMapShim(map, vfsRef, getRepoRoot, getGitState) {
+    if (!(map instanceof Map)) return map;
+    if (!map._hasShellStagedShim) {
+      Object.defineProperty(map, '_hasShellStagedShim', {
+        value: true,
+        enumerable: false,
+        configurable: true,
+        writable: true
+      });
+      Object.defineProperty(map, 'add', {
+        value(rawPath) {
+          const gs = typeof getGitState === 'function' ? getGitState() : null;
+          const root =
+            typeof getRepoRoot === 'function'
+              ? getRepoRoot()
+              : ((gs && gs.repoRoot) || '/workspace');
+          const rel = normalizeGitRelPath(rawPath, root);
+          if (!rel) return map;
+          let content = null;
+          if (vfsRef && typeof vfsRef.existsSync === 'function') {
+            const abs = PosixPath.join(root, rel);
+            if (vfsRef.existsSync(abs)) {
+              if (typeof vfsRef.statSync === 'function') {
+                try {
+                  if (vfsRef.statSync(abs).isDirectory()) return map;
+                } catch (err) {
+                  _shellLogger.debug('Failed statting staged path in VFS.', abs, err);
+                }
+              }
+              if (typeof vfsRef.readFileSync === 'function') {
+                try {
+                  content = String(vfsRef.readFileSync(abs, 'utf8'));
+                } catch (err) {
+                  _shellLogger.debug('Failed reading staged file from VFS.', abs, err);
+                  return map;
+                }
+              }
+            }
+          }
+          if (gs) {
+            applyShellStagedEntry(gs, map, rel, content);
+          } else {
+            map.set(rel, content);
+          }
+          return map;
+        },
+        enumerable: false,
+        configurable: true,
+        writable: true
+      });
+    }
+    return map;
+  }
+
+  function ensureShellStagedMap(gitState, vfsRef, repoRoot) {
+    const getRoot = () => (gitState && gitState.repoRoot) || repoRoot || '/workspace';
+    const getGs = () => gitState;
+    if (gitState.staged instanceof Map) {
+      attachShellStagedMapShim(gitState.staged, vfsRef, getRoot, getGs);
+      pruneShellStagedMap(gitState, gitState.staged);
+      gitState.stagedFiles = gitState.staged;
+      return gitState.staged;
+    }
+    const nextMap = attachShellStagedMapShim(new Map(), vfsRef, getRoot, getGs);
+    if (gitState.staged && typeof gitState.staged[Symbol.iterator] === 'function') {
+      for (const item of gitState.staged) {
+        if (Array.isArray(item) && item.length >= 2) {
+          applyShellStagedEntry(
+            gitState,
+            nextMap,
+            item[0],
+            item[1] === null ? null : String(item[1])
+          );
+        } else if (typeof item === 'string') {
+          nextMap.add(item);
+        }
+      }
+    }
+    gitState.staged = nextMap;
+    gitState.stagedFiles = nextMap;
+    return nextMap;
+  }
+
+  function parseGitHeadBranch(vfs, repoRoot) {
+    if (!vfs || typeof vfs.existsSync !== 'function' || typeof vfs.readFileSync !== 'function') {
+      return null;
+    }
+    const candidates = [
+      PosixPath.join(repoRoot, '.git/HEAD'),
+      '/workspace/.git/HEAD'
+    ];
+    for (const headFile of candidates) {
+      if (vfs.existsSync(headFile)) {
+        try {
+          const raw = String(vfs.readFileSync(headFile, 'utf8')).trim();
+          const m = /^ref:\s*refs\/heads\/([^\s]+)$/.exec(raw);
+          if (m && m[1]) return m[1];
+        } catch (err) {
+          _shellLogger.debug('Could not parse .git/HEAD branch.', headFile, err);
+        }
+      }
+    }
+    return null;
+  }
+
+  function createUnifiedShellGitState(vfs, cwd, options = {}) {
+    const cleanCwd = PosixPath.normalize(cwd || '/workspace');
+    const hasDotGit = Boolean(
+      vfs &&
+        typeof vfs.existsSync === 'function' &&
+        (vfs.existsSync(PosixPath.join(cleanCwd, '.git')) ||
+          vfs.existsSync(PosixPath.join(cleanCwd, '.git/HEAD')) ||
+          vfs.existsSync('/workspace/.git') ||
+          vfs.existsSync('/workspace/.git/HEAD'))
+    );
+
+    let _initialized = Boolean(options.gitInitialized === true || hasDotGit);
+    let _repoRoot = cleanCwd;
+    const detectedBranch = hasDotGit ? parseGitHeadBranch(vfs, cleanCwd) : null;
+    const initialBranch = detectedBranch || 'main';
+
+    let _headFiles = _initialized ? snapshotWorktree(vfs, cleanCwd) : {};
+    let _headCommit = _initialized
+      ? computeGitShortHash(JSON.stringify(_headFiles) + ':init')
+      : '';
+    const initTs = Date.now();
+    let _commits = _initialized
+      ? [
+          {
+            hash: _headCommit,
+            author: 'CodeLab Developer <dev@codelab.internal>',
+            date: new Date(initTs).toUTCString(),
+            timestamp: initTs,
+            message: 'Initial commit',
+            files: Object.assign({}, _headFiles)
+          }
+        ]
+      : [];
+
+    const gs = {
+      branch: initialBranch,
+      branches: new Set([initialBranch]),
+      remoteUrl: null,
+      remotes: {}
+    };
+
+    let _stagedMap = attachShellStagedMapShim(new Map(), vfs, () => _repoRoot, () => gs);
+
+    Object.defineProperties(gs, {
+      initialized: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          if (_initialized) return true;
+          const root = _repoRoot || cleanCwd;
+          if (
+            vfs &&
+            typeof vfs.existsSync === 'function' &&
+            (vfs.existsSync(PosixPath.join(root, '.git')) ||
+              vfs.existsSync(PosixPath.join(root, '.git/HEAD')))
+          ) {
+            _initialized = true;
+            return true;
+          }
+          return false;
+        },
+        set(v) {
+          _initialized = Boolean(v);
+        }
+      },
+      repoRoot: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _repoRoot;
+        },
+        set(v) {
+          _repoRoot = PosixPath.normalize(String(v || cleanCwd));
+        }
+      },
+      headCommit: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _headCommit;
+        },
+        set(v) {
+          _headCommit = String(v || '');
+        }
+      },
+      headSnapshot: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _headFiles;
+        },
+        set(v) {
+          _headFiles = v && typeof v === 'object' ? v : {};
+        }
+      },
+      headFiles: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _headFiles;
+        },
+        set(v) {
+          _headFiles = v && typeof v === 'object' ? v : {};
+        }
+      },
+      staged: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _stagedMap;
+        },
+        set(v) {
+          if (v instanceof Map) {
+            _stagedMap = attachShellStagedMapShim(v, vfs, () => _repoRoot, () => gs);
+            pruneShellStagedMap(gs, _stagedMap);
+          } else {
+            const converted = attachShellStagedMapShim(new Map(), vfs, () => _repoRoot, () => gs);
+            if (v && typeof v[Symbol.iterator] === 'function') {
+              for (const item of v) {
+                if (typeof item === 'string') {
+                  converted.add(item);
+                } else if (Array.isArray(item) && item.length >= 2) {
+                  applyShellStagedEntry(
+                    gs,
+                    converted,
+                    item[0],
+                    item[1] === null ? null : String(item[1])
+                  );
+                }
+              }
+            }
+            _stagedMap = converted;
+          }
+        }
+      },
+      stagedFiles: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _stagedMap;
+        },
+        set(v) {
+          if (v instanceof Map) {
+            _stagedMap = attachShellStagedMapShim(v, vfs, () => _repoRoot, () => gs);
+            pruneShellStagedMap(gs, _stagedMap);
+          }
+        }
+      },
+      commits: {
+        enumerable: true,
+        configurable: true,
+        get() {
+          return _commits;
+        },
+        set(v) {
+          _commits = Array.isArray(v) ? v : [];
+          if (_commits.length > 0 && _commits[0] && _commits[0].hash) {
+            _headCommit = String(_commits[0].hash);
+          } else if (_commits.length === 0) {
+            _headCommit = '';
+          }
+        }
+      }
+    });
+
+    return gs;
+  }
+
   const BINARY_OR_HEAVY_EXT_RE = /\.(png|jpg|jpeg|gif|webp|ico|bmp|tiff|woff|woff2|ttf|eot|otf|mp3|mp4|wav|ogg|webm|avi|mov|pdf|zip|tar|gz|tgz|bz2|7z|rar|exe|dll|so|dylib|wasm|pyc|pyo|class|jar|war|ear|bin|dat|iso|dmg|pkg|deb|rpm|o|a|lib|DS_Store)$/i;
 
   function scoreRepoFilePriority(relPath) {
@@ -2266,18 +2675,23 @@
       if (commitsRes && commitsRes.ok) {
         const commitsJson = await commitsRes.json();
         if (Array.isArray(commitsJson) && commitsJson.length > 0) {
-          commits = commitsJson.map((c) => ({
-            hash: String(c.sha || 'a1b2c3d').slice(0, 7),
-            author:
-              c.commit && c.commit.author
-                ? `${c.commit.author.name || owner} <${c.commit.author.email || `${owner}@users.noreply.github.com`}>`
-                : `${owner} <${owner}@users.noreply.github.com>`,
-            date:
-              c.commit && c.commit.author && c.commit.author.date
-                ? new Date(c.commit.author.date).toUTCString()
-                : new Date().toUTCString(),
-            message: c.commit && c.commit.message ? String(c.commit.message).split('\n')[0] : 'Commit'
-          }));
+          commits = commitsJson.map((c, idx) => {
+            const msgText = c.commit && c.commit.message ? String(c.commit.message).split('\n')[0] : 'Commit';
+            const fallbackHash = computeGitShortHash(`${owner}/${repo}:${resolvedBranch}:${idx}:${msgText}`);
+            const ts = c.commit && c.commit.author && c.commit.author.date
+              ? Date.parse(c.commit.author.date) || Date.now()
+              : Date.now();
+            return {
+              hash: String(c.sha || fallbackHash).slice(0, 7),
+              author:
+                c.commit && c.commit.author
+                  ? `${c.commit.author.name || owner} <${c.commit.author.email || `${owner}@users.noreply.github.com`}>`
+                  : `${owner} <${owner}@users.noreply.github.com>`,
+              date: new Date(ts).toUTCString(),
+              timestamp: ts,
+              message: msgText
+            };
+          });
         }
       }
     } catch (err) {
@@ -2285,11 +2699,14 @@
     }
 
     if (commits.length === 0) {
+      const cloneTs = Date.now();
+      const cloneHash = computeGitShortHash(`${owner}/${repo}:${resolvedBranch}:${filesWritten}`);
       commits = [
         {
-          hash: 'a1b2c3d',
+          hash: cloneHash,
           author: `${owner} <${owner}@users.noreply.github.com>`,
-          date: new Date().toUTCString(),
+          date: new Date(cloneTs).toUTCString(),
+          timestamp: cloneTs,
           message: `Clone ${owner}/${repo} (${resolvedBranch})`
         }
       ];
@@ -5478,25 +5895,55 @@
     // -----------------------------------------------------------------------
     async git(args, ctx) {
       const subcmd = args[0] || 'status';
+      if (subcmd === 'version' || subcmd === '--version' || subcmd === '-v') {
+        return { code: 0, stdout: 'git version 2.45.0 (CodeLab Virtual Git)\n', stderr: '' };
+      }
+      if (subcmd === 'help' || subcmd === '--help' || subcmd === '-h') {
+        return {
+          code: 0,
+          stdout:
+            'usage: git <command> [<args>]\n\nCommon commands: init, clone, status, add, diff, commit, restore, reset, rm, branch, checkout, switch, remote, fetch, pull, log\n',
+          stderr: ''
+        };
+      }
+
       const gitState = ctx.shell.gitState;
       if (!(gitState.branches instanceof Set)) {
         gitState.branches = new Set(Array.isArray(gitState.branches) ? gitState.branches : [gitState.branch || 'main']);
-      }
-      if (!gitState.headSnapshot) {
-        gitState.headSnapshot = snapshotWorktree(ctx.vfs, gitState.repoRoot || ctx.cwd);
       }
       if (!gitState.remotes) {
         gitState.remotes = gitState.remoteUrl ? { origin: gitState.remoteUrl } : {};
       }
 
-      const repoRoot = PosixPath.normalize(gitState.repoRoot || ctx.cwd);
+      let repoRoot = PosixPath.normalize(gitState.repoRoot || ctx.cwd);
+      const stagedMap = ensureShellStagedMap(gitState, ctx.vfs, repoRoot);
+
       const toRepoRel = (p) => {
         const abs = ctx.resolvePath(p);
         const prefix = repoRoot === '/' ? '/' : repoRoot + '/';
         if (abs === repoRoot) return '.';
-        if (abs.startsWith(prefix)) return abs.slice(prefix.length);
-        return p.replace(/^\.\//, '');
+        if (abs.startsWith(prefix)) return normalizeGitRelPath(abs.slice(prefix.length), repoRoot);
+        return '';
       };
+
+      if (subcmd !== 'init' && subcmd !== 'clone') {
+        const hasDotGitInFs = Boolean(
+          ctx.vfs &&
+            typeof ctx.vfs.existsSync === 'function' &&
+            (ctx.vfs.existsSync(PosixPath.join(repoRoot, '.git')) ||
+              ctx.vfs.existsSync(PosixPath.join(ctx.cwd, '.git')))
+        );
+        if (!gitState.initialized && !hasDotGitInFs) {
+          return {
+            code: 128,
+            stdout: '',
+            stderr: 'fatal: not a git repository (or any of the parent directories): .git\n'
+          };
+        }
+        if (hasDotGitInFs && !gitState.initialized) {
+          gitState.initialized = true;
+        }
+      }
 
       if (subcmd === 'clone') {
         let branchOpt = null;
@@ -5544,7 +5991,6 @@
           dirDisplayName = parsed.repo;
         }
 
-        // Stream clone progress to the terminal as it happens (no end-of-run buffering).
         const canStream = typeof ctx.onStdout === 'function';
         const streamLine = (text) => { if (canStream && text) ctx.onStdout(text); };
         streamLine(`Cloning into '${dirDisplayName}'...\n`);
@@ -5578,14 +6024,18 @@
             }
           });
 
+          const clonedHead = Object.assign({}, result.headSnapshot);
+          gitState.initialized = true;
           gitState.branch = result.branch;
           gitState.branches.add(result.branch);
           gitState.remoteUrl = result.url;
           gitState.remotes.origin = result.url;
           gitState.repoRoot = targetDir;
-          gitState.headSnapshot = Object.assign({}, result.headSnapshot);
+          gitState.headSnapshot = clonedHead;
+          gitState.headFiles = clonedHead;
           gitState.commits = result.commits;
-          gitState.staged.clear();
+          gitState.headCommit = (result.commits && result.commits[0] && result.commits[0].hash) || '';
+          stagedMap.clear();
 
           const count = Math.max(1, result.filesWritten);
           const kb = Math.max(0.1, result.totalBytes / 1024).toFixed(1);
@@ -5611,62 +6061,149 @@
       }
 
       if (subcmd === 'init') {
-        const initDir = args[1] && !args[1].startsWith('-') ? ctx.resolvePath(args[1]) : ctx.cwd;
+        let initBranch = gitState.branch || 'main';
+        let emptyHead = false;
+        let dirArg = null;
+        for (let i = 1; i < args.length; i++) {
+          const a = args[i];
+          if ((a === '-b' || a === '--initial-branch') && i + 1 < args.length) {
+            initBranch = args[++i];
+          } else if (a.startsWith('--initial-branch=')) {
+            initBranch = a.slice('--initial-branch='.length) || initBranch;
+          } else if (a === '--empty-head') {
+            emptyHead = true;
+          } else if (!a.startsWith('-') && !dirArg) {
+            dirArg = a;
+          }
+        }
+        const initDir = PosixPath.normalize(dirArg ? ctx.resolvePath(dirArg) : ctx.cwd);
         const gitDir = PosixPath.join(initDir, '.git');
+        const wasReinitSameDir =
+          Boolean(gitState.initialized) &&
+          PosixPath.normalize(gitState.repoRoot || ctx.cwd) === initDir &&
+          !emptyHead;
         ensureDirSync(ctx.vfs, gitDir, ctx.emitMutation);
-        const branchName = gitState.branch || 'main';
-        ctx.vfs.writeFileSync(PosixPath.join(gitDir, 'HEAD'), `ref: refs/heads/${branchName}\n`);
+        if (!wasReinitSameDir || !ctx.vfs.existsSync(PosixPath.join(gitDir, 'HEAD'))) {
+          ctx.vfs.writeFileSync(PosixPath.join(gitDir, 'HEAD'), `ref: refs/heads/${initBranch}\n`);
+        }
         ctx.vfs.writeFileSync(
           PosixPath.join(gitDir, 'config'),
           `[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n`
         );
         ctx.emitMutation('create', PosixPath.join(gitDir, 'HEAD'));
+
+        if (wasReinitSameDir && !isUnbornShellHead(gitState)) {
+          gitState.branches.add(gitState.branch || initBranch);
+          return {
+            code: 0,
+            stdout: `Reinitialized existing Git repository in ${gitDir}/\n`,
+            stderr: ''
+          };
+        }
+
+        const initSnap = {};
+        if (!emptyHead) {
+          const currentLive = snapshotWorktree(ctx.vfs, initDir);
+          const bootSnap = getBootSnapshotForDir(ctx.shell, initDir);
+          for (const [rel, content] of Object.entries(currentLive)) {
+            if (Object.prototype.hasOwnProperty.call(bootSnap, rel) && bootSnap[rel] === content) {
+              initSnap[rel] = content;
+            }
+          }
+        }
+        gitState.initialized = true;
+        gitState.branch = initBranch;
+        gitState.branches.add(initBranch);
         gitState.repoRoot = initDir;
-        gitState.headSnapshot = snapshotWorktree(ctx.vfs, initDir);
-        gitState.staged.clear();
-        return { code: 0, stdout: `Initialized empty Git repository in ${gitDir}/\n`, stderr: '' };
+        gitState.headSnapshot = initSnap;
+        gitState.headFiles = initSnap;
+        gitState.commits = [];
+        gitState.headCommit = '';
+        stagedMap.clear();
+        return {
+          code: 0,
+          stdout: `${wasReinitSameDir ? 'Reinitialized existing' : 'Initialized empty'} Git repository in ${gitDir}/\n`,
+          stderr: ''
+        };
       }
 
+      repoRoot = PosixPath.normalize(gitState.repoRoot || ctx.cwd);
+
       if (subcmd === 'status') {
-        const isShort = args.includes('-s') || args.includes('--short');
+        const isShort = args.includes('-s') || args.includes('--short') || args.includes('--porcelain');
         const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
-        const headFiles = gitState.headSnapshot || {};
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        pruneShellStagedMap(gitState, stagedMap, headFiles);
+        const unbornHead = isUnbornShellHead(gitState);
 
         const stagedList = [];
-        for (const relPath of gitState.staged) {
+        const unstagedList = [];
+        const untrackedList = [];
+        const stagedKeysSorted = Array.from(stagedMap.keys()).sort();
+
+        for (const relPath of stagedKeysSorted) {
+          const stagedVal = stagedMap.get(relPath);
           const inHead = Object.prototype.hasOwnProperty.call(headFiles, relPath);
           const inLive = Object.prototype.hasOwnProperty.call(liveFiles, relPath);
-          if (!inHead && inLive) {
-            stagedList.push({ status: 'new file', short: 'A ', path: relPath });
-          } else if (inHead && !inLive) {
-            stagedList.push({ status: 'deleted', short: 'D ', path: relPath });
+
+          if (stagedVal === null) {
+            if (inHead) {
+              stagedList.push({ status: 'deleted', code: 'D', path: relPath });
+            }
+            if (inLive) {
+              untrackedList.push(relPath);
+            }
           } else {
-            stagedList.push({ status: 'modified', short: 'M ', path: relPath });
+            if (!inHead || unbornHead) {
+              stagedList.push({ status: 'new file', code: 'A', path: relPath });
+            } else if (stagedVal !== headFiles[relPath]) {
+              stagedList.push({ status: 'modified', code: 'M', path: relPath });
+            }
+
+            if (!inLive) {
+              unstagedList.push({ status: 'deleted', code: 'D', path: relPath });
+            } else if (liveFiles[relPath] !== stagedVal) {
+              unstagedList.push({ status: 'modified', code: 'M', path: relPath });
+            }
           }
         }
 
-        const unstagedList = [];
         for (const relPath of Object.keys(headFiles).sort()) {
-          if (gitState.staged.has(relPath)) continue;
+          if (stagedMap.has(relPath)) continue;
           if (!Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
-            unstagedList.push({ status: 'deleted', short: ' D', path: relPath });
+            unstagedList.push({ status: 'deleted', code: 'D', path: relPath });
           } else if (liveFiles[relPath] !== headFiles[relPath]) {
-            unstagedList.push({ status: 'modified', short: ' M', path: relPath });
+            unstagedList.push({ status: 'modified', code: 'M', path: relPath });
           }
         }
 
-        const untrackedList = [];
         for (const relPath of Object.keys(liveFiles).sort()) {
-          if (!Object.prototype.hasOwnProperty.call(headFiles, relPath) && !gitState.staged.has(relPath)) {
+          if (!Object.prototype.hasOwnProperty.call(headFiles, relPath) && !stagedMap.has(relPath)) {
             untrackedList.push(relPath);
           }
         }
 
+        unstagedList.sort((a, b) => a.path.localeCompare(b.path));
+        untrackedList.sort();
+
         if (isShort) {
+          const shortByPath = new Map();
+          for (const item of stagedList) {
+            shortByPath.set(item.path, { idx: item.code, wt: ' ' });
+          }
+          for (const item of unstagedList) {
+            const prev = shortByPath.get(item.path);
+            if (prev) prev.wt = item.code;
+            else shortByPath.set(item.path, { idx: ' ', wt: item.code });
+          }
           let sOut = '';
-          for (const item of stagedList) sOut += `${item.short} ${item.path}\n`;
-          for (const item of unstagedList) sOut += `${item.short} ${item.path}\n`;
-          for (const p of untrackedList) sOut += `?? ${p}\n`;
+          for (const p of Array.from(shortByPath.keys()).sort()) {
+            const pair = shortByPath.get(p);
+            sOut += `${pair.idx}${pair.wt} ${p}\n`;
+          }
+          for (const p of untrackedList) {
+            sOut += `?? ${p}\n`;
+          }
           return { code: 0, stdout: sOut, stderr: '' };
         }
 
@@ -5703,24 +6240,43 @@
 
       if (subcmd === 'diff') {
         const isStaged = args.includes('--staged') || args.includes('--cached');
-        const fileFilters = args.slice(1).filter((a) => !a.startsWith('-')).map(toRepoRel);
+        const rawFilterArgs = args.slice(1).filter((a) => !a.startsWith('-'));
+        const fileFilters = rawFilterArgs.map(toRepoRel);
+        const matchAllInRepo = fileFilters.length === 0 || fileFilters.includes('.');
         const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
-        const headFiles = gitState.headSnapshot || {};
-        const allKeys = Array.from(new Set([...Object.keys(headFiles), ...Object.keys(liveFiles)])).sort();
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        pruneShellStagedMap(gitState, stagedMap, headFiles);
+        const unbornHead = isUnbornShellHead(gitState);
+        const allKeys = Array.from(
+          new Set([...Object.keys(headFiles), ...Object.keys(liveFiles), ...Array.from(stagedMap.keys())])
+        ).sort();
 
         let stdout = '';
         for (const relPath of allKeys) {
-          if (fileFilters.length > 0 && !fileFilters.includes(relPath)) continue;
-          if (isStaged && !gitState.staged.has(relPath)) continue;
-          if (!isStaged && !Object.prototype.hasOwnProperty.call(headFiles, relPath) && !gitState.staged.has(relPath)) {
-            continue;
-          }
-          const oldText = Object.prototype.hasOwnProperty.call(headFiles, relPath) ? headFiles[relPath] : '';
-          const newText = Object.prototype.hasOwnProperty.call(liveFiles, relPath) ? liveFiles[relPath] : '';
-          if (oldText !== newText) {
-            const uDiff = computeUnifiedDiff(`a/${relPath}`, `b/${relPath}`, oldText, newText);
-            if (uDiff) {
-              stdout += `diff --git a/${relPath} b/${relPath}\n${uDiff}`;
+          if (!matchAllInRepo && !fileFilters.includes(relPath)) continue;
+          if (isStaged) {
+            if (!stagedMap.has(relPath)) continue;
+            const stagedVal = stagedMap.get(relPath);
+            if (!isEffectiveShellStagedChange(gitState, relPath, stagedVal, headFiles)) continue;
+            const oldText =
+              !unbornHead && Object.prototype.hasOwnProperty.call(headFiles, relPath)
+                ? headFiles[relPath]
+                : '';
+            const newText = stagedVal === null ? '' : String(stagedVal);
+            if (oldText !== newText) {
+              const uDiff = computeUnifiedDiff(`a/${relPath}`, `b/${relPath}`, oldText, newText);
+              if (uDiff) stdout += `diff --git a/${relPath} b/${relPath}\n${uDiff}`;
+            }
+          } else {
+            const isTrackedOrStaged =
+              Object.prototype.hasOwnProperty.call(headFiles, relPath) || stagedMap.has(relPath);
+            if (!isTrackedOrStaged) continue;
+            const baseVal = stagedMap.has(relPath) ? stagedMap.get(relPath) : headFiles[relPath];
+            const oldText = baseVal === null || baseVal === undefined ? '' : String(baseVal);
+            const newText = Object.prototype.hasOwnProperty.call(liveFiles, relPath) ? liveFiles[relPath] : '';
+            if (oldText !== newText) {
+              const uDiff = computeUnifiedDiff(`a/${relPath}`, `b/${relPath}`, oldText, newText);
+              if (uDiff) stdout += `diff --git a/${relPath} b/${relPath}\n${uDiff}`;
             }
           }
         }
@@ -5730,38 +6286,76 @@
       if (subcmd === 'add') {
         const targets = args.slice(1);
         const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
-        const headFiles = gitState.headSnapshot || {};
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+
+        const stagePath = (relPath) => {
+          const clean = normalizeGitRelPath(relPath, repoRoot);
+          if (!clean) return;
+          const inLive = Object.prototype.hasOwnProperty.call(liveFiles, clean);
+          const inHead = Object.prototype.hasOwnProperty.call(headFiles, clean);
+          if (inLive) {
+            applyShellStagedEntry(gitState, stagedMap, clean, liveFiles[clean], headFiles);
+          } else if (inHead) {
+            applyShellStagedEntry(gitState, stagedMap, clean, null, headFiles);
+          } else {
+            stagedMap.delete(clean);
+          }
+        };
 
         if (targets.includes('.') || targets.includes('-A') || targets.includes('--all') || targets.includes('-u')) {
           const includeUntracked = !targets.includes('-u');
           for (const relPath of Object.keys(liveFiles)) {
             const inHead = Object.prototype.hasOwnProperty.call(headFiles, relPath);
             if (!inHead && includeUntracked) {
-              gitState.staged.add(relPath);
-            } else if (inHead && liveFiles[relPath] !== headFiles[relPath]) {
-              gitState.staged.add(relPath);
+              stagePath(relPath);
+            } else if (inHead) {
+              stagePath(relPath);
             }
           }
           for (const relPath of Object.keys(headFiles)) {
             if (!Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
-              gitState.staged.add(relPath);
+              stagePath(relPath);
+            }
+          }
+          for (const stagedKey of Array.from(stagedMap.keys())) {
+            if (
+              !Object.prototype.hasOwnProperty.call(liveFiles, stagedKey) &&
+              !Object.prototype.hasOwnProperty.call(headFiles, stagedKey)
+            ) {
+              stagedMap.delete(stagedKey);
             }
           }
         } else {
           for (const f of targets) {
             if (f.startsWith('-')) continue;
             const rel = toRepoRel(f);
+            if (!rel) continue;
             if (rel === '.') {
-              for (const k of Object.keys(liveFiles)) {
-                if (liveFiles[k] !== headFiles[k]) gitState.staged.add(k);
+              for (const k of Object.keys(liveFiles)) stagePath(k);
+              for (const k of Object.keys(headFiles)) {
+                if (!Object.prototype.hasOwnProperty.call(liveFiles, k)) stagePath(k);
+              }
+              for (const stagedKey of Array.from(stagedMap.keys())) {
+                if (
+                  !Object.prototype.hasOwnProperty.call(liveFiles, stagedKey) &&
+                  !Object.prototype.hasOwnProperty.call(headFiles, stagedKey)
+                ) {
+                  stagedMap.delete(stagedKey);
+                }
               }
             } else {
               const dirPrefix = rel.replace(/\/+$/, '') + '/';
-              const matchedSubfiles = Object.keys(liveFiles).filter((k) => k.startsWith(dirPrefix));
+              const matchedSubfiles = Array.from(
+                new Set([
+                  ...Object.keys(liveFiles).filter((k) => k.startsWith(dirPrefix)),
+                  ...Object.keys(headFiles).filter((k) => k.startsWith(dirPrefix)),
+                  ...Array.from(stagedMap.keys()).filter((k) => k.startsWith(dirPrefix))
+                ])
+              );
               if (matchedSubfiles.length > 0) {
-                for (const k of matchedSubfiles) gitState.staged.add(k);
+                for (const k of matchedSubfiles) stagePath(k);
               } else {
-                gitState.staged.add(rel);
+                stagePath(rel);
               }
             }
           }
@@ -5771,37 +6365,72 @@
 
       if (subcmd === 'commit') {
         const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
-        const headFiles = gitState.headSnapshot || {};
-        if (args.includes('-a') || args.includes('-am')) {
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        const autoStageTracked = args.some(
+          (a) =>
+            a === '-a' ||
+            a === '--all' ||
+            (a.startsWith('-') && !a.startsWith('--') && a !== '-m' && a.includes('a'))
+        );
+        if (autoStageTracked) {
           for (const relPath of Object.keys(headFiles)) {
-            if (liveFiles[relPath] !== headFiles[relPath]) {
-              gitState.staged.add(relPath);
+            if (!Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
+              applyShellStagedEntry(gitState, stagedMap, relPath, null, headFiles);
+            } else {
+              applyShellStagedEntry(gitState, stagedMap, relPath, liveFiles[relPath], headFiles);
             }
           }
         }
 
+        pruneShellStagedMap(gitState, stagedMap, headFiles);
+
+        if (stagedMap.size === 0) {
+          return {
+            code: 1,
+            stdout: `On branch ${gitState.branch}\nnothing to commit, working tree clean\n`,
+            stderr: ''
+          };
+        }
+
         let msg = 'Commit changes';
-        const mIdx = args.findIndex((a) => a === '-m' || a === '-am');
+        const mIdx = args.findIndex(
+          (a) => a === '-m' || a === '-am' || a === '-ma'
+        );
         if (mIdx !== -1 && mIdx + 1 < args.length) msg = args[mIdx + 1];
 
-        for (const relPath of gitState.staged) {
-          if (Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
-            gitState.headSnapshot[relPath] = liveFiles[relPath];
+        const nextHead = Object.assign({}, headFiles);
+        const summaryParts = [];
+        for (const [relPath, stagedVal] of stagedMap.entries()) {
+          summaryParts.push(`${relPath}:${stagedVal === null ? '<DEL>' : stagedVal}`);
+          if (stagedVal === null) {
+            delete nextHead[relPath];
           } else {
-            delete gitState.headSnapshot[relPath];
+            nextHead[relPath] = String(stagedVal);
           }
         }
 
-        const hash = Math.random().toString(16).slice(2, 9);
+        const commitTs = Date.now();
+        const hash = computeGitShortHash(
+          `${gitState.headCommit || ''}:${msg}:${commitTs}:${gitState.commits.length}:${summaryParts.join('|')}`
+        );
+        const count = stagedMap.size;
+        gitState.headSnapshot = nextHead;
+        gitState.headFiles = nextHead;
         gitState.commits.unshift({
           hash,
-          author: `${ctx.env.USER || 'codelab'} <dev@codelab.internal>`,
-          date: new Date().toUTCString(),
-          message: msg
+          author: `${ctx.env.USER || 'CodeLab Developer'} <dev@codelab.internal>`,
+          date: new Date(commitTs).toUTCString(),
+          timestamp: commitTs,
+          message: msg,
+          files: Object.assign({}, nextHead)
         });
-        const count = gitState.staged.size || 1;
-        gitState.staged.clear();
-        return { code: 0, stdout: `[${gitState.branch} ${hash}] ${msg}\n ${count} file changed\n`, stderr: '' };
+        gitState.headCommit = hash;
+        stagedMap.clear();
+        return {
+          code: 0,
+          stdout: `[${gitState.branch} ${hash}] ${msg}\n ${count} file${count === 1 ? '' : 's'} changed\n`,
+          stderr: ''
+        };
       }
 
       if (subcmd === 'branch') {
@@ -5861,9 +6490,11 @@
         }
 
         const rel = toRepoRel(target);
-        if (gitState.headSnapshot && Object.prototype.hasOwnProperty.call(gitState.headSnapshot, rel)) {
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        if (rel && Object.prototype.hasOwnProperty.call(headFiles, rel)) {
           const abs = PosixPath.join(repoRoot, rel);
-          ctx.vfs.writeFileSync(abs, gitState.headSnapshot[rel]);
+          ensureDirSync(ctx.vfs, PosixPath.dirname(abs), ctx.emitMutation);
+          ctx.vfs.writeFileSync(abs, headFiles[rel]);
           ctx.emitMutation('change', abs);
           return { code: 0, stdout: `Updated 1 path from the index\n`, stderr: '' };
         }
@@ -5873,15 +6504,194 @@
 
       if (subcmd === 'restore') {
         const isStaged = args.includes('--staged') || args.includes('-S');
-        const targets = args.slice(1).filter((a) => !a.startsWith('-'));
+        const isWorktree = args.includes('--worktree') || args.includes('-W') || !isStaged;
+        const targets = args.slice(1).filter((a) => !a.startsWith('-') && a !== '--');
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
         for (const t of targets) {
           const rel = toRepoRel(t);
+          if (!rel) continue;
           if (isStaged) {
-            gitState.staged.delete(rel);
-          } else if (gitState.headSnapshot && Object.prototype.hasOwnProperty.call(gitState.headSnapshot, rel)) {
+            if (rel === '.') {
+              stagedMap.clear();
+            } else {
+              const cleanRel = rel.replace(/\/+$/, '');
+              const dirPrefix = cleanRel + '/';
+              stagedMap.delete(cleanRel);
+              for (const k of Array.from(stagedMap.keys())) {
+                if (k.startsWith(dirPrefix)) {
+                  stagedMap.delete(k);
+                }
+              }
+            }
+          }
+          if (isWorktree) {
+            if (rel === '.') {
+              for (const [k, v] of Object.entries(headFiles)) {
+                const abs = PosixPath.join(repoRoot, k);
+                ensureDirSync(ctx.vfs, PosixPath.dirname(abs), ctx.emitMutation);
+                ctx.vfs.writeFileSync(abs, v);
+                ctx.emitMutation('change', abs);
+              }
+            } else {
+              const cleanRel = rel.replace(/\/+$/, '');
+              const dirPrefix = cleanRel + '/';
+              const subHeadKeys = Object.keys(headFiles).filter((k) => k.startsWith(dirPrefix));
+              if (subHeadKeys.length > 0 && !Object.prototype.hasOwnProperty.call(headFiles, cleanRel)) {
+                for (const k of subHeadKeys) {
+                  const sourceText =
+                    !isStaged && stagedMap.has(k) && stagedMap.get(k) !== null
+                      ? stagedMap.get(k)
+                      : headFiles[k];
+                  const abs = PosixPath.join(repoRoot, k);
+                  ensureDirSync(ctx.vfs, PosixPath.dirname(abs), ctx.emitMutation);
+                  ctx.vfs.writeFileSync(abs, String(sourceText));
+                  ctx.emitMutation('change', abs);
+                }
+              } else {
+                const sourceText =
+                  !isStaged && stagedMap.has(cleanRel) && stagedMap.get(cleanRel) !== null
+                    ? stagedMap.get(cleanRel)
+                    : (Object.prototype.hasOwnProperty.call(headFiles, cleanRel) ? headFiles[cleanRel] : undefined);
+                if (sourceText !== undefined) {
+                  const abs = PosixPath.join(repoRoot, cleanRel);
+                  ensureDirSync(ctx.vfs, PosixPath.dirname(abs), ctx.emitMutation);
+                  ctx.vfs.writeFileSync(abs, String(sourceText));
+                  ctx.emitMutation('change', abs);
+                }
+              }
+            }
+          }
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      }
+
+      if (subcmd === 'reset') {
+        const isHard = args.includes('--hard');
+        const fileArgs = args.slice(1).filter((a) => !a.startsWith('-') && a !== 'HEAD' && a !== '--');
+        if (fileArgs.length > 0) {
+          for (const f of fileArgs) {
+            const rel = toRepoRel(f);
+            if (!rel) continue;
+            if (rel === '.') {
+              stagedMap.clear();
+            } else {
+              const cleanRel = rel.replace(/\/+$/, '');
+              const dirPrefix = cleanRel + '/';
+              stagedMap.delete(cleanRel);
+              for (const k of Array.from(stagedMap.keys())) {
+                if (k.startsWith(dirPrefix)) {
+                  stagedMap.delete(k);
+                }
+              }
+            }
+          }
+          return { code: 0, stdout: '', stderr: '' };
+        }
+        stagedMap.clear();
+        if (isHard) {
+          const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+          const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+          for (const rel of Object.keys(liveFiles)) {
+            if (!Object.prototype.hasOwnProperty.call(headFiles, rel)) {
+              const abs = PosixPath.join(repoRoot, rel);
+              if (typeof ctx.vfs.rmSync === 'function') {
+                ctx.vfs.rmSync(abs, { force: true });
+              } else if (typeof ctx.vfs.unlinkSync === 'function' && ctx.vfs.existsSync(abs)) {
+                ctx.vfs.unlinkSync(abs);
+              }
+              ctx.emitMutation('delete', abs);
+            }
+          }
+          for (const [rel, text] of Object.entries(headFiles)) {
             const abs = PosixPath.join(repoRoot, rel);
-            ctx.vfs.writeFileSync(abs, gitState.headSnapshot[rel]);
+            ensureDirSync(ctx.vfs, PosixPath.dirname(abs), ctx.emitMutation);
+            ctx.vfs.writeFileSync(abs, text);
             ctx.emitMutation('change', abs);
+          }
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      }
+
+      if (subcmd === 'rm') {
+        const cachedOnly = args.includes('--cached');
+        const isRecursive = args.some((a) => a === '-r' || a === '-rf' || a === '-fr');
+        const targets = args.slice(1).filter((a) => !a.startsWith('-') && a !== '--');
+        const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+
+        if (targets.length === 0) {
+          return { code: 128, stdout: '', stderr: 'usage: git rm [--cached] [-r] [-f] <file>...\n' };
+        }
+
+        const removeSingleRel = (rel) => {
+          if (!rel) return;
+          const abs = PosixPath.join(repoRoot, rel);
+          if (!cachedOnly && ctx.vfs.existsSync(abs)) {
+            if (typeof ctx.vfs.rmSync === 'function') {
+              ctx.vfs.rmSync(abs, { force: true, recursive: isRecursive });
+            } else if (typeof ctx.vfs.unlinkSync === 'function') {
+              ctx.vfs.unlinkSync(abs);
+            }
+            ctx.emitMutation('delete', abs);
+          }
+          if (Object.prototype.hasOwnProperty.call(headFiles, rel)) {
+            stagedMap.set(rel, null);
+          } else {
+            stagedMap.delete(rel);
+          }
+        };
+
+        for (const t of targets) {
+          const rel = toRepoRel(t);
+          if (!rel) continue;
+          if (rel === '.') {
+            if (isRecursive) {
+              const allRel = Array.from(
+                new Set([
+                  ...Object.keys(headFiles),
+                  ...Object.keys(liveFiles),
+                  ...Array.from(stagedMap.keys())
+                ])
+              );
+              for (const sub of allRel) removeSingleRel(sub);
+            }
+            continue;
+          }
+          const dirPrefix = rel.replace(/\/+$/, '') + '/';
+          const subMatches = isRecursive
+            ? Array.from(
+                new Set([
+                  ...Object.keys(headFiles).filter((k) => k.startsWith(dirPrefix)),
+                  ...Object.keys(liveFiles).filter((k) => k.startsWith(dirPrefix)),
+                  ...Array.from(stagedMap.keys()).filter((k) => k.startsWith(dirPrefix))
+                ])
+              )
+            : [];
+          if (subMatches.length > 0) {
+            for (const sub of subMatches) removeSingleRel(sub);
+            if (!cachedOnly) removeDirRecursive(ctx.vfs, PosixPath.join(repoRoot, rel), ctx.emitMutation);
+          } else {
+            const abs = PosixPath.join(repoRoot, rel);
+            if (
+              !isRecursive &&
+              ctx.vfs &&
+              typeof ctx.vfs.existsSync === 'function' &&
+              ctx.vfs.existsSync(abs) &&
+              typeof ctx.vfs.statSync === 'function'
+            ) {
+              try {
+                if (ctx.vfs.statSync(abs).isDirectory()) {
+                  return {
+                    code: 128,
+                    stdout: '',
+                    stderr: `fatal: not removing '${t}' recursively without -r\n`
+                  };
+                }
+              } catch (err) {
+                _shellLogger.debug('Failed statting path in git rm.', abs, err);
+              }
+            }
+            removeSingleRel(rel);
           }
         }
         return { code: 0, stdout: '', stderr: '' };
@@ -5934,7 +6744,9 @@
             signal: ctx.signal,
             onFile: (absPath) => ctx.emitMutation('change', absPath)
           });
-          gitState.headSnapshot = Object.assign({}, result.headSnapshot);
+          const pulledHead = Object.assign({}, result.headSnapshot);
+          gitState.headSnapshot = pulledHead;
+          gitState.headFiles = pulledHead;
           return {
             code: 0,
             stdout: `From ${remoteUrl.replace(/\.git$/, '')}\n * branch            ${result.branch} -> FETCH_HEAD\nAlready up to date.\n`,
@@ -5961,9 +6773,11 @@
           if (oneline) {
             stdout += `${c.hash} ${c.message}\n`;
           } else {
+            const authorStr = c.author || 'CodeLab Developer <dev@codelab.internal>';
+            const dateStr = c.date || (c.timestamp ? new Date(c.timestamp).toUTCString() : new Date(0).toUTCString());
             stdout += `commit ${c.hash}\n`;
-            stdout += `Author: ${c.author}\n`;
-            stdout += `Date:   ${c.date}\n\n`;
+            stdout += `Author: ${authorStr}\n`;
+            stdout += `Date:   ${dateStr}\n\n`;
             stdout += `    ${c.message}\n\n`;
           }
         }
@@ -7780,6 +8594,16 @@
       if (options.files && typeof options.files === 'object') {
         for (const [k, v] of Object.entries(options.files)) {
           const abs = PosixPath.resolve(this.cwd, k);
+          if (typeof this.vfs.mkdirSync === 'function') {
+            const parentDir = PosixPath.dirname(abs);
+            if (
+              parentDir &&
+              parentDir !== '/' &&
+              (typeof this.vfs.existsSync !== 'function' || !this.vfs.existsSync(parentDir))
+            ) {
+              this.vfs.mkdirSync(parentDir, { recursive: true });
+            }
+          }
           if (typeof this.vfs.writeFileSync === 'function') {
             this.vfs.writeFileSync(abs, String(v ?? ''));
           }
@@ -7791,23 +8615,19 @@
       this.nextPid = 100;
       this.commands = Object.assign({}, COREUTILS, options.commands || {});
 
-      this.gitState = {
-        branch: 'main',
-        branches: new Set(['main']),
-        remoteUrl: null,
-        remotes: {},
-        repoRoot: this.cwd,
-        headSnapshot: snapshotWorktree(this.vfs, this.cwd),
-        staged: new Set(),
-        commits: [
-          {
-            hash: 'a1b2c3d',
-            author: 'CodeLab Developer <dev@codelab.internal>',
-            date: new Date().toUTCString(),
-            message: 'Initial project commit'
-          }
-        ]
-      };
+      this._initialBootRoot = options._initialBootRoot
+        ? PosixPath.normalize(options._initialBootRoot)
+        : PosixPath.normalize(this.cwd || '/workspace');
+      this._initialBootSnapshot =
+        options._initialBootSnapshot && typeof options._initialBootSnapshot === 'object'
+          ? options._initialBootSnapshot
+          : snapshotWorktree(this.vfs, this._initialBootRoot);
+
+      if (options.gitState && typeof options.gitState === 'object') {
+        this.gitState = options.gitState;
+      } else {
+        this.gitState = createUnifiedShellGitState(this.vfs, this.cwd, options);
+      }
     }
 
     resolvePath(p) {
@@ -7936,6 +8756,9 @@
         ...this.options,
         vfs: this.vfs,
         portTable: this.portTable,
+        gitState: this.gitState,
+        _initialBootRoot: this._initialBootRoot,
+        _initialBootSnapshot: this._initialBootSnapshot,
         env: { ...env, PWD: this.cwd }
       });
       subShell.cwd = this.cwd;
@@ -8657,6 +9480,7 @@
             ...this.options,
             vfs: this.vfs,
             portTable: this.portTable,
+            gitState: this.gitState,
             env: Object.assign({}, this.env, innerCtx.env || {})
           });
           subShell.cwd = innerCtx.cwd || this.cwd;

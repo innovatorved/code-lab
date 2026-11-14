@@ -6,6 +6,7 @@ export {
   LIGHT_THEME,
   HIGH_CONTRAST_THEME,
   IThemeServiceId,
+  pickContrastingFg,
   parseCustomTheme,
   ThemeService
 } from './themes';
@@ -23,6 +24,9 @@ export {
 } from './plugin-registry';
 
 export {
+  type SettingsScope,
+  type SettingsInlineMountOptions,
+  type SettingsOpenOptions,
   type SettingsDialogOptions,
   SettingsDialogController
 } from './settings-dialog';

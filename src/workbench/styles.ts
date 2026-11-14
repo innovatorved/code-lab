@@ -14,7 +14,7 @@ export const WORKBENCH_STYLES = `
 .codelab-btn-split .codelab-btn-split__main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  border-right: 1px solid rgba(0, 0, 0, 0.25);
 }
 .codelab-btn-split .codelab-btn-split__trigger {
   border-top-left-radius: 0;
@@ -27,10 +27,10 @@ export const WORKBENCH_STYLES = `
   top: calc(100% + 4px);
   right: 0;
   background: var(--cl-bg-elevated, #252526);
-  border: 1px solid var(--cl-border, #3c3c3c);
+  border: 1px solid var(--cl-border-strong, var(--cl-border, #3c3c3c));
   border-radius: var(--cl-radius, 6px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+  box-shadow: var(--cl-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.45));
+  z-index: 1200;
   min-width: 220px;
   padding: 4px 0;
   display: none;
@@ -52,9 +52,11 @@ export const WORKBENCH_STYLES = `
   cursor: pointer;
   text-align: left;
 }
-.codelab-split-menu__item:hover {
-  background: var(--cl-accent, #007acc);
-  color: #ffffff;
+.codelab-split-menu__item:hover,
+.codelab-split-menu__item:focus-visible {
+  background: var(--cl-accent, #38bdf8);
+  color: var(--cl-accent-fg, #06131f);
+  outline: none;
 }
 
 /* ── Command Palette Trigger Pill ── */
@@ -62,19 +64,23 @@ export const WORKBENCH_STYLES = `
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
+  padding: 3px 12px;
+  min-width: 200px;
+  justify-content: center;
   border-radius: var(--cl-radius, 6px);
-  background: var(--cl-input-bg, rgba(255, 255, 255, 0.06));
+  background: var(--cl-bg-hover, rgba(128, 128, 128, 0.12));
   border: 1px solid var(--cl-border, #3c3c3c);
   color: var(--cl-fg-muted, #858585);
-  font-size: 11px;
+  font-size: 11.5px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.codelab-cmd-trigger:hover {
-  background: var(--cl-input-bg-focus, rgba(255, 255, 255, 0.12));
+.codelab-cmd-trigger:hover,
+.codelab-cmd-trigger:focus-visible {
+  background: var(--cl-bg-active, rgba(128, 128, 128, 0.2));
   color: var(--cl-fg, #cccccc);
-  border-color: var(--cl-accent, #007acc);
+  border-color: var(--cl-accent, #38bdf8);
+  outline: none;
 }
 
 /* ── HUD Telemetry Pill ── */
@@ -155,19 +161,19 @@ export const WORKBENCH_STYLES = `
   font-size: 12px;
   font-family: var(--cl-font-mono, monospace);
   cursor: pointer;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--cl-border, rgba(128, 128, 128, 0.12));
 }
 .codelab-problem-item:hover {
-  background: var(--cl-tree-hover, rgba(255, 255, 255, 0.06));
+  background: var(--cl-bg-hover, rgba(128, 128, 128, 0.1));
 }
 .codelab-problem-item--error {
-  color: #f14c4c;
+  color: var(--cl-danger, #ef4444);
 }
 .codelab-problem-item--warning {
-  color: #cca700;
+  color: var(--cl-warn, #f59e0b);
 }
 .codelab-problem-item--info {
-  color: #3794ff;
+  color: var(--cl-accent, #38bdf8);
 }
 .codelab-problem-item__location {
   color: var(--cl-fg-muted, #858585);

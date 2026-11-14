@@ -17,6 +17,8 @@ import { type JsonSchema, validateJsonSchema } from './schema';
 
 export type ConfigurationTarget = 'default' | 'user' | 'workspace' | 'override';
 
+export type ConfigurationResetScope = 'user' | 'workspace' | 'all';
+
 export interface SettingDiagnostic {
   readonly file: string;
   readonly key?: string;
@@ -66,8 +68,11 @@ export interface IConfigurationService extends IDisposable {
   get<T = unknown>(key: string, fallback?: T): T;
   inspect<T = unknown>(key: string): SettingInspection<T>;
   getDiagnostics(): readonly SettingDiagnostic[];
+  getWorkspaceSettings(): Record<string, unknown>;
   setUserSetting(key: string, value: unknown): boolean;
   resetSetting(key: string): void;
+  resetScopedSetting(key: string, scope: ConfigurationResetScope): Promise<void>;
+  resetAllSettings(scope?: ConfigurationResetScope): Promise<void>;
   setWorkspaceSetting(key: string, value: unknown): boolean;
   loadWorkspaceSettingsJson(rawJsonc: string, filePath?: string): readonly SettingDiagnostic[];
   setOverrides(overrides: Readonly<Record<string, unknown>>): void;
@@ -225,6 +230,72 @@ export class ConfigurationService implements IConfigurationService {
     }
   }
 
+  public getWorkspaceSettings(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    const keys = Array.from(this.workspaceValues.keys()).sort();
+    for (const k of keys) {
+      out[k] = this.workspaceValues.get(k);
+    }
+    return out;
+  }
+
+  public async resetScopedSetting(key: string, scope: ConfigurationResetScope): Promise<void> {
+    if (scope === 'user') {
+      if (this.userValues.delete(key)) {
+        this.fireChange([key], 'user');
+      }
+      return;
+    }
+    if (scope === 'workspace') {
+      if (this.workspaceValues.delete(key)) {
+        this.fireChange([key], 'workspace');
+      }
+      return;
+    }
+    const hadUser = this.userValues.delete(key);
+    const hadWs = this.workspaceValues.delete(key);
+    const hadOv = this.overrideValues.delete(key);
+    if (hadUser || hadWs || hadOv) {
+      this.fireChange([key], 'user');
+    }
+  }
+
+  public async resetAllSettings(scope: ConfigurationResetScope = 'all'): Promise<void> {
+    if (scope === 'user') {
+      const affected = new Set<string>(this.userValues.keys());
+      this.userValues.clear();
+      if (affected.size > 0) {
+        this.fireChange(affected, 'user');
+      }
+      return;
+    }
+    if (scope === 'workspace') {
+      const affected = new Set<string>(this.workspaceValues.keys());
+      this.workspaceValues.clear();
+      if (this.diagnostics.length > 0) {
+        this.updateDiagnostics([]);
+      }
+      if (affected.size > 0) {
+        this.fireChange(affected, 'workspace');
+      }
+      return;
+    }
+    const affected = new Set<string>([
+      ...this.userValues.keys(),
+      ...this.workspaceValues.keys(),
+      ...this.overrideValues.keys()
+    ]);
+    this.userValues.clear();
+    this.workspaceValues.clear();
+    this.overrideValues.clear();
+    if (this.diagnostics.length > 0) {
+      this.updateDiagnostics([]);
+    }
+    if (affected.size > 0) {
+      this.fireChange(affected, 'user');
+    }
+  }
+
   public loadWorkspaceSettingsJson(
     rawJsonc: string,
     filePath = '.codelab/settings.json'
@@ -310,12 +381,7 @@ export class ConfigurationService implements IConfigurationService {
   }
 
   public toWorkspaceJsonString(): string {
-    const out: Record<string, unknown> = {};
-    const keys = Array.from(this.workspaceValues.keys()).sort();
-    for (const k of keys) {
-      out[k] = this.workspaceValues.get(k);
-    }
-    return JSON.stringify(out, null, 2) + '\n';
+    return JSON.stringify(this.getWorkspaceSettings(), null, 2) + '\n';
   }
 
   public exportProfile(): string {

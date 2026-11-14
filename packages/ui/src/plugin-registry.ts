@@ -48,6 +48,7 @@ export interface PluginActivationContext {
   readonly keybindings: IKeybindingService;
   readonly themes: IThemeService;
   readonly logger: ILogger;
+  readonly registerPanel?: (panel: PanelContribution) => IDisposable;
 }
 
 export interface CodeLabPluginManifest {
@@ -184,7 +185,15 @@ export class PluginRegistry implements IPluginRegistry {
 
     return {
       dispose: (): void => {
-        void this.deactivatePlugin(manifest.id);
+        if (record.active) {
+          record.active = false;
+          try {
+            record.manifest.deactivate?.();
+          } catch (err) {
+            this.logger.warn(`Plugin "${manifest.id}" threw during deactivate`, err);
+          }
+          record.runtimeDisposables.dispose();
+        }
         record.manifestDisposables.dispose();
         this.records.delete(manifest.id);
         this.changeEmitter.fire(manifest.id);
@@ -205,7 +214,13 @@ export class PluginRegistry implements IPluginRegistry {
           configuration: this.configuration,
           keybindings: this.keybindings,
           themes: this.themes,
-          logger: this.logger.child(id)
+          logger: this.logger.child(id),
+          registerPanel: (panel: PanelContribution): IDisposable => {
+            const d = this.panels.register(panel.id, panel);
+            record.runtimeDisposables.add(d);
+            this.changeEmitter.fire(id);
+            return d;
+          }
         });
         if (ret && typeof ret.dispose === 'function') {
           record.runtimeDisposables.add(ret);

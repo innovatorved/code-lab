@@ -138,7 +138,7 @@
        Top Navigation Bar (52px matching system-design --topbar-h)
        ═══════════════════════════════════════════════════════════════ */
     .app-header {
-      height: 52px;
+      height: 40px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -289,14 +289,14 @@
       flex: 1;
       position: relative;
       display: flex;
-      height: calc(100vh - 52px);
+      height: calc(100vh - 40px);
     }
 
     .landing-overlay {
-      position: absolute;
+      position: fixed;
       inset: 0;
       background: var(--bg);
-      z-index: 20;
+      z-index: 1000;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -324,6 +324,7 @@
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
+      display: none !important;
     }
 
     .landing-card {
@@ -339,6 +340,31 @@
       display: flex;
       flex-direction: column;
       gap: 20px;
+    }
+
+    .landing-close-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 28px;
+      height: 28px;
+      border-radius: var(--r-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--fg-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+      transition: all 120ms ease;
+    }
+
+    .landing-close-btn:hover {
+      color: var(--fg);
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
     }
 
     .landing-header {
@@ -559,6 +585,7 @@
 
     #codelab-mount .codelab {
       height: 100%;
+      max-height: none !important;
       border-radius: 0;
       border: none;
     }
@@ -590,27 +617,27 @@
         <span>Blank IDE</span>
       </button>
 
-      <button type="button" class="action-btn" id="header-search-btn" title="Search & Replace Across Files">
+      <button type="button" class="action-btn" id="header-search-btn" title="Search & Replace Across Files" style="display: none !important;">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span>Search</span>
       </button>
 
-      <button type="button" class="action-btn" id="header-scm-btn" title="Source Control (Git Status, Stage, Commit)">
+      <button type="button" class="action-btn" id="header-scm-btn" title="Source Control (Git Status, Stage, Commit)" style="display: none !important;">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
         <span>Source Control</span>
       </button>
 
-      <button type="button" class="action-btn" id="header-problems-btn" title="View Workspace Diagnostics & Problems">
+      <button type="button" class="action-btn" id="header-problems-btn" title="View Workspace Diagnostics & Problems" style="display: none !important;">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span>Problems</span>
       </button>
 
-      <button type="button" class="action-btn" id="header-settings-btn" title="Open Settings (Cmd+,)">
+      <button type="button" class="action-btn" id="header-settings-btn" title="Open Settings (Cmd+,)" style="display: none !important;">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
 
-      <button type="button" class="action-btn" id="header-zip-btn" title="Export Project as ZIP">
+      <button type="button" class="action-btn" id="header-zip-btn" title="Export Project as ZIP" style="display: none !important;">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         <span>Export ZIP</span>
       </button>
@@ -638,6 +665,7 @@
     <!-- Initial Landing View: Repo Input & Live Progress Box -->
     <div class="landing-overlay" id="landing-overlay">
       <div class="landing-card">
+        <button type="button" class="landing-close-btn" id="landing-close-btn" aria-label="Close" title="Close (Esc)">✕</button>
         <div class="landing-header">
           <div class="landing-eyebrow">
             <span class="status-dot" aria-hidden="true"></span>
@@ -764,15 +792,27 @@
             || localStorage.getItem('codelab_' + labId);
           if (!raw) return false;
           const parsed = JSON.parse(raw);
-          return Boolean(parsed && parsed.customFiles && Object.keys(parsed.customFiles).length > 0);
+          if (parsed && parsed.files && Object.keys(parsed.files).length > 0) return true;
+          if (parsed && parsed.customFiles && typeof parsed.customFiles === 'object') {
+            for (const slot of Object.values(parsed.customFiles)) {
+              if (slot && typeof slot === 'object' && Object.keys(slot).length > 0) return true;
+            }
+          }
+          return Boolean(parsed && (parsed.isBlankBase || (parsed.hasSnapshot && Object.keys(parsed.hasSnapshot).length > 0)));
         } catch (_) {
           return false;
         }
       }
 
       function ensureIde(options = {}) {
+        if (ideInstance && (!options.labId || ideInstance.labId === options.labId)) {
+          return ideInstance;
+        }
         const targetLabId = options.labId || 'cloud-ide';
         if (ideInstance && ideInstance.labId !== targetLabId) {
+          if (typeof ideInstance.saveWorkspace === 'function') {
+            try { ideInstance.saveWorkspace(); } catch (_) {}
+          }
           if (typeof ideInstance.destroy === 'function') ideInstance.destroy();
           mountEl.innerHTML = '';
           ideInstance = null;
@@ -783,16 +823,17 @@
             window.CodeLabPython && (window.CodeLabPython.pythonExtension || window.CodeLabPython.default),
             window.CodeLabCpp && (window.CodeLabCpp.cppExtension || window.CodeLabCpp.default)
           ].filter(Boolean);
+          const isBlank = Boolean(options.blank || targetLabId.startsWith('workspace-') || targetLabId.startsWith('blank-'));
           ideInstance = window.CodeLab.mount(mountEl, {
             labId: targetLabId,
-            title: 'code-lab',
+            title: options.title || 'code-lab',
             theme: document.documentElement.getAttribute('data-theme') || 'dark',
             extensions: options.extensions || defaultExtensions,
-            files: options.files || {
+            files: options.files || (isBlank ? {} : {
               'README.md': '# Welcome to code-lab v0.4.0\n\n- **Settings UI & Workspace JSON**: Press `Cmd+,` / `Ctrl+,` (or click **Settings** in the top bar) to configure editor, terminal, and SQL dialect preferences, backed by `.codelab/settings.json`.\n- **SQL Studio & Guided Labs**: Open the **SQL Studio** demo from the home screen or run `sqlite3` directly in the POSIX terminal.\n- **Multi-Runtime Terminal**: Click `+` in the terminal drawer header for multiple sessions, or run `git clone <owner/repo>`, `node`, `bun`, `python3`, or `clang++`.\n',
               '.codelab/settings.json': '{\n  "editor.fontSize": 13,\n  "editor.tabSize": 2,\n  "sql.dialect": "sqlite"\n}\n'
-            },
-            entry: 'demo.js',
+            }),
+            entry: isBlank ? null : (options.entry || 'demo.js'),
             ...options
           });
         }
@@ -804,7 +845,8 @@
 
       async function executeClone(targetRepo, options = {}) {
         if (!targetRepo) return;
-        const labId = 'repo-' + targetRepo.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+        const cleanRepoName = targetRepo.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+        const labId = 'repo-' + cleanRepoName;
         if (!options.forceClone && hasSavedFilesForLab(labId)) {
           const ide = ensureIde({ labId });
           saveSessionMeta({ mode: 'repo', repo: targetRepo, labId });
@@ -821,12 +863,32 @@
           return;
         }
 
+        let targetLabId = labId;
+        if (options.forceClone && (hasSavedFilesForLab(labId) || (ideInstance && ideInstance._needsWorkspaceConfirm()))) {
+          const ide = ensureIde();
+          if (ide && typeof ide._showWorkspaceConfirmModal === 'function') {
+            landingOverlay.classList.add('hidden');
+            const choice = await ide._showWorkspaceConfirmModal({
+              title: 'Clone Repository Into Workspace',
+              message: `Your current workspace contains files or unsaved edits. Clone "${targetRepo}" into a new isolated workspace or replace the current workspace?`,
+              isolateLabel: 'New Isolated Workspace',
+              replaceLabel: 'Replace Current Workspace'
+            });
+            if (choice === 'cancel') {
+              return;
+            }
+            if (choice === 'isolated') {
+              targetLabId = `${labId}-${Date.now().toString(36)}`;
+            }
+          }
+        }
+
         cloneBtn.disabled = true;
         progressBox.innerHTML = '';
         logProgress('connecting', `Connecting to GitHub API for ${targetRepo}...`);
 
         try {
-          const ide = ensureIde({ labId });
+          const ide = ensureIde({ labId: targetLabId });
           if (!ide) {
             throw new Error('CodeLab SDK failed to initialize');
           }
@@ -863,7 +925,7 @@
           url.searchParams.delete('demo');
           url.searchParams.set('repo', targetRepo);
           window.history.replaceState({}, '', url.toString());
-          saveSessionMeta({ mode: 'repo', repo: targetRepo, labId });
+          saveSessionMeta({ mode: 'repo', repo: targetRepo, labId: targetLabId });
 
           // Transition to full IDE
           setTimeout(() => {
@@ -1099,9 +1161,22 @@
         }, 120);
       }
 
-      function openBlankWorkspace() {
-        const labId = 'blank-workspace';
-        const ide = ensureIde({ labId });
+      function openBlankWorkspace(opts = {}) {
+        if (ideInstance && typeof ideInstance.openBlankWorkspace === 'function') {
+          landingOverlay.classList.add('hidden');
+          ideInstance.openBlankWorkspace({ ui: true, force: Boolean(opts && opts.force) }).then((newId) => {
+            if (newId) {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('repo');
+              url.searchParams.delete('demo');
+              window.history.replaceState({}, '', url.toString());
+              saveSessionMeta({ mode: 'blank', labId: newId });
+            }
+          });
+          return;
+        }
+        const labId = 'workspace-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+        const ide = ensureIde({ labId, blank: true, files: {} });
         landingOverlay.classList.add('hidden');
         const url = new URL(window.location.href);
         url.searchParams.delete('repo');
@@ -1127,8 +1202,12 @@
         headerSearchBtn.addEventListener('click', () => {
           const ide = ensureIde();
           landingOverlay.classList.add('hidden');
-          if (ide && typeof ide.showSearchModal === 'function') {
-            ide.showSearchModal();
+          if (ide) {
+            if (typeof ide.setSidebarView === 'function') {
+              ide.setSidebarView('search', { ensureOpen: true, focus: true });
+            } else if (typeof ide.showSearchModal === 'function') {
+              ide.showSearchModal();
+            }
           }
         });
       }
@@ -1138,8 +1217,12 @@
         headerScmBtn.addEventListener('click', () => {
           const ide = ensureIde();
           landingOverlay.classList.add('hidden');
-          if (ide && typeof ide.showScmModal === 'function') {
-            ide.showScmModal();
+          if (ide) {
+            if (typeof ide.setSidebarView === 'function') {
+              ide.setSidebarView('scm', { ensureOpen: true, focus: true });
+            } else if (typeof ide.showScmModal === 'function') {
+              ide.showScmModal();
+            }
           }
         });
       }
@@ -1149,8 +1232,14 @@
         headerProblemsBtn.addEventListener('click', () => {
           const ide = ensureIde();
           landingOverlay.classList.add('hidden');
-          if (ide && typeof ide.showProblemsModal === 'function') {
-            ide.showProblemsModal();
+          if (ide) {
+            if (typeof ide.openProblemsPanel === 'function') {
+              ide.openProblemsPanel();
+            } else if (typeof ide.switchDrawerTab === 'function') {
+              ide.switchDrawerTab('problems');
+            } else if (typeof ide.showProblemsModal === 'function') {
+              ide.showProblemsModal();
+            }
           }
         });
       }
@@ -1185,8 +1274,28 @@
         repoInput.select();
       });
 
+      const landingCloseBtn = document.getElementById('landing-close-btn');
+      if (landingCloseBtn) {
+        landingCloseBtn.addEventListener('click', () => {
+          landingOverlay.classList.add('hidden');
+        });
+      }
+
+      landingOverlay.addEventListener('click', (e) => {
+        const card = document.querySelector('.landing-card');
+        if (card && !card.contains(e.target) && ideInstance) {
+          landingOverlay.classList.add('hidden');
+        }
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !landingOverlay.classList.contains('hidden') && ideInstance) {
+          landingOverlay.classList.add('hidden');
+        }
+      });
+
       brandHomeBtn.addEventListener('click', () => {
-        landingOverlay.classList.remove('hidden');
+        landingOverlay.classList.toggle('hidden');
       });
 
       // Theme toggle
@@ -1214,8 +1323,19 @@
       const initialParams = new URLSearchParams(window.location.search);
       const urlRepo = initialParams.get('repo');
       const urlDemo = initialParams.get('demo');
+      const urlWorkspace = initialParams.get('workspace') || initialParams.get('labId');
       const savedSession = loadSessionMeta();
-      if (urlDemo === 'react') {
+      if (urlWorkspace) {
+        const isBlank = urlWorkspace.startsWith('workspace-') || urlWorkspace.startsWith('blank-');
+        const ide = ensureIde({ labId: urlWorkspace, blank: isBlank, files: {} });
+        landingOverlay.classList.add('hidden');
+        if (ide) {
+          setTimeout(() => {
+            const ed = ide._editor || ide.editor;
+            if (ed && typeof ed.layout === 'function') ed.layout();
+          }, 50);
+        }
+      } else if (urlDemo === 'react') {
         openFrameworkDemo({ forceReset: false });
       } else if (urlDemo === 'sql') {
         openSqlDemo({ forceReset: false });
@@ -1237,8 +1357,16 @@
       } else if (savedSession && savedSession.mode === 'repo' && savedSession.repo && hasSavedFilesForLab(savedSession.labId || '')) {
         repoInput.value = savedSession.repo;
         executeClone(savedSession.repo, { forceClone: false });
-      } else if (savedSession && savedSession.mode === 'blank' && hasSavedFilesForLab(savedSession.labId || 'blank-workspace')) {
-        openBlankWorkspace();
+      } else if (savedSession && savedSession.mode === 'blank' && (savedSession.labId || hasSavedFilesForLab(savedSession.labId || 'blank-workspace'))) {
+        const targetLabId = savedSession.labId || 'blank-workspace';
+        const ide = ensureIde({ labId: targetLabId, blank: true, files: {} });
+        landingOverlay.classList.add('hidden');
+        if (ide) {
+          setTimeout(() => {
+            const ed = ide._editor || ide.editor;
+            if (ed && typeof ed.layout === 'function') ed.layout();
+          }, 50);
+        }
       }
     })();
   </script>

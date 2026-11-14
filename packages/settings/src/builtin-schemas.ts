@@ -71,9 +71,9 @@ export const BUILTIN_SETTINGS: readonly SettingDescriptor[] = [
     key: 'workbench.colorTheme',
     category: 'Workbench',
     title: 'Color Theme',
-    description: 'Specifies the color theme used in the workbench (`dark`, `light`, `high-contrast`, or a registered custom theme id).',
+    description: 'Specifies the color theme used in the workbench (`dark`, `light`, or `high-contrast`).',
     defaultValue: 'dark',
-    schema: { type: 'string', minLength: 1, default: 'dark' }
+    schema: { type: 'string', enum: ['dark', 'light', 'high-contrast'], default: 'dark' }
   },
   {
     key: 'workbench.sideBar.visible',
@@ -87,12 +87,23 @@ export const BUILTIN_SETTINGS: readonly SettingDescriptor[] = [
     key: 'workbench.panel.defaultTab',
     category: 'Workbench',
     title: 'Default Bottom Panel Tab',
-    description: 'Default active tab in the bottom drawer.',
-    defaultValue: 'console',
+    description: 'Default active tab in the bottom panel.',
+    defaultValue: 'terminal',
     schema: {
       type: 'string',
-      enum: ['console', 'terminal', 'tests', 'problems', 'ports', 'network', 'observability'],
-      default: 'console'
+      enum: [
+        'terminal',
+        'problems',
+        'tests',
+        'stdin',
+        'ports',
+        'preview',
+        'network',
+        'inspector',
+        'observability',
+        'sql-results'
+      ],
+      default: 'terminal'
     }
   },
   {

@@ -38,9 +38,285 @@ export interface WorkspaceStorageOptions {
   preferredBackend?: StorageBackendType;
 }
 
+export type WorkspaceKind = 'blank' | 'repo' | 'demo' | 'custom';
+
+export interface WorkspaceMeta {
+  labId: string;
+  title: string;
+  kind: WorkspaceKind;
+  repo?: string;
+  updatedAt: number;
+  fileCount?: number;
+}
+
+export const WORKSPACE_REGISTRY_KEY = 'codelab:workspace-registry:v1';
+
 const DEFAULT_DB_NAME = 'codelab_workspace_db';
 const DEFAULT_STORE_NAME = 'projects';
 const DEFAULT_LS_PREFIX = 'codelab:project:';
+const WORKBENCH_STATE_PREFIX = 'sd-codelab-v1:';
+const LEGACY_WORKBENCH_PREFIX = 'codelab_';
+
+const memoryRegistry: Map<string, WorkspaceMeta> = new Map();
+const memoryOrIdbNonEmptyProjects: Set<string> = new Set();
+let registryWriteFailed = false;
+let lastBlankTs = 0;
+let blankSeq = 0;
+
+function getSafeLocalStorage(): Storage | null {
+  try {
+    if (typeof globalThis === 'undefined' || !('localStorage' in globalThis)) {
+      return null;
+    }
+    const ls = globalThis.localStorage;
+    if (
+      !ls ||
+      typeof ls.getItem !== 'function' ||
+      typeof ls.setItem !== 'function' ||
+      typeof ls.removeItem !== 'function'
+    ) {
+      return null;
+    }
+    return ls;
+  } catch (err) {
+    const _ignored = err;
+    void _ignored;
+    return null;
+  }
+}
+
+function isPlainRecord(val: unknown): val is Record<string, unknown> {
+  return Boolean(val && typeof val === 'object' && !Array.isArray(val));
+}
+
+function normalizeWorkspaceMeta(raw: unknown, existing?: WorkspaceMeta): WorkspaceMeta | null {
+  if (!isPlainRecord(raw)) return null;
+  const labId = typeof raw.labId === 'string' ? raw.labId.trim() : '';
+  if (!labId) return null;
+
+  const rawKind = raw.kind;
+  const kind: WorkspaceKind =
+    rawKind === 'blank' || rawKind === 'repo' || rawKind === 'demo' || rawKind === 'custom'
+      ? rawKind
+      : (existing?.kind ?? 'custom');
+
+  const title =
+    typeof raw.title === 'string' && raw.title.trim()
+      ? raw.title.trim()
+      : (existing?.title || labId);
+
+  const updatedAt =
+    typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
+      ? raw.updatedAt
+      : Date.now();
+
+  const repo =
+    typeof raw.repo === 'string'
+      ? (raw.repo.trim() || undefined)
+      : existing?.repo;
+
+  const fileCount =
+    typeof raw.fileCount === 'number' && Number.isFinite(raw.fileCount) && raw.fileCount >= 0
+      ? Math.floor(raw.fileCount)
+      : existing?.fileCount;
+
+  return {
+    labId,
+    title,
+    kind,
+    updatedAt,
+    ...(repo !== undefined ? { repo } : {}),
+    ...(fileCount !== undefined ? { fileCount } : {})
+  };
+}
+
+function readRegistryEntries(): Map<string, WorkspaceMeta> {
+  const ls = getSafeLocalStorage();
+  if (ls && !registryWriteFailed) {
+    try {
+      const raw = ls.getItem(WORKSPACE_REGISTRY_KEY);
+      if (raw === null) {
+        memoryRegistry.clear();
+        return new Map();
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        return new Map();
+      }
+      const map = new Map<string, WorkspaceMeta>();
+      for (const entry of parsed) {
+        const normalized = normalizeWorkspaceMeta(entry);
+        if (!normalized) continue;
+        const prev = map.get(normalized.labId);
+        if (!prev || normalized.updatedAt >= prev.updatedAt) {
+          map.set(normalized.labId, normalized);
+        }
+      }
+      memoryRegistry.clear();
+      for (const [k, v] of map.entries()) {
+        memoryRegistry.set(k, { ...v });
+      }
+      return map;
+    } catch (err) {
+      const _ignored = err;
+      void _ignored;
+      return new Map();
+    }
+  }
+
+  const out = new Map<string, WorkspaceMeta>();
+  for (const [k, v] of memoryRegistry.entries()) {
+    out.set(k, { ...v });
+  }
+  return out;
+}
+
+function persistRegistryEntries(map: Map<string, WorkspaceMeta>): void {
+  const sorted = Array.from(map.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+  memoryRegistry.clear();
+  for (const item of sorted) {
+    memoryRegistry.set(item.labId, { ...item });
+  }
+  const ls = getSafeLocalStorage();
+  if (ls) {
+    try {
+      ls.setItem(WORKSPACE_REGISTRY_KEY, JSON.stringify(sorted));
+      registryWriteFailed = false;
+    } catch (err) {
+      const _ignored = err;
+      void _ignored;
+      registryWriteFailed = true;
+    }
+  }
+}
+
+export function listWorkspaces(): WorkspaceMeta[] {
+  return Array.from(readRegistryEntries().values()).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function getWorkspaceMeta(labId: string): WorkspaceMeta | null {
+  if (typeof labId !== 'string') return null;
+  const trimmed = labId.trim();
+  if (!trimmed) return null;
+  const found = readRegistryEntries().get(trimmed);
+  return found ? { ...found } : null;
+}
+
+export function upsertWorkspaceMeta(meta: WorkspaceMeta): void {
+  if (!isPlainRecord(meta)) return;
+  const trimmedId = typeof meta.labId === 'string' ? meta.labId.trim() : '';
+  if (!trimmedId) return;
+  const map = readRegistryEntries();
+  const normalized = normalizeWorkspaceMeta(meta, map.get(trimmedId));
+  if (!normalized) return;
+  map.set(normalized.labId, normalized);
+  persistRegistryEntries(map);
+}
+
+export function removeWorkspaceMeta(labId: string): void {
+  if (typeof labId !== 'string') return;
+  const trimmed = labId.trim();
+  if (!trimmed) return;
+  const map = readRegistryEntries();
+  if (map.delete(trimmed)) {
+    persistRegistryEntries(map);
+  } else {
+    memoryRegistry.delete(trimmed);
+  }
+}
+
+function payloadHasSavedFiles(rawJson: string | null): boolean {
+  if (!rawJson) return false;
+  try {
+    const parsed = JSON.parse(rawJson) as unknown;
+    if (!isPlainRecord(parsed)) return false;
+
+    if (isPlainRecord(parsed.files) && Object.keys(parsed.files).length > 0) {
+      return true;
+    }
+
+    if (isPlainRecord(parsed.customFiles)) {
+      for (const val of Object.values(parsed.customFiles)) {
+        if (typeof val === 'string') {
+          return true;
+        }
+        if (isPlainRecord(val) && Object.keys(val).length > 0) {
+          return true;
+        }
+      }
+    }
+  } catch (err) {
+    const _ignored = err;
+    void _ignored;
+  }
+  return false;
+}
+
+function checkHasWorkspaceData(
+  labId: string,
+  extraPrefix?: string,
+  instanceMemory?: ReadonlyMap<string, StoredProject>
+): boolean {
+  if (typeof labId !== 'string') return false;
+  const trimmed = labId.trim();
+  if (!trimmed) return false;
+
+  if (instanceMemory) {
+    const proj = instanceMemory.get(trimmed);
+    if (proj && isPlainRecord(proj.files) && Object.keys(proj.files).length > 0) {
+      return true;
+    }
+  }
+
+  if (memoryOrIdbNonEmptyProjects.has(trimmed)) {
+    return true;
+  }
+
+  const ls = getSafeLocalStorage();
+  if (ls) {
+    try {
+      if (payloadHasSavedFiles(ls.getItem(`${WORKBENCH_STATE_PREFIX}${trimmed}`))) {
+        return true;
+      }
+      if (payloadHasSavedFiles(ls.getItem(`${LEGACY_WORKBENCH_PREFIX}${trimmed}`))) {
+        return true;
+      }
+      if (payloadHasSavedFiles(ls.getItem(`${DEFAULT_LS_PREFIX}${trimmed}`))) {
+        return true;
+      }
+      if (
+        typeof extraPrefix === 'string' &&
+        extraPrefix &&
+        extraPrefix !== DEFAULT_LS_PREFIX &&
+        payloadHasSavedFiles(ls.getItem(`${extraPrefix}${trimmed}`))
+      ) {
+        return true;
+      }
+    } catch (err) {
+      const _ignored = err;
+      void _ignored;
+    }
+  }
+
+  return false;
+}
+
+export function hasWorkspaceData(labId: string): boolean {
+  return checkHasWorkspaceData(labId);
+}
+
+export function createBlankWorkspaceId(): string {
+  const now = Date.now();
+  if (now === lastBlankTs) {
+    blankSeq += 1;
+  } else {
+    lastBlankTs = now;
+    blankSeq = 0;
+  }
+  const rand = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+  const suffix = blankSeq > 0 ? `${blankSeq.toString(36)}${rand}` : rand;
+  return `blank-workspace-${now}-${suffix}`;
+}
 
 function cloneProject(project: StoredProject): StoredProject {
   const filesCopy: Record<string, string> = {};
@@ -95,6 +371,14 @@ function isIndexedDbAvailable(): boolean {
 }
 
 export class WorkspaceStorage {
+  public static readonly WORKSPACE_REGISTRY_KEY = WORKSPACE_REGISTRY_KEY;
+  public static readonly listWorkspaces = listWorkspaces;
+  public static readonly getWorkspaceMeta = getWorkspaceMeta;
+  public static readonly upsertWorkspaceMeta = upsertWorkspaceMeta;
+  public static readonly removeWorkspaceMeta = removeWorkspaceMeta;
+  public static readonly hasWorkspaceData = hasWorkspaceData;
+  public static readonly createBlankWorkspaceId = createBlankWorkspaceId;
+
   private readonly dbName: string;
   private readonly storeName: string;
   private readonly storagePrefix: string;
@@ -161,6 +445,7 @@ export class WorkspaceStorage {
       return false;
     }
     const normalized = cloneProject(project);
+    const hasFiles = Object.keys(normalized.files).length > 0;
     // Always keep memory mirror hot for resilience
     this.memoryStore.set(normalized.id, normalized);
 
@@ -182,7 +467,11 @@ export class WorkspaceStorage {
             resolve(false);
           }
         });
-        if (ok) return true;
+        if (ok) {
+          if (hasFiles) memoryOrIdbNonEmptyProjects.add(normalized.id);
+          else memoryOrIdbNonEmptyProjects.delete(normalized.id);
+          return true;
+        }
         this.downgradeFromIdb();
       }
     }
@@ -191,6 +480,7 @@ export class WorkspaceStorage {
       try {
         const key = `${this.storagePrefix}${normalized.id}`;
         globalThis.localStorage.setItem(key, JSON.stringify(normalized));
+        memoryOrIdbNonEmptyProjects.delete(normalized.id);
         return true;
       } catch (err) {
         // QuotaExceededError or disabled storage -> fallback to memory
@@ -200,6 +490,8 @@ export class WorkspaceStorage {
       }
     }
 
+    if (hasFiles) memoryOrIdbNonEmptyProjects.add(normalized.id);
+    else memoryOrIdbNonEmptyProjects.delete(normalized.id);
     return true;
   }
 
@@ -320,6 +612,7 @@ export class WorkspaceStorage {
 
   public async deleteProject(id: string): Promise<boolean> {
     if (!id || typeof id !== 'string') return false;
+    memoryOrIdbNonEmptyProjects.delete(id);
     let existed = this.memoryStore.delete(id);
 
     if (this.backendType === 'indexeddb') {
@@ -365,13 +658,53 @@ export class WorkspaceStorage {
 
     return existed;
   }
+
+  public listWorkspaces(): WorkspaceMeta[] {
+    return listWorkspaces();
+  }
+
+  public getWorkspaceMeta(labId: string): WorkspaceMeta | null {
+    return getWorkspaceMeta(labId);
+  }
+
+  public upsertWorkspaceMeta(meta: WorkspaceMeta): void {
+    upsertWorkspaceMeta(meta);
+  }
+
+  public removeWorkspaceMeta(labId: string): void {
+    removeWorkspaceMeta(labId);
+  }
+
+  public hasWorkspaceData(labId: string): boolean {
+    return checkHasWorkspaceData(labId, this.storagePrefix, this.memoryStore);
+  }
+
+  public createBlankWorkspaceId(): string {
+    return createBlankWorkspaceId();
+  }
 }
 
 export function createWorkspaceStorage(options: WorkspaceStorageOptions = {}): WorkspaceStorage {
   return new WorkspaceStorage(options);
 }
 
-export default {
+export const CodeLabWorkspaceStorage = {
+  WORKSPACE_REGISTRY_KEY,
   WorkspaceStorage,
-  createWorkspaceStorage
+  createWorkspaceStorage,
+  listWorkspaces,
+  getWorkspaceMeta,
+  upsertWorkspaceMeta,
+  removeWorkspaceMeta,
+  hasWorkspaceData,
+  createBlankWorkspaceId
+};
+
+if (typeof globalThis !== 'undefined') {
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.CodeLabWorkspaceStorage = CodeLabWorkspaceStorage;
+}
+
+export default {
+  ...CodeLabWorkspaceStorage
 };

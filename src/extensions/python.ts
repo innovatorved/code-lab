@@ -1348,38 +1348,39 @@ function installPythonExtension(workbench: any, options: ExtendedPythonExtension
 
   workbench.hasMultipleLanguages = workbench.enabledLanguages.size > 1;
 
-  // Debounced static syntax & traceback linter
-  if (workbench._diagnosticsStore) {
-    let pyLintTimer: any = null;
-    workbench._pyLintHandler = (file: string, code: string) => {
-      if (!file || !file.endsWith('.py')) return;
-      if (pyLintTimer) clearTimeout(pyLintTimer);
-      pyLintTimer = setTimeout(() => {
-        const diags = analyzePythonSource(code, file);
-        workbench._diagnosticsStore.clear('python-linter');
-        for (const d of diags) {
-          workbench._diagnosticsStore.add(d);
-        }
-        if (typeof window !== 'undefined' && (window as any).monaco) {
-          const model = (workbench.models && typeof workbench.models.get === 'function' && workbench.models.get(file))
-            || (workbench.activeFile === file && workbench.editor ? workbench.editor.getModel() : null);
-          if (model) {
-            const markers = diags.map((d) => ({
-              startLineNumber: d.line,
-              startColumn: d.col || 1,
-              endLineNumber: d.line,
-              endColumn: (d.col || 1) + 20,
-              message: d.message,
-              severity: d.severity === 'error'
-                ? (window as any).monaco.MarkerSeverity.Error
-                : (window as any).monaco.MarkerSeverity.Warning
-            }));
-            (window as any).monaco.editor.setModelMarkers(model, 'python-linter', markers);
-          }
-        }
-      }, 180);
-    };
-  }
+  // Synchronous static syntax & traceback linter (resolves _diagnosticsStore dynamically)
+  workbench._pyLintHandler = (file: string, code: string) => {
+    if (!file || !/\.py$/i.test(file)) return;
+    const diags = analyzePythonSource(String(code ?? ''), file);
+    const store = workbench ? workbench._diagnosticsStore : null;
+    if (store && typeof store.setFileDiagnostics === 'function') {
+      store.setFileDiagnostics(file, 'python-linter', diags);
+    } else if (store && typeof store.clear === 'function' && typeof store.add === 'function') {
+      store.clear('python-linter');
+      for (const d of diags) {
+        store.add(d);
+      }
+    }
+    if (typeof window !== 'undefined' && (window as any).monaco) {
+      const model =
+        (workbench.models && typeof workbench.models.get === 'function' && workbench.models.get(file)) ||
+        (workbench.activeFile === file && workbench.editor ? workbench.editor.getModel() : null);
+      if (model) {
+        const markers = diags.map((d) => ({
+          startLineNumber: d.line,
+          startColumn: d.col || 1,
+          endLineNumber: d.endLine || d.line,
+          endColumn: d.endCol || (d.col || 1) + 20,
+          message: d.message,
+          severity:
+            d.severity === 'error'
+              ? (window as any).monaco.MarkerSeverity.Error
+              : (window as any).monaco.MarkerSeverity.Warning
+        }));
+        (window as any).monaco.editor.setModelMarkers(model, 'python-linter', markers);
+      }
+    }
+  };
 
   if (options.preload) {
     toolchain.ensureLoaded().catch((err) => {
