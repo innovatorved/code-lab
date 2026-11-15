@@ -4,6 +4,21 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-15
+
+### Added
+- **Authentic VS Code Dark Modern & Light Modern Design System (`packages/ui/src/themes.ts`, `packages/ui/src/settings-dialog.ts`, `src/workbench/icons.ts`, `src/code-lab.css`)**:
+  - Upgraded built-in themes to authentic `vscode.dev` Dark Modern (`#1f1f1f` editor, `#181818` chrome, `#0078d4` accent) and Light Modern (`#ffffff` editor, `#f8f8f8` chrome, `#005fb8` accent) tokens, aligned Settings UI (`Cmd+,`) and all secondary panels, added uniform `24x24` Activity Bar Codicons and colored Seti file-type icons, added Explorer `OUTLINE` & `TIMELINE` sections, and strictly scoped all CSS rules under `.codelab` / `.cl-` with zero host-page style leakage.
+  - Added complete `0px` bottom-panel collapse (`display: none`) across Close (`×`), `Cmd+J` / `Ctrl+J` / `Ctrl+\``, Titlebar toggle, Status Bar toggle, and horizontal splitter drag-down (`< 56px` snap-to-collapse) while keeping right-side terminal actions pinned.
+  - Removed the `JS | TS | PY | C++` topbar switcher in IDE/Workbench mode (retaining it strictly in Guided Lab mode) and surfaced the active file's language mode dynamically in the `22px` Status Bar (`#cl-status-lang`).
+- **Real `@xterm/xterm` PTY Terminal, Side-by-Side Split Panes & Worker `Ctrl+C` (`src/workbench/xterm-adapter.ts`, `src/terminal.ts`, `src/shell.ts`, `src/runtime.ts`)**:
+  - Integrated `@xterm/xterm`, `@xterm/addon-fit`, and `@xterm/addon-web-links` with clickable `file:line:col` diagnostic links, full `\x1b[2J` / `\x1b[3J` / `\x1bc` screen clearing, reverse-i-search (`Ctrl+R`), bracketed multiline paste, side-by-side Split Terminal (`[bash-1 | bash-2]`), and deferred headless evaluation so Node/Bun CLI imports stay zero-overhead.
+  - Propagated per-instance `instanceId` and interactive `onRequestStdin` hooks into `executeInWorker` and `createPosixShell` so `Ctrl+C` (`interruptTerminal()`) terminates infinite Worker loops in `< 200ms` (`exitCode: 130`) without affecting sibling instances, and POSIX `read` / Node `readline` / Python `input()` prompt interactively inside the terminal.
+- **Real In-Browser Git (`isomorphic-git`) & Monaco Side-by-Side `DiffEditor` (`src/scm.ts`, `src/shell.ts`, `src/storage.ts`, `src/workbench/diff-editor.ts`)**:
+  - Integrated `isomorphic-git` with durable IndexedDB `/workspace/.git/**` binary persistence, `.gitignore` filtering, Myers 3-line context unified hunk diffs, real working-tree branch switching (`checkout` / `switch`), `stash push/pop/list/drop`, `reset --soft/--mixed/--hard`, `blame`, `tag`, `show`, live Monaco Git gutter decorations, Explorer `M/U/A/D` badges, and an interactive Monaco Side-by-Side / Inline `DiffEditor`.
+- **100% Browser-Native Cross-File Language Intelligence (`src/workbench/intellisense.ts`, `src/extensions/python.ts`, `src/extensions/cpp.ts`, `src/workbench/command-palette.ts`)**:
+  - Enabled eager multi-file TypeScript/JavaScript worker sync (`file:///workspace/*` URIs), live `tsconfig.json` compiler-option sync, cross-file Go-to-Definition (`F12` / `Cmd+Click`), Automatic Type Acquisition (`.d.ts` caching), JSON schemas (`package.json`, `tsconfig.json`), HTML/JSX tag auto-closing, CSS custom-property completion, SQL schema completion, and fuzzy Command Palette (`Cmd+P`, `:line`, `@symbol`, `#workspaceSymbol`, `>`).
+
 ## [0.5.0] - 2026-11-14
 
 ### Added

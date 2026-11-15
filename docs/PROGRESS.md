@@ -75,17 +75,22 @@
   - [x] Non-destructive Settings dialog (`Cmd+,`) and modal switching without wiping user workspaces
   - [x] Recent workspace switcher (`?workspace=`), dirty confirmation dialogs, and re-clone overwrite protections
   - [x] Cross-browser Playwright test hardening across Chromium, Firefox, and WebKit (138 tests passing in CI)
+- [x] **Milestone 7 — Phase 7 Authentic VS Code Dark/Light Modern, `@xterm/xterm` PTY, `isomorphic-git` & Browser-Native Intelligence (`v0.6.0`)**
+  - [x] Authentic VS Code Dark Modern & Light Modern tokens, Seti file icons, complete `0px` bottom-panel collapse, and clean IDE topbar
+  - [x] Real `@xterm/xterm` PTY adapter, side-by-side Split Terminal, interactive `stdin`, and `< 200ms` Worker `Ctrl+C` loop termination
+  - [x] Real `isomorphic-git` `.git` object store, Myers unified diffs, working-tree branch checkout/stash/reset, and Monaco Side-by-Side `DiffEditor`
+  - [x] Eager cross-file TypeScript `F12` intelligence, Automatic Type Acquisition, JSON schemas, HTML/JSX auto-close, and `589 KB` gzipped umbrella bundle
 
 ---
 
-## Final Engineering Metrics (Before `v0.3.2` vs After `v0.5.0`)
+## Final Engineering Metrics (Before `v0.3.2` vs After `v0.6.0`)
 
-| Metric | Before (`v0.3.2`) | After (`v0.5.0`) |
+| Metric | Before (`v0.3.2`) | After (`v0.6.0`) |
 | --- | --- | --- |
 | **Workspace Packages** | 1 monolith package | **11 Bun workspaces** across 4 enforced DAG layers (`0` violations, `0` cycles) |
-| **Strict TypeScript Modules (`strict: true`)** | 12 leaf files | **48 strict TypeScript modules** (`0` `any` leaks, `0` empty `catch` blocks) |
-| **SQL Inline/Playground Bundle (`@innovatorved/code-lab/sql`)** | N/A (fell back to plain `<textarea>` or full 1.8 MB IDE) | **`16.57 KB` gzipped** (JS + CSS combined; `< 35 KB` budget, `0` WASM overhead) |
+| **Strict TypeScript Modules (`strict: true`)** | 12 leaf files | **50 strict TypeScript modules** (`0` `any` leaks, `0` empty `catch` blocks) |
+| **SQL Inline/Playground Bundle (`@innovatorved/code-lab/sql`)** | N/A (fell back to plain `<textarea>` or full 1.8 MB IDE) | **`16.51 KB` gzipped** (JS + CSS combined; `< 35 KB` budget, `0` WASM overhead) |
 | **Audit Findings Open (`P0` / `P1` / `P2`)** | `6 P0`, `14 P1`, `6 P2` (26 open) | **`0` open** (`26/26` resolved with dedicated regression tests) |
 | **Dependency Vulnerabilities (`bun audit`)** | 2 in root + 32 in `examples/cloud-ide` | **`0` vulnerabilities** across root and `examples/cloud-ide` |
 | **Automated Node / Bun Test Suites** | 43 suites | **49 suites** (100% green in both Bun and Node) |
-| **Playwright Real Browser E2E Specs** | 27 tests | **46 tests / 138 matrix runs** (100% green in Chromium, Firefox & WebKit) |
+| **Playwright Real Browser E2E Specs** | 27 tests | **52 tests / 156 matrix runs + 160 VS Code E2E specs** (100% green in Chromium, Firefox & WebKit) |

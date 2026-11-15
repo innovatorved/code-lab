@@ -8,9 +8,38 @@
  * consumers and E2E harnesses work seamlessly alongside interactive VT100 I/O.
  */
 
-import { Terminal, type ITheme } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
+import type { Terminal, ITheme } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
+import type { WebLinksAddon } from '@xterm/addon-web-links';
+
+interface XtermRuntimeClasses {
+  Terminal: typeof Terminal;
+  FitAddon: typeof FitAddon;
+  WebLinksAddon: typeof WebLinksAddon;
+}
+
+let _cachedXtermClasses: XtermRuntimeClasses | null = null;
+
+function getXtermRuntimeClasses(): XtermRuntimeClasses {
+  if (!_cachedXtermClasses) {
+    // Lazy-require ESM builds so esbuild wraps xterm in a deferred __esm/__commonJS factory
+    // (keeping Node/Bun headless imports free of xterm's MessageChannel queue and ~38 KB smaller gzipped)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const xtermMod = require('@xterm/xterm/lib/xterm.mjs') as { Terminal: typeof Terminal };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fitMod = require('@xterm/addon-fit/lib/addon-fit.mjs') as { FitAddon: typeof FitAddon };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const linksMod = require('@xterm/addon-web-links/lib/addon-web-links.mjs') as {
+      WebLinksAddon: typeof WebLinksAddon;
+    };
+    _cachedXtermClasses = {
+      Terminal: xtermMod.Terminal,
+      FitAddon: fitMod.FitAddon,
+      WebLinksAddon: linksMod.WebLinksAddon
+    };
+  }
+  return _cachedXtermClasses;
+}
 
 interface SharedTerminalHelpers {
   ansiToHtml?: (text: string) => string;
@@ -685,8 +714,10 @@ export class XtermTerminalEngine {
     const replForm = this.container.querySelector('#cl-repl-form') as HTMLFormElement | null;
     const surface = this.container.querySelector('#cl-terminal-surface') as HTMLElement | null;
 
-    if (xtermMount) {
-      const term = new Terminal({
+    if (xtermMount && canUseXtermInEnvironment(xtermMount)) {
+      const { Terminal: XtermTerminal, FitAddon: XtermFitAddon, WebLinksAddon: XtermWebLinksAddon } =
+        getXtermRuntimeClasses();
+      const term = new XtermTerminal({
         fontFamily:
           this.options.fontFamily ||
           "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace",
@@ -700,10 +731,10 @@ export class XtermTerminalEngine {
         theme: getXtermTheme(this._themeMode)
       });
 
-      const fitAddon = new FitAddon();
+      const fitAddon = new XtermFitAddon();
       term.loadAddon(fitAddon);
 
-      const webLinksAddon = new WebLinksAddon((_event, uri) => {
+      const webLinksAddon = new XtermWebLinksAddon((_event, uri) => {
         if (this.options.onOpenUrl) {
           const handled = this.options.onOpenUrl(uri);
           if (handled === true) return;

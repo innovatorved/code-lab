@@ -1,6 +1,14 @@
 # `@innovatorved/code-lab` Roadmap
 
-This roadmap tracks post-`v0.5.0` architectural and product milestones across the `code-lab` monorepo.
+This roadmap tracks post-`v0.6.0` architectural and product milestones across the `code-lab` monorepo.
+
+---
+
+## Shipped in `v0.6.0`
+- **Authentic VS Code Dark Modern & Light Modern Parity**: `vscode.dev` color tokens, Seti file icons, complete `0px` bottom-panel collapse across Close/shortcuts/status-bar/splitter drag, aligned Settings UI, and clean `35px` IDE topbar.
+- **Real `@xterm/xterm` PTY & Split Terminal**: Full VT100 terminal emulator, side-by-side Split Terminal, clickable `file:line:col` links, interactive `stdin`, and `< 200ms` Worker `Ctrl+C` preemption.
+- **Real `isomorphic-git` & Monaco Side-by-Side `DiffEditor`**: Durable IndexedDB `.git` object store, `.gitignore`, Myers hunk diffs, branch checkout/stash/reset/blame, and Monaco Side-by-Side/Inline `DiffEditor`.
+- **Browser-Native Cross-File Language Intelligence**: Eager TypeScript multi-file sync, cross-file `F12`, Automatic Type Acquisition, JSON schemas, HTML/JSX auto-close, and CSS/SQL completions inside a `589 KB` gzipped bundle.
 
 ---
 
