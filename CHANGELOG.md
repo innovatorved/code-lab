@@ -4,6 +4,14 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-11-16
+
+### Changed
+- **Unified Geist Monochrome Design System (`src/code-lab.css`, `packages/ui/src/themes.ts`, `packages/ui/src/settings-dialog.ts`, `packages/sql/src/styles.ts`, `src/workbench/`)**:
+  - Replaced all copied VS Code blue tokens (`#0078d4`, `#005fb8`, `#04395e`) with the unified **Charcoal Ink** (`#0f0f10` canvas, `#141415` chrome, `#18181a` surface, `#27272a` hairline border, `#f4f4f5` primary ink/CTA) and **Warm Paper** (`#ffffff` canvas, `#f7f7f5` chrome, `#f1f1ee` surface, `#e6e4df` hairline border, `#18181b` primary ink/CTA) design system shared across `system-design-in-depth`, `dsa-in-depth`, and `interview-copilot-admin`, with seamless `--ds-*` / `--*` host CSS custom-property inheritance.
+  - Standardized typography on **Geist** (`--cl-font-sans`) for UI chrome and **Geist Mono** (`--cl-font-mono`) for code editors, Monaco `DiffEditor`, `@xterm/xterm` terminal, and standalone SQL editor, backed by a tokenized type scale (`--cl-text-2xs` through `--cl-text-xl`).
+  - Refactored ad-hoc inline `style="..."` font sizes and colors across Settings UI (`@code-lab/ui`), Observability, modals, and workbench panels into reusable `.cl-ui-*` and `.cl-settings-*` component classes.
+
 ## [0.6.0] - 2026-11-15
 
 ### Added

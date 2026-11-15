@@ -12,17 +12,18 @@ code-lab,
 .codelab-workbench--dark,
 .codelab[data-theme="dark"],
 dialog.codelab-dialog {
-  /* VS Code Dark Modern Design System */
-  --cl-bg: #1f1f1f;
-  --cl-bg-editor: #1f1f1f;
-  --cl-bg-elevated: #181818;
-  --cl-chrome: #181818;
-  --cl-bg-panel: #202020;
-  --cl-input-bg: #313131;
-  --cl-bg-hover: #2a2d2e;
-  --cl-bg-active: #37373d;
-  --cl-list-active: #04395e;
-  --cl-list-active-fg: #ffffff;
+  /* Ved Gupta Unified Design System — Charcoal Ink (system-design / dsa-in-depth / interview-copilot) */
+  --cl-bg: var(--ds-canvas, var(--bg, #0f0f10));
+  --cl-bg-editor: var(--ds-canvas, var(--bg, #0f0f10));
+  --cl-bg-elevated: var(--sidebar-bg, var(--ds-canvas-subtle, var(--bg-alt, #141415)));
+  --cl-chrome: var(--cl-bg-elevated);
+  --cl-bg-panel: var(--ds-surface, var(--surface, #18181a));
+  --cl-input-bg: var(--ds-canvas-subtle, var(--bg-alt, #141415));
+  --cl-input-border: var(--ds-border, var(--border, #27272a));
+  --cl-bg-hover: var(--ds-surface-hover, var(--surface-hover, #1f1f22));
+  --cl-bg-active: var(--ds-surface-active, var(--surface-active, #28282b));
+  --cl-list-active: var(--ds-surface-active, var(--surface-active, #28282b));
+  --cl-list-active-fg: var(--ds-ink, var(--fg, #f4f4f5));
 
   /* Backwards-compatible surface aliases */
   --cl-surface: var(--cl-bg-elevated);
@@ -31,70 +32,79 @@ dialog.codelab-dialog {
   --cl-hover: var(--cl-bg-hover);
   --cl-active: var(--cl-bg-active);
 
-  /* Crisp 1px VS Code Dark Modern borders */
-  --cl-border-subtle: #252526;
-  --cl-border: #2b2b2b;
-  --cl-border-strong: #454545;
+  /* Crisp 1px Charcoal Ink hairline borders */
+  --cl-border-subtle: var(--border-subtle, #1d1d20);
+  --cl-border: var(--ds-border, var(--border, #27272a));
+  --cl-border-strong: var(--ds-border-strong, var(--border-strong, #3a3a3e));
+  --cl-focus-border: var(--border-focus, #a1a1aa);
 
-  /* Foreground hierarchy (WCAG AA >= 4.5:1 against #181818 and #1f1f1f) */
-  --cl-fg: #cccccc;
-  --cl-fg-muted: #9d9d9d;
-  --cl-fg-faint: #8b949e;
+  /* Foreground hierarchy (WCAG AAA >= 7:1 against #0f0f10 and #141415) */
+  --cl-fg: var(--ds-ink, var(--fg, #f4f4f5));
+  --cl-fg-active: #ffffff;
+  --cl-fg-muted: var(--ds-ink-muted, var(--fg-muted, #a1a1aa));
+  --cl-fg-faint: var(--ds-ink-faint, var(--fg-faint, #8e8e97));
   --cl-fg-subtle: var(--cl-fg-faint);
 
-  /* VS Code Dark Modern Accent & Primary Button Tokens */
-  --cl-accent: #4daafc;
-  --cl-accent-fg: #091929;
-  --cl-btn-primary-bg: #0078d4;
-  --cl-btn-primary-fg: #ffffff;
-  --cl-btn-primary-hover: #026ec1;
-  --cl-blue: #4daafc;
-  --cl-blue-muted: rgba(77, 170, 252, 0.14);
-  --cl-green: #73c991;
-  --cl-green-bright: #89d185;
-  --cl-green-muted: rgba(115, 201, 145, 0.14);
-  --cl-amber: #cca700;
-  --cl-amber-muted: rgba(204, 167, 0, 0.14);
-  --cl-red: #f14c4c;
-  --cl-red-muted: rgba(241, 76, 76, 0.14);
-  --cl-purple: #b180d7;
-  --cl-purple-muted: rgba(177, 128, 215, 0.14);
+  /* Monochrome Ink Accent & Primary CTA Tokens */
+  --cl-accent: var(--brand-accent, var(--accent, #f4f4f5));
+  --cl-accent-fg: var(--brand-accent-ink, var(--accent-fg, #0f0f10));
+  --cl-btn-primary-bg: var(--brand-accent, var(--accent, #f4f4f5));
+  --cl-btn-primary-fg: var(--brand-accent-ink, var(--accent-fg, #0f0f10));
+  --cl-btn-primary-hover: var(--brand-accent-hover, var(--accent-hover, #ffffff));
+  --cl-blue: var(--ds-info, var(--info, #e4e4e7));
+  --cl-blue-muted: rgba(244, 244, 245, 0.1);
+  --cl-green: var(--ds-success, var(--success, #34d399));
+  --cl-green-bright: #6ee7b7;
+  --cl-green-muted: rgba(16, 185, 129, 0.12);
+  --cl-amber: var(--ds-warning, var(--warning, #fbbf24));
+  --cl-amber-muted: rgba(245, 158, 11, 0.12);
+  --cl-red: var(--ds-danger, var(--error, #f87171));
+  --cl-red-muted: rgba(239, 68, 68, 0.12);
+  --cl-purple: #c084fc;
+  --cl-purple-muted: rgba(192, 132, 252, 0.12);
 
   /* Git & Diagnostic Tokens */
-  --cl-git-added: #73c991;
-  --cl-git-modified: #e2c08d;
-  --cl-git-deleted: #c74e39;
-  --cl-git-untracked: #73c991;
-  --cl-diag-error: #f14c4c;
-  --cl-diag-warning: #cca700;
-  --cl-diag-info: #3794ff;
+  --cl-git-added: #34d399;
+  --cl-git-modified: #fbbf24;
+  --cl-git-deleted: #f87171;
+  --cl-git-untracked: #34d399;
+  --cl-diag-error: #f87171;
+  --cl-diag-warning: #fbbf24;
+  --cl-diag-info: #e4e4e7;
 
   /* GFM Callout Alert Tokens */
-  --cl-callout-note: var(--cl-blue, #4daafc);
-  --cl-callout-note-bg: rgba(77, 170, 252, 0.08);
-  --cl-callout-tip: var(--cl-green, #73c991);
-  --cl-callout-tip-bg: rgba(115, 201, 145, 0.08);
-  --cl-callout-important: #b180d7;
-  --cl-callout-important-bg: rgba(177, 128, 215, 0.08);
-  --cl-callout-warning: var(--cl-amber, #cca700);
-  --cl-callout-warning-bg: rgba(204, 167, 0, 0.08);
-  --cl-callout-caution: var(--cl-red, #f14c4c);
-  --cl-callout-caution-bg: rgba(241, 76, 76, 0.08);
+  --cl-callout-note: var(--cl-fg-muted, #a1a1aa);
+  --cl-callout-note-bg: rgba(244, 244, 245, 0.04);
+  --cl-callout-tip: var(--cl-green, #34d399);
+  --cl-callout-tip-bg: rgba(16, 185, 129, 0.07);
+  --cl-callout-important: #c084fc;
+  --cl-callout-important-bg: rgba(192, 132, 252, 0.07);
+  --cl-callout-warning: var(--cl-amber, #fbbf24);
+  --cl-callout-warning-bg: rgba(245, 158, 11, 0.07);
+  --cl-callout-caution: var(--cl-red, #f87171);
+  --cl-callout-caution-bg: rgba(239, 68, 68, 0.07);
 
-  /* Syntax Highlighting Tokens (Dark+ / Dark Modern) */
-  --cl-tok-comment: #6a9955;
-  --cl-tok-keyword: #569cd6;
-  --cl-tok-string: #ce9178;
-  --cl-tok-number: #b5cea8;
-  --cl-tok-type: #4ec9b0;
-  --cl-tok-function: #dcdcaa;
-  --cl-tok-punctuation: #808080;
+  /* Syntax Highlighting Tokens (Aligned with system-design-in-depth --syn-*) */
+  --cl-tok-comment: var(--syn-comment, #8e8e97);
+  --cl-tok-keyword: var(--syn-keyword, #f87171);
+  --cl-tok-string: var(--syn-string, #86efac);
+  --cl-tok-number: var(--syn-number, #fb923c);
+  --cl-tok-type: var(--syn-type, #c084fc);
+  --cl-tok-function: var(--syn-func, #fcd34d);
+  --cl-tok-punctuation: var(--syn-operator, #a1a1aa);
 
-  --cl-radius-sm: 3px;
-  --cl-radius-md: 5px;
-  --cl-radius-lg: 6px;
-  --cl-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Ubuntu, sans-serif;
-  --cl-font-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", ui-monospace, monospace;
+  /* Radii & Tokenized Geist Typography Scale */
+  --cl-radius-sm: var(--ds-radius-sm, 4px);
+  --cl-radius-md: var(--ds-radius-md, 6px);
+  --cl-radius-lg: var(--ds-radius-lg, 8px);
+  --cl-font-sans: var(--ds-font-sans, var(--font-sans, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif));
+  --cl-font-mono: var(--ds-font-mono, var(--font-mono, "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace));
+  --cl-text-2xs: var(--ds-text-2xs, 0.6875rem);
+  --cl-text-xs: var(--ds-text-xs, 0.75rem);
+  --cl-text-sm: var(--ds-text-sm, 0.8125rem);
+  --cl-text-base: var(--ds-text-base, 0.875rem);
+  --cl-text-lg: var(--ds-text-lg, 1.0625rem);
+  --cl-text-xl: var(--ds-text-xl, 1.375rem);
 }
 
 code-lab,
@@ -131,17 +141,18 @@ dialog.codelab-dialog :where(button, input, select, textarea) {
 .codelab-workbench--light,
 dialog.codelab-dialog[data-cl-theme="light"] {
   color-scheme: light;
-  /* VS Code Light Modern Design System */
-  --cl-bg: #ffffff;
-  --cl-bg-editor: #ffffff;
-  --cl-bg-elevated: #f8f8f8;
-  --cl-chrome: #f8f8f8;
-  --cl-bg-panel: #f3f3f3;
-  --cl-input-bg: #ffffff;
-  --cl-bg-hover: #e8e8e8;
-  --cl-bg-active: #dfdfdf;
-  --cl-list-active: #0060c0;
-  --cl-list-active-fg: #ffffff;
+  /* Ved Gupta Unified Design System — Warm Paper (system-design / dsa-in-depth / interview-copilot) */
+  --cl-bg: var(--ds-surface, var(--surface, #ffffff));
+  --cl-bg-editor: var(--ds-surface, var(--surface, #ffffff));
+  --cl-bg-elevated: var(--sidebar-bg, var(--ds-canvas, var(--bg, #f7f7f5)));
+  --cl-chrome: var(--cl-bg-elevated);
+  --cl-bg-panel: var(--ds-canvas-subtle, var(--bg-alt, #f1f1ee));
+  --cl-input-bg: var(--ds-surface, var(--surface, #ffffff));
+  --cl-input-border: var(--ds-border-strong, var(--border-strong, #d3d0c9));
+  --cl-bg-hover: var(--ds-surface-hover, var(--surface-hover, #f1f1ee));
+  --cl-bg-active: var(--ds-surface-active, var(--surface-active, #ecebe7));
+  --cl-list-active: var(--ds-surface-active, var(--surface-active, #ecebe7));
+  --cl-list-active-fg: var(--ds-ink, var(--fg, #18181b));
 
   --cl-surface: var(--cl-bg-elevated);
   --cl-surface-2: var(--cl-bg-panel);
@@ -149,60 +160,62 @@ dialog.codelab-dialog[data-cl-theme="light"] {
   --cl-hover: var(--cl-bg-hover);
   --cl-active: var(--cl-bg-active);
 
-  --cl-border-subtle: #ededed;
-  --cl-border: #e5e5e5;
-  --cl-border-strong: #cecece;
+  --cl-border-subtle: var(--border-subtle, #eeede9);
+  --cl-border: var(--ds-border, var(--border, #e6e4df));
+  --cl-border-strong: var(--ds-border-strong, var(--border-strong, #d3d0c9));
+  --cl-focus-border: var(--border-focus, #3f3f46);
 
-  --cl-fg: #3b3b3b;
-  --cl-fg-muted: #616161;
-  --cl-fg-faint: #6e6e6e;
+  --cl-fg: var(--ds-ink, var(--fg, #18181b));
+  --cl-fg-active: #09090b;
+  --cl-fg-muted: var(--ds-ink-muted, var(--fg-muted, #52525b));
+  --cl-fg-faint: var(--ds-ink-faint, var(--fg-faint, #6e6a64));
   --cl-fg-subtle: var(--cl-fg-faint);
 
-  --cl-accent: #005fb8;
-  --cl-accent-fg: #ffffff;
-  --cl-btn-primary-bg: #005fb8;
-  --cl-btn-primary-fg: #ffffff;
-  --cl-btn-primary-hover: #0258a8;
-  --cl-blue: #005fb8;
-  --cl-blue-muted: rgba(0, 95, 184, 0.1);
-  --cl-green: #1a7f37;
-  --cl-green-bright: #1a7f37;
-  --cl-green-muted: rgba(26, 127, 55, 0.1);
-  --cl-amber: #9a6700;
-  --cl-amber-muted: rgba(154, 103, 0, 0.1);
-  --cl-red: #d1242f;
-  --cl-red-muted: rgba(209, 36, 47, 0.1);
-  --cl-purple: #8250df;
-  --cl-purple-muted: rgba(130, 80, 223, 0.1);
+  --cl-accent: var(--brand-accent, var(--accent, #18181b));
+  --cl-accent-fg: var(--brand-accent-ink, var(--accent-fg, #ffffff));
+  --cl-btn-primary-bg: var(--brand-accent, var(--accent, #18181b));
+  --cl-btn-primary-fg: var(--brand-accent-ink, var(--accent-fg, #ffffff));
+  --cl-btn-primary-hover: var(--brand-accent-hover, var(--accent-hover, #27272a));
+  --cl-blue: var(--ds-info, var(--info, #18181b));
+  --cl-blue-muted: rgba(24, 24, 27, 0.08);
+  --cl-green: var(--ds-success, var(--success, #067647));
+  --cl-green-bright: #059669;
+  --cl-green-muted: rgba(6, 118, 71, 0.09);
+  --cl-amber: var(--ds-warning, var(--warning, #b54708));
+  --cl-amber-muted: rgba(181, 71, 8, 0.09);
+  --cl-red: var(--ds-danger, var(--error, #b42318));
+  --cl-red-muted: rgba(180, 35, 24, 0.09);
+  --cl-purple: #7c3aed;
+  --cl-purple-muted: rgba(124, 58, 237, 0.09);
 
-  --cl-git-added: #1a7f37;
-  --cl-git-modified: #9a6700;
-  --cl-git-deleted: #cf222e;
-  --cl-git-untracked: #1a7f37;
-  --cl-diag-error: #d1242f;
-  --cl-diag-warning: #9a6700;
-  --cl-diag-info: #005fb8;
+  --cl-git-added: #067647;
+  --cl-git-modified: #b54708;
+  --cl-git-deleted: #b42318;
+  --cl-git-untracked: #067647;
+  --cl-diag-error: #b42318;
+  --cl-diag-warning: #b54708;
+  --cl-diag-info: #18181b;
 
   /* GFM Callout Alert Tokens */
-  --cl-callout-note: var(--cl-blue, #005fb8);
-  --cl-callout-note-bg: rgba(0, 95, 184, 0.06);
-  --cl-callout-tip: var(--cl-green, #1a7f37);
-  --cl-callout-tip-bg: rgba(26, 127, 55, 0.06);
-  --cl-callout-important: #8250df;
-  --cl-callout-important-bg: rgba(130, 80, 223, 0.06);
-  --cl-callout-warning: var(--cl-amber, #9a6700);
-  --cl-callout-warning-bg: rgba(154, 103, 0, 0.06);
-  --cl-callout-caution: var(--cl-red, #d1242f);
-  --cl-callout-caution-bg: rgba(209, 36, 47, 0.06);
+  --cl-callout-note: var(--cl-fg-muted, #52525b);
+  --cl-callout-note-bg: rgba(24, 24, 27, 0.035);
+  --cl-callout-tip: var(--cl-green, #067647);
+  --cl-callout-tip-bg: rgba(6, 118, 71, 0.06);
+  --cl-callout-important: #7c3aed;
+  --cl-callout-important-bg: rgba(124, 58, 237, 0.06);
+  --cl-callout-warning: var(--cl-amber, #b54708);
+  --cl-callout-warning-bg: rgba(181, 71, 8, 0.06);
+  --cl-callout-caution: var(--cl-red, #b42318);
+  --cl-callout-caution-bg: rgba(180, 35, 24, 0.06);
 
-  /* Syntax Highlighting Tokens (Light+ / Light Modern) */
-  --cl-tok-comment: #008000;
-  --cl-tok-keyword: #0000ff;
-  --cl-tok-string: #a31515;
-  --cl-tok-number: #098658;
-  --cl-tok-type: #267f99;
-  --cl-tok-function: #795e26;
-  --cl-tok-punctuation: #3b3b3b;
+  /* Syntax Highlighting Tokens (Aligned with system-design-in-depth Light) */
+  --cl-tok-comment: var(--syn-comment, #6e6a64);
+  --cl-tok-keyword: var(--syn-keyword, #be123c);
+  --cl-tok-string: var(--syn-string, #15803d);
+  --cl-tok-number: var(--syn-number, #c2410c);
+  --cl-tok-type: var(--syn-type, #7c3aed);
+  --cl-tok-function: var(--syn-func, #9a3412);
+  --cl-tok-punctuation: var(--syn-operator, #52525b);
 }
 
 /* ── Fullscreen Body Lock & Back Button ──────────────────────────────────── */
@@ -367,7 +380,7 @@ code-lab,
   width: 7px;
   height: 7px;
   border-radius: 2px;
-  background: var(--cl-btn-primary-bg, #0078d4);
+  background: var(--cl-fg);
   flex-shrink: 0;
 }
 
@@ -438,8 +451,8 @@ code-lab,
 }
 
 .codelab-lang-btn.active {
-  background: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
 }
 
 .codelab-topbar__center {
@@ -488,9 +501,9 @@ code-lab,
 }
 
 .codelab-step-pill.active {
-  border-color: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
-  background: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
+  background: var(--cl-btn-primary-bg);
   font-weight: 600;
 }
 
@@ -546,16 +559,16 @@ code-lab,
 }
 
 .codelab-btn--primary {
-  background: var(--cl-btn-primary-bg, #0078d4);
-  border-color: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-bg);
+  border-color: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
   font-weight: 500;
 }
 
 .codelab-btn--primary:hover:not(:disabled) {
-  background: var(--cl-btn-primary-hover, #026ec1);
-  border-color: var(--cl-btn-primary-hover, #026ec1);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-hover);
+  border-color: var(--cl-btn-primary-hover);
+  color: var(--cl-btn-primary-fg);
 }
 
 .codelab-btn--run {
@@ -604,18 +617,18 @@ code-lab,
 }
 
 .codelab-btn--test {
-  background: var(--cl-btn-primary-bg, #0078d4);
-  border-color: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-bg);
+  border-color: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
   font-weight: 500;
   height: 24px;
   padding: 0 9px;
 }
 
 .codelab-btn--test:hover:not(:disabled) {
-  background: var(--cl-btn-primary-hover, #026ec1);
-  border-color: var(--cl-btn-primary-hover, #026ec1);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-hover);
+  border-color: var(--cl-btn-primary-hover);
+  color: var(--cl-btn-primary-fg);
 }
 
 .codelab-btn--icon {
@@ -1226,7 +1239,7 @@ code-lab,
 
 .codelab-splitter-files:hover,
 .codelab-splitter-files.is-dragging {
-  background: var(--cl-btn-primary-bg, #0078d4);
+  background: var(--cl-border-strong);
 }
 
 /* Primary Sidebar (Explorer, Search, Source Control, Plugins) */
@@ -1311,14 +1324,14 @@ code-lab,
 }
 
 .codelab-file-item.active {
-  background: var(--cl-list-active, #04395e);
-  color: var(--cl-list-active-fg, #ffffff);
-  font-weight: 400;
+  background: var(--cl-list-active);
+  color: var(--cl-list-active-fg);
+  font-weight: 500;
 }
 
 .codelab-file-item.active .codelab-file-icon,
 .codelab-file-item.active .codelab-file-badge {
-  color: var(--cl-list-active-fg, #ffffff);
+  color: var(--cl-list-active-fg);
 }
 
 .codelab-file-badge {
@@ -1401,7 +1414,7 @@ code-lab,
 
 .codelab-folder-item.drag-over {
   background: var(--cl-bg-hover);
-  outline: 1px dashed var(--cl-btn-primary-bg, #0078d4);
+  outline: 1px dashed var(--cl-focus-border);
   outline-offset: -1px;
 }
 
@@ -1505,17 +1518,17 @@ code-lab,
   flex: 1;
   height: 22px;
   padding: 0 6px;
-  border-radius: 2px;
-  border: 1px solid var(--cl-btn-primary-bg, #0078d4);
-  background: var(--cl-input-bg, #313131);
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-focus-border);
+  background: var(--cl-input-bg);
   color: var(--cl-fg);
   font-family: var(--cl-font-sans);
-  font-size: 12.5px;
+  font-size: var(--cl-text-xs, 0.75rem);
   outline: none;
 }
 
 .codelab-tree-input:focus {
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-focus-border);
 }
 
 /* Editor Column */
@@ -1599,8 +1612,8 @@ code-lab,
 .codelab-tab[aria-selected="true"] {
   color: var(--cl-fg);
   background: var(--cl-bg);
-  font-weight: 400;
-  box-shadow: inset 0 1px 0 var(--cl-btn-primary-bg, #0078d4);
+  font-weight: 500;
+  box-shadow: inset 0 1px 0 var(--cl-fg);
 }
 
 .codelab-tab__ext {
@@ -2149,7 +2162,7 @@ code-lab,
 .codelab-drawer__tab.active,
 .codelab-drawer__tab[aria-selected="true"] {
   color: var(--cl-fg);
-  box-shadow: inset 0 -1px 0 var(--cl-btn-primary-bg, #0078d4);
+  box-shadow: inset 0 -1px 0 var(--cl-fg);
   font-weight: 500;
 }
 
@@ -2563,9 +2576,10 @@ code-lab,
   height: 22px;
   padding: 0 8px;
   margin-left: -8px;
-  background: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
-  font-size: 11.5px;
+  background: var(--cl-bg-active);
+  color: var(--cl-fg);
+  border-right: 1px solid var(--cl-border);
+  font-size: var(--cl-text-2xs, 0.6875rem);
   font-weight: 500;
 }
 
@@ -2677,7 +2691,7 @@ code-lab,
 }
 
 .codelab-pkg-chip:hover {
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-border-strong);
   background: var(--cl-bg-hover);
 }
 
@@ -4074,41 +4088,39 @@ code-lab,
   border-bottom: 1px solid var(--cl-border-subtle);
 }
 
-/* ── GitHub Callout Alert Boxes ──────────────────────────────────────────── */
+/* ── GitHub Callout Alert Boxes (1px Semantic Hairline — Zero Side-Stripes) ── */
 .codelab-callout {
   margin: 16px 0;
   padding: 12px 14px;
   border-radius: var(--cl-radius-md);
   background: var(--cl-bg-elevated);
   border: 1px solid var(--cl-border);
-  border-left-width: 3.5px;
-  border-left-style: solid;
   position: relative;
   box-sizing: border-box;
 }
 
 .codelab-callout--note {
-  border-left-color: var(--cl-callout-note);
+  border-color: color-mix(in srgb, var(--cl-callout-note) 32%, var(--cl-border));
   background: var(--cl-callout-note-bg);
 }
 
 .codelab-callout--tip {
-  border-left-color: var(--cl-callout-tip);
+  border-color: color-mix(in srgb, var(--cl-callout-tip) 35%, var(--cl-border));
   background: var(--cl-callout-tip-bg);
 }
 
 .codelab-callout--important {
-  border-left-color: var(--cl-callout-important);
+  border-color: color-mix(in srgb, var(--cl-callout-important) 35%, var(--cl-border));
   background: var(--cl-callout-important-bg);
 }
 
 .codelab-callout--warning {
-  border-left-color: var(--cl-callout-warning);
+  border-color: color-mix(in srgb, var(--cl-callout-warning) 35%, var(--cl-border));
   background: var(--cl-callout-warning-bg);
 }
 
 .codelab-callout--caution {
-  border-left-color: var(--cl-callout-caution);
+  border-color: color-mix(in srgb, var(--cl-callout-caution) 35%, var(--cl-border));
   background: var(--cl-callout-caution-bg);
 }
 
@@ -4176,11 +4188,11 @@ code-lab,
 .codelab-blockquote {
   margin: 16px 0;
   padding: 8px 14px;
-  border-left: 3px solid var(--cl-border-strong);
+  box-shadow: inset 2px 0 0 var(--cl-border-strong);
   background: var(--cl-bg-elevated);
   border-radius: 0 var(--cl-radius-sm) var(--cl-radius-sm) 0;
   color: var(--cl-fg-muted);
-  font-size: 13px;
+  font-size: var(--cl-text-sm, 0.8125rem);
   line-height: 1.6;
   font-style: italic;
 }
@@ -5046,22 +5058,22 @@ code-lab,
   padding: 1px 6px;
   border-radius: var(--cl-radius-sm);
   font-family: var(--cl-font-mono);
-  font-size: 11.5px;
+  font-size: var(--cl-text-2xs, 0.6875rem);
   font-weight: 600;
-  background: color-mix(in srgb, var(--cl-accent, #3b82f6) 15%, transparent);
-  color: var(--cl-accent, #60a5fa);
+  background: var(--cl-bg-active);
+  color: var(--cl-fg);
 }
 
 .codelab-port-link {
   color: var(--cl-fg);
   font-family: var(--cl-font-mono);
-  font-size: 11.5px;
+  font-size: var(--cl-text-xs, 0.75rem);
   text-decoration: none;
 }
 
 .codelab-port-link:hover {
   text-decoration: underline;
-  color: var(--cl-accent, #60a5fa);
+  color: var(--cl-fg);
 }
 
 .codelab-port-status {
@@ -5351,11 +5363,11 @@ code-lab,
   color: var(--cl-fg);
 }
 
-.codelab-method-get { color: var(--cl-blue, #60a5fa); }
-.codelab-method-post { color: var(--cl-green, #4ade80); }
+.codelab-method-get { color: var(--cl-fg); }
+.codelab-method-post { color: var(--cl-green); }
 .codelab-method-put,
-.codelab-method-patch { color: var(--cl-amber, #fbbf24); }
-.codelab-method-delete { color: var(--cl-red, #f87171); }
+.codelab-method-patch { color: var(--cl-amber); }
+.codelab-method-delete { color: var(--cl-red); }
 
 .codelab-waterfall-cell {
   width: 140px;
@@ -5371,7 +5383,7 @@ code-lab,
 
 .codelab-waterfall-bar {
   height: 100%;
-  background: var(--cl-accent, #3b82f6);
+  background: var(--cl-fg-muted);
   border-radius: 999px;
 }
 
@@ -5683,8 +5695,8 @@ code-lab,
 }
 .codelab-split-menu__item:hover,
 .codelab-split-menu__item:focus-visible {
-  background: var(--cl-accent, #38bdf8);
-  color: var(--cl-accent-fg, #06131f);
+  background: var(--cl-list-active);
+  color: var(--cl-list-active-fg);
   outline: none;
 }
 
@@ -5696,19 +5708,19 @@ code-lab,
   gap: 6px;
   padding: 3px 12px;
   min-width: 190px;
-  border-radius: var(--cl-radius, 6px);
-  background: var(--cl-bg-hover, rgba(128, 128, 128, 0.12));
-  border: 1px solid var(--cl-border, #3c3c3c);
-  color: var(--cl-fg-muted, #858585);
-  font-size: 11.5px;
+  border-radius: var(--cl-radius-md, 6px);
+  background: var(--cl-bg-panel);
+  border: 1px solid var(--cl-border);
+  color: var(--cl-fg-muted);
+  font-size: var(--cl-text-xs, 0.75rem);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .codelab-cmd-trigger:hover,
 .codelab-cmd-trigger:focus-visible {
-  background: var(--cl-bg-active, rgba(128, 128, 128, 0.2));
-  color: var(--cl-fg, #cccccc);
-  border-color: var(--cl-accent, #38bdf8);
+  background: var(--cl-bg-hover);
+  color: var(--cl-fg);
+  border-color: var(--cl-border-strong);
   outline: none;
 }
 
@@ -5716,16 +5728,18 @@ code-lab,
 .codelab-hud-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 2px 10px;
-  border-radius: 12px;
-  background: var(--cl-hud-bg, rgba(0, 122, 204, 0.15));
-  border: 1px solid var(--cl-hud-border, rgba(0, 122, 204, 0.35));
-  color: var(--cl-hud-fg, #4fc1ff);
-  font-family: var(--cl-font-mono, monospace);
-  font-size: 11px;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--cl-radius-sm, 4px);
+  background: var(--cl-bg-panel);
+  border: 1px solid var(--cl-border);
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-2xs, 0.6875rem);
   font-weight: 500;
-  letter-spacing: 0.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
   margin-left: auto;
   user-select: none;
 }
@@ -5733,6 +5747,7 @@ code-lab,
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 /* ── Stdin / Custom Input Panel ── */
@@ -5771,7 +5786,7 @@ code-lab,
   box-sizing: border-box;
 }
 .codelab-stdin-panel__textarea:focus {
-  border-color: var(--cl-accent, #007acc);
+  border-color: var(--cl-focus-border);
 }
 
 /* ── Problems Drawer Tab ── */
@@ -5787,27 +5802,27 @@ code-lab,
   align-items: center;
   gap: 8px;
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: var(--cl-text-xs, 0.75rem);
   font-family: var(--cl-font-mono, monospace);
   cursor: pointer;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--cl-border-subtle);
 }
 .codelab-problem-item:hover {
-  background: var(--cl-tree-hover, rgba(255, 255, 255, 0.06));
+  background: var(--cl-bg-hover);
 }
 .codelab-problem-item--error {
-  color: #f14c4c;
+  color: var(--cl-diag-error);
 }
 .codelab-problem-item--warning {
-  color: #cca700;
+  color: var(--cl-diag-warning);
 }
 .codelab-problem-item--info {
-  color: #3794ff;
+  color: var(--cl-diag-info);
 }
 .codelab-problem-item__location,
 .codelab-problem-item__loc {
-  color: var(--cl-fg-muted, #858585);
-  font-size: 11px;
+  color: var(--cl-fg-muted);
+  font-size: var(--cl-text-2xs, 0.6875rem);
   margin-left: auto;
 }
 
@@ -5815,21 +5830,21 @@ code-lab,
 .codelab-modal-input {
   flex: 1;
   padding: 6px 10px;
-  background: var(--cl-input-bg, #252526);
-  color: var(--cl-fg, #cccccc);
-  border: 1px solid var(--cl-border, #3c3c3c);
-  border-radius: var(--cl-radius, 4px);
-  font-family: var(--cl-font-mono, monospace);
-  font-size: 12px;
+  background: var(--cl-input-bg);
+  color: var(--cl-fg);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--cl-radius-sm, 4px);
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
   outline: none;
 }
 .codelab-modal-input:focus {
-  border-color: var(--cl-accent, #007acc);
+  border-color: var(--cl-focus-border);
 }
 .codelab-search-match:hover,
 .codelab-problem-entry:hover,
 .codelab-scm-entry:hover {
-  background: var(--cl-tree-hover, rgba(255, 255, 255, 0.06));
+  background: var(--cl-bg-hover);
 }
 .codelab-terminal-sessions {
   display: inline-flex;
@@ -5841,18 +5856,18 @@ code-lab,
   align-items: center;
   gap: 4px;
   padding: 1px 7px;
-  font-size: 11px;
-  font-family: var(--cl-font-mono, monospace);
-  border-radius: 4px;
-  border: 1px solid var(--cl-border, #3c3c3c);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  font-family: var(--cl-font-mono);
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-border);
   background: transparent;
-  color: var(--cl-fg-muted, #858585);
+  color: var(--cl-fg-muted);
   cursor: pointer;
 }
 .codelab-session-pill.active {
-  background: var(--cl-hud-bg, rgba(0, 122, 204, 0.18));
-  border-color: var(--cl-accent, #007acc);
-  color: var(--cl-fg, #ffffff);
+  background: var(--cl-bg-active);
+  border-color: var(--cl-border-strong);
+  color: var(--cl-fg);
 }
 
 /* ── Monaco Side-by-Side Diff Editor ── */
@@ -5886,28 +5901,35 @@ code-lab,
 .codelab-workbench--high-contrast {
   color-scheme: dark;
   --cl-bg: #000000;
-  --cl-bg-elevated: #000000;
-  --cl-bg-panel: #0a0a0a;
-  --cl-bg-hover: #1a1a1a;
-  --cl-bg-active: #262626;
-  --cl-border-subtle: #6fc3df;
-  --cl-border: #6fc3df;
+  --cl-bg-editor: #000000;
+  --cl-bg-elevated: #09090b;
+  --cl-bg-panel: #121215;
+  --cl-bg-hover: #1e1e22;
+  --cl-bg-active: #2c2c31;
+  --cl-list-active: #2c2c31;
+  --cl-list-active-fg: #ffffff;
+  --cl-border-subtle: #a1a1aa;
+  --cl-border: #d4d4d8;
   --cl-border-strong: #ffffff;
+  --cl-focus-border: #ffffff;
   --cl-fg: #ffffff;
-  --cl-fg-muted: #e5e5e5;
-  --cl-fg-faint: #d4d4d4;
-  --cl-accent: #f38518;
+  --cl-fg-muted: #e4e4e7;
+  --cl-fg-faint: #d4d4d8;
+  --cl-accent: #ffffff;
   --cl-accent-fg: #000000;
-  --cl-blue: #75beff;
-  --cl-green: #89d185;
-  --cl-amber: #ffd370;
-  --cl-red: #f48771;
-  --cl-tok-comment: #7ca668;
-  --cl-tok-keyword: #569cd6;
-  --cl-tok-string: #ce9178;
-  --cl-tok-number: #b5cea8;
-  --cl-tok-type: #4ec9b0;
-  --cl-tok-function: #dcdcaa;
+  --cl-btn-primary-bg: #ffffff;
+  --cl-btn-primary-fg: #000000;
+  --cl-btn-primary-hover: #e4e4e7;
+  --cl-blue: #ffffff;
+  --cl-green: #6ee7b7;
+  --cl-amber: #fde047;
+  --cl-red: #fca5a5;
+  --cl-tok-comment: #a1a1aa;
+  --cl-tok-keyword: #fca5a5;
+  --cl-tok-string: #86efac;
+  --cl-tok-number: #fdba74;
+  --cl-tok-type: #d8b4fe;
+  --cl-tok-function: #fde047;
   --cl-tok-punctuation: #ffffff;
   color: var(--cl-fg);
   background-color: var(--cl-bg);
@@ -5961,15 +5983,15 @@ dialog.codelab-dialog::backdrop {
 dialog.cl-settings-dialog {
   padding: 0;
   margin: auto;
-  width: min(760px, 94vw);
+  width: min(780px, 94vw);
   max-height: 85vh;
-  border: 1px solid var(--cl-border, #262626);
-  border-radius: 10px;
-  background-color: var(--cl-bg-elevated, #121212);
-  color: var(--cl-fg, #f5f5f5);
-  accent-color: var(--cl-accent, #0284c7);
+  border: 1px solid var(--cl-border, #27272a);
+  border-radius: var(--cl-radius-lg, 8px);
+  background-color: var(--cl-bg-elevated, #141415);
+  color: var(--cl-fg, #f4f4f5);
+  accent-color: var(--cl-accent, #f4f4f5);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
-  font-family: var(--cl-font-sans, system-ui, sans-serif);
+  font-family: var(--cl-font-sans);
 }
 
 /* Single-file SQL Guided Lab / Workbench mode hides irrelevant multi-file chrome */
@@ -6102,12 +6124,17 @@ dialog.cl-settings-dialog {
   content: "";
   position: absolute;
   inset: auto 0 0;
-  border-block-end: 2px solid var(--cl-accent, #0284c7);
+  border-block-end: 2px solid var(--cl-fg);
 }
 
-.codelab-workbench :where(button, a[href], select, input, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--cl-blue, #54a2ff);
+.codelab-workbench :where(button, a[href], input[type="checkbox"], input[type="radio"], [tabindex]):focus-visible {
+  outline: 1.5px solid var(--cl-focus-border);
   outline-offset: 2px;
+}
+
+.codelab-workbench :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--cl-focus-border);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6220,8 +6247,8 @@ dialog.cl-settings-dialog {
 .codelab-topbar-menu__item:hover,
 .codelab-topbar-menu__item:focus-visible,
 .codelab-topbar-menu__item.is-active {
-  background: var(--cl-list-active, #04395e);
-  color: var(--cl-list-active-fg, #ffffff);
+  background: var(--cl-list-active);
+  color: var(--cl-list-active-fg);
   outline: none;
 }
 
@@ -6352,14 +6379,14 @@ dialog.cl-settings-dialog {
 .codelab-activitybar__item.active,
 .codelab-activitybar__item[aria-pressed="true"] {
   color: var(--cl-fg);
-  box-shadow: inset 2px 0 0 var(--cl-btn-primary-bg, #0078d4);
+  box-shadow: inset 2px 0 0 var(--cl-fg);
 }
 
 .codelab.sidebar-right .codelab-activitybar__btn.active,
 .codelab.sidebar-right .codelab-activitybar__btn[aria-pressed="true"],
 .codelab.sidebar-right .codelab-activitybar__item.active,
 .codelab.sidebar-right .codelab-activitybar__item[aria-pressed="true"] {
-  box-shadow: inset -2px 0 0 var(--cl-btn-primary-bg, #0078d4);
+  box-shadow: inset -2px 0 0 var(--cl-fg);
 }
 
 .codelab-activitybar__badge {
@@ -6370,9 +6397,10 @@ dialog.cl-settings-dialog {
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
   font-family: var(--cl-font-sans);
+  font-variant-numeric: tabular-nums;
   font-size: 9.5px;
   font-weight: 600;
   line-height: 16px;
@@ -6434,19 +6462,19 @@ dialog.cl-settings-dialog {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  height: 26px;
+  height: 28px;
   padding: 0 8px;
-  border-radius: 2px;
-  border: 1px solid var(--cl-border-strong);
-  background: var(--cl-input-bg, #313131);
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-input-border, var(--cl-border));
+  background: var(--cl-input-bg);
   color: var(--cl-fg);
   font-family: var(--cl-font-sans);
-  font-size: 12.5px;
+  font-size: var(--cl-text-xs, 0.75rem);
   outline: none;
 }
 
 .codelab-sidebar-input:focus {
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-focus-border);
 }
 
 .codelab-search-toggles {
@@ -6480,14 +6508,14 @@ dialog.cl-settings-dialog {
 
 .codelab-search-toggle.active,
 .codelab-search-toggle[aria-pressed="true"] {
-  background: rgba(0, 120, 212, 0.25);
+  background: var(--cl-bg-active);
   color: var(--cl-fg);
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-border-strong);
 }
 
 [data-cl-theme="light"] .codelab-search-toggle.active,
 [data-theme="light"] .codelab-search-toggle.active {
-  background: rgba(0, 95, 184, 0.16);
+  background: var(--cl-bg-active);
   color: var(--cl-fg);
 }
 
@@ -6993,9 +7021,9 @@ dialog.cl-settings-dialog {
 
 .codelab-problems-sev-btn.active,
 .codelab-problems-sev-btn[aria-pressed="true"] {
-  background: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  background: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
+  border-color: var(--cl-btn-primary-bg);
 }
 
 .codelab-problems-group {
@@ -7226,18 +7254,18 @@ dialog.cl-settings-dialog {
 .codelab-scm-branch-select {
   flex: 1 1 auto;
   min-width: 0;
-  height: 26px;
-  padding: 0 6px;
-  border-radius: 2px;
-  border: 1px solid var(--cl-border-strong);
-  background: var(--cl-input-bg, #313131);
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-input-border, var(--cl-border));
+  background: var(--cl-input-bg);
   color: var(--cl-fg);
   font-family: var(--cl-font-sans);
-  font-size: 12px;
+  font-size: var(--cl-text-xs, 0.75rem);
 }
 
 .codelab-scm-branch-select:focus-visible {
-  outline: 1px solid var(--cl-btn-primary-bg, #0078d4);
+  outline: 1px solid var(--cl-focus-border);
   outline-offset: 0;
 }
 
@@ -7259,15 +7287,15 @@ dialog.cl-settings-dialog {
   width: 100%;
   justify-content: center;
   height: 28px;
-  background: var(--cl-btn-primary-bg, #0078d4);
-  border-color: var(--cl-btn-primary-bg, #0078d4);
-  color: var(--cl-btn-primary-fg, #ffffff);
+  background: var(--cl-btn-primary-bg);
+  border-color: var(--cl-btn-primary-bg);
+  color: var(--cl-btn-primary-fg);
   font-weight: 500;
 }
 
 .codelab-scm-commit-box .codelab-btn:hover:not(:disabled) {
-  background: var(--cl-btn-primary-hover, #026ec1);
-  border-color: var(--cl-btn-primary-hover, #026ec1);
+  background: var(--cl-btn-primary-hover);
+  border-color: var(--cl-btn-primary-hover);
 }
 
 .codelab-scm-commit-textarea {
@@ -7508,25 +7536,26 @@ dialog.cl-settings-dialog {
 
 .codelab-palette-hl {
   background: transparent;
-  color: var(--cl-accent);
+  color: var(--cl-fg);
   font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .codelab-palette__item:hover,
 .codelab-palette__item.is-selected {
-  background: var(--cl-list-active, #04395e);
-  color: var(--cl-list-active-fg, #ffffff);
+  background: var(--cl-list-active);
+  color: var(--cl-list-active-fg);
 }
 
 .codelab-palette__item:hover .codelab-palette-hl,
 .codelab-palette__item.is-selected .codelab-palette-hl {
-  color: #75beff;
+  color: var(--cl-list-active-fg);
 }
 
 [data-cl-theme="light"] .codelab-palette__item:hover .codelab-palette-hl,
 [data-cl-theme="light"] .codelab-palette__item.is-selected .codelab-palette-hl {
-  color: #ffffff;
-  text-decoration: underline;
+  color: var(--cl-list-active-fg);
 }
 
 /* VS Code Welcome Tab (#cl-welcome-host) */
@@ -7648,19 +7677,19 @@ dialog.cl-settings-dialog {
 .codelab-welcome__clone-input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
-  padding: 0 9px;
-  background: var(--cl-input-bg, #313131);
-  border: 1px solid var(--cl-border-strong);
-  border-radius: 2px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--cl-input-bg);
+  border: 1px solid var(--cl-input-border, var(--cl-border));
+  border-radius: var(--cl-radius-sm, 4px);
   color: var(--cl-fg);
-  font-family: var(--cl-font-sans);
-  font-size: 12.5px;
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
   outline: none;
 }
 
 .codelab-welcome__clone-input:focus {
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-focus-border);
 }
 
 .codelab-welcome__templates {
@@ -7675,7 +7704,7 @@ dialog.cl-settings-dialog {
   align-items: flex-start;
   gap: 4px;
   padding: 10px 12px;
-  border-radius: 4px;
+  border-radius: var(--cl-radius-md, 6px);
   border: 1px solid var(--cl-border);
   background: var(--cl-bg-elevated);
   color: var(--cl-fg);
@@ -7687,7 +7716,7 @@ dialog.cl-settings-dialog {
 
 .codelab-welcome__template:hover {
   background: var(--cl-bg-hover);
-  border-color: var(--cl-btn-primary-bg, #0078d4);
+  border-color: var(--cl-border-strong);
 }
 
 .codelab-welcome__template-title {
@@ -7801,19 +7830,19 @@ dialog.cl-settings-dialog {
   color: var(--cl-fg-muted);
 }
 
-/* Monaco Live Git Gutter Decorations */
+/* Monaco Live Git Gutter Decorations (Inset Hairlines — Zero Side-Stripes) */
 .codelab-git-gutter-added {
-  border-left: 3px solid var(--cl-git-added, #73c991) !important;
+  box-shadow: inset 2px 0 0 var(--cl-git-added, #34d399) !important;
   margin-left: 3px;
 }
 
 .codelab-git-gutter-modified {
-  border-left: 3px solid var(--cl-git-modified, #0078d4) !important;
+  box-shadow: inset 2px 0 0 var(--cl-git-modified, #fbbf24) !important;
   margin-left: 3px;
 }
 
 .codelab-git-gutter-deleted {
-  border-left: 3px solid var(--cl-git-deleted, #f14c4c) !important;
+  box-shadow: inset 2px 0 0 var(--cl-git-deleted, #f87171) !important;
   margin-left: 3px;
 }
 
@@ -8075,7 +8104,7 @@ dialog.codelab-dialog .codelab-modal {
   inset: 0 auto auto 0;
   width: 100%;
   height: 1px;
-  background: var(--cl-btn-primary-bg, #0078d4);
+  background: var(--cl-fg-muted);
   z-index: 4;
   pointer-events: none;
 }
@@ -8134,4 +8163,416 @@ dialog.codelab-dialog .codelab-modal {
   opacity: 0.01 !important;
   pointer-events: none !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Unified Design System Primitives & Reusable UI Component Classes
+   Shared across Workbench Panels, Modals, Observability & Settings
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.codelab ::selection,
+.codelab-workbench ::selection,
+dialog.codelab-dialog ::selection {
+  background: rgba(244, 244, 245, 0.2);
+  color: var(--cl-fg);
+}
+
+[data-theme="light"] .codelab ::selection,
+[data-cl-theme="light"] ::selection,
+.codelab[data-theme="light"] ::selection {
+  background: rgba(24, 24, 27, 0.14);
+  color: var(--cl-fg);
+}
+
+.codelab ::-webkit-scrollbar,
+.codelab-workbench ::-webkit-scrollbar,
+dialog.codelab-dialog ::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.codelab ::-webkit-scrollbar-track,
+.codelab-workbench ::-webkit-scrollbar-track,
+dialog.codelab-dialog ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.codelab ::-webkit-scrollbar-thumb,
+.codelab-workbench ::-webkit-scrollbar-thumb,
+dialog.codelab-dialog ::-webkit-scrollbar-thumb {
+  background: var(--cl-border);
+  border-radius: 999px;
+}
+
+.codelab ::-webkit-scrollbar-thumb:hover,
+.codelab-workbench ::-webkit-scrollbar-thumb:hover,
+dialog.codelab-dialog ::-webkit-scrollbar-thumb:hover {
+  background: var(--cl-border-strong);
+}
+
+/* Typography & Layout Tokens */
+.cl-ui-sans { font-family: var(--cl-font-sans); }
+.cl-ui-mono { font-family: var(--cl-font-mono); }
+.cl-ui-text-2xs { font-size: var(--cl-text-2xs, 0.6875rem); }
+.cl-ui-text-xs { font-size: var(--cl-text-xs, 0.75rem); }
+.cl-ui-text-sm { font-size: var(--cl-text-sm, 0.8125rem); }
+.cl-ui-text-base { font-size: var(--cl-text-base, 0.875rem); }
+
+.cl-ui-meta-inline {
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  color: var(--cl-fg-muted);
+  margin-left: 8px;
+}
+
+.cl-ui-metric {
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg-muted);
+}
+
+.cl-ui-metric-cell {
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg);
+}
+
+.cl-ui-muted-note {
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg-muted);
+  line-height: 1.5;
+}
+
+.cl-ui-muted-xs {
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  color: var(--cl-fg-faint);
+}
+
+.cl-ui-empty-center {
+  padding: 20px 14px;
+  text-align: center;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg-muted);
+}
+
+.cl-ui-alert-error {
+  padding: 8px 12px;
+  border-radius: var(--cl-radius-md, 6px);
+  background: var(--cl-red-muted);
+  border: 1px solid color-mix(in srgb, var(--cl-red) 35%, var(--cl-border));
+  color: var(--cl-red);
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.cl-ui-section-label {
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cl-fg-muted);
+  margin: 0 0 8px;
+}
+
+.cl-ui-code-box {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--cl-radius-md, 6px);
+  background: var(--cl-bg-elevated);
+  border: 1px solid var(--cl-border);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.cl-ui-form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cl-ui-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-input-border, var(--cl-border));
+  background: var(--cl-input-bg);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-sm, 0.8125rem);
+  outline: none;
+}
+
+.cl-ui-input--mono {
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
+}
+
+.cl-ui-input:focus {
+  border-color: var(--cl-focus-border);
+}
+
+.cl-ui-card-note {
+  padding: 10px 12px;
+  border-radius: var(--cl-radius-md, 6px);
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border);
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg-muted);
+  line-height: 1.5;
+}
+
+.cl-ui-stack-xs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cl-ui-pkg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--cl-radius-md, 6px);
+  background: var(--cl-bg);
+  border: 1px solid var(--cl-border);
+}
+
+.cl-ui-pkg-row__name {
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
+  font-weight: 500;
+  color: var(--cl-fg);
+}
+
+.cl-ui-pkg-row__meta {
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  color: var(--cl-fg-faint);
+}
+
+.cl-ui-chip-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cl-ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg-panel);
+  color: var(--cl-fg-muted);
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  cursor: pointer;
+  transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+}
+
+.cl-ui-chip:hover {
+  color: var(--cl-fg);
+  background: var(--cl-bg-hover);
+  border-color: var(--cl-border-strong);
+}
+
+.cl-ui-shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  align-items: center;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-sm, 0.8125rem);
+}
+
+.cl-ui-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-border-strong);
+  background: var(--cl-bg);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-ui-body-p {
+  margin: 0 0 10px;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-sm, 0.8125rem);
+  color: var(--cl-fg);
+  line-height: 1.55;
+}
+
+.cl-ui-modal-desc {
+  margin: 0 0 12px;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg-muted);
+  line-height: 1.5;
+}
+
+.cl-ui-net-count {
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  color: var(--cl-fg-muted);
+}
+
+.cl-ui-palette-sub {
+  margin-left: 6px;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  color: var(--cl-fg-muted);
+}
+
+.codelab-recent-ws-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-sm, 0.8125rem);
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.codelab-recent-ws-item:hover {
+  background: var(--cl-bg-hover);
+  border-color: var(--cl-border-strong);
+}
+
+.codelab-port-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg-panel);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-2xs, 0.6875rem);
+  cursor: pointer;
+}
+
+.codelab-port-badge:hover {
+  background: var(--cl-bg-hover);
+  border-color: var(--cl-border-strong);
+}
+
+.codelab-badge--warn {
+  color: var(--cl-amber);
+}
+
+/* Observability & Error Boundary Components (@code-lab/ui) */
+.cl-observability-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: var(--cl-font-sans);
+}
+
+.cl-observability-card {
+  padding: 10px 12px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg-elevated);
+}
+
+.cl-observability-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg-muted);
+}
+
+.cl-observability-list {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-xs, 0.75rem);
+  color: var(--cl-fg);
+  line-height: 1.5;
+}
+
+.cl-observability-list--scroll {
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.cl-observability-warn {
+  color: var(--cl-amber);
+}
+
+.cl-error-boundary-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid color-mix(in srgb, var(--cl-red) 40%, var(--cl-border));
+  background: var(--cl-red-muted);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-sm, 0.8125rem);
+}
+
+.cl-ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-border);
+  background: var(--cl-bg-panel);
+  color: var(--cl-fg);
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs, 0.75rem);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.cl-ui-btn:hover {
+  background: var(--cl-bg-hover);
+  border-color: var(--cl-border-strong);
+}
+
 

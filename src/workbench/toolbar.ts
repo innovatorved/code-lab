@@ -146,7 +146,7 @@ export function renderToolbarHtml(opts: ToolbarRenderOptions): string {
         ${hasWebContent ? `
           <button type="button" class="codelab-btn codelab-btn--icon" id="cl-preview-app-btn" data-cl-action="preview-app" title="Run &amp; Preview in Browser" aria-label="Run and Preview in Browser">
             ${CL_ICONS.globe}
-            ${activeServerCount > 0 ? `<span class="codelab-port-badge" style="position:absolute;top:2px;right:2px;font-size:9px;background:#007acc;color:#fff;border-radius:6px;padding:0 3px;">${activeServerCount}</span>` : ''}
+            ${activeServerCount > 0 ? `<span class="codelab-port-badge">${activeServerCount}</span>` : ''}
           </button>
         ` : ''}
 

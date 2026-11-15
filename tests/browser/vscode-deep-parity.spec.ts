@@ -421,7 +421,7 @@ test.describe('VS Code Browser-Native Deep Parity Suite', () => {
     await expect(page.locator('#cl-palette-list')).toContainText('multiply');
   });
 
-  test('VS Code Dark Modern & Light Modern tokens and Settings UI visual alignment', async ({
+  test('Charcoal Ink & Warm Paper design system tokens, Geist typography, and Settings UI alignment', async ({
     page
   }) => {
     await page.route('https://cdn.jsdelivr.net/**', (route) => route.abort());
@@ -434,28 +434,32 @@ test.describe('VS Code Browser-Native Deep Parity Suite', () => {
       return {
         bgRoot: cs.getPropertyValue('--cl-bg').trim().toLowerCase(),
         bgPanel: cs.getPropertyValue('--cl-bg-elevated').trim().toLowerCase(),
-        btnPrimary: cs.getPropertyValue('--cl-btn-primary-bg').trim().toLowerCase()
+        btnPrimary: cs.getPropertyValue('--cl-btn-primary-bg').trim().toLowerCase(),
+        fontSans: cs.getPropertyValue('--cl-font-sans').trim()
       };
     });
-    expect(darkTokens.bgRoot).toBe('#1f1f1f');
-    expect(darkTokens.bgPanel).toBe('#181818');
-    expect(darkTokens.btnPrimary).toBe('#0078d4');
+    expect(darkTokens.bgRoot).toBe('#0f0f10');
+    expect(darkTokens.bgPanel).toBe('#141415');
+    expect(darkTokens.btnPrimary).toBe('#f4f4f5');
+    expect(darkTokens.fontSans).toContain('Geist');
 
-    // Open Settings tab and verify VS Code aligned container
+    // Open Settings tab and verify component-aligned container
     await page.evaluate(() => (window as unknown as TestWindow).__codelabTest.ide.openSettings());
     await expect(page.locator('#cl-settings-host .cl-settings-editor')).toBeVisible();
 
-    // Switch to Light Modern and verify tokens
+    // Switch to Warm Paper light theme and verify tokens
     await page.evaluate(() => (window as unknown as TestWindow).__codelabTest.ide.setTheme('light'));
     const lightTokens = await page.evaluate(() => {
       const root = document.querySelector('.codelab')!;
       const cs = getComputedStyle(root);
       return {
         bgRoot: cs.getPropertyValue('--cl-bg').trim().toLowerCase(),
-        bgPanel: cs.getPropertyValue('--cl-bg-elevated').trim().toLowerCase()
+        bgPanel: cs.getPropertyValue('--cl-bg-elevated').trim().toLowerCase(),
+        btnPrimary: cs.getPropertyValue('--cl-btn-primary-bg').trim().toLowerCase()
       };
     });
     expect(lightTokens.bgRoot).toBe('#ffffff');
-    expect(lightTokens.bgPanel).toBe('#f8f8f8');
+    expect(lightTokens.bgPanel).toBe('#f7f7f5');
+    expect(lightTokens.btnPrimary).toBe('#18181b');
   });
 });

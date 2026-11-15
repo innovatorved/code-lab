@@ -64,7 +64,7 @@ export function renderDrawerTabsHtml(opts: DrawerTabOptions): string {
         <button type="button" role="tab" aria-selected="${drawerTab === 'problems'}" class="codelab-drawer__tab ${drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
           ${CL_ICONS.warning}
           <span>Problems</span>
-          <span class="codelab-badge ${problemsCount > 0 ? 'codelab-badge--warn' : ''}" id="cl-problems-count" style="margin-left:4px;font-size:10px;padding:1px 5px;border-radius:10px;background:${problemsCount > 0 ? '#cca700' : 'rgba(255,255,255,0.1)'};color:#fff;">${problemsCount}</span>
+          <span class="codelab-badge ${problemsCount > 0 ? 'codelab-badge--warn' : ''}" id="cl-problems-count">${problemsCount}</span>
         </button>
 
         <button type="button" role="tab" aria-selected="${drawerTab === 'tests'}" class="codelab-drawer__tab ${drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests">
@@ -100,8 +100,8 @@ export function renderDrawerTabsHtml(opts: DrawerTabOptions): string {
 
       ${formatTelemetryHud(lastDurationMs, lastPeakMemoryBytes, workbench.lang || 'js')}
 
-      <div class="codelab-drawer__actions" style="margin-left:8px;">
-        <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Minimize/Expand Drawer" aria-label="Minimize or Expand Drawer" style="padding:2px 6px;font-size:11px;">
+      <div class="codelab-drawer__actions">
+        <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="toggle-drawer" title="Minimize/Expand Drawer" aria-label="Minimize or Expand Drawer">
           ${CL_ICONS.chevronsUpDown}
         </button>
       </div>
@@ -115,7 +115,7 @@ export function renderProblemsPanelHtml(workbench: any): string {
 
   if (items.length === 0) {
     return `
-      <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--cl-fg-muted, #858585);font-size:12px;gap:8px;">
+      <div class="cl-ui-empty-center">
         ${CL_ICONS.check}
         <span>No problems detected in workspace.</span>
       </div>
@@ -149,7 +149,7 @@ export function renderStdinPanelHtml(workbench: any): string {
     <div class="codelab-stdin-panel">
       <div class="codelab-stdin-panel__header">
         <span>Standard Input (std::cin / sys.stdin / process.stdin)</span>
-        <button type="button" class="codelab-btn codelab-btn--sm" id="cl-stdin-clear-btn" style="padding:1px 6px;font-size:10px;">Clear</button>
+        <button type="button" class="codelab-btn codelab-btn--sm" id="cl-stdin-clear-btn">Clear</button>
       </div>
       <textarea class="codelab-stdin-panel__textarea" id="cl-stdin-textarea" placeholder="Paste custom input lines here for DSA / competitive programming...">${val}</textarea>
     </div>

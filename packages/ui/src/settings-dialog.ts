@@ -41,18 +41,352 @@ const ALL_CATEGORIES: ReadonlyArray<'All' | SettingCategory> = [
   'SQL'
 ];
 
-const FONT_SANS =
-  "var(--cl-font-sans,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif)";
+const SETTINGS_STYLE_ID = 'codelab-ui-settings-styles';
 
-const BTN_STYLE =
-  'padding:4px 10px;border-radius:2px;border:1px solid var(--cl-input-border,var(--cl-border,#3c3c3c));background:var(--cl-input-bg,#313131);color:var(--cl-fg,#cccccc);cursor:pointer;font-size:12px;font-family:' +
-  FONT_SANS +
-  ';line-height:18px;';
+export const SETTINGS_COMPONENT_CSS = `/* @innovatorved/code-lab/ui — Tokenized Settings & Control Components */
+.cl-settings-dialog,
+.cl-settings-editor {
+  --cl-ui-sans: var(--cl-font-sans, var(--ds-font-sans, var(--font-sans, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif)));
+  --cl-ui-mono: var(--cl-font-mono, var(--ds-font-mono, var(--font-mono, "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace)));
+  --cl-ui-text-2xs: var(--cl-text-2xs, var(--ds-text-2xs, 0.6875rem));
+  --cl-ui-text-xs: var(--cl-text-xs, var(--ds-text-xs, 0.75rem));
+  --cl-ui-text-sm: var(--cl-text-sm, var(--ds-text-sm, 0.8125rem));
+  --cl-ui-text-base: var(--cl-text-base, var(--ds-text-base, 0.875rem));
+  font-family: var(--cl-ui-sans);
+  color: var(--cl-fg, #f4f4f5);
+}
 
-const CONTROL_STYLE =
-  'padding:4px 8px;border-radius:2px;border:1px solid var(--cl-input-border,var(--cl-border,#3c3c3c));background:var(--cl-input-bg,#313131);color:var(--cl-fg,#cccccc);font-size:13px;font-family:' +
-  FONT_SANS +
-  ';line-height:18px;';
+.cl-settings-editor.cl-settings-inline {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--cl-editor-bg, var(--cl-bg, #0f0f10));
+}
+
+.cl-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--cl-border, #27272a);
+  background: var(--cl-surface, var(--cl-bg-elevated, #141415));
+  flex-wrap: wrap;
+}
+
+.cl-settings-title {
+  margin: 0;
+  font-size: var(--cl-ui-text-base);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--cl-fg-active, var(--cl-fg, #f4f4f5));
+}
+
+.cl-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cl-settings-toolbar {
+  padding: 12px 20px 0 20px;
+  border-bottom: 1px solid var(--cl-border, #27272a);
+  background: var(--cl-surface, var(--cl-bg-elevated, #141415));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cl-settings-search {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-input-border, var(--cl-border, #27272a));
+  background: var(--cl-input-bg, var(--cl-bg, #0f0f10));
+  color: var(--cl-fg, #f4f4f5);
+  font-family: var(--cl-ui-sans);
+  font-size: var(--cl-ui-text-sm);
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.cl-settings-search::placeholder {
+  color: var(--cl-fg-faint, var(--cl-fg-muted, #8e8e97));
+}
+
+.cl-settings-search:focus {
+  border-color: var(--cl-focus-border, #a1a1aa);
+}
+
+.cl-settings-scopes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.cl-settings-scope-tab {
+  flex: none;
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--cl-fg-muted, #a1a1aa);
+  font-family: var(--cl-ui-sans);
+  font-size: var(--cl-ui-text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.cl-settings-scope-tab:hover {
+  color: var(--cl-fg, #f4f4f5);
+}
+
+.cl-settings-scope-tab[aria-selected="true"] {
+  color: var(--cl-fg-active, var(--cl-fg, #f4f4f5));
+  font-weight: 600;
+  border-bottom-color: var(--cl-accent, #f4f4f5);
+}
+
+.cl-settings-body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.cl-settings-body--dialog {
+  min-height: 320px;
+  max-height: 62vh;
+}
+
+.cl-settings-body--inline {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cl-settings-categories {
+  border-right: 1px solid var(--cl-border, #27272a);
+  background: var(--cl-surface, var(--cl-bg-elevated, #141415));
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.cl-settings-cat-btn {
+  text-align: left;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--cl-radius-md, 6px);
+  background: transparent;
+  color: var(--cl-fg-muted, #a1a1aa);
+  font-family: var(--cl-ui-sans);
+  font-size: var(--cl-ui-text-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.cl-settings-cat-btn:hover {
+  background: var(--cl-list-hover, var(--cl-bg-hover, #1f1f22));
+  color: var(--cl-fg, #f4f4f5);
+}
+
+.cl-settings-cat-btn[aria-current="true"] {
+  background: var(--cl-list-active, var(--cl-bg-active, #28282b));
+  color: var(--cl-list-active-fg, var(--cl-fg, #f4f4f5));
+  font-weight: 600;
+}
+
+.cl-settings-list {
+  padding: 14px 24px 28px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cl-settings-empty {
+  padding: 16px 4px;
+  color: var(--cl-fg-muted, #a1a1aa);
+  font-size: var(--cl-ui-text-sm);
+}
+
+.cl-setting-item {
+  padding: 14px 16px;
+  border: 1px solid var(--cl-border, #27272a);
+  border-radius: var(--cl-radius-lg, 8px);
+  background: var(--cl-widget-bg, var(--cl-bg-panel, #18181a));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 120ms ease;
+}
+
+.cl-setting-item--modified {
+  border-color: var(--cl-border-strong, #3a3a3e);
+}
+
+.cl-setting-item__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cl-setting-item__heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.cl-setting-item__cat {
+  font-size: var(--cl-ui-text-xs);
+  color: var(--cl-fg-muted, #a1a1aa);
+  font-weight: 500;
+}
+
+.cl-setting-item__title {
+  font-size: var(--cl-ui-text-sm);
+  font-weight: 600;
+  color: var(--cl-fg-active, var(--cl-fg, #f4f4f5));
+}
+
+.cl-setting-item__key {
+  font-family: var(--cl-ui-mono);
+  font-size: var(--cl-ui-text-2xs);
+  padding: 1px 5px;
+  border-radius: var(--cl-radius-sm, 4px);
+  border: 1px solid var(--cl-border, #27272a);
+  background: var(--cl-input-bg, var(--cl-bg, #0f0f10));
+  color: var(--cl-fg-muted, #a1a1aa);
+}
+
+.cl-setting-badge {
+  font-family: var(--cl-ui-mono);
+  font-size: var(--cl-ui-text-2xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--cl-btn-primary-bg, var(--cl-accent, #f4f4f5));
+  color: var(--cl-btn-primary-fg, var(--cl-accent-fg, #0f0f10));
+}
+
+.cl-setting-item__desc {
+  font-size: var(--cl-ui-text-xs);
+  line-height: 1.5;
+  color: var(--cl-fg-muted, #a1a1aa);
+}
+
+.cl-setting-item__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.cl-ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-input-border, var(--cl-border, #27272a));
+  background: var(--cl-input-bg, var(--cl-bg, #0f0f10));
+  color: var(--cl-fg, #f4f4f5);
+  font-family: var(--cl-ui-sans);
+  font-size: var(--cl-ui-text-xs);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.cl-ui-btn:hover {
+  background: var(--cl-list-hover, var(--cl-bg-hover, #1f1f22));
+  border-color: var(--cl-border-strong, #3a3a3e);
+}
+
+.cl-ui-control {
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--cl-radius-md, 6px);
+  border: 1px solid var(--cl-input-border, var(--cl-border, #27272a));
+  background: var(--cl-input-bg, var(--cl-bg, #0f0f10));
+  color: var(--cl-fg, #f4f4f5);
+  font-family: var(--cl-ui-sans);
+  font-size: var(--cl-ui-text-sm);
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.cl-ui-control:focus {
+  border-color: var(--cl-focus-border, #a1a1aa);
+}
+
+.cl-ui-control--num {
+  width: 104px;
+  font-family: var(--cl-ui-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cl-ui-control--array {
+  width: min(280px, 100%);
+  font-family: var(--cl-ui-mono);
+  font-size: var(--cl-ui-text-xs);
+}
+
+.cl-ui-control--text {
+  width: min(200px, 100%);
+}
+
+.cl-ui-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--cl-accent, #f4f4f5);
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .cl-settings-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cl-settings-categories {
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--cl-border, #27272a);
+    overflow-x: auto;
+  }
+}
+`;
+
+export function ensureSettingsStylesInjected(doc?: Document): void {
+  const targetDoc = doc ?? (typeof document !== 'undefined' ? document : undefined);
+  if (!targetDoc || !targetDoc.head) return;
+  const existing =
+    typeof targetDoc.getElementById === 'function'
+      ? targetDoc.getElementById(SETTINGS_STYLE_ID)
+      : typeof targetDoc.head.querySelector === 'function'
+        ? targetDoc.head.querySelector(`#${SETTINGS_STYLE_ID}`)
+        : null;
+  if (existing) return;
+  if (typeof targetDoc.createElement !== 'function') return;
+  const styleEl = targetDoc.createElement('style');
+  styleEl.id = SETTINGS_STYLE_ID;
+  styleEl.textContent = SETTINGS_COMPONENT_CSS;
+  targetDoc.head.appendChild(styleEl);
+}
 
 function isDomHostElement(candidate: unknown): candidate is HTMLElement {
   return Boolean(
@@ -98,32 +432,29 @@ export class SettingsDialogController implements IDisposable {
 
   private buildSurfaceInnerHtml(mode: 'dialog' | 'inline'): string {
     const titleId = mode === 'dialog' ? 'cl-settings-dialog-title' : 'cl-settings-inline-title';
-    const bodyHeightStyle =
-      mode === 'dialog'
-        ? 'min-height:320px;max-height:62vh;'
-        : 'flex:1;min-height:0;overflow:hidden;';
+    const bodyModeClass = mode === 'dialog' ? 'cl-settings-body--dialog' : 'cl-settings-body--inline';
     const closeBtnHtml =
       mode === 'dialog'
-        ? `<button type="button" class="codelab-btn" data-settings-action="close" aria-label="Close Settings" style="${BTN_STYLE}">✕</button>`
+        ? `<button type="button" class="codelab-btn cl-ui-btn" data-settings-action="close" aria-label="Close Settings">✕</button>`
         : '';
 
     return (
-      `<div class="cl-settings-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;border-bottom:1px solid var(--cl-border,#2b2b2b);flex-wrap:wrap;font-family:${FONT_SANS};">` +
-      `<h2 id="${titleId}" style="margin:0;font-size:13px;font-weight:600;color:var(--cl-fg-active,var(--cl-fg,#cccccc));letter-spacing:0.01em;">Settings</h2>` +
-      `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">` +
-      `<button type="button" class="codelab-btn" data-settings-action="open-json" aria-label="Open Settings (JSON)" title="Open .codelab/settings.json" style="${BTN_STYLE}">Open Settings (JSON)</button>` +
-      `<button type="button" class="codelab-btn" data-settings-action="reset-all" aria-label="Reset All Settings" title="Reset all settings to defaults" style="${BTN_STYLE}">Reset All Settings</button>` +
-      `<button type="button" class="codelab-btn" data-settings-action="export" title="Export Settings JSON" style="${BTN_STYLE}">Export</button>` +
+      `<div class="cl-settings-header">` +
+      `<h2 id="${titleId}" class="cl-settings-title">Settings</h2>` +
+      `<div class="cl-settings-actions">` +
+      `<button type="button" class="codelab-btn cl-ui-btn" data-settings-action="open-json" aria-label="Open Settings (JSON)" title="Open .codelab/settings.json">Open Settings (JSON)</button>` +
+      `<button type="button" class="codelab-btn cl-ui-btn" data-settings-action="reset-all" aria-label="Reset All Settings" title="Reset all settings to defaults">Reset All Settings</button>` +
+      `<button type="button" class="codelab-btn cl-ui-btn" data-settings-action="export" title="Export Settings JSON">Export</button>` +
       closeBtnHtml +
       `</div>` +
       `</div>` +
-      `<div style="padding:10px 20px 0 20px;border-bottom:1px solid var(--cl-border,#2b2b2b);display:flex;flex-direction:column;gap:8px;font-family:${FONT_SANS};">` +
-      `<input type="search" data-role="settings-search" aria-label="Search settings" value="${escapeAttr(this.searchQuery)}" placeholder="Search settings" style="width:100%;height:26px;padding:3px 8px;border-radius:2px;border:1px solid var(--cl-input-border,var(--cl-border,#3c3c3c));background:var(--cl-input-bg,#313131);color:var(--cl-fg,#cccccc);font-size:13px;font-family:${FONT_SANS};box-sizing:border-box;" />` +
-      `<div role="tablist" aria-label="Settings scope" data-role="settings-scopes" style="display:flex;align-items:center;gap:2px;overflow-x:auto;"></div>` +
+      `<div class="cl-settings-toolbar">` +
+      `<input type="search" class="cl-settings-search" data-role="settings-search" aria-label="Search settings" value="${escapeAttr(this.searchQuery)}" placeholder="Search settings…" />` +
+      `<div role="tablist" aria-label="Settings scope" class="cl-settings-scopes" data-role="settings-scopes"></div>` +
       `</div>` +
-      `<div class="cl-settings-body" style="display:grid;grid-template-columns:180px minmax(0,1fr);font-family:${FONT_SANS};${bodyHeightStyle}">` +
-      `<nav data-role="settings-categories" aria-label="Setting categories" style="border-right:1px solid var(--cl-border,#2b2b2b);padding:8px 0;display:flex;flex-direction:column;gap:1px;overflow-y:auto;"></nav>` +
-      `<div data-role="settings-list" style="padding:8px 24px 24px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;"></div>` +
+      `<div class="cl-settings-body ${bodyModeClass}">` +
+      `<nav class="cl-settings-categories" data-role="settings-categories" aria-label="Setting categories"></nav>` +
+      `<div class="cl-settings-list" data-role="settings-list"></div>` +
       `</div>`
     );
   }
@@ -325,6 +656,7 @@ export class SettingsDialogController implements IDisposable {
     this.dialogDisposables.clear();
     this.dialogEl?.remove();
     const doc = hostRoot.ownerDocument ?? document;
+    ensureSettingsStylesInjected(doc);
     const dialog = doc.createElement('dialog');
     dialog.className = 'codelab-dialog cl-settings-dialog';
     dialog.setAttribute('closedby', 'any');
@@ -334,7 +666,6 @@ export class SettingsDialogController implements IDisposable {
     hostRoot.appendChild(dialog);
     this.dialogEl = dialog;
 
-    // Reset returnValue on close + Safari fallback for `closedby="any"` light dismiss
     const onClose = (): void => {
       dialog.returnValue = '';
     };
@@ -411,13 +742,10 @@ export class SettingsDialogController implements IDisposable {
     this.inlineCallbacks = options;
 
     const doc = container.ownerDocument ?? document;
+    ensureSettingsStylesInjected(doc);
     const root = doc.createElement('div');
     root.className = 'cl-settings-editor cl-settings-inline';
     root.setAttribute('data-role', 'settings-inline-root');
-    root.setAttribute(
-      'style',
-      `display:flex;flex-direction:column;height:100%;min-height:0;background:var(--cl-editor-bg,var(--cl-bg,#1f1f1f));color:var(--cl-fg,#cccccc);font-family:${FONT_SANS};`
-    );
     root.innerHTML = this.buildSurfaceInnerHtml('inline');
 
     container.appendChild(root);
@@ -464,8 +792,7 @@ export class SettingsDialogController implements IDisposable {
       .map((tab) => {
         const selected = this.activeScope === tab.id;
         return (
-          `<button type="button" role="tab" data-settings-scope="${tab.id}" aria-selected="${selected ? 'true' : 'false'}" ` +
-          `style="flex:none;padding:6px 12px;border:none;border-bottom:2px solid ${selected ? 'var(--cl-btn-primary-bg,var(--cl-accent,#0078d4))' : 'transparent'};background:transparent;color:${selected ? 'var(--cl-fg-active,var(--cl-fg,#ffffff))' : 'var(--cl-fg-muted,var(--cl-muted,#9d9d9d))'};cursor:pointer;font-size:13px;font-weight:${selected ? '600' : '400'};font-family:${FONT_SANS};">` +
+          `<button type="button" role="tab" class="cl-settings-scope-tab" data-settings-scope="${tab.id}" aria-selected="${selected ? 'true' : 'false'}">` +
           `${escapeAttr(tab.label)}` +
           `</button>`
         );
@@ -479,8 +806,7 @@ export class SettingsDialogController implements IDisposable {
     nav.innerHTML = ALL_CATEGORIES.map((cat) => {
       const selected = cat === this.activeCategory;
       return (
-        `<button type="button" data-settings-cat="${cat}" aria-current="${selected ? 'true' : 'false'}" ` +
-        `style="text-align:left;padding:4px 16px;border:none;border-left:2px solid ${selected ? 'var(--cl-btn-primary-bg,var(--cl-accent,#0078d4))' : 'transparent'};background:${selected ? 'var(--cl-list-active,#04395e)' : 'transparent'};color:${selected ? 'var(--cl-list-active-fg,#ffffff)' : 'var(--cl-fg,#cccccc)'};cursor:pointer;font-size:13px;font-weight:${selected ? '600' : '400'};font-family:${FONT_SANS};line-height:22px;">` +
+        `<button type="button" class="cl-settings-cat-btn" data-settings-cat="${cat}" aria-current="${selected ? 'true' : 'false'}">` +
         `${escapeAttr(cat)}` +
         `</button>`
       );
@@ -497,22 +823,22 @@ export class SettingsDialogController implements IDisposable {
           return `<option value="${escapeAttr(str)}"${sel}>${escapeAttr(str)}</option>`;
         })
         .join('');
-      return `<select data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" style="${CONTROL_STYLE}">${opts}</select>`;
+      return `<select class="cl-ui-control" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}">${opts}</select>`;
     }
     if (desc.schema.type === 'boolean') {
       const checked = Boolean(currentVal) ? ' checked' : '';
-      return `<input type="checkbox" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}"${checked} />`;
+      return `<input type="checkbox" class="cl-ui-checkbox" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}"${checked} />`;
     }
     if (desc.schema.type === 'integer' || desc.schema.type === 'number') {
       const min = desc.schema.minimum !== undefined ? ` min="${desc.schema.minimum}"` : '';
       const max = desc.schema.maximum !== undefined ? ` max="${desc.schema.maximum}"` : '';
-      return `<input type="number" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" value="${escapeAttr(String(currentVal ?? ''))}"${min}${max} style="width:100px;${CONTROL_STYLE}" />`;
+      return `<input type="number" class="cl-ui-control cl-ui-control--num" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" value="${escapeAttr(String(currentVal ?? ''))}"${min}${max} />`;
     }
     if (desc.schema.type === 'array') {
       const joined = Array.isArray(currentVal) ? currentVal.join(', ') : '';
-      return `<input type="text" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" value="${escapeAttr(joined)}" style="width:260px;${CONTROL_STYLE}" />`;
+      return `<input type="text" class="cl-ui-control cl-ui-control--array" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" value="${escapeAttr(joined)}" />`;
     }
-    return `<input type="text" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" value="${escapeAttr(String(currentVal ?? ''))}" style="width:180px;${CONTROL_STYLE}" />`;
+    return `<input type="text" class="cl-ui-control cl-ui-control--text" data-setting-key="${keyAttr}" aria-label="${escapeAttr(desc.title)}" value="${escapeAttr(String(currentVal ?? ''))}" />`;
   }
 
   private renderItems(root: HTMLElement): void {
@@ -526,7 +852,7 @@ export class SettingsDialogController implements IDisposable {
     });
 
     if (descriptors.length === 0) {
-      listEl.innerHTML = `<div style="color:var(--cl-fg-muted,var(--cl-muted,#64748b));font-size:13px;">No matching settings found.</div>`;
+      listEl.innerHTML = `<div class="cl-settings-empty">No matching settings found.</div>`;
       return;
     }
 
@@ -546,27 +872,25 @@ export class SettingsDialogController implements IDisposable {
             ? (insp.workspaceValue !== undefined ? 'workspace' : '')
             : (insp.effectiveSource !== 'default' ? insp.effectiveSource : '');
 
-        const modifiedBorder = canReset
-          ? '2px solid var(--cl-btn-primary-bg,var(--cl-accent,#0078d4))'
-          : '2px solid transparent';
+        const modClass = canReset ? ' cl-setting-item--modified' : '';
 
         return (
-          `<div class="cl-setting-item" data-setting-row="${escapeAttr(desc.key)}" style="padding:12px 12px 12px 14px;border-left:${modifiedBorder};border-bottom:1px solid var(--cl-border,#2b2b2b);display:flex;flex-direction:column;gap:6px;font-family:${FONT_SANS};">` +
-          `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">` +
-          `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;">` +
-          `<span style="font-size:12px;color:var(--cl-fg-muted,var(--cl-muted,#9d9d9d));font-weight:500;">${escapeAttr(desc.category)}:</span>` +
-          `<strong style="font-size:13px;font-weight:600;color:var(--cl-fg-active,var(--cl-fg,#ffffff));">${escapeAttr(desc.title)}</strong>` +
-          `<code style="font-size:11.5px;color:var(--cl-fg-muted,var(--cl-muted,#9d9d9d));font-family:var(--cl-font-mono,monospace);">${escapeAttr(desc.key)}</code>` +
+          `<div class="cl-setting-item${modClass}" data-setting-row="${escapeAttr(desc.key)}">` +
+          `<div class="cl-setting-item__top">` +
+          `<div class="cl-setting-item__heading">` +
+          `<span class="cl-setting-item__cat">${escapeAttr(desc.category)}:</span>` +
+          `<strong class="cl-setting-item__title">${escapeAttr(desc.title)}</strong>` +
+          `<code class="cl-setting-item__key">${escapeAttr(desc.key)}</code>` +
           (badgeLabel
-            ? `<span data-role="setting-badge" style="font-size:10px;padding:1px 6px;border-radius:2px;background:var(--cl-btn-primary-bg,var(--cl-accent,#0078d4));color:var(--cl-btn-primary-fg,#ffffff);font-weight:600;">${escapeAttr(badgeLabel)}</span>`
+            ? `<span class="cl-setting-badge" data-role="setting-badge">${escapeAttr(badgeLabel)}</span>`
             : '') +
           `</div>` +
           (canReset
-            ? `<button type="button" class="codelab-btn" data-reset-key="${escapeAttr(desc.key)}" title="Reset to Default (${escapeAttr(JSON.stringify(desc.defaultValue))})" style="${BTN_STYLE}">Reset</button>`
+            ? `<button type="button" class="codelab-btn cl-ui-btn" data-reset-key="${escapeAttr(desc.key)}" title="Reset to Default (${escapeAttr(JSON.stringify(desc.defaultValue))})">Reset</button>`
             : '') +
           `</div>` +
-          `<div style="font-size:13px;line-height:1.45;color:var(--cl-fg-muted,var(--cl-muted,#9d9d9d));">${escapeAttr(desc.description)}</div>` +
-          `<div style="display:flex;align-items:center;gap:8px;margin-top:2px;">` +
+          `<div class="cl-setting-item__desc">${escapeAttr(desc.description)}</div>` +
+          `<div class="cl-setting-item__control">` +
           this.renderControl(desc, displayedVal) +
           `</div>` +
           `</div>`

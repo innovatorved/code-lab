@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/settings",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Layered configuration service (defaults -> user -> .codelab/settings.json -> URL/embed), JSONC parser, and CSP-safe JSON Schema validator.",
   "type": "module",
   "main": "./src/index.ts",

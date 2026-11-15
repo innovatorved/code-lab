@@ -206,6 +206,7 @@ export class CodeLabDiffEditorManager {
         automaticLayout: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
+        fontFamily: '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
         fontSize: Number(this.workbench._editorFontSize) || 13
       });
 
@@ -288,6 +289,7 @@ export class CodeLabDiffEditorManager {
       automaticLayout: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
+      fontFamily: '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
       fontSize: Number(this.workbench?._editorFontSize) || 13
     });
 
@@ -361,7 +363,9 @@ export class CodeLabDiffEditorManager {
       renderSideBySide: true,
       automaticLayout: true,
       minimap: { enabled: false },
-      scrollBeyondLastLine: false
+      scrollBeyondLastLine: false,
+      fontFamily: '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
+      fontSize: Number(this.workbench._editorFontSize) || 13
     });
 
     const lang = getMonacoLanguageForFile(file, this.workbench.lang);

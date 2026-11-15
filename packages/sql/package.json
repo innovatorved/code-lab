@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/sql",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Zero-dependency lightweight SQL editor & PostgreSQL 18 / SQLite 3 language pack (<35 KB gzipped) with schema-aware alias autocomplete, formatter, and inline error diagnostics.",
   "type": "module",
   "main": "./src/index.ts",

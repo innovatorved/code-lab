@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/terminal",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Typed multi-session terminal service & ANSI stream parser for CodeLab.",
   "type": "module",
   "main": "./src/index.ts",

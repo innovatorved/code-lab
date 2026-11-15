@@ -112,27 +112,27 @@ function sanitizeLogType(type?: string): string {
 export function getXtermTheme(mode: string = 'dark'): ITheme {
   if (mode === 'light') {
     return {
-      background: '#f8f8f8',
-      foreground: '#3b3b3b',
-      cursor: '#3b3b3b',
-      cursorAccent: '#f8f8f8',
-      selectionBackground: 'rgba(0, 95, 184, 0.24)',
-      black: '#000000',
-      red: '#cd3131',
-      green: '#008000',
-      yellow: '#795e26',
-      blue: '#0451a5',
-      magenta: '#bc05bc',
-      cyan: '#0598bc',
-      white: '#555555',
-      brightBlack: '#666666',
-      brightRed: '#cd3131',
-      brightGreen: '#14ce14',
-      brightYellow: '#b5ba00',
-      brightBlue: '#0451a5',
-      brightMagenta: '#bc05bc',
-      brightCyan: '#0598bc',
-      brightWhite: '#3b3b3b'
+      background: '#ffffff',
+      foreground: '#18181b',
+      cursor: '#18181b',
+      cursorAccent: '#ffffff',
+      selectionBackground: 'rgba(24, 24, 27, 0.14)',
+      black: '#18181b',
+      red: '#b42318',
+      green: '#067647',
+      yellow: '#b54708',
+      blue: '#1d4ed8',
+      magenta: '#6d28d9',
+      cyan: '#0f766e',
+      white: '#52525b',
+      brightBlack: '#6e6a64',
+      brightRed: '#dc2626',
+      brightGreen: '#059669',
+      brightYellow: '#d97706',
+      brightBlue: '#2563eb',
+      brightMagenta: '#7c3aed',
+      brightCyan: '#0d9488',
+      brightWhite: '#09090b'
     };
   }
   if (mode === 'hc' || mode === 'high-contrast') {
@@ -143,44 +143,44 @@ export function getXtermTheme(mode: string = 'dark'): ITheme {
       cursorAccent: '#000000',
       selectionBackground: 'rgba(255, 255, 255, 0.35)',
       black: '#000000',
-      red: '#f48771',
-      green: '#89d185',
-      yellow: '#ffd370',
-      blue: '#75beff',
-      magenta: '#b180d7',
-      cyan: '#4ec9b0',
+      red: '#f87171',
+      green: '#34d399',
+      yellow: '#fbbf24',
+      blue: '#93c5fd',
+      magenta: '#c084fc',
+      cyan: '#2dd4bf',
       white: '#ffffff',
-      brightBlack: '#808080',
-      brightRed: '#f48771',
-      brightGreen: '#89d185',
-      brightYellow: '#ffd370',
-      brightBlue: '#75beff',
-      brightMagenta: '#b180d7',
-      brightCyan: '#4ec9b0',
+      brightBlack: '#a1a1aa',
+      brightRed: '#f87171',
+      brightGreen: '#34d399',
+      brightYellow: '#fbbf24',
+      brightBlue: '#93c5fd',
+      brightMagenta: '#c084fc',
+      brightCyan: '#2dd4bf',
       brightWhite: '#ffffff'
     };
   }
   return {
-    background: '#181818',
-    foreground: '#cccccc',
-    cursor: '#cccccc',
-    cursorAccent: '#181818',
-    selectionBackground: 'rgba(38, 79, 120, 0.55)',
-    black: '#000000',
-    red: '#cd3131',
-    green: '#0dbc79',
-    yellow: '#e5e510',
-    blue: '#2472c8',
-    magenta: '#bc3fbc',
-    cyan: '#11a8cd',
-    white: '#e5e5e5',
-    brightBlack: '#666666',
-    brightRed: '#f14c4c',
-    brightGreen: '#23d18b',
-    brightYellow: '#f5f543',
-    brightBlue: '#3b8eea',
-    brightMagenta: '#d670d6',
-    brightCyan: '#29b8db',
+    background: '#0f0f10',
+    foreground: '#f4f4f5',
+    cursor: '#f4f4f5',
+    cursorAccent: '#0f0f10',
+    selectionBackground: 'rgba(244, 244, 245, 0.22)',
+    black: '#18181a',
+    red: '#f87171',
+    green: '#34d399',
+    yellow: '#fbbf24',
+    blue: '#93c5fd',
+    magenta: '#c084fc',
+    cyan: '#2dd4bf',
+    white: '#d4d4d8',
+    brightBlack: '#8e8e97',
+    brightRed: '#fca5a5',
+    brightGreen: '#6ee7b7',
+    brightYellow: '#fde047',
+    brightBlue: '#bfdbfe',
+    brightMagenta: '#d8b4fe',
+    brightCyan: '#5eead4',
     brightWhite: '#ffffff'
   };
 }
@@ -310,7 +310,7 @@ export class XtermTerminalEngine {
       : rawCwd.startsWith('/home/codelab/')
         ? '~' + rawCwd.slice('/home/codelab'.length)
         : rawCwd;
-    return `\x1b[1;32mcodelab\x1b[0m:\x1b[1;34m${displayCwd}\x1b[0m$ `;
+    return `\x1b[1;32mcodelab\x1b[0m:\x1b[1m${displayCwd}\x1b[0m$ `;
   }
 
   public setPrompt(p: string | null): void {
@@ -717,10 +717,15 @@ export class XtermTerminalEngine {
     if (xtermMount && canUseXtermInEnvironment(xtermMount)) {
       const { Terminal: XtermTerminal, FitAddon: XtermFitAddon, WebLinksAddon: XtermWebLinksAddon } =
         getXtermRuntimeClasses();
+      const computedMono =
+        typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+          ? window.getComputedStyle(xtermMount).getPropertyValue('--cl-font-mono').trim()
+          : '';
       const term = new XtermTerminal({
         fontFamily:
           this.options.fontFamily ||
-          "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace",
+          computedMono ||
+          '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
         fontSize: this.options.fontSize || 13,
         lineHeight: 1.35,
         cursorBlink: true,

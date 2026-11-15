@@ -1,26 +1,32 @@
 export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL Editor & Playground Styles */
 .cl-sql-root {
-  --cl-bg: var(--code-bg, var(--surface, #0a0a0a));
-  --cl-fg: var(--code-fg, var(--fg, #f5f5f5));
-  --cl-accent: var(--accent, #0284c7);
-  --cl-border: var(--border, #262626);
-  --cl-font-mono: var(--font-mono, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  --cl-sql-gutter-bg: rgba(255, 255, 255, 0.025);
-  --cl-sql-gutter-fg: #737373;
-  --cl-sql-popup-bg: #141414;
-  --cl-sql-popup-hover: rgba(2, 132, 199, 0.18);
-  --cl-sql-kw: #38bdf8;
+  --cl-bg: var(--code-bg, var(--ds-canvas, var(--bg, #0f0f10)));
+  --cl-fg: var(--code-fg, var(--ds-ink, var(--fg, #f4f4f5)));
+  --cl-accent: var(--brand-accent, var(--accent, #f4f4f5));
+  --cl-accent-fg: var(--brand-accent-ink, var(--accent-fg, #0f0f10));
+  --cl-border: var(--ds-border, var(--border, #27272a));
+  --cl-font-sans: var(--ds-font-sans, var(--font-sans, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif));
+  --cl-font-mono: var(--ds-font-mono, var(--font-mono, "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace));
+  --cl-text-2xs: var(--ds-text-2xs, 0.6875rem);
+  --cl-text-xs: var(--ds-text-xs, 0.75rem);
+  --cl-text-sm: var(--ds-text-sm, 0.8125rem);
+  --cl-sql-gutter-bg: var(--ds-canvas-subtle, var(--bg-alt, #141415));
+  --cl-sql-gutter-fg: var(--ds-ink-faint, #8e8e97);
+  --cl-sql-popup-bg: var(--ds-surface, #18181a);
+  --cl-sql-popup-hover: var(--ds-surface-active, #28282b);
+  --cl-sql-selection: rgba(244, 244, 245, 0.18);
+  --cl-sql-kw: #f87171;
   --cl-sql-fn: #c084fc;
-  --cl-sql-type: #2dd4bf;
+  --cl-sql-type: #fb923c;
   --cl-sql-str: #86efac;
-  --cl-sql-num: #fbbf24;
-  --cl-sql-op: #f472b6;
-  --cl-sql-param: #fb923c;
-  --cl-sql-qident: #93c5fd;
-  --cl-sql-comment: #737373;
-  --cl-sql-error: #ef4444;
-  --cl-sql-warn: #f59e0b;
-  --cl-sql-font-size: 13.5px;
+  --cl-sql-num: #fcd34d;
+  --cl-sql-op: #d4d4d8;
+  --cl-sql-param: #fbbf24;
+  --cl-sql-qident: #e4e4e7;
+  --cl-sql-comment: #8e8e97;
+  --cl-sql-error: #f87171;
+  --cl-sql-warn: #fbbf24;
+  --cl-sql-font-size: 0.8125rem;
   --cl-sql-line-height: 1.55;
 
   color-scheme: dark;
@@ -34,29 +40,33 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   background: var(--cl-bg);
   color: var(--cl-fg);
   accent-color: var(--cl-accent);
-  font-family: var(--cl-font-mono);
+  font-family: var(--cl-font-sans);
   container-type: inline-size;
 }
 
 .cl-sql-root[data-cl-sql-theme="light"],
 :root[data-theme="light"] .cl-sql-root:not([data-cl-sql-theme="dark"]) {
-  --cl-bg: var(--code-bg, var(--surface, #ffffff));
-  --cl-fg: var(--code-fg, var(--fg, #0f172a));
-  --cl-accent: var(--accent, #0284c7);
-  --cl-border: var(--border, #e2e8f0);
-  --cl-sql-gutter-bg: #f8fafc;
-  --cl-sql-gutter-fg: #64748b;
+  --cl-bg: var(--code-bg, var(--ds-surface, var(--surface, #ffffff)));
+  --cl-fg: var(--code-fg, var(--ds-ink, var(--fg, #18181b)));
+  --cl-accent: var(--brand-accent, var(--accent, #18181b));
+  --cl-accent-fg: var(--brand-accent-ink, var(--accent-fg, #ffffff));
+  --cl-border: var(--ds-border, var(--border, #e6e4df));
+  --cl-sql-gutter-bg: var(--ds-canvas, var(--bg, #f7f7f5));
+  --cl-sql-gutter-fg: var(--ds-ink-faint, #6e6a64);
   --cl-sql-popup-bg: #ffffff;
-  --cl-sql-popup-hover: rgba(2, 132, 199, 0.12);
-  --cl-sql-kw: #0369a1;
-  --cl-sql-fn: #7e22ce;
-  --cl-sql-type: #0f766e;
-  --cl-sql-str: #15803d;
-  --cl-sql-num: #b45309;
-  --cl-sql-op: #be185d;
-  --cl-sql-param: #c2410c;
-  --cl-sql-qident: #1d4ed8;
-  --cl-sql-comment: #64748b;
+  --cl-sql-popup-hover: #ecebe7;
+  --cl-sql-selection: rgba(24, 24, 27, 0.14);
+  --cl-sql-kw: #c2410c;
+  --cl-sql-fn: #6d28d9;
+  --cl-sql-type: #9a3412;
+  --cl-sql-str: #067647;
+  --cl-sql-num: #b54708;
+  --cl-sql-op: #3f3f46;
+  --cl-sql-param: #b54708;
+  --cl-sql-qident: #18181b;
+  --cl-sql-comment: #6e6a64;
+  --cl-sql-error: #b42318;
+  --cl-sql-warn: #b54708;
   color-scheme: light;
   background: var(--cl-bg);
   color: var(--cl-fg);
@@ -76,7 +86,7 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--cl-border);
-  font-size: 12px;
+  font-size: var(--cl-text-xs);
   background: var(--cl-sql-gutter-bg);
   border-radius: 7px 7px 0 0;
 }
@@ -92,13 +102,14 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
 .cl-sql-dialect-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-2xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   border: 1px solid var(--cl-border);
-  color: var(--cl-accent);
+  color: var(--cl-fg);
 }
 
 .cl-sql-btn {
@@ -107,15 +118,16 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  border-radius: 5px;
+  border-radius: 6px;
   border: 1px solid var(--cl-border);
   background: transparent;
   color: var(--cl-fg);
-  font-family: inherit;
-  font-size: 12px;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs);
   font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
 }
 
 .cl-sql-btn:hover {
@@ -125,11 +137,11 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
 .cl-sql-btn-primary {
   background: var(--cl-accent);
   border-color: var(--cl-accent);
-  color: #ffffff;
+  color: var(--cl-accent-fg);
 }
 
 .cl-sql-btn:focus-visible {
-  outline: 2px solid var(--cl-accent);
+  outline: 1px solid var(--cl-accent);
   outline-offset: 2px;
 }
 
@@ -163,12 +175,12 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   border-left: 1px solid var(--cl-border);
   padding: 10px 12px;
   overflow: auto;
-  font-size: 12.5px;
+  font-size: var(--cl-text-sm);
 }
 
 .cl-sql-ResultsEmpty {
   color: var(--cl-sql-gutter-fg);
-  font-size: 12px;
+  font-size: var(--cl-text-xs);
 }
 
 .cl-sql-surface {
@@ -187,6 +199,8 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   background: var(--cl-sql-gutter-bg);
   border-right: 1px solid var(--cl-border);
   color: var(--cl-sql-gutter-fg);
+  font-family: var(--cl-font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--cl-sql-font-size);
   line-height: var(--cl-sql-line-height);
   overflow: hidden;
@@ -281,7 +295,7 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
 }
 
 .cl-sql-textarea::selection {
-  background: rgba(2, 132, 199, 0.32);
+  background: var(--cl-sql-selection);
 }
 
 .cl-sql-textarea:focus-visible {
@@ -326,11 +340,12 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
 
 .cl-sql-diagnostics {
   display: none;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--cl-border);
-  font-size: 12px;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs);
   line-height: 1.45;
-  background: rgba(239, 68, 68, 0.09);
+  background: rgba(239, 68, 68, 0.08);
   color: var(--cl-fg);
 }
 
@@ -346,8 +361,9 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
 }
 
 .cl-sql-diag-badge {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-family: var(--cl-font-mono);
+  font-size: var(--cl-text-2xs);
+  font-weight: 600;
   text-transform: uppercase;
   padding: 1px 5px;
   border-radius: 4px;
@@ -357,14 +373,14 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
 
 .cl-sql-diag-badge[data-severity="warning"] {
   background: var(--cl-sql-warn);
-  color: #000000;
+  color: #09090b;
 }
 
 .cl-sql-diag-hint {
   width: 100%;
   margin-top: 2px;
   color: var(--cl-sql-gutter-fg);
-  font-size: 11.5px;
+  font-size: var(--cl-text-xs);
 }
 
 /* Schema-aware completion popup */
@@ -381,10 +397,11 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   padding: 4px;
   list-style: none;
   border: 1px solid var(--cl-border);
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--cl-sql-popup-bg);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.38);
-  font-size: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-xs);
 }
 
 .cl-sql-completions[data-open="true"] {
@@ -397,7 +414,7 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   justify-content: space-between;
   gap: 8px;
   padding: 5px 8px;
-  border-radius: 5px;
+  border-radius: 6px;
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -421,14 +438,17 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   width: 18px;
   height: 18px;
   border-radius: 4px;
+  font-family: var(--cl-font-mono);
   font-size: 10px;
   font-weight: 700;
-  background: rgba(2, 132, 199, 0.16);
-  color: var(--cl-accent);
+  border: 1px solid var(--cl-border);
+  background: var(--cl-sql-gutter-bg);
+  color: var(--cl-fg);
   flex-shrink: 0;
 }
 
 .cl-sql-comp-label {
+  font-family: var(--cl-font-mono);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -440,11 +460,12 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--cl-text-2xs);
   color: var(--cl-sql-gutter-fg);
 }
 
 .cl-sql-comp-badge {
+  font-family: var(--cl-font-mono);
   padding: 1px 5px;
   border-radius: 4px;
   border: 1px solid var(--cl-border);
@@ -455,9 +476,11 @@ export const SQL_EDITOR_CSS = `/* @innovatorved/code-lab/sql — Lightweight SQL
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 3px 10px;
+  padding: 4px 10px;
   border-top: 1px solid var(--cl-border);
-  font-size: 11px;
+  font-family: var(--cl-font-sans);
+  font-size: var(--cl-text-2xs);
+  font-variant-numeric: tabular-nums;
   color: var(--cl-sql-gutter-fg);
 }
 

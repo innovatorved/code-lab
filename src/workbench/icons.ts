@@ -150,15 +150,15 @@ export const CL_ICONS: Record<string, string> = {
   collapseAll:
     '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="9" height="9" rx="1"/><path d="M6.5 2h6a1 1 0 0 1 1 1v6"/><line x1="5" y1="8" x2="9" y2="8"/></svg>',
   symbolFunction:
-    '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#b180d7" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M9.5 5.5H8a1 1 0 0 0-1 1v5M6 8h3.5"/></svg>',
+    '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#c084fc" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M9.5 5.5H8a1 1 0 0 0-1 1v5M6 8h3.5"/></svg>',
   symbolClass:
-    '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#ee9d28" stroke-width="1.4"><circle cx="5" cy="8" r="2.2"/><circle cx="11.5" cy="5" r="1.8"/><circle cx="11.5" cy="11" r="1.8"/><line x1="7" y1="7" x2="9.8" y2="5.6"/><line x1="7" y1="9" x2="9.8" y2="10.4"/></svg>',
+    '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#fb923c" stroke-width="1.4"><circle cx="5" cy="8" r="2.2"/><circle cx="11.5" cy="5" r="1.8"/><circle cx="11.5" cy="11" r="1.8"/><line x1="7" y1="7" x2="9.8" y2="5.6"/><line x1="7" y1="9" x2="9.8" y2="10.4"/></svg>',
   symbolVariable:
-    '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#75beff" stroke-width="1.4"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M6 6.5l2 3 2-3"/></svg>'
+    '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#a1a1aa" stroke-width="1.4"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M6 6.5l2 3 2-3"/></svg>'
 };
 
 function badgeSvg(bg: string, fg: string, text: string, fontSize = 7.2): string {
-  return `<svg class="codelab-seti-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="2.2" fill="${bg}"/><text x="8" y="11" text-anchor="middle" fill="${fg}" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="${fontSize}" font-weight="700">${text}</text></svg>`;
+  return `<svg class="codelab-seti-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="2.2" fill="${bg}"/><text x="8" y="11" text-anchor="middle" fill="${fg}" font-family="'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="${fontSize}" font-weight="700">${text}</text></svg>`;
 }
 
 /**
@@ -199,7 +199,7 @@ export function getFileIconSvg(filename: string, isOpenFolder?: boolean): string
       return `<svg class="codelab-seti-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="1.6" fill="#00d8ff"/><ellipse cx="8" cy="8" rx="6" ry="2.4" stroke="#00d8ff" stroke-width="1.1"/><ellipse cx="8" cy="8" rx="6" ry="2.4" stroke="#00d8ff" stroke-width="1.1" transform="rotate(60 8 8)"/><ellipse cx="8" cy="8" rx="6" ry="2.4" stroke="#00d8ff" stroke-width="1.1" transform="rotate(120 8 8)"/></svg>`;
     case 'json':
     case 'jsonc':
-      return `<svg class="codelab-seti-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><text x="8" y="11.5" text-anchor="middle" fill="#cbcb41" font-family="monospace" font-size="11" font-weight="700">{}</text></svg>`;
+      return `<svg class="codelab-seti-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><text x="8" y="11.5" text-anchor="middle" fill="#cbcb41" font-family="'Geist Mono',ui-monospace,monospace" font-size="11" font-weight="700">{}</text></svg>`;
     case 'py':
     case 'pyi':
       return badgeSvg('#3572a5', '#ffd43b', 'PY', 7);

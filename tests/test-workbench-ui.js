@@ -999,38 +999,40 @@ async function runTier1() {
     path.resolve(__dirname, '../../../css/code-lab.css')
   ].find(p => fs.existsSync(p)) || path.resolve(__dirname, '../dist/code-lab.css');
 
-  await registerTest('tier1', 'T1.F8.1', 'R4: Stylesheet css/code-lab.css defines VS Code Dark Modern tokens', () => {
+  await registerTest('tier1', 'T1.F8.1', 'R4: Stylesheet css/code-lab.css defines Charcoal Ink dark design system tokens', () => {
     const cssPath = resolveCssPath();
     const css = fs.readFileSync(cssPath, 'utf8');
-    assert.match(css, /--cl-bg:\s*#1f1f1f/i, 'Dark editor background must default to #1f1f1f');
-    assert.match(css, /--cl-bg-elevated:\s*#181818/i, 'Dark chrome surface must default to #181818');
-    assert.match(css, /--cl-border:\s*#2b2b2b/i, 'Dark border must default to #2b2b2b');
-    assert.match(css, /--cl-fg:\s*#cccccc|--cl-fg:\s*#ccc\b/i, 'Dark foreground must default to #cccccc');
+    assert.match(css, /--cl-bg:\s*var\(--ds-canvas,\s*var\(--bg,\s*#0f0f10\)\)/i, 'Dark editor background must default to #0f0f10 with host fallback');
+    assert.match(css, /#141415/i, 'Dark chrome surface must default to #141415');
+    assert.match(css, /#27272a/i, 'Dark border must default to #27272a');
+    assert.match(css, /#f4f4f5/i, 'Dark foreground must default to #f4f4f5');
+    assert.match(css, /"Geist"/, 'Sans font stack must prioritize Geist');
+    assert.match(css, /"Geist Mono"/, 'Mono font stack must prioritize Geist Mono');
   });
 
-  await registerTest('tier1', 'T1.F8.2', 'R4: Stylesheet css/code-lab.css defines VS Code Light Modern tokens', () => {
+  await registerTest('tier1', 'T1.F8.2', 'R4: Stylesheet css/code-lab.css defines Warm Paper light design system tokens', () => {
     const cssPath = resolveCssPath();
     const css = fs.readFileSync(cssPath, 'utf8');
-    assert.match(css, /--cl-bg:\s*#fff(?:fff)?\b/i, 'Light editor background must default to #ffffff');
-    assert.match(css, /--cl-bg-elevated:\s*#f8f8f8/i, 'Light chrome surface must default to #f8f8f8');
-    assert.match(css, /--cl-border:\s*#e5e5e5/i, 'Light border must default to #e5e5e5');
-    assert.match(css, /--cl-fg:\s*#3b3b3b/i, 'Light foreground must default to #3b3b3b');
+    assert.match(css, /#fff(?:fff)?\b/i, 'Light editor background must default to #ffffff');
+    assert.match(css, /#f7f7f5/i, 'Light chrome surface must default to #f7f7f5');
+    assert.match(css, /#e6e4df/i, 'Light border must default to #e6e4df');
+    assert.match(css, /#18181b/i, 'Light foreground must default to #18181b');
   });
 
-  await registerTest('tier1', 'T1.F8.3', 'R4: Accent button tokens align with VS Code Dark Modern and Light Modern', () => {
+  await registerTest('tier1', 'T1.F8.3', 'R4: Monochrome Ink & Warm Paper accent button tokens contain zero VS Code blue', () => {
     const cssPath = resolveCssPath();
     const css = fs.readFileSync(cssPath, 'utf8');
-    assert.match(css, /--cl-btn-primary-bg:\s*#0078d4/i, 'Dark Modern primary button must be #0078d4');
-    assert.match(css, /--cl-accent:\s*#4daafc/i, 'Dark Modern accent must be #4daafc');
-    assert.match(css, /--cl-accent:\s*#005fb8/i, 'Light Modern accent must be #005fb8');
-    assert.match(css, /--cl-btn-primary-fg:\s*#fff(?:fff)?\b/i, 'Primary button text must be white');
+    assert.match(css, /--cl-btn-primary-bg:\s*var\(--brand-accent,\s*var\(--accent,\s*#f4f4f5\)\)/i, 'Dark primary button must default to #f4f4f5');
+    assert.match(css, /--cl-btn-primary-fg:\s*var\(--brand-accent-ink,\s*var\(--accent-fg,\s*#0f0f10\)\)/i, 'Dark primary button text must default to #0f0f10');
+    assert.match(css, /--cl-btn-primary-bg:\s*var\(--brand-accent,\s*var\(--accent,\s*#18181b\)\)/i, 'Light primary button must default to #18181b');
+    assert.ok(!/#0078d4|#005fb8|#04395e/i.test(css), 'Stylesheet must not contain copied VS Code blue accents');
   });
 
   await registerTest('tier1', 'T1.F8.4', 'R4: Status colors (success, error) are defined for test outputs and badges', () => {
     const cssPath = resolveCssPath();
     const css = fs.readFileSync(cssPath, 'utf8');
-    assert.match(css, /--cl-green:\s*#73c991/i, 'Green token defined for success');
-    assert.match(css, /--cl-red:\s*#f14c4c/i, 'Red token defined for error');
+    assert.match(css, /#34d399/i, 'Green token defined for success');
+    assert.match(css, /#f87171/i, 'Red token defined for error');
   });
 
   await registerTest('tier1', 'T1.F8.5', 'R4: Container receives data-theme or class reflecting theme option', () => {

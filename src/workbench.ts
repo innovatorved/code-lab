@@ -83,7 +83,7 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.6.0';
+  const CODELAB_VERSION = '0.6.1';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
   const NODE_AMBIENT_DTS = `
@@ -1019,36 +1019,37 @@ declare module 'bun:sqlite' {
           reject(new Error('Monaco failed to initialize'));
           return;
         }
-        // Define custom themes synced with Ved Gupta Monochrome Neutral Design System (Geist)
+        // Define custom themes synced with Ved Gupta Monochrome Charcoal Ink & Warm Paper Design System (Geist)
         m.editor.defineTheme('codelab-dark', {
           base: 'vs-dark',
           inherit: true,
           rules: [
-            { token: 'comment', foreground: '666666', fontStyle: 'italic' },
-            { token: 'keyword', foreground: 'ff7b72' },
-            { token: 'string', foreground: 'a5d6ff' },
-            { token: 'number', foreground: '79c0ff' },
-            { token: 'type', foreground: 'ffa657' }
+            { token: 'comment', foreground: '8e8e97', fontStyle: 'italic' },
+            { token: 'keyword', foreground: 'f87171' },
+            { token: 'string', foreground: '86efac' },
+            { token: 'number', foreground: 'fcd34d' },
+            { token: 'type', foreground: 'fb923c' },
+            { token: 'function', foreground: 'c084fc' }
           ],
           colors: {
-            'editor.background': '#000000',
-            'editor.foreground': '#f2f2f2',
-            'editorGutter.background': '#000000',
-            'editorLineNumber.foreground': '#525252',
-            'editorLineNumber.activeForeground': '#ffffff',
-            'editor.lineHighlightBackground': '#0a0a0a',
-            'editor.lineHighlightBorder': '#171717',
-            'editor.selectionBackground': '#262626',
-            'editor.inactiveSelectionBackground': '#171717',
-            'editorCursor.foreground': '#ffffff',
-            'editorIndentGuide.background1': '#171717',
-            'editorIndentGuide.activeBackground1': '#262626',
-            'editorWidget.background': '#0a0a0a',
-            'editorWidget.border': '#262626',
-            'editorHoverWidget.background': '#0a0a0a',
-            'editorHoverWidget.border': '#262626',
-            'scrollbarSlider.background': '#26262680',
-            'scrollbarSlider.hoverBackground': '#404040aa'
+            'editor.background': '#0f0f10',
+            'editor.foreground': '#f4f4f5',
+            'editorGutter.background': '#0f0f10',
+            'editorLineNumber.foreground': '#6e6e77',
+            'editorLineNumber.activeForeground': '#f4f4f5',
+            'editor.lineHighlightBackground': '#18181a99',
+            'editor.lineHighlightBorder': '#00000000',
+            'editor.selectionBackground': '#28282b',
+            'editor.inactiveSelectionBackground': '#1f1f22',
+            'editorCursor.foreground': '#f4f4f5',
+            'editorIndentGuide.background1': '#27272a80',
+            'editorIndentGuide.activeBackground1': '#3a3a3e',
+            'editorWidget.background': '#18181a',
+            'editorWidget.border': '#27272a',
+            'editorHoverWidget.background': '#18181a',
+            'editorHoverWidget.border': '#27272a',
+            'scrollbarSlider.background': '#3a3a3e66',
+            'scrollbarSlider.hoverBackground': '#52525b99'
           }
         });
 
@@ -1056,25 +1057,30 @@ declare module 'bun:sqlite' {
           base: 'vs',
           inherit: true,
           rules: [
-            { token: 'comment', foreground: '666666', fontStyle: 'italic' }
+            { token: 'comment', foreground: '6e6a64', fontStyle: 'italic' },
+            { token: 'keyword', foreground: 'c2410c' },
+            { token: 'string', foreground: '067647' },
+            { token: 'number', foreground: 'b54708' },
+            { token: 'type', foreground: '9a3412' },
+            { token: 'function', foreground: '6d28d9' }
           ],
           colors: {
             'editor.background': '#ffffff',
-            'editor.foreground': '#0a0a0a',
+            'editor.foreground': '#18181b',
             'editorGutter.background': '#ffffff',
-            'editorLineNumber.foreground': '#8f8f8f',
-            'editorLineNumber.activeForeground': '#0a0a0a',
-            'editor.lineHighlightBackground': '#fafafa',
-            'editor.lineHighlightBorder': '#f5f5f5',
-            'editor.selectionBackground': '#e5e5e5',
-            'editor.inactiveSelectionBackground': '#f5f5f5',
-            'editorCursor.foreground': '#000000',
-            'editorIndentGuide.background1': '#f0f0f0',
-            'editorIndentGuide.activeBackground1': '#d4d4d4',
-            'editorWidget.background': '#fafafa',
-            'editorWidget.border': '#e5e5e5',
-            'editorHoverWidget.background': '#fafafa',
-            'editorHoverWidget.border': '#e5e5e5'
+            'editorLineNumber.foreground': '#8a8680',
+            'editorLineNumber.activeForeground': '#18181b',
+            'editor.lineHighlightBackground': '#f7f7f5',
+            'editor.lineHighlightBorder': '#00000000',
+            'editor.selectionBackground': '#e6e4df',
+            'editor.inactiveSelectionBackground': '#f1f1ee',
+            'editorCursor.foreground': '#18181b',
+            'editorIndentGuide.background1': '#e6e4df',
+            'editorIndentGuide.activeBackground1': '#d3d0c9',
+            'editorWidget.background': '#f7f7f5',
+            'editorWidget.border': '#e6e4df',
+            'editorHoverWidget.background': '#f7f7f5',
+            'editorHoverWidget.border': '#e6e4df'
           }
         });
 
@@ -5288,7 +5294,7 @@ int main() {
             </div>
           ` : `
             <div class="codelab-guide__footer-row">
-              <span style="font-size:11.5px;color:var(--cl-fg-muted);">100% In-Browser Web Worker Sandbox</span>
+              <span class="cl-ui-muted-note">100% In-Browser Web Worker Sandbox</span>
             </div>
           `}
         `;
@@ -6073,7 +6079,7 @@ int main() {
         <button type="button" class="codelab-pkg-btn" data-cl-action="open-packages" title="Manage Dependencies &amp; Built-ins">
           ${CL_ICONS.package}
           <span>Packages</span>
-          <span class="codelab-drawer__pill" style="padding:0 5px;font-size:10px;">${pkgBadge}</span>
+          <span class="codelab-drawer__pill">${pkgBadge}</span>
         </button>
       `;
 
@@ -6981,12 +6987,12 @@ int main() {
 
       if (this.drawerTab === 'stdin') {
         bodyEl.innerHTML = `
-          <div class="codelab-stdin-panel" style="padding:10px;height:100%;display:flex;flex-direction:column;box-sizing:border-box;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;color:var(--cl-fg-muted);">
+          <div class="codelab-stdin-panel">
+            <div class="codelab-stdin-panel__header">
               <span>Standard Input (std::cin / sys.stdin / process.stdin)</span>
-              <button type="button" class="codelab-btn codelab-btn--sm" id="cl-stdin-clear-btn" style="padding:2px 8px;font-size:11px;">Clear</button>
+              <button type="button" class="codelab-btn codelab-btn--sm" id="cl-stdin-clear-btn">Clear</button>
             </div>
-            <textarea id="cl-stdin-textarea" class="codelab-stdin-textarea" style="flex:1;width:100%;background:var(--cl-bg-input, #1e1e1e);color:var(--cl-fg, #d4d4d4);border:1px solid var(--cl-border, #333);border-radius:4px;padding:8px;font-family:var(--cl-font-mono, monospace);font-size:12px;resize:none;outline:none;box-sizing:border-box;" placeholder="Enter or paste custom stdin here (used by std::cin, sys.stdin, fs.readFileSync(0))...">${escapeHtml(this.customStdin || '')}</textarea>
+            <textarea id="cl-stdin-textarea" class="codelab-stdin-textarea codelab-stdin-panel__textarea" placeholder="Enter or paste custom stdin here (used by std::cin, sys.stdin, fs.readFileSync(0))...">${escapeHtml(this.customStdin || '')}</textarea>
           </div>
         `;
         const ta = bodyEl.querySelector('#cl-stdin-textarea');
@@ -7022,9 +7028,9 @@ int main() {
           <div class="codelab-test-summary ${passed === total ? 'all-pass' : 'has-fail'}">
             <div>
               <strong>${passed === total ? `All ${total} Tests Passing` : `${passed} of ${total} Tests Passing`}</strong>
-              ${this.steps.length ? `<span style="margin-left:8px;font-size:12px;opacity:0.8;">(${this.completedSteps.size}/${this.steps.length} Guided Steps Complete)</span>` : ''}
+              ${this.steps.length ? `<span class="cl-ui-meta-inline">(${this.completedSteps.size}/${this.steps.length} Guided Steps Complete)</span>` : ''}
             </div>
-            <span style="font-family:var(--cl-font-mono);font-size:12px;">${totalMs} ms</span>
+            <span class="cl-ui-metric">${totalMs} ms</span>
           </div>
           <div class="codelab-test-list">
             ${this.lastTestResults.map(t => `
@@ -7059,7 +7065,7 @@ int main() {
               const html = ansiToHtml ? ansiToHtml(item.text || '') : escapeHtml(item.text || '');
               return `<div class="codelab-log-line ${escapeHtml(item.type || '')}">${html}</div>`;
             }).join('')
-          : `<div style="color:var(--cl-fg-muted);font-size:12px;">No output messages yet. Run your code or workspace tasks to inspect output logs.</div>`;
+          : `<div class="cl-ui-muted-note">No output messages yet. Run your code or workspace tasks to inspect output logs.</div>`;
         bodyEl.innerHTML = `<div class="codelab-output-panel" id="cl-output-surface" style="font-size:${termFontPx}px;line-height:1.5;">${linesHtml}</div>`;
         bodyEl.scrollTop = bodyEl.scrollHeight;
         return;
@@ -7250,7 +7256,7 @@ int main() {
                 <span style="display:inline-flex;align-items:center;gap:6px;">${CL_ICONS.database}<span>Virtual POSIX File System (${tmpFiles.length} files)</span></span>
                 <span>In-Memory VFS</span>
               </div>
-              ${tmpFiles.length === 0 ? `<div style="color:var(--cl-fg-muted);font-size:12px;">Run Demo or Tests to inspect virtual files (e.g. /tmp WAL segments &amp; SSTables).</div>` : ''}
+              ${tmpFiles.length === 0 ? `<div class="cl-ui-muted-note">Run Demo or Tests to inspect virtual files (e.g. /tmp WAL segments &amp; SSTables).</div>` : ''}
               ${tmpFiles.map(f => `
                 <div class="codelab-vfs-item">
                   <div class="codelab-vfs-item__head">
@@ -7268,7 +7274,7 @@ int main() {
                 <span style="display:inline-flex;align-items:center;gap:6px;">${CL_ICONS.globe}<span>Virtual Loopback HTTP Trace (${this.lastHttpTrace.length} requests)</span></span>
                 <span>127.0.0.1</span>
               </div>
-              ${this.lastHttpTrace.length === 0 ? `<div style="color:var(--cl-fg-muted);font-size:12px;">Virtual HTTP loopback requests (e.g., Layer-7 Load Balancer traffic &amp; active health probes) appear here.</div>` : ''}
+              ${this.lastHttpTrace.length === 0 ? `<div class="cl-ui-muted-note">Virtual HTTP loopback requests (e.g., Layer-7 Load Balancer traffic &amp; active health probes) appear here.</div>` : ''}
               ${this.lastHttpTrace.map(req => `
                 <div class="codelab-vfs-item">
                   <div class="codelab-vfs-item__head">
@@ -7299,13 +7305,13 @@ int main() {
           ? `<div class="codelab-test-summary ${res.verification.passed ? 'all-pass' : 'has-fail'}" style="margin-bottom:10px;">
                <div>
                  <strong>${res.verification.passed ? '✓ Step Verification Passed' : '✖ Step Verification Failed'}</strong>
-                 ${res.verification.message ? `<span style="margin-left:8px;font-size:12px;">${escapeHtml(res.verification.message)}</span>` : ''}
+                 ${res.verification.message ? `<span class="cl-ui-meta-inline">${escapeHtml(res.verification.message)}</span>` : ''}
                </div>
-               <span style="font-family:var(--cl-font-mono);font-size:12px;">${typeof res.durationMs === 'number' ? `${res.durationMs.toFixed(1)} ms` : ''}</span>
+               <span class="cl-ui-metric">${typeof res.durationMs === 'number' ? `${res.durationMs.toFixed(1)} ms` : ''}</span>
              </div>`
           : '';
         const errHtml = res.error
-          ? `<div role="alert" style="padding:10px 12px;margin-bottom:10px;border-radius:6px;border:1px solid rgba(239,68,68,0.45);background:rgba(239,68,68,0.12);color:var(--cl-red,#f87171);font-family:var(--cl-font-mono);font-size:12px;white-space:pre-wrap;">${escapeHtml(typeof res.error === 'string' ? res.error : (res.error.message || String(res.error)))}</div>`
+          ? `<div role="alert" class="cl-ui-alert-error">${escapeHtml(typeof res.error === 'string' ? res.error : (res.error.message || String(res.error)))}</div>`
           : '';
         const cols = Array.isArray(res.columns) ? res.columns : [];
         const rows = Array.isArray(res.rows) ? res.rows : [];
@@ -7339,12 +7345,12 @@ int main() {
                </table>
              </div>`
           : (!res.error
-              ? `<div style="color:var(--cl-fg-muted);font-size:12px;padding:8px 2px;">Statement executed (${escapeHtml(rowSummary)}).</div>`
+              ? `<div class="cl-ui-muted-note" style="padding:8px 2px;">Statement executed (${escapeHtml(rowSummary)}).</div>`
               : '');
         const planHtml = res.plan
           ? `<div style="margin-top:10px;">
-               <div style="font-size:11px;font-weight:600;color:var(--cl-fg-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Query Execution Plan</div>
-               <pre style="margin:0;padding:10px;border-radius:6px;border:1px solid var(--cl-border,#262626);background:var(--cl-bg,#0a0a0a);color:var(--cl-fg,#f5f5f5);font-family:var(--cl-font-mono);font-size:11.5px;overflow:auto;">${escapeHtml(typeof res.plan === 'string' ? res.plan : JSON.stringify(res.plan, null, 2))}</pre>
+               <div class="cl-ui-section-label">Query Execution Plan</div>
+               <pre class="cl-ui-code-box">${escapeHtml(typeof res.plan === 'string' ? res.plan : JSON.stringify(res.plan, null, 2))}</pre>
              </div>`
           : '';
         bodyEl.innerHTML = `<div style="padding:10px;">${verificationHtml}${errHtml}${tableHtml}${planHtml}</div>`;
@@ -7363,7 +7369,7 @@ int main() {
             workerStatus: this.runtimeStatusText || 'Idle'
           });
         } else {
-          bodyEl.innerHTML = `<div style="padding:14px;color:var(--cl-fg-muted);font-size:12px;">Observability kernel is not initialized.</div>`;
+          bodyEl.innerHTML = `<div class="cl-ui-muted-note" style="padding:14px;">Observability kernel is not initialized.</div>`;
         }
         return;
       }
@@ -8142,8 +8148,8 @@ int main() {
       if (servers.length === 0) {
         serversHtml = `
           <div class="codelab-ports-empty">
-            <p style="margin:0 0 6px 0;font-weight:500;">No active port listeners</p>
-            <span style="font-size:12px;color:var(--cl-fg-muted);">
+            <p class="cl-ui-body-p">No active port listeners</p>
+            <span class="cl-ui-muted-note">
               Run an HTTP or WebSocket server in the terminal (e.g. <code>node server.js &amp;</code> or <code>bun run server.ts &amp;</code>) to bind a virtual port.
             </span>
           </div>
@@ -8266,7 +8272,7 @@ int main() {
           <div class="codelab-panel-section">
             <div class="codelab-section-title">
               <span>${CL_ICONS.send || ''} Mini HTTP Client</span>
-              <span style="font-size:11px;color:var(--cl-fg-muted);">Virtual Loopback (127.0.0.1)</span>
+              <span class="cl-ui-muted-xs">Virtual Loopback (127.0.0.1)</span>
             </div>
             <div class="codelab-http-client">
               <div class="codelab-http-url-bar">
@@ -8415,7 +8421,7 @@ int main() {
 
         topologyHtml = `
           <div class="codelab-topo-bar">
-            <div class="codelab-topo-nodes">${nodePills || '<span style="font-size:11px;color:var(--cl-fg-muted);">No listening servers</span>'}</div>
+            <div class="codelab-topo-nodes">${nodePills || '<span class="cl-ui-muted-xs">No listening servers</span>'}</div>
             ${edgePills ? `<div class="codelab-topo-edges">${edgePills}</div>` : ''}
           </div>
         `;
@@ -8467,8 +8473,8 @@ int main() {
               <td><span class="codelab-method-badge codelab-method-${(t.method || 'GET').toLowerCase()}">${escapeHtml(t.method || 'GET')}</span></td>
               <td class="codelab-net-path" title="${escapeHtml(t.url || '/')}">${escapeHtml(t.url || '/')}</td>
               <td><code>${escapeHtml(hopLabel)}</code></td>
-              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${(t.durationMs || 0).toFixed(1)} ms</td>
-              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${t.size != null ? t.size : 0} B</td>
+              <td class="cl-ui-metric-cell">${(t.durationMs || 0).toFixed(1)} ms</td>
+              <td class="cl-ui-metric-cell">${t.size != null ? t.size : 0} B</td>
               <td class="codelab-waterfall-cell">
                 <div class="codelab-waterfall-track">
                   <div class="codelab-waterfall-bar" style="width:${widthPct}%;"></div>
@@ -8583,7 +8589,7 @@ int main() {
               <option value="5xx" ${filter.status === '5xx' ? 'selected' : ''}>5xx / Network Fault</option>
             </select>
             <button type="button" class="codelab-btn" data-cl-action="clear-net-traces">Clear</button>
-            <span id="cl-net-count" style="margin-left:auto;font-size:11.5px;color:var(--cl-fg-muted);">${filtered.length} of ${traces.length} requests</span>
+            <span id="cl-net-count" class="cl-ui-net-count">${filtered.length} of ${traces.length} requests</span>
           </div>
           <div class="codelab-net-main">
             <div class="codelab-net-table-container">
@@ -8665,8 +8671,8 @@ int main() {
               <td><span class="codelab-method-badge codelab-method-${(t.method || 'GET').toLowerCase()}">${escapeHtml(t.method || 'GET')}</span></td>
               <td class="codelab-net-path" title="${escapeHtml(t.url || '/')}">${escapeHtml(t.url || '/')}</td>
               <td><code>${escapeHtml(hopLabel)}</code></td>
-              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${(t.durationMs || 0).toFixed(1)} ms</td>
-              <td style="white-space:nowrap;font-family:var(--cl-font-mono);font-size:11.5px;">${t.size != null ? t.size : 0} B</td>
+              <td class="cl-ui-metric-cell">${(t.durationMs || 0).toFixed(1)} ms</td>
+              <td class="cl-ui-metric-cell">${t.size != null ? t.size : 0} B</td>
               <td class="codelab-waterfall-cell">
                 <div class="codelab-waterfall-track">
                   <div class="codelab-waterfall-bar" style="width:${widthPct}%;"></div>
@@ -14002,7 +14008,7 @@ int main() {
             type: 'symbol',
             id: `${activeTarget}:${sym.line}:${sym.name}`,
             label: `${sym.name} (${sym.kind})`,
-            labelHtml: `${escapeHtml(sym.name)} <span style="opacity:0.6;font-size:11px;">${escapeHtml(sym.kind)} · Ln ${sym.line}</span>`,
+            labelHtml: `${escapeHtml(sym.name)} <span class="cl-ui-palette-sub">${escapeHtml(sym.kind)} · Ln ${sym.line}</span>`,
             shortcut: activeTarget || '',
             action: () => {
               if (activeTarget) {
@@ -14029,7 +14035,7 @@ int main() {
             type: 'symbol',
             id: `${file}:${sym.line}:${sym.name}`,
             label: `${sym.name} — ${file}`,
-            labelHtml: `${escapeHtml(sym.name)} <span style="opacity:0.6;font-size:11px;">${escapeHtml(file)}:${sym.line}</span>`,
+            labelHtml: `${escapeHtml(sym.name)} <span class="cl-ui-palette-sub">${escapeHtml(file)}:${sym.line}</span>`,
             shortcut: sym.kind,
             action: () => {
               this.openFile(file);
@@ -15065,37 +15071,37 @@ int main() {
                 <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
               </div>
             </div>
-            <div class="codelab-modal__body" style="font-family:var(--cl-font-sans);">
-              <div style="display:flex;gap:8px;margin-bottom:16px;">
-                <input id="cl-pkg-input" type="text" placeholder="Add npm package (e.g. zod, lru-cache, nanoid@5.0.0)..." style="flex:1;height:32px;padding:0 10px;background:var(--cl-bg);border:1px solid var(--cl-border-strong);border-radius:var(--cl-radius-sm);color:var(--cl-fg);font-family:var(--cl-font-mono);font-size:12px;outline:none;" />
+            <div class="codelab-modal__body">
+              <div class="cl-ui-form-row">
+                <input id="cl-pkg-input" class="cl-ui-input cl-ui-input--mono" type="text" placeholder="Add npm package (e.g. zod, lru-cache, nanoid@5.0.0)..." />
                 <button type="button" class="codelab-btn codelab-btn--primary" data-cl-action="add-package">+ Add Dependency</button>
               </div>
               <div style="margin-bottom:16px;">
-                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--cl-fg-muted);margin-bottom:8px;">
+                <div class="cl-ui-section-label">
                   External NPM Packages (${pkgs.length})
                 </div>
                 ${pkgs.length === 0 ? `
-                  <div style="padding:12px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-bg);color:var(--cl-fg-muted);font-size:12.5px;">
+                  <div class="cl-ui-card-note">
                     No external npm packages imported yet. Any <code>import ... from 'pkg'</code> or <code>require('pkg')</code> in your code is automatically resolved via <strong>jsDelivr</strong> when you run or test.
                   </div>
                 ` : `
-                  <div style="display:flex;flex-direction:column;gap:6px;">
+                  <div class="cl-ui-stack-xs">
                     ${pkgs.map(p => `
-                      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-bg);font-family:var(--cl-font-mono);font-size:12px;">
-                        <span style="color:var(--cl-fg);font-weight:600;">${escapeHtml(p.name)}</span>
-                        <span style="color:var(--cl-accent);">${escapeHtml(p.version)} · jsDelivr</span>
+                      <div class="cl-ui-pkg-row">
+                        <span class="cl-ui-pkg-row__name">${escapeHtml(p.name)}</span>
+                        <span class="cl-ui-pkg-row__meta">${escapeHtml(p.version)} · jsDelivr</span>
                       </div>
                     `).join('')}
                   </div>
                 `}
               </div>
               <div>
-                <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--cl-fg-muted);margin-bottom:8px;">
+                <div class="cl-ui-section-label">
                   Built-in Virtual Node.js Modules (Zero-Latency In-Memory VFS)
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <div class="cl-ui-chip-wrap">
                   ${builtins.map(b => `
-                    <span style="padding:3px 8px;border:1px solid var(--cl-border);border-radius:4px;background:var(--cl-bg);font-family:var(--cl-font-mono);font-size:11px;color:var(--cl-fg-muted);">${b}</span>
+                    <span class="cl-ui-chip">${b}</span>
                   `).join('')}
                 </div>
               </div>
@@ -18226,7 +18232,7 @@ int main() {
               <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="close-modal" title="Close" aria-label="Close">&times;</button>
             </div>
             <div class="codelab-modal__body">
-              <p id="cl-discard-modal-desc" style="margin:0 0 14px;font-size:13px;line-height:1.5;">${escapeHtml(desc)}</p>
+              <p id="cl-discard-modal-desc" class="cl-ui-modal-desc">${escapeHtml(desc)}</p>
               <div style="display:flex;justify-content:flex-end;gap:8px;">
                 <button type="button" class="codelab-btn" id="cl-discard-cancel-btn" data-cl-action="close-modal">Cancel</button>
                 <button type="button" class="codelab-btn codelab-btn--danger" id="cl-discard-confirm-btn">Discard Changes</button>
@@ -19758,12 +19764,12 @@ int main() {
       this._captureModalReturnFocus();
       const rowsHtml = list.length > 0
         ? list.map((ws) => `
-            <button type="button" class="codelab-recent-ws-item" data-cl-workspace="${escapeHtml(ws.labId)}" style="display:flex;width:100%;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid var(--cl-border);border-radius:var(--cl-radius-sm);background:var(--cl-surface);color:var(--cl-fg);cursor:pointer;text-align:left;">
+            <button type="button" class="codelab-recent-ws-item" data-cl-workspace="${escapeHtml(ws.labId)}">
               <span>
                 <strong>${escapeHtml(ws.title || ws.labId)}</strong>
-                ${ws.labId === this.labId ? '<span style="opacity:0.7;margin-left:6px;">(Current)</span>' : ''}
+                ${ws.labId === this.labId ? '<span class="cl-ui-meta-inline">(Current)</span>' : ''}
               </span>
-              <code style="font-size:11px;opacity:0.75;">${escapeHtml(ws.labId)}</code>
+              <code class="cl-ui-chip">${escapeHtml(ws.labId)}</code>
             </button>
           `).join('')
         : '<p style="margin:0;color:var(--cl-fg-muted);">No saved workspaces found yet.</p>';
@@ -20231,8 +20237,8 @@ int main() {
               <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
             </div>
             <div class="codelab-modal__body">
-              <div style="display:grid;grid-template-columns:1fr auto;gap:6px 16px;font-size:12px;">
-                ${rows.map(([label, kbd]) => `<span>${escapeHtml(label)}</span><kbd style="font-family:var(--cl-font-mono);">${escapeHtml(kbd)}</kbd>`).join('')}
+              <div class="cl-ui-shortcuts-grid">
+                ${rows.map(([label, kbd]) => `<span>${escapeHtml(label)}</span><kbd class="cl-ui-kbd">${escapeHtml(kbd)}</kbd>`).join('')}
               </div>
             </div>
           </div>
@@ -20253,9 +20259,9 @@ int main() {
               <span>About CodeLab</span>
               <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
             </div>
-            <div class="codelab-modal__body" style="font-size:13px;line-height:1.5;">
-              <p style="margin:0 0 8px;"><strong>@innovatorved/code-lab</strong> — Full-featured in-browser IDE &amp; runtime workbench.</p>
-              <p style="margin:0;color:var(--cl-fg-muted);font-size:12px;">Node.js v22 Worker · TypeScript 5.x · C++20 WASI · Python 3.12 WASI · SQLite / PostgreSQL · Git</p>
+            <div class="codelab-modal__body">
+              <p class="cl-ui-body-p"><strong>@innovatorved/code-lab</strong> — Full-featured in-browser IDE &amp; runtime workbench.</p>
+              <p class="cl-ui-muted-note">Node.js v22 Worker · TypeScript 5.x · C++20 WASI · Python 3.12 WASI · SQLite / PostgreSQL · Git</p>
             </div>
           </div>
         </dialog>
@@ -20747,8 +20753,8 @@ int main() {
               <span id="cl-clone-modal-title" style="display:inline-flex;align-items:center;gap:6px;">${CL_ICONS.gitBranch || CL_ICONS.terminal || CL_ICONS.folder}<span>Clone Public GitHub Repository</span></span>
               <button type="button" class="codelab-btn" id="cl-clone-close-btn" data-cl-action="close-modal" aria-label="Close">✕</button>
             </div>
-            <div class="codelab-modal__body" style="font-family:var(--cl-font-sans);">
-              <p id="cl-clone-modal-desc" style="margin:0 0 12px;font-size:12.5px;color:var(--cl-fg-muted);line-height:1.45;">
+            <div class="codelab-modal__body">
+              <p id="cl-clone-modal-desc" class="cl-ui-modal-desc">
                 Enter a public GitHub repository URL or <code>owner/repo</code> slug. Files are cloned transactionally into the Virtual Filesystem (VFS).
               </p>
               <form id="cl-clone-repo-form" class="codelab-clone-form" novalidate>

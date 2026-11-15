@@ -73,17 +73,17 @@ export function renderObservabilityPanelHtml(input: ObservabilitySnapshotInput):
   const configDiags = input.configuration.getDiagnostics();
 
   return (
-    `<div class="cl-observability-panel" style="padding:10px 14px;font-size:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;">` +
-    `<section style="border:1px solid var(--cl-border,#262626);border-radius:6px;padding:8px 10px;">` +
+    `<div class="cl-observability-panel">` +
+    `<section class="cl-observability-card">` +
     `<strong>Services & Runtime (${serviceIds.length})</strong>` +
-    `<div style="margin-top:4px;color:var(--cl-muted,#8e8e93);">Worker Host: <code>${escapeHtml(input.workerStatus ?? 'ready')}</code></div>` +
-    `<ul style="margin:6px 0 0;padding-left:16px;">` +
+    `<div class="cl-observability-meta">Worker Host: <code>${escapeHtml(input.workerStatus ?? 'ready')}</code></div>` +
+    `<ul class="cl-observability-list">` +
     serviceIds.map((id) => `<li><code>${escapeHtml(id)}</code></li>`).join('') +
     `</ul>` +
     `</section>` +
-    `<section style="border:1px solid var(--cl-border,#262626);border-radius:6px;padding:8px 10px;">` +
+    `<section class="cl-observability-card">` +
     `<strong>Plugins (${plugins.length}) & Config Diagnostics (${configDiags.length})</strong>` +
-    `<ul style="margin:6px 0 0;padding-left:16px;">` +
+    `<ul class="cl-observability-list">` +
     (plugins.length > 0
       ? plugins
           .map(
@@ -94,14 +94,14 @@ export function renderObservabilityPanelHtml(input: ObservabilitySnapshotInput):
       : `<li>No external plugins registered</li>`) +
     `</ul>` +
     (configDiags.length > 0
-      ? `<div style="margin-top:6px;color:#f59e0b;">` +
+      ? `<div class="cl-observability-warn">` +
         configDiags.map((d) => `<div>⚠ ${escapeHtml(d.message)}</div>`).join('') +
         `</div>`
       : '') +
     `</section>` +
-    `<section style="border:1px solid var(--cl-border,#262626);border-radius:6px;padding:8px 10px;">` +
+    `<section class="cl-observability-card">` +
     `<strong>Recent Event Bus (${events.length})</strong>` +
-    `<ul style="margin:6px 0 0;padding-left:16px;max-height:130px;overflow-y:auto;">` +
+    `<ul class="cl-observability-list cl-observability-list--scroll">` +
     (events.length > 0
       ? events
           .map(
@@ -112,9 +112,9 @@ export function renderObservabilityPanelHtml(input: ObservabilitySnapshotInput):
       : `<li>No events recorded yet</li>`) +
     `</ul>` +
     `</section>` +
-    `<section style="border:1px solid var(--cl-border,#262626);border-radius:6px;padding:8px 10px;">` +
+    `<section class="cl-observability-card">` +
     `<strong>Recent Logs (${logs.length})</strong>` +
-    `<ul style="margin:6px 0 0;padding-left:16px;max-height:130px;overflow-y:auto;">` +
+    `<ul class="cl-observability-list cl-observability-list--scroll">` +
     (logs.length > 0
       ? logs
           .map(
@@ -147,8 +147,6 @@ export class WorkbenchErrorBoundary {
       this.bannerEl = doc.createElement('div');
       this.bannerEl.className = 'cl-error-boundary-banner';
       this.bannerEl.setAttribute('role', 'alert');
-      this.bannerEl.style.cssText =
-        'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;background:rgba(239,68,68,0.15);border-bottom:1px solid #ef4444;color:var(--cl-fg,#f5f5f5);font-size:12px;';
       if (typeof this.host.prepend === 'function') {
         this.host.prepend(this.bannerEl);
       } else {
@@ -157,7 +155,7 @@ export class WorkbenchErrorBoundary {
     }
     this.bannerEl.innerHTML =
       `<span><strong>${escapeHtml(contextLabel)}:</strong> ${escapeHtml(msg)}</span>` +
-      `<button type="button" class="codelab-btn" data-dismiss-error="1" style="padding:2px 8px;font-size:11px;">Dismiss</button>`;
+      `<button type="button" class="codelab-btn cl-ui-btn" data-dismiss-error="1">Dismiss</button>`;
     const dismissBtn = this.bannerEl.querySelector('[data-dismiss-error]');
     dismissBtn?.addEventListener(
       'click',

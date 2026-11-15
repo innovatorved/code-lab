@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/editor",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Swappable editor service and IEditorAdapter implementations (Monaco, SQL, Lightweight textarea) for CodeLab.",
   "type": "module",
   "main": "./src/index.ts",

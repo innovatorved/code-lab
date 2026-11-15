@@ -1,6 +1,6 @@
 # @innovatorved/code-lab
 
-Modular browser-native IDE workbench (`v0.6.0`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 73 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
+Modular browser-native IDE workbench (`v0.6.1`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 73 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
 
 
 ## Highlights

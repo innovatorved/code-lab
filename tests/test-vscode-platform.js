@@ -273,7 +273,7 @@ async function main() {
     svc.applyToElement(mockEl);
     assert.equal(mockEl.getAttribute('data-cl-theme'), 'light');
     assert.equal(mockEl.style['--cl-accent-fg'], '#ffffff');
-    assert.equal(mockEl.style['--cl-fg-muted'], '#616161');
+    assert.equal(mockEl.style['--cl-fg-muted'], '#52525b');
 
     const propMap = new Map();
     const browserLikeEl = doc.createElement('div');
@@ -284,8 +284,8 @@ async function main() {
     };
     svc.setTheme('dark');
     svc.applyToElement(browserLikeEl);
-    assert.equal(propMap.get('--cl-accent'), '#4daafc');
-    assert.equal(propMap.get('--cl-accent-fg'), '#000000');
+    assert.equal(propMap.get('--cl-accent'), '#f4f4f5');
+    assert.equal(propMap.get('--cl-accent-fg'), '#0f0f10');
     svc.dispose();
   });
 
