@@ -46,19 +46,45 @@ function stripTypeScriptModuleSurface(code) {
   return marker === -1 ? code : code.slice(0, marker);
 }
 
-const runtimeCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'runtime.ts'), 'utf8'));
-const shellCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'shell.ts'), 'utf8'));
-const terminalCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'terminal.ts'), 'utf8'));
-let workbenchCode = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'workbench.ts'), 'utf8'));
+function minifyClassicScript(code, label, safeIdent = false) {
+  try {
+    const flags = safeIdent
+      ? ['--loader=ts', '--minify-whitespace', '--minify-syntax']
+      : ['--loader=ts', '--minify'];
+    return execFileSync(localBin('esbuild'), flags, {
+      cwd: PKG_DIR,
+      input: code,
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024
+    });
+  } catch (err) {
+    throw new Error(`Failed to minify ${label}: ${err.message}`);
+  }
+}
+
+const runtimeCode = minifyClassicScript(
+  stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'runtime.ts'), 'utf8')),
+  'src/runtime.ts'
+);
+const shellCode = minifyClassicScript(
+  stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'shell.ts'), 'utf8')),
+  'src/shell.ts'
+);
+const terminalCode = minifyClassicScript(
+  stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'terminal.ts'), 'utf8')),
+  'src/terminal.ts'
+);
+let workbenchRaw = stripTypeScriptModuleSurface(fs.readFileSync(path.join(SRC_DIR, 'workbench.ts'), 'utf8'));
 const cssPath = path.join(SRC_DIR, 'code-lab.css');
 
 // Single source of truth for the shipped SDK version. Fail the build if the
 // injection point disappears rather than silently shipping a stale version.
 const VERSION_SENTINEL = /const CODELAB_VERSION = '[^']*';/;
-if (!VERSION_SENTINEL.test(workbenchCode)) {
+if (!VERSION_SENTINEL.test(workbenchRaw)) {
   throw new Error('src/workbench.ts must declare `const CODELAB_VERSION = ...` for the build to inject package.json.version');
 }
-workbenchCode = workbenchCode.replace(VERSION_SENTINEL, `const CODELAB_VERSION = '${PKG_VERSION}';`);
+workbenchRaw = workbenchRaw.replace(VERSION_SENTINEL, '');
+const workbenchCode = `const CODELAB_VERSION = '${PKG_VERSION}';\n` + minifyClassicScript(workbenchRaw, 'src/workbench.ts');
 
 // Shared preview-CSP module. Written as real, strict TypeScript and bundled to a
 // classic script (`var CodeLabCsp`) that is embedded in BOTH the workbench
@@ -68,7 +94,7 @@ let cspCode;
 try {
   cspCode = execFileSync(
     localBin('esbuild'),
-    ['src/csp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCsp'],
+    ['src/csp.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabCsp'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -79,7 +105,7 @@ let loggerCode;
 try {
   loggerCode = execFileSync(
     localBin('esbuild'),
-    ['src/logger.ts', '--bundle', '--format=iife', '--global-name=CodeLabLogger'],
+    ['src/logger.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabLogger'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -90,7 +116,7 @@ let htmlCode;
 try {
   htmlCode = execFileSync(
     localBin('esbuild'),
-    ['src/html.ts', '--bundle', '--format=iife', '--global-name=CodeLabHtml'],
+    ['src/html.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabHtml'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -101,7 +127,7 @@ let zipCode;
 try {
   zipCode = execFileSync(
     localBin('esbuild'),
-    ['src/zip.ts', '--bundle', '--format=iife', '--global-name=CodeLabZip'],
+    ['src/zip.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabZip'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -112,7 +138,7 @@ let storageCode;
 try {
   storageCode = execFileSync(
     localBin('esbuild'),
-    ['src/storage.ts', '--bundle', '--format=iife', '--global-name=CodeLabStorage'],
+    ['src/storage.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabStorage'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -123,7 +149,7 @@ let searchCode;
 try {
   searchCode = execFileSync(
     localBin('esbuild'),
-    ['src/search.ts', '--bundle', '--format=iife', '--global-name=CodeLabSearch'],
+    ['src/search.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabSearch'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -134,7 +160,7 @@ let diagnosticsCode;
 try {
   diagnosticsCode = execFileSync(
     localBin('esbuild'),
-    ['src/diagnostics.ts', '--bundle', '--format=iife', '--global-name=CodeLabDiagnostics'],
+    ['src/diagnostics.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabDiagnostics'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -145,7 +171,7 @@ let scmCode;
 try {
   scmCode = execFileSync(
     localBin('esbuild'),
-    ['src/scm.ts', '--bundle', '--format=iife', '--global-name=CodeLabScm'],
+    ['src/scm.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabScm'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -156,7 +182,7 @@ let workbenchComponentsCode;
 try {
   workbenchComponentsCode = execFileSync(
     localBin('esbuild'),
-    ['src/workbench/index.ts', '--bundle', '--format=iife', '--global-name=CodeLabWorkbenchComponents'],
+    ['src/workbench/index.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabWorkbenchComponents'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
 } catch (err) {
@@ -169,12 +195,12 @@ let sqlIifeMinCode;
 try {
   umbrellaExtCode = execFileSync(
     localBin('esbuild'),
-    ['src/extensions/umbrella.ts', '--bundle', '--format=iife', '--global-name=CodeLabUmbrellaExt'],
+    ['src/extensions/umbrella.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabUmbrellaExt'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
   modularKernelCode = execFileSync(
     localBin('esbuild'),
-    ['src/modular-kernel.ts', '--bundle', '--format=iife', '--global-name=CodeLabModular'],
+    ['src/modular-kernel.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabModular'],
     { cwd: PKG_DIR, encoding: 'utf8' }
   );
   sqlIifeMinCode = execFileSync(
@@ -193,7 +219,7 @@ const BANNER = `/**
  * Features:
  *   - Sandboxed Web Worker Execution Engine with Multi-Instance Isolation & Watchdog Timer
  *   - First-Class Node.js and Bun Runtimes (Bun.serve, bun:test, bun:sqlite, Bun.*)
- *   - Full POSIX Shell AST & 71 UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
+ *   - Full POSIX Shell AST & 73 UNIX Coreutils (pipes, redirects, globs, env vars, git & git clone)
  *   - Interactive PTY Terminal Emulator with inline prompt, Tab completion & ANSI colors
  *   - Persistent HTTP/TCP Servers, CLI curl & Live Port/HTTP Preview
  *   - Modular VS Code Workbench: File Tree, Tabs, Command Palette, Diff Viewer
@@ -349,6 +375,7 @@ ${umbrellaExtCode}
       executeInWorker: CodeLabRuntime.executeInWorker,
       cancelWorkerExecution: CodeLabRuntime.cancelWorkerExecution,
       destroyWorkerPool: CodeLabRuntime.destroyWorkerPool,
+      clearReplSession: CodeLabRuntime.clearReplSession,
       preloadNpmPackages: CodeLabRuntime.preloadNpmPackages,
       transpileTS: CodeLabRuntime.transpileTS,
       transpileForBrowser: CodeLabRuntime.transpileForBrowser,
@@ -533,6 +560,7 @@ const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const executeInWorker = CodeLabRuntime.executeInWorker;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
 const destroyWorkerPool = CodeLabRuntime.destroyWorkerPool;
+const clearReplSession = CodeLabRuntime.clearReplSession;
 const preloadNpmPackages = CodeLabRuntime.preloadNpmPackages;
 const transpileTS = CodeLabRuntime.transpileTS;
 const transpileForBrowser = CodeLabRuntime.transpileForBrowser;
@@ -668,6 +696,7 @@ export {
   executeInWorker,
   cancelWorkerExecution,
   destroyWorkerPool,
+  clearReplSession,
   preloadNpmPackages,
   transpileTS,
   transpileForBrowser,
@@ -763,6 +792,7 @@ const executeInVirtualRuntime = CodeLabRuntime.executeInVirtualRuntime;
 const createWorkerRuntimeSource = CodeLabRuntime.createWorkerRuntimeSource;
 const cancelWorkerExecution = CodeLabRuntime.cancelWorkerExecution;
 const destroyWorkerPool = CodeLabRuntime.destroyWorkerPool;
+const clearReplSession = CodeLabRuntime.clearReplSession;
 const executeInWorker = CodeLabRuntime.executeInWorker;
 
 export {
@@ -796,6 +826,7 @@ export {
   createWorkerRuntimeSource,
   cancelWorkerExecution,
   destroyWorkerPool,
+  clearReplSession,
   executeInWorker
 };
 export default CodeLabRuntime;
@@ -804,6 +835,8 @@ export default CodeLabRuntime;
 const SHELL_IIFE = `${BANNER}(function (root) {
   'use strict';
 ${loggerCode}
+${scmCode}
+  if (typeof CodeLabScm !== 'undefined') root.CodeLabScm = CodeLabScm;
   (function () {
 ${shellCode}
   })();
@@ -816,6 +849,8 @@ ${shellCode}
 
 const SHELL_ESM = `${BANNER}const _root = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {};
 ${loggerCode}
+${scmCode}
+if (typeof CodeLabScm !== 'undefined') _root.CodeLabScm = CodeLabScm;
 (function () {
 ${shellCode}
 })();
@@ -1783,9 +1818,17 @@ if (sqlJsGzipBytes + sqlCssGzipBytes > 35 * 1024) {
   );
 }
 
-// 2. Copy CSS to dist/code-lab.css
+// 2. Copy CSS (with @xterm/xterm stylesheet prepended) to dist/code-lab.css
 if (fs.existsSync(cssPath)) {
-  fs.copyFileSync(cssPath, path.join(DIST_DIR, 'code-lab.css'));
+  const xtermCssPath = path.join(PKG_DIR, 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css');
+  const xtermCss = fs.existsSync(xtermCssPath) ? fs.readFileSync(xtermCssPath, 'utf8') + '\n' : '';
+  const mainCss = fs.readFileSync(cssPath, 'utf8');
+  const minCss = execFileSync(localBin('esbuild'), ['--loader=css', '--minify'], {
+    cwd: PKG_DIR,
+    input: `${xtermCss}${mainCss}`,
+    encoding: 'utf8'
+  }).replace(/\[data-cl-theme=(light|dark|high-contrast)\]/g, '[data-cl-theme="$1"]');
+  fs.writeFileSync(path.join(DIST_DIR, 'code-lab.css'), minCss, 'utf8');
 }
 
 // 2b. Copy sample.html to dist/sample.html

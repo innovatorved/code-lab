@@ -65,6 +65,17 @@
     return null;
   }
 
+  function getScmModule() {
+    if (typeof root !== 'undefined' && root && root.CodeLabScm) return root.CodeLabScm;
+    if (typeof globalThis !== 'undefined' && globalThis.CodeLabScm) return globalThis.CodeLabScm;
+    try {
+      if (typeof require !== 'undefined') return require('./scm.js');
+    } catch (err) {
+      _shellLogger.debug('Optional ./scm.js require skipped in shell.', err);
+    }
+    return null;
+  }
+
   function hasVirtualRuntime() {
     const rm = getRuntimeModule();
     return Boolean(rm && typeof rm.executeInVirtualRuntime === 'function');
@@ -76,6 +87,103 @@
       return rm.executeInVirtualRuntime(...args);
     }
     throw new Error('Virtual runtime engine is not available');
+  }
+
+  async function executeJsInShellRuntime(runOpts, ctx) {
+    const rm = getRuntimeModule();
+    if (!rm || typeof rm.executeInVirtualRuntime !== 'function') {
+      throw new Error('Virtual runtime engine is not available');
+    }
+
+    let sourceCode = typeof runOpts.replCode === 'string' ? runOpts.replCode : '';
+    if (!sourceCode && typeof runOpts.entry === 'string' && ctx && ctx.vfs && typeof ctx.vfs.existsSync === 'function') {
+      try {
+        const absEntry = typeof ctx.resolvePath === 'function' ? ctx.resolvePath(runOpts.entry) : runOpts.entry;
+        const candidate = ctx.vfs.existsSync(absEntry) ? absEntry : (ctx.vfs.existsSync(runOpts.entry) ? runOpts.entry : '');
+        if (candidate) {
+          sourceCode = String(ctx.vfs.readFileSync(candidate, 'utf8') || '');
+        }
+      } catch (_err) {
+        void _err;
+      }
+    }
+
+    // Best-effort preload external npm packages if imported and not already in VFS node_modules
+    let preloadedNpmModules = runOpts.npmModules;
+    const BUILTIN_SPECS = new Set([
+      'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto', 'dgram',
+      'diagnostics_channel', 'dns', 'domain', 'events', 'fs', 'http', 'http2', 'https', 'inspector',
+      'module', 'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline',
+      'repl', 'sqlite', 'stream', 'string_decoder', 'sys', 'test', 'timers', 'tls', 'tty', 'url',
+      'util', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'
+    ]);
+    let hasExternalPkg = false;
+    if (sourceCode && !(runOpts.isBackground || (ctx && ctx.isBackground))) {
+      const specRe = /(?:from\s+|require\s*\(\s*)['"]([^./'"]+)['"]/g;
+      let sm;
+      while ((sm = specRe.exec(sourceCode)) !== null) {
+        const spec = sm[1];
+        if (spec.startsWith('node:') || spec.startsWith('bun:')) continue;
+        const rootPkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+        if (!BUILTIN_SPECS.has(rootPkg)) {
+          hasExternalPkg = true;
+          break;
+        }
+      }
+    }
+    if (hasExternalPkg && typeof rm.preloadNpmPackages === 'function') {
+      try {
+        const loaded = await rm.preloadNpmPackages({ [runOpts.entry || 'eval.js']: sourceCode });
+        if (loaded && typeof loaded === 'object') {
+          preloadedNpmModules = Object.assign({}, loaded, preloadedNpmModules || {});
+        }
+      } catch (err) {
+        _shellLogger.debug('preloadNpmPackages skipped in shell:', err);
+      }
+    }
+
+    const onRequestStdin =
+      (ctx && typeof ctx.onRequestStdin === 'function' ? ctx.onRequestStdin : null) ||
+      (ctx && ctx.shell && ctx.shell.options && typeof ctx.shell.options.onRequestStdin === 'function'
+        ? ctx.shell.options.onRequestStdin
+        : undefined);
+
+    const portTable = ctx && ctx.shell ? ctx.shell.portTable : null;
+    const hasActivePortServers = Boolean(
+      portTable && typeof portTable.listServers === 'function' && portTable.listServers().length > 0
+    );
+    const needsPortTable = Boolean(
+      runOpts.isBackground ||
+      (ctx && ctx.isBackground) ||
+      hasActivePortServers ||
+      /(?:\bcreateServer\b|\.listen\s*\(|\bBun\.serve\b|\blocalhost\b|127\.0\.0\.1)/.test(sourceCode)
+    );
+
+    const resolvedInstanceId =
+      runOpts.instanceId ||
+      (ctx && ctx.shell && ctx.shell.options && ctx.shell.options.instanceId
+        ? ctx.shell.options.instanceId
+        : undefined);
+
+    const mergedOpts = {
+      ...runOpts,
+      ...(resolvedInstanceId ? { instanceId: resolvedInstanceId } : {}),
+      concurrent: true,
+      npmModules: preloadedNpmModules,
+      onRequestStdin
+    };
+
+    if (!needsPortTable && typeof Worker !== 'undefined' && typeof rm.executeInWorker === 'function') {
+      const workerOpts = { ...mergedOpts };
+      delete workerOpts.activePortTable;
+      delete workerOpts.portTable;
+      return rm.executeInWorker(workerOpts);
+    }
+
+    return rm.executeInVirtualRuntime({
+      ...mergedOpts,
+      activePortTable: portTable
+    });
   }
 
   function createVirtualPortTable(...args) {
@@ -121,12 +229,13 @@
 
     resolve(cwd, ...paths) {
       let resolved = cwd.startsWith('/') ? cwd : '/' + cwd;
+      const homeDir = PosixPath._homeDir || '/home/codelab';
       for (const p of paths) {
         if (!p) continue;
         if (p.startsWith('/')) {
           resolved = p;
         } else if (p === '~' || p.startsWith('~/')) {
-          resolved = '/home/user' + p.slice(1);
+          resolved = homeDir + p.slice(1);
         } else {
           resolved = resolved.endsWith('/') ? resolved + p : resolved + '/' + p;
         }
@@ -1592,12 +1701,15 @@
   // =========================================================================
   function createFallbackVfs() {
     const files = new Map();
-    const dirs = new Set(['/', '/tmp', '/workspace', '/etc', '/home', '/home/user']);
+    const dirs = new Set(['/', '/tmp', '/workspace', '/etc', '/home', '/home/user', '/home/codelab']);
     let _activeStdin = '';
+    let _currentCwd = '/workspace';
 
     function norm(p) {
       const s = String(p);
-      return PosixPath.normalize(s.startsWith('/') ? s : '/workspace/' + s);
+      if (s.startsWith('/')) return PosixPath.normalize(s);
+      const base = _currentCwd && _currentCwd.startsWith('/') ? _currentCwd : '/workspace';
+      return PosixPath.normalize(base.endsWith('/') ? base + s : base + '/' + s);
     }
 
     const emitter = {
@@ -1705,6 +1817,25 @@
       },
       _setActiveStdin(text) {
         _activeStdin = text === null || text === undefined ? '' : String(text);
+      },
+      _setCwd(dir) {
+        if (dir && typeof dir === 'string') {
+          _currentCwd = PosixPath.normalize(dir);
+        }
+      },
+      _getRawFileBytes(p) {
+        const np = norm(p);
+        const f = files.get(np);
+        return f && f.rawBytes instanceof Uint8Array ? f.rawBytes : null;
+      },
+      _getAllRawFiles() {
+        const out = {};
+        for (const [k, f] of files.entries()) {
+          if (f && f.rawBytes instanceof Uint8Array) {
+            out[k] = f.rawBytes;
+          }
+        }
+        return out;
       },
       writeFileSync(p, data) {
         const np = norm(p);
@@ -1830,7 +1961,16 @@
         const s = norm(src);
         const d = norm(dst);
         if (!files.has(s)) throw new Error(`ENOENT: no such file or directory, copy '${src}'`);
-        files.set(d, { data: files.get(s).data, mtimeMs: Date.now() });
+        const srcEntry = files.get(s);
+        const rawCopy = srcEntry.rawBytes instanceof Uint8Array
+          ? new Uint8Array(srcEntry.rawBytes)
+          : null;
+        files.set(d, {
+          data: srcEntry.data,
+          rawBytes: rawCopy,
+          mtimeMs: Date.now(),
+          mode: srcEntry.mode !== undefined ? srcEntry.mode : 0o100644
+        });
       }
     };
   }
@@ -1839,6 +1979,11 @@
   // 6. DIFF & LCS UTILITIES (For `diff -u` and `git diff`)
   // =========================================================================
   function computeUnifiedDiff(file1Name, file2Name, text1, text2) {
+    const scm = getScmModule();
+    if (scm && typeof scm.computeUnifiedHunkDiff === 'function') {
+      const hunkDiff = scm.computeUnifiedHunkDiff(file1Name, file2Name, text1, text2, 3);
+      return hunkDiff ? (hunkDiff.endsWith('\n') ? hunkDiff : hunkDiff + '\n') : '';
+    }
     const lines1 = text1.length > 0 ? text1.split('\n') : [];
     const lines2 = text2.length > 0 ? text2.split('\n') : [];
 
@@ -1931,13 +2076,21 @@
     if (httpMatch) {
       owner = httpMatch[1];
       repo = httpMatch[2];
-      branch = httpMatch[4] || branch || null;
-      subpath = httpMatch[5] ? httpMatch[5].replace(/^\/+|\/+$/g, '') : null;
+      const rawTail = httpMatch[4] ? (httpMatch[5] ? `${httpMatch[4]}/${httpMatch[5].replace(/^\/+|\/+$/g, '')}` : httpMatch[4]) : null;
+      const slashBranchPrefix = rawTail && /^(?:feature|feat|fix|bugfix|hotfix|release|chore|refactor|docs|test|ci|depend|dependabot)\/[^/]+$/.test(rawTail);
+      if (slashBranchPrefix && !branch) {
+        branch = rawTail;
+        subpath = null;
+      } else {
+        branch = httpMatch[4] || branch || null;
+        subpath = httpMatch[5] ? httpMatch[5].replace(/^\/+|\/+$/g, '') : null;
+      }
       return {
         owner,
         repo,
         branch,
         subpath,
+        rawTreeTail: rawTail,
         fullName: `${owner}/${repo}`,
         httpsUrl: `https://github.com/${owner}/${repo}`,
         gitUrl: `https://github.com/${owner}/${repo}.git`,
@@ -2489,7 +2642,10 @@
 
       if (!repoNotFound) {
         const branchCandidates = requestedBranch
-          ? [requestedBranch]
+          ? Array.from(new Set([
+              requestedBranch,
+              (!options.branch && parsed.rawTreeTail && parsed.rawTreeTail !== requestedBranch) ? parsed.rawTreeTail : null
+            ].filter(Boolean)))
           : Array.from(new Set([resolvedBranch, 'main', 'master'].filter(Boolean)));
 
         for (const cand of branchCandidates) {
@@ -2502,6 +2658,9 @@
             const treeJson = await treeRes.json();
             if (treeJson && Array.isArray(treeJson.tree)) {
               resolvedBranch = cand;
+              if (parsed.rawTreeTail && cand === parsed.rawTreeTail) {
+                parsed.subpath = null;
+              }
               rawTreeEntries = treeJson.tree
                 .filter((item) => item && item.type === 'blob' && item.path)
                 .map((item) => ({ path: item.path.replace(/^\/+/, ''), size: item.size || 0 }));
@@ -3100,7 +3259,15 @@
       depSpecs.push({ name: peer, range: peers[peer] || null });
     }
 
-    return { ok: true, version, entry, files, deps: depSpecs, pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null };
+    return {
+      ok: true,
+      version,
+      entry,
+      files,
+      deps: depSpecs,
+      pkgBin: meta.bin || null,
+      pkgExports: (meta.exports && typeof meta.exports === 'object') ? meta.exports : null
+    };
   }
 
   function installTargetDirs(ctx, name) {
@@ -3129,6 +3296,7 @@
       }
       const modPkgPath = PosixPath.join(dir, 'package.json');
       const modPkg = { name, version: info.version || '1.0.0', main: './' + (info.entry || 'index.js') };
+      if (info.pkgBin) modPkg.bin = info.pkgBin;
       if (info.pkgExports && typeof info.pkgExports === 'object') {
         const normalized = { '.': './' + (info.entry || 'index.js') };
         for (const key of Object.keys(info.pkgExports)) {
@@ -3140,6 +3308,27 @@
       }
       ctx.vfs.writeFileSync(modPkgPath, JSON.stringify(modPkg, null, 2) + '\n');
       if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', modPkgPath);
+
+      // Populate node_modules/.bin/<binName> shims when package declares `bin`
+      if (info.pkgBin) {
+        const nodeModulesRoot = dir.slice(0, dir.length - name.length - 1);
+        const binDir = PosixPath.join(nodeModulesRoot, '.bin');
+        ensureDirSync(ctx.vfs, binDir, ctx.emitMutation);
+        const binEntries = typeof info.pkgBin === 'string'
+          ? { [name.includes('/') ? name.split('/').pop() : name]: info.pkgBin }
+          : (typeof info.pkgBin === 'object' ? info.pkgBin : {});
+        for (const [binName, relBin] of Object.entries(binEntries)) {
+          if (!binName || !relBin) continue;
+          const targetScript = PosixPath.join(dir, String(relBin).replace(/^\.\//, ''));
+          const shimPath = PosixPath.join(binDir, binName);
+          const shimSource = `// Auto-generated bin shim for ${name}\nrequire(${JSON.stringify(targetScript)});\n`;
+          ctx.vfs.writeFileSync(shimPath, shimSource);
+          if (typeof ctx.vfs.chmodSync === 'function') {
+            try { ctx.vfs.chmodSync(shimPath, 0o755); } catch (_err) { void _err; }
+          }
+          if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', shimPath);
+        }
+      }
     }
   }
 
@@ -3348,7 +3537,27 @@
     }
     const fallback = tryDevScriptFallback(scriptName, cmd, ctx);
     if (fallback) return fallback;
-    return await ctx.shell.execute(cmd, { cwd: ctx.cwd, env: ctx.env });
+    const binPrefix = `${PosixPath.join(ctx.cwd || '/workspace', 'node_modules/.bin')}:/workspace/node_modules/.bin`;
+    const scriptEnv = {
+      ...ctx.env,
+      PATH: ctx.env && ctx.env.PATH ? `${binPrefix}:${ctx.env.PATH}` : `${binPrefix}:/usr/local/bin:/usr/bin:/bin`
+    };
+    const subRes = await ctx.shell.execute(cmd, {
+      cwd: ctx.cwd,
+      env: scriptEnv,
+      stdin: ctx.stdin,
+      signal: ctx.signal,
+      onStdout: ctx.onStdout,
+      onStderr: ctx.onStderr,
+      onRequestStdin: ctx.onRequestStdin || (ctx.shell && ctx.shell.options ? ctx.shell.options.onRequestStdin : undefined)
+    });
+    return {
+      code: subRes.code !== undefined ? subRes.code : 0,
+      stdout: subRes.stdout || '',
+      stderr: subRes.stderr || '',
+      alreadyStreamed: Boolean(ctx.onStdout),
+      aborted: subRes.aborted
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -3978,14 +4187,19 @@
     },
 
     async cd(args, ctx) {
+      const homeDir = (ctx.env && ctx.env.HOME) || '/home/codelab';
+      PosixPath._homeDir = homeDir;
       let target = args[0];
       if (!target || target === '~') {
-        target = ctx.env.HOME || '/workspace';
+        target = homeDir;
       } else if (target === '-') {
         target = ctx.env.OLDPWD || ctx.cwd;
       }
 
       const resolved = ctx.resolvePath(target);
+      if (resolved === homeDir && !ctx.vfs.existsSync(resolved) && typeof ctx.vfs.mkdirSync === 'function') {
+        try { ctx.vfs.mkdirSync(resolved, { recursive: true }); } catch (_err) { void _err; }
+      }
       if (!ctx.vfs.existsSync(resolved)) {
         return { code: 1, stdout: '', stderr: `cd: ${target}: No such file or directory\n` };
       }
@@ -4005,6 +4219,9 @@
       ctx.cwd = resolved;
       ctx.env.OLDPWD = oldPwd;
       ctx.env.PWD = resolved;
+      if (ctx.vfs && typeof ctx.vfs._setCwd === 'function') {
+        ctx.vfs._setCwd(resolved);
+      }
       if (ctx.shell) {
         ctx.shell.cwd = resolved;
         ctx.shell.env.OLDPWD = oldPwd;
@@ -5902,7 +6119,7 @@
         return {
           code: 0,
           stdout:
-            'usage: git <command> [<args>]\n\nCommon commands: init, clone, status, add, diff, commit, restore, reset, rm, branch, checkout, switch, remote, fetch, pull, log\n',
+            'usage: git <command> [<args>]\n\nCommon commands: init, clone, status, add, diff, commit, restore, reset, rm, branch, checkout, switch, merge, stash, tag, show, blame, remote, fetch, pull, push, log\n',
           stderr: ''
         };
       }
@@ -6128,11 +6345,39 @@
       }
 
       repoRoot = PosixPath.normalize(gitState.repoRoot || ctx.cwd);
+      const scmMod = getScmModule();
+
+      const buildIgnoreChecker = (liveMap) => {
+        const rawIgnore = liveMap && typeof liveMap['.gitignore'] === 'string'
+          ? liveMap['.gitignore']
+          : ((gitState.headSnapshot && typeof gitState.headSnapshot['.gitignore'] === 'string') ? gitState.headSnapshot['.gitignore'] : '');
+        if (!rawIgnore) return () => false;
+        if (scmMod && typeof scmMod.parseGitignoreRules === 'function' && typeof scmMod.isIgnoredByRules === 'function') {
+          const rules = scmMod.parseGitignoreRules(rawIgnore);
+          return (relPath) => scmMod.isIgnoredByRules(relPath, rules);
+        }
+        return () => false;
+      };
+
+      const saveCurrentBranchTip = () => {
+        if (scmMod && typeof scmMod.saveBranchTip === 'function') {
+          scmMod.saveBranchTip(gitState);
+          return;
+        }
+        if (!gitState.branchHeads || typeof gitState.branchHeads !== 'object') gitState.branchHeads = {};
+        const curBranch = gitState.branch || 'main';
+        gitState.branchHeads[curBranch] = {
+          headCommit: gitState.headCommit || '',
+          headSnapshot: Object.assign({}, gitState.headSnapshot || gitState.headFiles || {}),
+          commits: Array.isArray(gitState.commits) ? gitState.commits.map((c) => Object.assign({}, c)) : []
+        };
+      };
 
       if (subcmd === 'status') {
         const isShort = args.includes('-s') || args.includes('--short') || args.includes('--porcelain');
         const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
         const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        const isIgnored = buildIgnoreChecker(liveFiles);
         pruneShellStagedMap(gitState, stagedMap, headFiles);
         const unbornHead = isUnbornShellHead(gitState);
 
@@ -6150,7 +6395,7 @@
             if (inHead) {
               stagedList.push({ status: 'deleted', code: 'D', path: relPath });
             }
-            if (inLive) {
+            if (inLive && !isIgnored(relPath)) {
               untrackedList.push(relPath);
             }
           } else {
@@ -6179,7 +6424,9 @@
 
         for (const relPath of Object.keys(liveFiles).sort()) {
           if (!Object.prototype.hasOwnProperty.call(headFiles, relPath) && !stagedMap.has(relPath)) {
-            untrackedList.push(relPath);
+            if (!isIgnored(relPath)) {
+              untrackedList.push(relPath);
+            }
           }
         }
 
@@ -6285,14 +6532,19 @@
 
       if (subcmd === 'add') {
         const targets = args.slice(1);
+        const forceAdd = targets.includes('-f') || targets.includes('--force');
         const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
         const headFiles = gitState.headSnapshot || gitState.headFiles || {};
+        const isIgnored = forceAdd ? () => false : buildIgnoreChecker(liveFiles);
 
-        const stagePath = (relPath) => {
+        const stagePath = (relPath, explicitTarget = false) => {
           const clean = normalizeGitRelPath(relPath, repoRoot);
           if (!clean) return;
           const inLive = Object.prototype.hasOwnProperty.call(liveFiles, clean);
           const inHead = Object.prototype.hasOwnProperty.call(headFiles, clean);
+          if (!inHead && !stagedMap.has(clean) && !explicitTarget && isIgnored(clean)) {
+            return;
+          }
           if (inLive) {
             applyShellStagedEntry(gitState, stagedMap, clean, liveFiles[clean], headFiles);
           } else if (inHead) {
@@ -6307,14 +6559,14 @@
           for (const relPath of Object.keys(liveFiles)) {
             const inHead = Object.prototype.hasOwnProperty.call(headFiles, relPath);
             if (!inHead && includeUntracked) {
-              stagePath(relPath);
+              stagePath(relPath, false);
             } else if (inHead) {
-              stagePath(relPath);
+              stagePath(relPath, false);
             }
           }
           for (const relPath of Object.keys(headFiles)) {
             if (!Object.prototype.hasOwnProperty.call(liveFiles, relPath)) {
-              stagePath(relPath);
+              stagePath(relPath, false);
             }
           }
           for (const stagedKey of Array.from(stagedMap.keys())) {
@@ -6331,9 +6583,9 @@
             const rel = toRepoRel(f);
             if (!rel) continue;
             if (rel === '.') {
-              for (const k of Object.keys(liveFiles)) stagePath(k);
+              for (const k of Object.keys(liveFiles)) stagePath(k, false);
               for (const k of Object.keys(headFiles)) {
-                if (!Object.prototype.hasOwnProperty.call(liveFiles, k)) stagePath(k);
+                if (!Object.prototype.hasOwnProperty.call(liveFiles, k)) stagePath(k, false);
               }
               for (const stagedKey of Array.from(stagedMap.keys())) {
                 if (
@@ -6353,9 +6605,16 @@
                 ])
               );
               if (matchedSubfiles.length > 0) {
-                for (const k of matchedSubfiles) stagePath(k);
+                for (const k of matchedSubfiles) stagePath(k, false);
               } else {
-                stagePath(rel);
+                if (!Object.prototype.hasOwnProperty.call(headFiles, rel) && !stagedMap.has(rel) && isIgnored(rel)) {
+                  return {
+                    code: 1,
+                    stdout: '',
+                    stderr: `The following paths are ignored by one of your .gitignore files:\n${rel}\nhint: Use -f if you really want to add them.\n`
+                  };
+                }
+                stagePath(rel, true);
               }
             }
           }
@@ -6426,6 +6685,7 @@
         });
         gitState.headCommit = hash;
         stagedMap.clear();
+        saveCurrentBranchTip();
         return {
           code: 0,
           stdout: `[${gitState.branch} ${hash}] ${msg}\n ${count} file${count === 1 ? '' : 's'} changed\n`,
@@ -6434,6 +6694,7 @@
       }
 
       if (subcmd === 'branch') {
+        saveCurrentBranchTip();
         const dIdx = args.findIndex((a) => a === '-d' || a === '-D');
         if (dIdx !== -1 && dIdx + 1 < args.length) {
           const target = args[dIdx + 1];
@@ -6441,20 +6702,34 @@
             return { code: 1, stdout: '', stderr: `error: Cannot delete branch '${target}' checked out\n` };
           }
           gitState.branches.delete(target);
+          if (gitState.branchHeads) delete gitState.branchHeads[target];
           return { code: 0, stdout: `Deleted branch ${target}.\n`, stderr: '' };
         }
         const mIdx = args.findIndex((a) => a === '-m' || a === '-M');
         if (mIdx !== -1 && mIdx + 1 < args.length) {
+          const oldName = gitState.branch;
           const newName = args[mIdx + 1];
-          gitState.branches.delete(gitState.branch);
+          gitState.branches.delete(oldName);
           gitState.branch = newName;
           gitState.branches.add(newName);
+          if (gitState.branchHeads && gitState.branchHeads[oldName]) {
+            gitState.branchHeads[newName] = gitState.branchHeads[oldName];
+            delete gitState.branchHeads[oldName];
+          }
           return { code: 0, stdout: '', stderr: '' };
         }
         const nonFlags = args.slice(1).filter((a) => !a.startsWith('-'));
         if (nonFlags.length > 0) {
           for (const bName of nonFlags) {
             gitState.branches.add(bName);
+            if (!gitState.branchHeads) gitState.branchHeads = {};
+            if (!gitState.branchHeads[bName]) {
+              gitState.branchHeads[bName] = {
+                headCommit: gitState.headCommit || '',
+                headSnapshot: Object.assign({}, gitState.headSnapshot || gitState.headFiles || {}),
+                commits: Array.isArray(gitState.commits) ? gitState.commits.map((c) => Object.assign({}, c)) : []
+              };
+            }
           }
           return { code: 0, stdout: '', stderr: '' };
         }
@@ -6471,11 +6746,18 @@
       }
 
       if (subcmd === 'checkout' || subcmd === 'switch') {
+        const forceCheckout = args.includes('-f') || args.includes('--force');
         const bIdx = args.findIndex((a) => a === '-b' || a === '-B' || a === '-c' || a === '-C');
         if (bIdx !== -1 && bIdx + 1 < args.length) {
           const newBranch = args[bIdx + 1];
+          saveCurrentBranchTip();
           gitState.branches.add(newBranch);
           gitState.branch = newBranch;
+          saveCurrentBranchTip();
+          const headPath = PosixPath.join(repoRoot, '.git/HEAD');
+          if (ctx.vfs.existsSync(PosixPath.join(repoRoot, '.git'))) {
+            ctx.vfs.writeFileSync(headPath, `ref: refs/heads/${newBranch}\n`);
+          }
           return { code: 0, stdout: `Switched to a new branch '${newBranch}'\n`, stderr: '' };
         }
 
@@ -6485,6 +6767,18 @@
         }
 
         if (gitState.branches.has(target) && !args.includes('--')) {
+          if (scmMod && typeof scmMod.checkoutBranch === 'function') {
+            const chkRes = scmMod.checkoutBranch(ctx.shell, target, undefined, { force: forceCheckout });
+            if (!chkRes.ok) {
+              return { code: 1, stdout: '', stderr: (chkRes.error || `error: cannot checkout '${target}'`) + '\n' };
+            }
+            const headPath = PosixPath.join(repoRoot, '.git/HEAD');
+            if (ctx.vfs.existsSync(PosixPath.join(repoRoot, '.git'))) {
+              ctx.vfs.writeFileSync(headPath, `ref: refs/heads/${target}\n`);
+            }
+            return { code: 0, stdout: `Switched to branch '${target}'\n`, stderr: '' };
+          }
+          saveCurrentBranchTip();
           gitState.branch = target;
           return { code: 0, stdout: `Switched to branch '${target}'\n`, stderr: '' };
         }
@@ -6567,8 +6861,31 @@
 
       if (subcmd === 'reset') {
         const isHard = args.includes('--hard');
-        const fileArgs = args.slice(1).filter((a) => !a.startsWith('-') && a !== 'HEAD' && a !== '--');
-        if (fileArgs.length > 0) {
+        const isSoft = args.includes('--soft');
+        const mode = isHard ? 'hard' : (isSoft ? 'soft' : 'mixed');
+        const rawPositional = args.slice(1).filter((a) => !a.startsWith('-') && a !== '--');
+
+        // Check if first positional arg is a commit ref (HEAD, HEAD~N, HEAD^, branch, tag, or commit hash)
+        const firstArg = rawPositional[0];
+        const isCommitRef = firstArg && (
+          firstArg === 'HEAD' ||
+          /^HEAD(?:~\d*|\^+)$/i.test(firstArg) ||
+          (scmMod && typeof scmMod.resolveCommitRef === 'function' && scmMod.resolveCommitRef(gitState, firstArg) !== null)
+        );
+
+        if (isCommitRef && rawPositional.length === 1 && firstArg !== 'HEAD' && scmMod && typeof scmMod.resetToRef === 'function') {
+          const resetRes = scmMod.resetToRef(ctx.shell, firstArg, mode);
+          if (!resetRes.ok) {
+            return { code: 128, stdout: '', stderr: (resetRes.error || `fatal: ambiguous argument '${firstArg}'`) + '\n' };
+          }
+          const out = isHard && resetRes.commit
+            ? `HEAD is now at ${resetRes.commit.hash} ${resetRes.commit.message}\n`
+            : '';
+          return { code: 0, stdout: out, stderr: '' };
+        }
+
+        const fileArgs = rawPositional.filter((a) => a !== 'HEAD');
+        if (fileArgs.length > 0 && !isHard && !isSoft) {
           for (const f of fileArgs) {
             const rel = toRepoRel(f);
             if (!rel) continue;
@@ -6587,7 +6904,10 @@
           }
           return { code: 0, stdout: '', stderr: '' };
         }
-        stagedMap.clear();
+
+        if (!isSoft) {
+          stagedMap.clear();
+        }
         if (isHard) {
           const headFiles = gitState.headSnapshot || gitState.headFiles || {};
           const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
@@ -6609,6 +6929,7 @@
             ctx.emitMutation('change', abs);
           }
         }
+        saveCurrentBranchTip();
         return { code: 0, stdout: '', stderr: '' };
       }
 
@@ -6761,6 +7082,144 @@
         }
       }
 
+      if (subcmd === 'stash') {
+        if (!Array.isArray(gitState.stashes)) gitState.stashes = [];
+        const action = args[1] && !args[1].startsWith('-') ? args[1] : 'push';
+        if (action === 'list') {
+          const lines = gitState.stashes.map((s, idx) => `stash@{${idx}}: ${s.message}`);
+          return { code: 0, stdout: lines.length ? lines.join('\n') + '\n' : '', stderr: '' };
+        }
+        if (action === 'clear') {
+          gitState.stashes = [];
+          return { code: 0, stdout: '', stderr: '' };
+        }
+        if (action === 'drop') {
+          const idxMatch = (args[2] || 'stash@{0}').match(/(\d+)/);
+          const idx = idxMatch ? parseInt(idxMatch[1], 10) : 0;
+          if (idx < 0 || idx >= gitState.stashes.length) {
+            return { code: 1, stdout: '', stderr: `error: stash@{${idx}} is not a valid reference\n` };
+          }
+          gitState.stashes.splice(idx, 1);
+          return { code: 0, stdout: `Dropped stash@{${idx}}\n`, stderr: '' };
+        }
+        if (action === 'pop' || action === 'apply') {
+          const idxMatch = (args[2] || 'stash@{0}').match(/(\d+)/);
+          const idx = idxMatch ? parseInt(idxMatch[1], 10) : 0;
+          if (scmMod && typeof scmMod.stashApply === 'function') {
+            const res = scmMod.stashApply(ctx.shell, idx, action === 'pop');
+            if (!res.ok) return { code: 1, stdout: '', stderr: (res.error || 'No stash entries found.') + '\n' };
+            return { code: 0, stdout: `Restored working directory from stash@{${idx}}\n`, stderr: '' };
+          }
+          return { code: 1, stdout: '', stderr: 'No stash entries found.\n' };
+        }
+        if (action === 'push' || action === 'save') {
+          let msg = undefined;
+          const mIdx = args.findIndex((a) => a === '-m' || a === '--message');
+          if (mIdx !== -1 && args[mIdx + 1]) msg = args[mIdx + 1];
+          else if (action === 'save' && args[2]) msg = args.slice(2).join(' ');
+          const includeUntracked = args.includes('-u') || args.includes('--include-untracked');
+          if (scmMod && typeof scmMod.stashPush === 'function') {
+            const res = scmMod.stashPush(ctx.shell, msg, includeUntracked);
+            if (!res.ok) {
+              return { code: 1, stdout: '', stderr: (res.label || 'not a git repository') + '\n' };
+            }
+            return { code: 0, stdout: (res.label || 'No local changes to save') + '\n', stderr: '' };
+          }
+        }
+        return { code: 1, stdout: '', stderr: `git stash: unknown subcommand '${action}'\n` };
+      }
+
+      if (subcmd === 'merge') {
+        const noFf = args.includes('--no-ff');
+        const sourceBranch = args.slice(1).find((a) => !a.startsWith('-'));
+        if (!sourceBranch) {
+          return { code: 1, stdout: '', stderr: 'fatal: No branch specified to merge.\n' };
+        }
+        if (scmMod && typeof scmMod.mergeBranch === 'function') {
+          const res = scmMod.mergeBranch(ctx.shell, sourceBranch, undefined, { noFf });
+          if (!res.ok && (!res.conflicts || res.conflicts.length === 0)) {
+            return { code: 1, stdout: '', stderr: (res.error || `merge: ${sourceBranch} - not something we can merge`) + '\n' };
+          }
+          if (res.conflicts && res.conflicts.length > 0) {
+            return {
+              code: 1,
+              stdout: res.conflicts.map((f) => `CONFLICT (content): Merge conflict in ${f}`).join('\n') + '\nAutomatic merge failed; fix conflicts and then commit the result.\n',
+              stderr: ''
+            };
+          }
+          if (res.fastForward && res.commit) {
+            return { code: 0, stdout: `Updating ..${res.commit.hash}\nFast-forward\n`, stderr: '' };
+          }
+          if (res.commit) {
+            return { code: 0, stdout: `Merge made by the 'ort' strategy.\n[${gitState.branch} ${res.commit.hash}] ${res.commit.message}\n`, stderr: '' };
+          }
+          return { code: 0, stdout: 'Already up to date.\n', stderr: '' };
+        }
+        return { code: 1, stdout: '', stderr: 'git merge: SCM module unavailable\n' };
+      }
+
+      if (subcmd === 'tag') {
+        if (!gitState.tags || typeof gitState.tags !== 'object') gitState.tags = {};
+        if (args[1] === '-d' && args[2]) {
+          if (!gitState.tags[args[2]]) {
+            return { code: 1, stdout: '', stderr: `error: tag '${args[2]}' not found.\n` };
+          }
+          delete gitState.tags[args[2]];
+          return { code: 0, stdout: `Deleted tag '${args[2]}'\n`, stderr: '' };
+        }
+        const tagName = args.slice(1).find((a) => !a.startsWith('-'));
+        if (!tagName) {
+          const list = Object.keys(gitState.tags).sort();
+          return { code: 0, stdout: list.length ? list.join('\n') + '\n' : '', stderr: '' };
+        }
+        if (!gitState.headCommit) {
+          return { code: 128, stdout: '', stderr: `fatal: Failed to resolve 'HEAD' as a valid ref.\n` };
+        }
+        gitState.tags[tagName] = gitState.headCommit;
+        return { code: 0, stdout: '', stderr: '' };
+      }
+
+      if (subcmd === 'show') {
+        const ref = args.slice(1).find((a) => !a.startsWith('-')) || 'HEAD';
+        if (scmMod && typeof scmMod.showCommit === 'function') {
+          const out = scmMod.showCommit(gitState, ref);
+          if (!out) return { code: 128, stdout: '', stderr: `fatal: bad object ${ref}\n` };
+          return { code: 0, stdout: out, stderr: '' };
+        }
+        return { code: 128, stdout: '', stderr: `fatal: bad object ${ref}\n` };
+      }
+
+      if (subcmd === 'blame') {
+        const fileArg = args.slice(1).find((a) => !a.startsWith('-'));
+        if (!fileArg) return { code: 128, stdout: '', stderr: 'usage: git blame <file>\n' };
+        const rel = toRepoRel(fileArg);
+        const liveFiles = snapshotWorktree(ctx.vfs, repoRoot);
+        if (scmMod && typeof scmMod.blameFile === 'function') {
+          const out = scmMod.blameFile(gitState, rel, liveFiles);
+          if (!out && !Object.prototype.hasOwnProperty.call(liveFiles, rel)) {
+            return { code: 128, stdout: '', stderr: `fatal: no such path '${fileArg}' in HEAD\n` };
+          }
+          return { code: 0, stdout: out, stderr: '' };
+        }
+        return { code: 128, stdout: '', stderr: `fatal: no such path '${fileArg}' in HEAD\n` };
+      }
+
+      if (subcmd === 'push') {
+        const remoteUrl = gitState.remoteUrl || (gitState.remotes && gitState.remotes.origin);
+        if (!remoteUrl) {
+          return {
+            code: 128,
+            stdout: '',
+            stderr: 'fatal: No configured push destination.\nEither specify the URL from the command-line or configure a remote repository using\n\n    git remote add <name> <url>\n'
+          };
+        }
+        return {
+          code: 128,
+          stdout: '',
+          stderr: `fatal: Authentication required to push to '${remoteUrl}' from browser sandbox.\n`
+        };
+      }
+
       if (subcmd === 'log') {
         const oneline = args.includes('--oneline');
         let limit = gitState.commits.length;
@@ -6784,7 +7243,11 @@
         return { code: 0, stdout, stderr: '' };
       }
 
-      return { code: 0, stdout: `git: '${subcmd}' executed\n`, stderr: '' };
+      return {
+        code: 1,
+        stdout: '',
+        stderr: `git: '${subcmd}' is not a git command. See 'git --help'.\n`
+      };
     },
 
     // -----------------------------------------------------------------------
@@ -6843,14 +7306,98 @@
       if (!hasVirtualRuntime()) {
         return { code: 1, stdout: '', stderr: 'node: Virtual runtime engine is not available\n' };
       }
-      if (args.length === 0 || args[0] === '-v' || args[0] === '--version') {
-        if (args[0] === '-v' || args[0] === '--version') return { code: 0, stdout: 'v22.0.0\n', stderr: '' };
+      if (args[0] === '-v' || args[0] === '--version') {
+        return { code: 0, stdout: 'v22.0.0\n', stderr: '' };
+      }
+      if (args.length === 0 || args[0] === '-i' || args[0] === '--interactive') {
+        const onRequestStdin =
+          (typeof ctx.onRequestStdin === 'function' ? ctx.onRequestStdin : null) ||
+          (ctx.shell && ctx.shell.options && typeof ctx.shell.options.onRequestStdin === 'function'
+            ? ctx.shell.options.onRequestStdin
+            : null);
+        if (ctx.stdin && !onRequestStdin) {
+          const res = await executeJsInShellRuntime({
+            mode: 'repl',
+            replCode: ctx.stdin,
+            printReplResult: true,
+            stdin: '',
+            env: ctx.env,
+            cwd: ctx.cwd,
+            vfs: ctx.vfs,
+            pid: ctx.pid,
+            isBackground: ctx.isBackground,
+            onStdout: ctx.onStdout,
+            onStderr: ctx.onStderr,
+            signal: ctx.signal
+          }, ctx);
+          return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
+        }
+        if (onRequestStdin && !ctx.stdin) {
+          const banner = 'Welcome to Node.js v22.0.0.\nType ".help" for more information.\n';
+          let fullOut = banner;
+          let fullErr = '';
+          if (ctx.onStdout) ctx.onStdout(banner);
+          const replSessionId = 'node_repl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+          const rm = getRuntimeModule();
+          try {
+            while (!(ctx.signal && ctx.signal.aborted)) {
+              const line = await onRequestStdin('> ');
+              if (line === null || line === undefined) break;
+              const trimmed = String(line).trim();
+              if (trimmed === '.exit') break;
+              if (trimmed === '.help') {
+                const helpMsg =
+                  '.break    Sometimes you get stuck, this gets you out\n' +
+                  '.clear    Break, and also clear the local context\n' +
+                  '.exit     Exit the REPL\n' +
+                  '.help     Print this help message\n';
+                fullOut += helpMsg;
+                if (ctx.onStdout) ctx.onStdout(helpMsg);
+                continue;
+              }
+              if (trimmed === '.clear' || trimmed === '.break') {
+                if (trimmed === '.clear' && rm && typeof rm.clearReplSession === 'function') {
+                  rm.clearReplSession(replSessionId);
+                }
+                continue;
+              }
+              if (!trimmed) continue;
+              const stepRes = await executeInVirtualRuntime({
+                mode: 'repl',
+                replSessionId,
+                replCode: String(line),
+                printReplResult: true,
+                env: ctx.env,
+                cwd: ctx.cwd,
+                vfs: ctx.vfs,
+                activePortTable: ctx.shell ? ctx.shell.portTable : null,
+                pid: ctx.pid,
+                onRequestStdin,
+                onStdout: (t) => {
+                  fullOut += t;
+                  if (ctx.onStdout) ctx.onStdout(t);
+                },
+                onStderr: (t) => {
+                  fullErr += t;
+                  if (ctx.onStderr) ctx.onStderr(t);
+                },
+                signal: ctx.signal
+              });
+              void stepRes;
+            }
+          } finally {
+            if (rm && typeof rm.clearReplSession === 'function') {
+              rm.clearReplSession(replSessionId);
+            }
+          }
+          return { code: 0, stdout: fullOut, stderr: fullErr, alreadyStreamed: true };
+        }
         return { code: 0, stdout: 'Welcome to Node.js v22.0.0.\nType ".help" for more information.\n', stderr: '' };
       }
 
       if (args[0] === '-e' || args[0] === '--eval') {
         const code = args[1] || '';
-        const res = await executeInVirtualRuntime({
+        const res = await executeJsInShellRuntime({
           mode: 'repl',
           replCode: code,
           printReplResult: false,
@@ -6858,19 +7405,18 @@
           env: ctx.env,
           cwd: ctx.cwd,
           vfs: ctx.vfs,
-          activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
           isBackground: ctx.isBackground,
           onStdout: ctx.onStdout,
           onStderr: ctx.onStderr,
           signal: ctx.signal
-        });
+        }, ctx);
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
 
       if (args[0] === '-p' || args[0] === '--print') {
         const code = args[1] || '';
-        const res = await executeInVirtualRuntime({
+        const res = await executeJsInShellRuntime({
           mode: 'repl',
           replCode: code,
           printReplResult: true,
@@ -6878,13 +7424,12 @@
           env: ctx.env,
           cwd: ctx.cwd,
           vfs: ctx.vfs,
-          activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
           isBackground: ctx.isBackground,
           onStdout: ctx.onStdout,
           onStderr: ctx.onStderr,
           signal: ctx.signal
-        });
+        }, ctx);
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
 
@@ -6899,7 +7444,7 @@
             for (const item of ctx.vfs.readdirSync(dir)) {
               const full = PosixPath.join(dir, item);
               const st = ctx.vfs.statSync(full);
-              if (st.isDirectory() && item !== 'node_modules') {
+              if (st.isDirectory() && item !== 'node_modules' && item !== '.git') {
                 findTests(full);
               } else if (item.endsWith('.test.js') || item.endsWith('.test.ts') || item === 'test.js') {
                 filesToRun.push(full);
@@ -6913,20 +7458,19 @@
         let combinedErr = '';
         let allOk = true;
         for (const f of filesToRun) {
-          const res = await executeInVirtualRuntime({
+          const res = await executeJsInShellRuntime({
             mode: 'test',
             entry: f,
             stdin: ctx.stdin || '',
             env: ctx.env,
             cwd: ctx.cwd,
             vfs: ctx.vfs,
-            activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
             isBackground: ctx.isBackground,
             onStdout: ctx.onStdout,
             onStderr: ctx.onStderr,
             signal: ctx.signal
-          });
+          }, ctx);
           combinedOut += res.stdout;
           combinedErr += res.stderr;
           if (!res.ok) allOk = false;
@@ -6940,7 +7484,7 @@
       }
 
       const scriptArgs = args.slice(1);
-      const res = await executeInVirtualRuntime({
+      const res = await executeJsInShellRuntime({
         mode: 'run',
         entry: scriptFile,
         argv: ['node', scriptFile, ...scriptArgs],
@@ -6948,13 +7492,12 @@
         env: ctx.env,
         cwd: ctx.cwd,
         vfs: ctx.vfs,
-        activePortTable: ctx.shell.portTable,
         pid: ctx.pid,
         isBackground: ctx.isBackground,
         onStdout: ctx.onStdout,
         onStderr: ctx.onStderr,
         signal: ctx.signal
-      });
+      }, ctx);
       return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
     },
 
@@ -7078,12 +7621,72 @@
     },
 
     async python3(args, ctx) {
-      if (args.length === 0) {
+      if (args[0] === '--version' || args[0] === '-V') {
         return { code: 0, stdout: 'Python 3.12.8 (CPython WebAssembly via Pyodide)\n', stderr: '' };
       }
 
-      if (args[0] === '--version' || args[0] === '-V') {
-        return { code: 0, stdout: 'Python 3.12.8 (CPython WebAssembly via Pyodide)\n', stderr: '' };
+      const pyCompiler =
+        (ctx.shell && ctx.shell.options && ctx.shell.options.pythonCompiler) ||
+        (typeof globalThis !== 'undefined' && globalThis.__codelabPythonCompiler) ||
+        (typeof window !== 'undefined' && window.__codelabPythonCompiler);
+
+      const onRequestStdin =
+        (typeof ctx.onRequestStdin === 'function' ? ctx.onRequestStdin : null) ||
+        (ctx.shell && ctx.shell.options && typeof ctx.shell.options.onRequestStdin === 'function'
+          ? ctx.shell.options.onRequestStdin
+          : undefined);
+
+      if (args.length === 0 || args[0] === '-i') {
+        if (!ctx.stdin && !onRequestStdin) {
+          return { code: 0, stdout: 'Python 3.12.8 (CPython WebAssembly via Pyodide)\n', stderr: '' };
+        }
+        if (typeof pyCompiler !== 'function') {
+          return {
+            code: 1,
+            stdout: '',
+            stderr:
+              'python3: Python WebAssembly toolchain is not enabled. Enable pythonExtension from "@innovatorved/code-lab/extensions/python".\n'
+          };
+        }
+        if (ctx.stdin && !onRequestStdin) {
+          let outText = '';
+          let errText = '';
+          const res = await pyCompiler({
+            source: ctx.stdin,
+            stdin: '',
+            env: ctx.env,
+            cwd: ctx.cwd,
+            vfs: ctx.vfs,
+            signal: ctx.signal,
+            onStdout: (t) => { outText += t; if (ctx.onStdout) ctx.onStdout(t); },
+            onStderr: (t) => { errText += t; if (ctx.onStderr) ctx.onStderr(t); }
+          });
+          return { code: res && res.ok ? 0 : ((res && res.exitCode) || 1), stdout: outText, stderr: errText };
+        }
+        const banner = 'Python 3.12.8 (CPython WebAssembly via Pyodide)\nType "exit()" or Ctrl+D to exit.\n';
+        let fullOut = banner;
+        let fullErr = '';
+        if (ctx.onStdout) ctx.onStdout(banner);
+        while (!(ctx.signal && ctx.signal.aborted)) {
+          const line = await onRequestStdin('>>> ');
+          if (line === null || line === undefined) break;
+          const trimmed = String(line).trim();
+          if (trimmed === 'exit()' || trimmed === 'quit()') break;
+          if (!trimmed) continue;
+          await pyCompiler({
+            source: String(line),
+            repl: true,
+            stdin: '',
+            env: ctx.env,
+            cwd: ctx.cwd,
+            vfs: ctx.vfs,
+            signal: ctx.signal,
+            onRequestStdin,
+            onStdout: (t) => { fullOut += t; if (ctx.onStdout) ctx.onStdout(t); },
+            onStderr: (t) => { fullErr += t; if (ctx.onStderr) ctx.onStderr(t); }
+          });
+        }
+        return { code: 0, stdout: fullOut, stderr: fullErr, alreadyStreamed: true };
       }
 
       let codeToRun = undefined;
@@ -7094,11 +7697,6 @@
       } else if (!args[0].startsWith('-')) {
         entryFile = ctx.resolvePath(args[0]);
       }
-
-      const pyCompiler =
-        (ctx.shell && ctx.shell.options && ctx.shell.options.pythonCompiler) ||
-        (typeof globalThis !== 'undefined' && globalThis.__codelabPythonCompiler) ||
-        (typeof window !== 'undefined' && window.__codelabPythonCompiler);
 
       if (typeof pyCompiler !== 'function') {
         return {
@@ -7118,6 +7716,8 @@
         env: ctx.env,
         cwd: ctx.cwd,
         vfs: ctx.vfs,
+        signal: ctx.signal,
+        onRequestStdin,
         onStdout: (t) => {
           outText += t;
           if (ctx.onStdout) ctx.onStdout(t);
@@ -7299,7 +7899,7 @@
 
       if (sub === '-e') {
         const code = args[1] || '';
-        const res = await executeInVirtualRuntime({
+        const res = await executeJsInShellRuntime({
           mode: 'repl',
           replCode: code,
           printReplResult: false,
@@ -7307,13 +7907,12 @@
           env: ctx.env,
           cwd: ctx.cwd,
           vfs: ctx.vfs,
-          activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
           isBackground: ctx.isBackground,
           onStdout: ctx.onStdout,
           onStderr: ctx.onStderr,
           signal: ctx.signal
-        });
+        }, ctx);
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
 
@@ -7328,7 +7927,7 @@
             for (const item of ctx.vfs.readdirSync(dir)) {
               const full = PosixPath.join(dir, item);
               const st = ctx.vfs.statSync(full);
-              if (st.isDirectory() && item !== 'node_modules') {
+              if (st.isDirectory() && item !== 'node_modules' && item !== '.git') {
                 findTests(full);
               } else if (item.endsWith('.test.js') || item.endsWith('.test.ts')) {
                 filesToRun.push(full);
@@ -7342,20 +7941,19 @@
         let combinedErr = '';
         let allOk = true;
         for (const f of filesToRun) {
-          const res = await executeInVirtualRuntime({
+          const res = await executeJsInShellRuntime({
             mode: 'test',
             entry: f,
             stdin: ctx.stdin || '',
             env: ctx.env,
             cwd: ctx.cwd,
             vfs: ctx.vfs,
-            activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
             isBackground: ctx.isBackground,
             onStdout: ctx.onStdout,
             onStderr: ctx.onStderr,
             signal: ctx.signal
-          });
+          }, ctx);
           combinedOut += res.stdout;
           combinedErr += res.stderr;
           if (!res.ok) allOk = false;
@@ -7371,7 +7969,7 @@
         const resolved = ctx.resolvePath(target);
         if (ctx.vfs.existsSync(resolved)) {
           const scriptArgs = args.slice(2);
-          const res = await executeInVirtualRuntime({
+          const res = await executeJsInShellRuntime({
             mode: 'run',
             entry: resolved,
             argv: ['bun', resolved, ...scriptArgs],
@@ -7379,13 +7977,12 @@
             env: ctx.env,
             cwd: ctx.cwd,
             vfs: ctx.vfs,
-            activePortTable: ctx.shell.portTable,
             pid: ctx.pid,
             isBackground: ctx.isBackground,
             onStdout: ctx.onStdout,
             onStderr: ctx.onStderr,
             signal: ctx.signal
-          });
+          }, ctx);
           return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
         }
         const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
@@ -7398,7 +7995,7 @@
       const resolved = ctx.resolvePath(sub);
       if (ctx.vfs.existsSync(resolved)) {
         const scriptArgs = args.slice(1);
-        const res = await executeInVirtualRuntime({
+        const res = await executeJsInShellRuntime({
           mode: 'run',
           entry: resolved,
           argv: ['bun', resolved, ...scriptArgs],
@@ -7406,13 +8003,12 @@
           env: ctx.env,
           cwd: ctx.cwd,
           vfs: ctx.vfs,
-          activePortTable: ctx.shell.portTable,
           pid: ctx.pid,
           isBackground: ctx.isBackground,
           onStdout: ctx.onStdout,
           onStderr: ctx.onStderr,
           signal: ctx.signal
-        });
+        }, ctx);
         return { code: res.ok ? 0 : (res.exitCode || 1), stdout: res.stdout, stderr: res.stderr };
       }
 
@@ -7429,6 +8025,16 @@
         return { code: 0, stdout: 'npm v10.2.0\n', stderr: '' };
       }
       const sub = args[0];
+      if (sub === '--version' || sub === '-v' || sub === 'version') {
+        return { code: 0, stdout: '10.2.0\n', stderr: '' };
+      }
+      if (sub === '--help' || sub === '-h' || sub === 'help') {
+        return {
+          code: 0,
+          stdout: 'npm v10.2.0\nUsage: npm <command>\n\nCommands: init, install, uninstall, list, run, start, test\n',
+          stderr: ''
+        };
+      }
 
       if (sub === 'init') {
         const pkgPath = PosixPath.join(ctx.cwd, 'package.json');
@@ -7485,6 +8091,10 @@
         return await runPackageScript('test', args.slice(1), ctx);
       }
 
+      if (sub === 'start') {
+        return await runPackageScript('start', args.slice(1), ctx);
+      }
+
       const { data: pkgData } = readPackageJson(ctx.vfs, ctx.cwd);
       if (pkgData.scripts && pkgData.scripts[sub]) {
         return await runPackageScript(sub, args.slice(1), ctx);
@@ -7494,17 +8104,37 @@
     },
 
     async npx(args, ctx) {
-      if (args.length === 0) {
+      const filtered = [];
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '-y' || args[i] === '--yes' || args[i] === '--no-install') continue;
+        filtered.push(args[i]);
+      }
+      if (filtered.length === 0) {
         return { code: 1, stdout: '', stderr: 'npx: missing command\n' };
       }
-      const cmd = args[0];
-      const cmdArgs = args.slice(1);
-      const binPath = PosixPath.join('/workspace/node_modules/.bin', cmd);
-      if (ctx.vfs.existsSync(binPath)) {
-        return await ctx.commands.node([binPath, ...cmdArgs], ctx);
+      const cmd = filtered[0];
+      const cmdArgs = filtered.slice(1);
+      const localBin = PosixPath.join(ctx.cwd || '/workspace', 'node_modules/.bin', cmd);
+      const rootBin = PosixPath.join('/workspace/node_modules/.bin', cmd);
+      const binPath = ctx.vfs.existsSync(localBin) ? localBin : (ctx.vfs.existsSync(rootBin) ? rootBin : null);
+      if (binPath) {
+        const shimSrc = String(ctx.vfs.readFileSync(binPath, 'utf8') || '');
+        const execMatch = shimSrc.match(/exec\s+node\s+"([^"]+)"/);
+        if (execMatch && execMatch[1]) {
+          return await ctx.shell.commands.node([execMatch[1], ...cmdArgs], ctx);
+        }
+        return await ctx.shell.commands.node([binPath, ...cmdArgs], ctx);
       }
       const cmdStr = [cmd, ...cmdArgs].map(quoteShellArg).join(' ');
-      return await ctx.shell.execute(cmdStr, { cwd: ctx.cwd, env: ctx.env, signal: ctx.signal });
+      return await ctx.shell.execute(cmdStr, {
+        cwd: ctx.cwd,
+        env: ctx.env,
+        stdin: ctx.stdin,
+        signal: ctx.signal,
+        onStdout: ctx.onStdout,
+        onStderr: ctx.onStderr,
+        onRequestStdin: ctx.onRequestStdin
+      });
     },
 
     async bunx(args, ctx) {
@@ -7573,10 +8203,7 @@
       if (sub === 'exec') {
         const cmd = args[1];
         if (!cmd) return { code: 1, stdout: '', stderr: 'pnpm: exec requires a command\n' };
-        const binPath = PosixPath.join('/workspace/node_modules/.bin', cmd);
-        if (ctx.vfs.existsSync(binPath)) return await ctx.commands.node([binPath, ...args.slice(2)], ctx);
-        const cmdStr = [cmd, ...args.slice(2)].map(quoteShellArg).join(' ');
-        return await ctx.shell.execute(cmdStr, { cwd: ctx.cwd, env: ctx.env, signal: ctx.signal });
+        return await this.npx([cmd, ...args.slice(2)], ctx);
       }
 
       if (sub === 'dlx') {
@@ -8099,7 +8726,13 @@
         sqlInput = String(ctx.stdin).trim();
       }
 
-      if (!sqlInput) {
+      const onRequestStdin =
+        (typeof ctx.onRequestStdin === 'function' ? ctx.onRequestStdin : null) ||
+        (ctx.shell && ctx.shell.options && typeof ctx.shell.options.onRequestStdin === 'function'
+          ? ctx.shell.options.onRequestStdin
+          : null);
+
+      if (!sqlInput && !onRequestStdin) {
         return {
           code: 0,
           stdout: 'SQLite 3.45.0 (CodeLab VFS Engine)\nUsage: sqlite3 [-column] [-header] [-json] [dbfile] "SQL"\n',
@@ -8117,14 +8750,12 @@
         return { code: 1, stdout: '', stderr: 'sqlite3: SQLite engine not initialized in runtime\n' };
       }
 
-      try {
-        const SqliteDatabase = createDb(ctx.vfs, () => ctx.shell.cwd);
-        const db = new SqliteDatabase(dbFile);
-        const trimmed = sqlInput.trim();
-
+      const executeSqlBatch = (db, batchText) => {
+        const trimmed = String(batchText || '').trim();
+        if (!trimmed) return '';
         if (trimmed === '.tables') {
           const names = Array.from(db.tables.keys());
-          return { code: 0, stdout: names.length ? names.join('  ') + '\n' : '', stderr: '' };
+          return names.length ? names.join('  ') + '\n' : '';
         }
         if (trimmed.startsWith('.schema')) {
           const lines = [];
@@ -8135,11 +8766,11 @@
           for (const idx of db.indexes.values()) {
             lines.push(`CREATE ${idx.unique ? 'UNIQUE ' : ''}INDEX ${idx.name} ON ${idx.table} (${idx.columns.join(', ')});`);
           }
-          return { code: 0, stdout: lines.join('\n') + (lines.length ? '\n' : ''), stderr: '' };
+          return lines.join('\n') + (lines.length ? '\n' : '');
         }
         if (trimmed === '.indexes' || trimmed === '.indices') {
           const names = Array.from(db.indexes.keys());
-          return { code: 0, stdout: names.length ? names.join('  ') + '\n' : '', stderr: '' };
+          return names.length ? names.join('  ') + '\n' : '';
         }
 
         const stmts = trimmed.split(';').map(s => s.trim()).filter(Boolean);
@@ -8170,10 +8801,281 @@
             }
           }
         }
-        return { code: 0, stdout: outputs.length ? outputs.join('\n') + '\n' : '', stderr: '' };
+        return outputs.length ? outputs.join('\n') + '\n' : '';
+      };
+
+      try {
+        const SqliteDatabase = createDb(ctx.vfs, () => ctx.shell.cwd);
+        const db = new SqliteDatabase(dbFile);
+
+        if (!sqlInput && onRequestStdin) {
+          const banner = 'SQLite version 3.45.0 (CodeLab VFS Engine)\nEnter ".help" for usage hints, ".quit" to exit.\n';
+          let fullOut = banner;
+          let fullErr = '';
+          if (ctx.onStdout) ctx.onStdout(banner);
+          while (!(ctx.signal && ctx.signal.aborted)) {
+            const line = await onRequestStdin('sqlite> ');
+            if (line === null || line === undefined) break;
+            const trimmedLine = String(line).trim();
+            if (trimmedLine === '.quit' || trimmedLine === '.exit') break;
+            if (trimmedLine === '.help') {
+              const h = '.tables   List names of tables\n.schema   Show CREATE statements\n.indexes  Show names of indexes\n.quit     Exit this program\n';
+              fullOut += h;
+              if (ctx.onStdout) ctx.onStdout(h);
+              continue;
+            }
+            if (!trimmedLine) continue;
+            try {
+              const stepOut = executeSqlBatch(db, trimmedLine);
+              if (stepOut) {
+                fullOut += stepOut;
+                if (ctx.onStdout) ctx.onStdout(stepOut);
+              }
+            } catch (stepErr) {
+              const errMsg = `Error: ${stepErr.message || String(stepErr)}\n`;
+              fullErr += errMsg;
+              if (ctx.onStderr) ctx.onStderr(errMsg);
+            }
+          }
+          return { code: 0, stdout: fullOut, stderr: fullErr, alreadyStreamed: true };
+        }
+
+        const out = executeSqlBatch(db, sqlInput);
+        return { code: 0, stdout: out, stderr: '' };
       } catch (err) {
         return { code: 1, stdout: '', stderr: `Error: ${err.message || String(err)}\n` };
       }
+    },
+
+    async read(args, ctx) {
+      let prompt = '';
+      let rawMode = false;
+      const varNames = [];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === '-r') {
+          rawMode = true;
+        } else if (a === '-p' && i + 1 < args.length) {
+          prompt = String(args[++i]);
+        } else if (a.startsWith('-') && a.length > 1) {
+          if (a.includes('r')) rawMode = true;
+        } else {
+          varNames.push(a);
+        }
+      }
+      if (varNames.length === 0) varNames.push('REPLY');
+
+      let line = null;
+      if (ctx.stdin && String(ctx.stdin).length > 0) {
+        const str = String(ctx.stdin);
+        const nl = str.indexOf('\n');
+        line = nl === -1 ? str : str.slice(0, nl);
+        if (line.endsWith('\r')) line = line.slice(0, -1);
+      } else {
+        const onRequestStdin =
+          (typeof ctx.onRequestStdin === 'function' ? ctx.onRequestStdin : null) ||
+          (ctx.shell && ctx.shell.options && typeof ctx.shell.options.onRequestStdin === 'function'
+            ? ctx.shell.options.onRequestStdin
+            : null);
+        if (onRequestStdin) {
+          line = await onRequestStdin(prompt);
+        }
+      }
+
+      if (line === null || line === undefined) {
+        return { code: 1, stdout: '', stderr: '' };
+      }
+
+      let processed = String(line).replace(/\r?\n$/, '');
+      if (!rawMode) {
+        processed = processed.replace(/\\(.)/g, '$1');
+      }
+
+      const ifs = ctx.env && ctx.env.IFS !== undefined ? String(ctx.env.IFS) : ' \t\n';
+      if (varNames.length === 1) {
+        const trimmed = ifs.includes(' ') ? processed.trim() : processed;
+        ctx.env[varNames[0]] = trimmed;
+        if (ctx.shell) ctx.shell.env[varNames[0]] = trimmed;
+      } else {
+        const sepRe = ifs.length > 0
+          ? new RegExp('[' + ifs.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&') + ']+')
+          : null;
+        const parts = sepRe ? processed.trim().split(sepRe) : [processed];
+        for (let idx = 0; idx < varNames.length; idx++) {
+          const vName = varNames[idx];
+          const val = idx === varNames.length - 1
+            ? parts.slice(idx).join(' ')
+            : (parts[idx] || '');
+          ctx.env[vName] = val;
+          if (ctx.shell) ctx.shell.env[vName] = val;
+        }
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    },
+
+    async tsc(args, ctx) {
+      if (args.includes('--version') || args.includes('-v')) {
+        return { code: 0, stdout: 'Version 5.6.3\n', stderr: '' };
+      }
+      if (args.includes('--help') || args.includes('-h')) {
+        return {
+          code: 0,
+          stdout:
+            'Version 5.6.3\nSyntax: tsc [options] [file...]\n\nOptions:\n' +
+            '  --init          Initializes a TypeScript project and creates a tsconfig.json file.\n' +
+            '  --noEmit        Do not emit outputs.\n' +
+            '  --outDir <dir>  Redirect output structure to the directory.\n' +
+            '  -v, --version   Print the compiler\'s version.\n',
+          stderr: ''
+        };
+      }
+      if (args.includes('--init')) {
+        const tsconfigPath = PosixPath.join(ctx.cwd, 'tsconfig.json');
+        if (!ctx.vfs.existsSync(tsconfigPath)) {
+          ctx.vfs.writeFileSync(
+            tsconfigPath,
+            JSON.stringify(
+              {
+                compilerOptions: {
+                  target: 'ES2022',
+                  module: 'ESNext',
+                  moduleResolution: 'bundler',
+                  strict: true,
+                  esModuleInterop: true,
+                  skipLibCheck: true,
+                  jsx: 'react-jsx'
+                }
+              },
+              null,
+              2
+            ) + '\n'
+          );
+          if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', tsconfigPath);
+        }
+        return { code: 0, stdout: 'Created a new tsconfig.json\n', stderr: '' };
+      }
+
+      const noEmit = args.includes('--noEmit');
+      let outDir = null;
+      const explicitFiles = [];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === '--outDir' && i + 1 < args.length) {
+          outDir = ctx.resolvePath(args[++i]);
+        } else if (a === '-p' || a === '--project') {
+          i++;
+        } else if (!a.startsWith('-')) {
+          explicitFiles.push(ctx.resolvePath(a));
+        }
+      }
+
+      const files = [];
+      if (explicitFiles.length > 0) {
+        files.push(...explicitFiles);
+      } else {
+        const scanTs = (dir) => {
+          if (!ctx.vfs.existsSync(dir)) return;
+          for (const entry of ctx.vfs.readdirSync(dir)) {
+            if (entry === 'node_modules' || entry === '.git' || entry === 'dist') continue;
+            const full = PosixPath.join(dir, entry);
+            const st = ctx.vfs.statSync(full);
+            if (st.isDirectory()) scanTs(full);
+            else if (/\.(ts|tsx)$/i.test(entry) && !entry.endsWith('.d.ts')) files.push(full);
+          }
+        };
+        scanTs(ctx.cwd);
+      }
+
+      let errOut = '';
+      let exitCode = 0;
+      for (const filePath of files) {
+        if (!ctx.vfs.existsSync(filePath)) {
+          errOut += `error TS6053: File '${filePath}' not found.\n`;
+          exitCode = 2;
+          continue;
+        }
+        const src = String(ctx.vfs.readFileSync(filePath, 'utf8') || '');
+        try {
+          const tsCompiler = typeof globalThis !== 'undefined' && globalThis.ts ? globalThis.ts : null;
+          let jsOut = '';
+          if (tsCompiler && typeof tsCompiler.transpileModule === 'function') {
+            const tr = tsCompiler.transpileModule(src, {
+              fileName: filePath,
+              reportDiagnostics: true,
+              compilerOptions: {
+                target: tsCompiler.ScriptTarget ? tsCompiler.ScriptTarget.ES2022 : 9,
+                module: tsCompiler.ModuleKind ? tsCompiler.ModuleKind.ESNext : 99
+              }
+            });
+            if (Array.isArray(tr.diagnostics) && tr.diagnostics.length > 0) {
+              for (const d of tr.diagnostics) {
+                const msg = typeof d.messageText === 'string' ? d.messageText : (d.messageText && d.messageText.messageText) || 'Syntax error';
+                errOut += `${PosixPath.relative(ctx.cwd, filePath)}(1,1): error TS${d.code || 1005}: ${msg}\n`;
+              }
+              exitCode = 2;
+              continue;
+            }
+            jsOut = tr.outputText;
+          } else {
+            // Deterministic CSP-safe delimiter & unterminated string check before transpiling
+            let inStr = null;
+            let inLineComment = false;
+            let inBlockComment = false;
+            let braceBalance = 0;
+            let parenBalance = 0;
+            let lineNo = 1;
+            for (let ci = 0; ci < src.length; ci++) {
+              const ch = src[ci];
+              const nxt = src[ci + 1];
+              if (ch === '\n') {
+                lineNo++;
+                if (inStr === '"' || inStr === "'") {
+                  throw new Error(`Line ${lineNo - 1}: Unterminated string literal.`);
+                }
+                inLineComment = false;
+                continue;
+              }
+              if (inLineComment) continue;
+              if (inBlockComment) {
+                if (ch === '*' && nxt === '/') { inBlockComment = false; ci++; }
+                continue;
+              }
+              if (inStr) {
+                if (ch === '\\') { ci++; continue; }
+                if (ch === inStr) inStr = null;
+                continue;
+              }
+              if (ch === '/' && nxt === '/') { inLineComment = true; ci++; continue; }
+              if (ch === '/' && nxt === '*') { inBlockComment = true; ci++; continue; }
+              if (ch === '"' || ch === "'" || ch === '`') { inStr = ch; continue; }
+              if (ch === '{') braceBalance++;
+              else if (ch === '}') braceBalance--;
+              else if (ch === '(') parenBalance++;
+              else if (ch === ')') parenBalance--;
+              if (braceBalance < 0 || parenBalance < 0) {
+                throw new Error(`Line ${lineNo}: Unexpected closing token '${ch}'.`);
+              }
+            }
+            if (inStr) throw new Error(`Line ${lineNo}: Unterminated string literal.`);
+            if (braceBalance !== 0 || parenBalance !== 0) {
+              throw new Error(`Line ${lineNo}: Unexpected end of file (unclosed '${braceBalance !== 0 ? '{' : '('}').`);
+            }
+            jsOut = transpileTS(src, filePath);
+          }
+          if (!noEmit) {
+            const rel = PosixPath.relative(ctx.cwd, filePath).replace(/\.(tsx|ts)$/i, '.js');
+            const dest = outDir ? PosixPath.join(outDir, rel) : filePath.replace(/\.(tsx|ts)$/i, '.js');
+            const destDir = PosixPath.dirname(dest);
+            if (!ctx.vfs.existsSync(destDir)) ctx.vfs.mkdirSync(destDir, { recursive: true });
+            ctx.vfs.writeFileSync(dest, jsOut);
+            if (typeof ctx.emitMutation === 'function') ctx.emitMutation('create', dest);
+          }
+        } catch (err) {
+          errOut += `${PosixPath.relative(ctx.cwd, filePath)}(1,1): error TS1005: ${err.message || String(err)}\n`;
+          exitCode = 2;
+        }
+      }
+      return { code: exitCode, stdout: '', stderr: errOut };
     }
   };
 
@@ -8582,15 +9484,28 @@
       this.portTable = options.portTable || (typeof createVirtualPortTable === 'function' ? createVirtualPortTable() : null);
       this.vfs = options.vfs || createFallbackVfs();
       this.env = Object.assign({
-        PATH: '/usr/local/bin:/usr/bin:/bin',
+        PATH: '/workspace/node_modules/.bin:/usr/local/bin:/usr/bin:/bin',
         PWD: '/workspace',
-        HOME: '/home/user',
+        HOME: '/home/codelab',
         USER: 'codelab',
         SHELL: '/bin/sh',
         TERM: 'xterm-256color',
         '?': '0'
       }, options.env || {});
+      PosixPath._homeDir = this.env.HOME || '/home/codelab';
       this.cwd = this.env.PWD || '/workspace';
+      if (this.vfs && typeof this.vfs._setCwd === 'function') {
+        this.vfs._setCwd(this.cwd);
+      }
+      if (
+        this.vfs &&
+        typeof this.vfs.mkdirSync === 'function' &&
+        typeof this.vfs.existsSync === 'function' &&
+        this.env.HOME &&
+        !this.vfs.existsSync(this.env.HOME)
+      ) {
+        try { this.vfs.mkdirSync(this.env.HOME, { recursive: true }); } catch (_err) { void _err; }
+      }
       if (options.files && typeof options.files === 'object') {
         for (const [k, v] of Object.entries(options.files)) {
           const abs = PosixPath.resolve(this.cwd, k);
@@ -8631,18 +9546,36 @@
     }
 
     resolvePath(p) {
+      PosixPath._homeDir = (this.env && this.env.HOME) || '/home/codelab';
       if (!p) return this.cwd;
       return PosixPath.resolve(this.cwd, p);
     }
 
-    // True when `name` resolves to a shell function or coreutil (used by the
-    // workbench to route recognised commands straight to the shell instead of
-    // treating flag-looking input such as `node --version` as a JS expression).
+    _resolvePathBinary(name) {
+      if (!name || !this.vfs || typeof this.vfs.existsSync !== 'function') return null;
+      const n = String(name);
+      if (n.includes('/')) return null;
+      const localBin = PosixPath.join(this.cwd || '/workspace', 'node_modules/.bin', n);
+      if (this.vfs.existsSync(localBin)) return localBin;
+      const pathDirs = String((this.env && this.env.PATH) || '/workspace/node_modules/.bin:/usr/local/bin:/usr/bin:/bin')
+        .split(':')
+        .filter(Boolean);
+      for (const dir of pathDirs) {
+        const candidate = PosixPath.join(dir, n);
+        if (this.vfs.existsSync(candidate)) return candidate;
+      }
+      const rootBin = PosixPath.join('/workspace/node_modules/.bin', n);
+      if (this.vfs.existsSync(rootBin)) return rootBin;
+      return null;
+    }
+
+    // True when `name` resolves to a shell function, coreutil, or PATH/.bin shim.
     hasCommand(name) {
       if (!name) return false;
       const n = String(name);
       if (this.functions && Object.prototype.hasOwnProperty.call(this.functions, n)) return true;
-      return !!this.commands && Object.prototype.hasOwnProperty.call(this.commands, n);
+      if (this.commands && Object.prototype.hasOwnProperty.call(this.commands, n)) return true;
+      return Boolean(this._resolvePathBinary(n));
     }
 
     _emitVfsMutation(type, absPath) {
@@ -9527,6 +10460,8 @@
       let currentStdin = context.stdin || '';
       let combinedStderr = '';
       let lastResult = { code: 0, stdout: '', stderr: '' };
+      const isolateSubshells = commands.length > 1;
+      const parentCwd = this.cwd;
 
       for (let i = 0; i < commands.length; i++) {
         if (context.signal && context.signal.aborted) {
@@ -9549,7 +10484,32 @@
           onStderr: context.onStderr
         };
 
-        const res = await this._executeAstNode(cmd, cmdContext);
+        let res;
+        if (isolateSubshells) {
+          const stageEnv = Object.assign({}, this.env, context.env || {});
+          const stageShell = new PosixShell({
+            ...this.options,
+            vfs: this.vfs,
+            portTable: this.portTable,
+            gitState: this.gitState,
+            _initialBootRoot: this._initialBootRoot,
+            _initialBootSnapshot: this._initialBootSnapshot,
+            env: stageEnv
+          });
+          stageShell.cwd = context.cwd || parentCwd;
+          stageShell.functions = Object.assign({}, this.functions || {});
+          res = await stageShell._executeAstNode(cmd, {
+            ...cmdContext,
+            cwd: stageShell.cwd,
+            env: Object.assign({}, stageEnv)
+          });
+          if (this.vfs && typeof this.vfs._setCwd === 'function') {
+            this.vfs._setCwd(parentCwd);
+          }
+        } else {
+          res = await this._executeAstNode(cmd, cmdContext);
+        }
+
         currentStdin = res.stdout || '';
         combinedStderr += (res.stderr || '');
         lastResult = res;
@@ -9738,6 +10698,9 @@
         resolvePath: (p) => this.resolvePath(p),
         emitMutation: (type, p) => this._emitVfsMutation(type, p),
         signal: context.signal,
+        onRequestStdin:
+          (typeof context.onRequestStdin === 'function' ? context.onRequestStdin : null) ||
+          (this.options && typeof this.options.onRequestStdin === 'function' ? this.options.onRequestStdin : undefined),
         onStdout: (chunk) => {
           if (!chunk) return;
           streamedStdoutBytes += chunk.length;
@@ -9752,6 +10715,10 @@
 
       // 7. Command execution dispatch
       let res;
+      const resolvedPathBin =
+        !(this.functions && this.functions[cmdName]) && !this.commands[cmdName]
+          ? this._resolvePathBinary(cmdName)
+          : null;
       if (this.functions && this.functions[cmdName]) {
         const fnDef = this.functions[cmdName];
         const fnEnv = Object.assign({}, cmdEnv);
@@ -9767,12 +10734,20 @@
         };
       } else if (this.commands[cmdName]) {
         res = await this.commands[cmdName](args, cmdCtx);
-        if (cmdName === 'export' || cmdName === 'unset' || cmdName === 'cd') {
+        if (cmdName === 'export' || cmdName === 'unset' || cmdName === 'cd' || cmdName === 'read') {
           for (const k of Object.keys(context.env)) {
             if (!(k in this.env)) delete context.env[k];
           }
           Object.assign(context.env, this.env);
           context.cwd = this.cwd;
+        }
+      } else if (resolvedPathBin) {
+        const shimSrc = String(this.vfs.readFileSync(resolvedPathBin, 'utf8') || '');
+        const execMatch = shimSrc.match(/exec\s+node\s+"([^"]+)"/);
+        if (execMatch && execMatch[1]) {
+          res = await this.commands.node([execMatch[1], ...args], cmdCtx);
+        } else {
+          res = await this.commands.node([resolvedPathBin, ...args], cmdCtx);
         }
       } else if (
         (cmdName.startsWith('./') || cmdName.startsWith('../') || cmdName.startsWith('/')) &&
@@ -9784,7 +10759,11 @@
           res = { code: 126, stdout: '', stderr: `shell: ${cmdName}: Is a directory\n` };
         } else if (hasVirtualRuntime()) {
           let rawData = null;
-          try { rawData = this.vfs.readFileSync(absBin); } catch (err) { _shellLogger.debug('Failed to read binary', err); }
+          try {
+            rawData = typeof this.vfs._getRawFileBytes === 'function'
+              ? (this.vfs._getRawFileBytes(absBin) || this.vfs.readFileSync(absBin))
+              : this.vfs.readFileSync(absBin);
+          } catch (err) { _shellLogger.debug('Failed to read binary', err); }
           const isWasmMagic =
             (rawData instanceof Uint8Array &&
               rawData.length >= 4 &&
@@ -9793,17 +10772,20 @@
               rawData[2] === 0x73 &&
               rawData[3] === 0x6d) ||
             (typeof rawData === 'string' && rawData.startsWith('\0asm'));
-          const runRes = await executeInVirtualRuntime({
+          const runFn = isWasmMagic ? executeInVirtualRuntime : (rOpts) => executeJsInShellRuntime(rOpts, cmdCtx);
+          const runRes = await runFn({
             mode: 'run',
             entry: absBin,
             wasmBinary: isWasmMagic && rawData instanceof Uint8Array ? rawData : undefined,
             argv: [cmdName, ...args],
             stdin: effectiveStdin,
             env: cmdEnv,
+            cwd: this.cwd,
             vfs: this.vfs,
             activePortTable: this.portTable,
             pid: cmdCtx.pid,
             isBackground: cmdCtx.isBackground,
+            onRequestStdin: cmdCtx.onRequestStdin,
             onStdout: cmdCtx.onStdout,
             onStderr: cmdCtx.onStderr,
             signal: context.signal

@@ -17,6 +17,9 @@ export interface StoredProject {
   id: string;
   name: string;
   files: Record<string, string>;
+  binaryFiles?: Record<string, Uint8Array | string>;
+  gitFiles?: Record<string, Uint8Array | string>;
+  gitMeta?: Record<string, unknown>;
   updatedAt: number;
   createdAt?: number;
   entry?: string;
@@ -318,17 +321,74 @@ export function createBlankWorkspaceId(): string {
   return `blank-workspace-${now}-${suffix}`;
 }
 
-function cloneProject(project: StoredProject): StoredProject {
+export function encodeBase64Bytes(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return typeof btoa === 'function' ? btoa(binary) : binary;
+}
+
+export function decodeBase64Bytes(b64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    const buf = Buffer.from(b64, 'base64');
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  }
+  if (typeof atob === 'function') {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+      out[i] = bin.charCodeAt(i);
+    }
+    return out;
+  }
+  return new Uint8Array(0);
+}
+
+function cloneByteMap(
+  map: Record<string, Uint8Array | string> | undefined,
+  serializeBase64 = false
+): Record<string, Uint8Array | string> | undefined {
+  if (!map || typeof map !== 'object') return undefined;
+  const out: Record<string, Uint8Array | string> = {};
+  let count = 0;
+  for (const [k, v] of Object.entries(map)) {
+    if (v instanceof Uint8Array) {
+      out[k] = serializeBase64 ? encodeBase64Bytes(v) : new Uint8Array(v);
+      count++;
+    } else if (ArrayBuffer.isView(v)) {
+      const view = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+      out[k] = serializeBase64 ? encodeBase64Bytes(view) : new Uint8Array(view);
+      count++;
+    } else if (typeof v === 'string') {
+      out[k] = serializeBase64 ? v : decodeBase64Bytes(v);
+      count++;
+    }
+  }
+  return count > 0 ? out : undefined;
+}
+
+function cloneProject(project: StoredProject, serializeBase64 = false): StoredProject {
   const filesCopy: Record<string, string> = {};
   if (project.files && typeof project.files === 'object') {
     for (const [k, v] of Object.entries(project.files)) {
       filesCopy[k] = String(v);
     }
   }
+  const binaryCopy = cloneByteMap(project.binaryFiles, serializeBase64);
+  const gitCopy = cloneByteMap(project.gitFiles, serializeBase64);
+  const gitMetaCopy = isPlainRecord(project.gitMeta) ? { ...project.gitMeta } : undefined;
   return {
     id: String(project.id),
     name: String(project.name || project.id),
     files: filesCopy,
+    ...(binaryCopy ? { binaryFiles: binaryCopy } : {}),
+    ...(gitCopy ? { gitFiles: gitCopy } : {}),
+    ...(gitMetaCopy ? { gitMeta: gitMetaCopy } : {}),
     updatedAt: typeof project.updatedAt === 'number' ? project.updatedAt : Date.now(),
     ...(project.createdAt !== undefined ? { createdAt: project.createdAt } : {}),
     ...(project.entry !== undefined ? { entry: project.entry } : {}),
@@ -479,7 +539,8 @@ export class WorkspaceStorage {
     if (this.backendType === 'localstorage') {
       try {
         const key = `${this.storagePrefix}${normalized.id}`;
-        globalThis.localStorage.setItem(key, JSON.stringify(normalized));
+        const serializable = cloneProject(normalized, true);
+        globalThis.localStorage.setItem(key, JSON.stringify(serializable));
         memoryOrIdbNonEmptyProjects.delete(normalized.id);
         return true;
       } catch (err) {
@@ -697,7 +758,9 @@ export const CodeLabWorkspaceStorage = {
   upsertWorkspaceMeta,
   removeWorkspaceMeta,
   hasWorkspaceData,
-  createBlankWorkspaceId
+  createBlankWorkspaceId,
+  encodeBase64Bytes,
+  decodeBase64Bytes
 };
 
 if (typeof globalThis !== 'undefined') {

@@ -12,6 +12,8 @@ export * from './share';
 export * from './file-tree';
 export * from './editor';
 export * from './guided-pane';
+export * from './xterm-adapter';
+export * from './intellisense';
 
 import * as icons from './icons';
 import * as styles from './styles';
@@ -23,6 +25,8 @@ import * as share from './share';
 import * as fileTree from './file-tree';
 import * as editor from './editor';
 import * as guidedPane from './guided-pane';
+import * as xtermAdapter from './xterm-adapter';
+import * as intellisense from './intellisense';
 
 export const CodeLabWorkbenchComponents = {
   ...icons,
@@ -34,5 +38,7 @@ export const CodeLabWorkbenchComponents = {
   ...share,
   ...fileTree,
   ...editor,
-  ...guidedPane
+  ...guidedPane,
+  ...xtermAdapter,
+  ...intellisense
 };

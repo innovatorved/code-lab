@@ -29,7 +29,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 │                     src/terminal.ts)  │  │  (src/runtime.ts)                │
 │  • Recursive-descent AST parser       │  │  • Web Worker pool + preemption  │
 │  • Pipes (|), redirects (>, >>, 2>&1) │  │  • In-memory POSIX VFS (/tmp, …) │
-│  • 71 POSIX coreutils + git + jq      │  │  • Node.js v22 (50 built-in mods)│
+│  • 73 POSIX coreutils + git + jq      │  │  • Node.js v22 (50 built-in mods)│
 │  • Interactive PTY ANSI/256-color     │  │  • Bun v1.1 (serve, sqlite, test)│
 │  • Job table (ps, jobs, fg, bg, kill) │  │  • WASI Preview 1 + C++20 Clang  │
 └───────────────────────────────────────┘  └──────────────────────────────────┘
@@ -71,7 +71,7 @@ It is designed around two strictly decoupled layers that can be used together (`
 
 `createPosixShell` implements a complete POSIX shell interpreter inside the browser:
 - **Lexer & Recursive-Descent AST Parser**: Supports single/double quotes, escape sequences, pipelines (`cmd1 | cmd2 | cmd3`), logical operators (`&&`, `||`, `;`), background execution (`&`), I/O redirection (`>`, `>>`, `<`, `<<<`, `2>`, `2>&1`, `&>`), environment variable expansion (`$VAR`, `${VAR:-default}`, `${VAR:=default}`, `${#VAR}`, `$?`, `$$`), command substitution (`$(...)`), arithmetic expansion (`$((...))`), brace expansion (`{a,b,c}`, `{1..5}`), and globbing (`*`, `?`, `**`).
-- **71 Built-in Coreutils**:
+- **73 Built-in Coreutils**:
   - File & Directory: `ls`, `cat`, `head`, `tail`, `wc`, `cp`, `mv`, `rm`, `mkdir`, `rmdir`, `touch`, `ln`, `pwd`, `cd`, `find`, `tree`, `stat`, `file`, `du`, `df`, `chmod`, `chown`, `mktemp`, `basename`, `dirname`, `realpath`.
   - Text & Data Processing: `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `tr`, `tee`, `xargs`, `diff`, `jq`, `xxd`, `hexdump`, `base64`, `md5sum`, `sha256sum`.
   - Networking, Load Testing, Chaos & Databases: `curl`, `hey` (`ab`, `wrk`), `chaos`, `sqlite3`, `redis-cli`, `nc`, `ping`, `dig`, `nslookup`, `lsof`, `netstat`, `ss`, `ps`, `top`, `kill`, `jobs`, `fg`, `bg`, `tar`, `gzip`, `gunzip`.

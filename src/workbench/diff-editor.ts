@@ -3,6 +3,7 @@
  */
 
 import { CL_ICONS } from './icons';
+import { getMonacoLanguageForFile, getMonacoThemeName } from './intellisense';
 
 function escapeHtml(str: unknown): string {
   return String(str ?? '')
@@ -17,6 +18,16 @@ export interface DiffComputeResult {
   hunks: Array<{ type: 'context' | 'add' | 'del'; text: string; oldLine: number | null; newLine: number | null }>;
   added: number;
   removed: number;
+}
+
+export interface GitDiffOpenOptions {
+  staged?: boolean;
+  originalText: string;
+  modifiedText: string;
+  label?: string;
+  onStage?: () => void | Promise<void>;
+  onUnstage?: () => void | Promise<void>;
+  onDiscard?: () => void | Promise<void>;
 }
 
 export function computeSimpleDiff(oldText: string, newText: string): DiffComputeResult {
@@ -70,6 +81,26 @@ export function computeSimpleDiff(oldText: string, newText: string): DiffCompute
   return { hunks, added, removed };
 }
 
+function renderFallbackUnifiedDiffHtml(oldText: string, newText: string): string {
+  const diff = computeSimpleDiff(oldText, newText);
+  if (diff.added === 0 && diff.removed === 0) {
+    return `<div class="codelab-diff-empty">No textual changes between versions.</div>`;
+  }
+  const rows = diff.hunks.map((h) => {
+    const cls = h.type === 'add' ? 'is-add' : h.type === 'del' ? 'is-del' : 'is-ctx';
+    const prefix = h.type === 'add' ? '+' : h.type === 'del' ? '-' : ' ';
+    const oldNum = h.oldLine !== null ? String(h.oldLine) : '';
+    const newNum = h.newLine !== null ? String(h.newLine) : '';
+    return `<div class="codelab-diff-fallback-row ${cls}">` +
+      `<span class="codelab-diff-ln">${oldNum}</span>` +
+      `<span class="codelab-diff-ln">${newNum}</span>` +
+      `<span class="codelab-diff-sign">${prefix}</span>` +
+      `<span class="codelab-diff-code">${escapeHtml(h.text)}</span>` +
+      `</div>`;
+  }).join('');
+  return `<div class="codelab-diff-fallback" role="region" aria-label="Unified diff view">${rows}</div>`;
+}
+
 export class CodeLabDiffEditorManager {
   private workbench: any;
   private diffEditor: any = null;
@@ -77,10 +108,196 @@ export class CodeLabDiffEditorManager {
   private modifiedModel: any = null;
   public isActive = false;
   public activeFile = '';
-  public currentTarget: 'starter' | 'solution' = 'solution';
+  public currentTarget: 'starter' | 'solution' | 'git' = 'solution';
 
   constructor(workbench: any) {
     this.workbench = workbench;
+  }
+
+  private _ensureDiffContainer(): { diffContainer: any; editorHost: any; fallbackTextarea: any } | null {
+    const editorHost = this.workbench.container?.querySelector('#cl-editor-host')
+      || this.workbench.container?.querySelector('#cl-monaco-host');
+    const fallbackTextarea = this.workbench.container?.querySelector('#cl-fallback-editor');
+    if (!editorHost) return null;
+
+    let diffContainer = this.workbench.container.querySelector('#cl-inline-diff-container');
+    if (!diffContainer) {
+      diffContainer = document.createElement('div');
+      diffContainer.id = 'cl-inline-diff-container';
+      diffContainer.className = 'codelab-diff-container';
+      editorHost.parentElement.appendChild(diffContainer);
+    }
+
+    const welcomeHost = this.workbench.container?.querySelector('#cl-welcome-host');
+    if (welcomeHost) welcomeHost.style.display = 'none';
+
+    diffContainer.style.display = 'flex';
+    editorHost.style.display = 'none';
+    if (fallbackTextarea) fallbackTextarea.style.display = 'none';
+
+    this._disposeEditorModels();
+    return { diffContainer, editorHost, fallbackTextarea };
+  }
+
+  private _disposeEditorModels(): void {
+    if (this.diffEditor) {
+      try { this.diffEditor.dispose(); } catch (_err) { void _err; }
+      this.diffEditor = null;
+    }
+    if (this.originalModel) {
+      try { this.originalModel.dispose(); } catch (_err) { void _err; }
+      this.originalModel = null;
+    }
+    if (this.modifiedModel) {
+      try { this.modifiedModel.dispose(); } catch (_err) { void _err; }
+      this.modifiedModel = null;
+    }
+  }
+
+  /**
+   * Opens a VS Code Source Control side-by-side diff (`Working Tree` or `Index` vs `HEAD`).
+   */
+  public openGitDiff(file: string, opts: GitDiffOpenOptions): boolean {
+    const monaco = typeof window !== 'undefined' ? (window as any).monaco : null;
+    const hosts = this._ensureDiffContainer();
+    if (!hosts) return false;
+
+    const { diffContainer } = hosts;
+    this.isActive = true;
+    this.activeFile = file;
+    this.currentTarget = 'git';
+
+    const staged = Boolean(opts.staged);
+    const titleLabel = opts.label || (staged ? `${file} (Index ↔ HEAD)` : `${file} (Working Tree)`);
+    const safeTitle = escapeHtml(titleLabel);
+
+    diffContainer.innerHTML = `
+      <div class="codelab-diff-toolbar">
+        <span class="codelab-diff-toolbar__title">
+          ${CL_ICONS.diff}
+          <span>${safeTitle}</span>
+        </span>
+        <div class="codelab-diff-toolbar__actions">
+          ${staged
+            ? (opts.onUnstage ? `<button type="button" class="codelab-btn codelab-btn--sm" id="cl-git-diff-unstage-btn" title="Unstage Changes">${CL_ICONS.minus || '−'} Unstage</button>` : '')
+            : `${opts.onDiscard ? `<button type="button" class="codelab-btn codelab-btn--sm" id="cl-git-diff-discard-btn" title="Discard Changes">${CL_ICONS.discard || CL_ICONS.refresh} Discard</button>` : ''}
+               ${opts.onStage ? `<button type="button" class="codelab-btn codelab-btn--sm codelab-btn--primary" id="cl-git-diff-stage-btn" title="Stage Changes">${CL_ICONS.plus || '+'} Stage</button>` : ''}`
+          }
+          <button type="button" class="codelab-btn codelab-btn--sm" id="cl-git-diff-open-file-btn" title="Open File">Open File</button>
+          <button type="button" class="codelab-btn codelab-btn--sm" id="cl-diff-close-btn" title="Close Diff (Esc)">${CL_ICONS.x}</button>
+        </div>
+      </div>
+      <div class="codelab-diff-host" id="cl-diff-editor-slot"></div>
+    `;
+
+    const slot = diffContainer.querySelector('#cl-diff-editor-slot');
+    if (monaco?.editor && typeof monaco.editor.createDiffEditor === 'function' && slot) {
+      const resolvedTheme = typeof this.workbench._resolvedTheme === 'function'
+        ? this.workbench._resolvedTheme()
+        : this.workbench.theme;
+      const monacoTheme = getMonacoThemeName(resolvedTheme, monaco);
+      const lang = getMonacoLanguageForFile(file, this.workbench.lang);
+
+      this.diffEditor = monaco.editor.createDiffEditor(slot, {
+        readOnly: staged,
+        originalEditable: false,
+        theme: monacoTheme,
+        renderSideBySide: true,
+        automaticLayout: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        fontSize: Number(this.workbench._editorFontSize) || 13
+      });
+
+      this.originalModel = monaco.editor.createModel(String(opts.originalText ?? ''), lang);
+      this.modifiedModel = monaco.editor.createModel(String(opts.modifiedText ?? ''), lang);
+      this.diffEditor.setModel({
+        original: this.originalModel,
+        modified: this.modifiedModel
+      });
+
+      if (!staged) {
+        this.modifiedModel.onDidChangeContent(() => {
+          this.syncFileToWorkbench(file, this.modifiedModel.getValue());
+        });
+      }
+    } else if (slot) {
+      slot.innerHTML = renderFallbackUnifiedDiffHtml(opts.originalText, opts.modifiedText);
+    }
+
+    diffContainer.querySelector('#cl-git-diff-stage-btn')?.addEventListener('click', async () => {
+      await opts.onStage?.();
+      this.closeInlineDiff();
+    });
+    diffContainer.querySelector('#cl-git-diff-unstage-btn')?.addEventListener('click', async () => {
+      await opts.onUnstage?.();
+      this.closeInlineDiff();
+    });
+    diffContainer.querySelector('#cl-git-diff-discard-btn')?.addEventListener('click', async () => {
+      await opts.onDiscard?.();
+      this.closeInlineDiff();
+    });
+    diffContainer.querySelector('#cl-git-diff-open-file-btn')?.addEventListener('click', () => {
+      this.closeInlineDiff();
+      if (typeof this.workbench.openFile === 'function') {
+        this.workbench.openFile(file);
+      }
+    });
+    diffContainer.querySelector('#cl-diff-close-btn')?.addEventListener('click', () => {
+      this.closeInlineDiff();
+    });
+
+    return true;
+  }
+
+  /**
+   * Mounts a side-by-side (or inline) Monaco DiffEditor directly into an existing slot element
+   * without overwriting the surrounding `.codelab-scm-diff-header` toolbar.
+   */
+  public mountMonacoDiffIntoSlot(
+    slotEl: HTMLElement,
+    opts: {
+      relPath: string;
+      originalContent: string;
+      modifiedContent: string;
+      sideBySide?: boolean;
+      readOnly?: boolean;
+    }
+  ): boolean {
+    const monaco = this.workbench?.monaco || (typeof window !== 'undefined' ? (window as any).monaco : null);
+    if (!slotEl || !monaco?.editor || typeof monaco.editor.createDiffEditor !== 'function') {
+      return false;
+    }
+    this._disposeEditorModels();
+    this.isActive = true;
+    this.activeFile = opts.relPath;
+    this.currentTarget = 'git';
+
+    const resolvedTheme = typeof this.workbench?._resolvedTheme === 'function'
+      ? this.workbench._resolvedTheme()
+      : (this.workbench?.theme || 'dark');
+    const monacoTheme = getMonacoThemeName(resolvedTheme, monaco);
+    const lang = getMonacoLanguageForFile(opts.relPath, this.workbench?.lang);
+
+    slotEl.innerHTML = '';
+    this.diffEditor = monaco.editor.createDiffEditor(slotEl, {
+      readOnly: opts.readOnly !== false,
+      originalEditable: false,
+      theme: monacoTheme,
+      renderSideBySide: opts.sideBySide !== false,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      fontSize: Number(this.workbench?._editorFontSize) || 13
+    });
+
+    this.originalModel = monaco.editor.createModel(String(opts.originalContent ?? ''), lang);
+    this.modifiedModel = monaco.editor.createModel(String(opts.modifiedContent ?? ''), lang);
+    this.diffEditor.setModel({
+      original: this.originalModel,
+      modified: this.modifiedModel
+    });
+    return true;
   }
 
   public openInlineDiff(file: string, target: 'starter' | 'solution' = 'solution'): boolean {
@@ -92,7 +309,6 @@ export class CodeLabDiffEditorManager {
     const fallbackTextarea = this.workbench.container?.querySelector('#cl-fallback-editor');
     if (!editorHost) return false;
 
-    // Get reference code
     const isStarter = target === 'starter';
     const baseFiles = this.workbench._getBaseFilesForModeAndLang
       ? this.workbench._getBaseFilesForModeAndLang(isStarter ? 'guided' : 'sandbox', this.workbench.lang)
@@ -102,53 +318,29 @@ export class CodeLabDiffEditorManager {
     const currentCode = this.workbench.files[file] !== undefined ? this.workbench.files[file] : '';
 
     if (!monaco || !monaco.editor || typeof monaco.editor.createDiffEditor !== 'function') {
-      // Fall back to modal diff if Monaco or createDiffEditor is not available
       if (typeof this.workbench.showDiffModalFallback === 'function') {
         this.workbench.showDiffModalFallback(file, target);
       }
       return false;
     }
 
+    const hosts = this._ensureDiffContainer();
+    if (!hosts) return false;
+    const { diffContainer } = hosts;
     this.isActive = true;
-
-    // Create or reuse diff container
-    let diffContainer = this.workbench.container.querySelector('#cl-inline-diff-container');
-    if (!diffContainer) {
-      diffContainer = document.createElement('div');
-      diffContainer.id = 'cl-inline-diff-container';
-      diffContainer.className = 'codelab-diff-container';
-      editorHost.parentElement.appendChild(diffContainer);
-    }
-
-    diffContainer.style.display = 'flex';
-    if (editorHost) editorHost.style.display = 'none';
-    if (fallbackTextarea) fallbackTextarea.style.display = 'none';
-
-    if (this.diffEditor) {
-      this.diffEditor.dispose();
-      this.diffEditor = null;
-    }
-    if (this.originalModel) {
-      this.originalModel.dispose();
-      this.originalModel = null;
-    }
-    if (this.modifiedModel) {
-      this.modifiedModel.dispose();
-      this.modifiedModel = null;
-    }
 
     const safeFile = escapeHtml(file);
     diffContainer.innerHTML = `
       <div class="codelab-diff-toolbar">
-        <span style="font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+        <span class="codelab-diff-toolbar__title">
           ${CL_ICONS.diff}
           <span>Diff: <code>${safeFile}</code> (${isStarter ? 'Current vs Starter' : 'Current vs Solution'})</span>
         </span>
-        <div class="codelab-segmented" style="margin-left:16px;">
+        <div class="codelab-segmented" style="margin-left:12px;">
           <button type="button" class="codelab-segmented__btn ${target === 'starter' ? 'active' : ''}" id="cl-diff-toggle-starter">Starter</button>
           <button type="button" class="codelab-segmented__btn ${target === 'solution' ? 'active' : ''}" id="cl-diff-toggle-solution">Solution</button>
         </div>
-        <div style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;">
+        <div class="codelab-diff-toolbar__actions">
           <button type="button" class="codelab-btn codelab-btn--sm" id="cl-diff-revert-btn">${CL_ICONS.refresh} Revert File</button>
           <button type="button" class="codelab-btn codelab-btn--sm codelab-btn--primary" id="cl-diff-apply-btn">${CL_ICONS.check} Apply Solution</button>
           <button type="button" class="codelab-btn codelab-btn--sm" id="cl-diff-close-btn">${CL_ICONS.x} Close Diff</button>
@@ -161,19 +353,18 @@ export class CodeLabDiffEditorManager {
     const resolvedTheme = typeof this.workbench._resolvedTheme === 'function'
       ? this.workbench._resolvedTheme()
       : this.workbench.theme;
-    const monacoTheme = resolvedTheme === 'light'
-      ? 'vs'
-      : (resolvedTheme === 'high-contrast' ? 'hc-black' : 'vs-dark');
+    const monacoTheme = getMonacoThemeName(resolvedTheme, monaco);
     this.diffEditor = monaco.editor.createDiffEditor(slot, {
       readOnly: false,
       originalEditable: false,
       theme: monacoTheme,
       renderSideBySide: true,
       automaticLayout: true,
-      minimap: { enabled: false }
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false
     });
 
-    const lang = file.endsWith('.ts') ? 'typescript' : file.endsWith('.cpp') ? 'cpp' : file.endsWith('.py') ? 'python' : 'javascript';
+    const lang = getMonacoLanguageForFile(file, this.workbench.lang);
     this.originalModel = monaco.editor.createModel(refCode, lang);
     this.modifiedModel = monaco.editor.createModel(currentCode, lang);
 
@@ -182,35 +373,10 @@ export class CodeLabDiffEditorManager {
       modified: this.modifiedModel
     });
 
-    const syncFileToWorkbench = (val: string): void => {
-      this.workbench.files[file] = val;
-      const mainModel = this.workbench.models && typeof this.workbench.models.get === 'function'
-        ? this.workbench.models.get(file)
-        : null;
-      if (mainModel && typeof mainModel.getValue === 'function' && mainModel.getValue() !== val) {
-        mainModel.setValue(val);
-      }
-      if (this.workbench.activeFile === file && fallbackTextarea && fallbackTextarea.value !== val) {
-        fallbackTextarea.value = val;
-      }
-      if (this.workbench.shell && this.workbench.shell.vfs && typeof this.workbench.shell.vfs.writeFileSync === 'function') {
-        const vfsPath = file.startsWith('/') ? file : `/workspace/${file}`;
-        this.workbench.shell.vfs.writeFileSync(vfsPath, val);
-      }
-      if (typeof this.workbench._saveState === 'function') {
-        this.workbench._saveState();
-      }
-      if (typeof this.workbench._markDirty === 'function') {
-        this.workbench._markDirty(file);
-      }
-    };
-
-    // Wire modified model edits back to workbench, main Monaco model, VFS, and persistence
     this.modifiedModel.onDidChangeContent(() => {
-      syncFileToWorkbench(this.modifiedModel.getValue());
+      this.syncFileToWorkbench(file, this.modifiedModel.getValue());
     });
 
-    // Wire buttons
     diffContainer.querySelector('#cl-diff-toggle-starter')?.addEventListener('click', () => {
       this.openInlineDiff(file, 'starter');
     });
@@ -223,7 +389,7 @@ export class CodeLabDiffEditorManager {
       if (typeof this.workbench.setFile === 'function') {
         this.workbench.setFile(file, starterCode);
       } else {
-        syncFileToWorkbench(starterCode);
+        this.syncFileToWorkbench(file, starterCode);
       }
       this.closeInlineDiff();
       this.workbench.openFile(file);
@@ -239,7 +405,7 @@ export class CodeLabDiffEditorManager {
       if (typeof this.workbench.setFile === 'function') {
         this.workbench.setFile(file, solutionCode);
       } else {
-        syncFileToWorkbench(solutionCode);
+        this.syncFileToWorkbench(file, solutionCode);
       }
       this.closeInlineDiff();
       this.workbench.openFile(file);
@@ -276,6 +442,9 @@ export class CodeLabDiffEditorManager {
     if (typeof this.workbench._markDirty === 'function') {
       this.workbench._markDirty(file);
     }
+    if (typeof this.workbench._refreshGitDecorations === 'function') {
+      this.workbench._refreshGitDecorations();
+    }
   }
 
   public closeInlineDiff(): void {
@@ -284,21 +453,14 @@ export class CodeLabDiffEditorManager {
     if (diffContainer) {
       diffContainer.style.display = 'none';
     }
+    const isWelcomeActive = this.workbench.activeFile === '__welcome__';
+    const welcomeHost = this.workbench.container?.querySelector('#cl-welcome-host');
     const editorHost = this.workbench.container?.querySelector('#cl-editor-host') || this.workbench.container?.querySelector('#cl-monaco-host');
-    if (editorHost) {
+    if (isWelcomeActive && welcomeHost) {
+      welcomeHost.style.display = 'flex';
+    } else if (editorHost) {
       editorHost.style.display = '';
     }
-    if (this.diffEditor) {
-      this.diffEditor.dispose();
-      this.diffEditor = null;
-    }
-    if (this.originalModel) {
-      this.originalModel.dispose();
-      this.originalModel = null;
-    }
-    if (this.modifiedModel) {
-      this.modifiedModel.dispose();
-      this.modifiedModel = null;
-    }
+    this._disposeEditorModels();
   }
 }

@@ -1002,21 +1002,59 @@ function __initVirtualRuntime(rootScope) {
   };
   VirtualPath.posix = VirtualPath;
 
+  let _activeHomeGetter = null;
   const VirtualOs = {
     tmpdir: () => '/tmp',
     EOL: '\n',
     platform: () => 'linux',
     arch: () => 'x64',
-    homedir: () => '/home/user',
+    homedir: () => (typeof _activeHomeGetter === 'function' ? _activeHomeGetter() : '/home/codelab'),
     hostname: () => 'code-lab-vm',
     cpus: () => [{ model: 'Virtual Code-Lab CPU', speed: 3200 }]
   };
+
+  const _replSessions = new Map();
+
+  function transformStatefulReplBody(body, replCtx) {
+    if (!replCtx || typeof replCtx !== 'object') return body;
+    const declared = new Set();
+    let rewritten = body.replace(
+      /(^|\n)\s*const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g,
+      (m, lead, id) => {
+        declared.add(id);
+        return `${lead}let ${id} =`;
+      }
+    );
+    const letVarRegex = /(?:^|\n)\s*(?:let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
+    let match;
+    while ((match = letVarRegex.exec(rewritten)) !== null) {
+      declared.add(match[1]);
+    }
+    const fnClassRegex = /(?:^|\n)\s*(?:async\s+)?(?:function|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
+    while ((match = fnClassRegex.exec(rewritten)) !== null) {
+      declared.add(match[1]);
+    }
+    const existingKeys = Object.keys(replCtx).filter(
+      (k) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) && !declared.has(k)
+    );
+    const preamble = existingKeys
+      .map((k) => `let ${k} = __replCtx[${JSON.stringify(k)}];`)
+      .join('\n');
+    const allSyncKeys = Array.from(new Set([...existingKeys, ...Array.from(declared)]));
+    const epilogue = allSyncKeys
+      .map(
+        (k) =>
+          `try { if (typeof ${k} !== 'undefined') __replCtx[${JSON.stringify(k)}] = ${k}; } catch (_e) { void _e; }`
+      )
+      .join('\n');
+    return `${preamble}\ntry {\n${rewritten}\n} finally {\n${epilogue}\n}`;
+  }
 
   // =========================================================================
   // 5. VIRTUAL IN-MEMORY POSIX FILESYSTEM (node:fs)
   // =========================================================================
   function createVirtualFs(initialFiles = {}, vfsOptions = {}) {
-    const dirs = new Set(['/', '/tmp', '/workspace', '/home', '/home/user']);
+    const dirs = new Set(['/', '/tmp', '/workspace', '/etc', '/home', '/home/user', '/home/codelab']);
     const files = new Map();       // normalizedPath -> { data: Uint8Array, mtimeMs, ctimeMs, ino }
     const deletedInspectorCache = new Map(); // normalizedPath -> { data: Uint8Array, mtimeMs, deletedAtMs }
     const MAX_DELETED_CACHE_ENTRIES = 50;
@@ -1095,10 +1133,10 @@ function __initVirtualRuntime(rootScope) {
       };
     }
 
-    // Seed initial project files into /workspace (preserving system paths like /usr, /tmp, /lib, /include)
+    // Seed initial project files into /workspace (preserving system paths like /usr, /tmp, /lib, /include, /home)
     for (const [relPath, content] of Object.entries(initialFiles)) {
       const cleanRel = relPath.startsWith('/') ? relPath.slice(1) : relPath;
-      const isSystemPath = /^\/(workspace|usr|tmp|lib|include|etc|bin|dev)(\/|$)/.test(relPath);
+      const isSystemPath = /^\/(workspace|usr|tmp|lib|include|etc|bin|dev|home)(\/|$)/.test(relPath);
       let fullPath = isSystemPath
         ? normPath(relPath)
         : normPath(`/workspace/${cleanRel}`);
@@ -1114,7 +1152,7 @@ function __initVirtualRuntime(rootScope) {
         ctimeMs: Date.now(),
         ino: nextIno++,
         mode: 0o100644,
-        isInitialProjectFile: !/^\/(usr|tmp|lib|include|etc|bin|dev)(\/|$)/.test(fullPath)
+        isInitialProjectFile: !/^\/(usr|tmp|lib|include|etc|bin|dev|home)(\/|$)/.test(fullPath)
       });
     }
 
@@ -6487,10 +6525,15 @@ function __initVirtualRuntime(rootScope) {
     resourceTracker.pid = pid;
 
     const prevCwdGetter = _activeCwdGetter;
+    const prevHomeGetter = _activeHomeGetter;
     let currentCwd = (typeof options.cwd === 'string' && options.cwd.trim())
       ? VirtualPath.resolve('/workspace', options.cwd.trim())
       : '/workspace';
+    const currentHome = (options.env && typeof options.env.HOME === 'string' && options.env.HOME.trim())
+      ? options.env.HOME.trim()
+      : '/home/codelab';
     _activeCwdGetter = () => currentCwd;
+    _activeHomeGetter = () => currentHome;
 
     const vfs = optVfs || createVirtualFs(files, { cwdGetter: () => currentCwd });
     const initialOpenFds = typeof vfs._listOpenFds === 'function'
@@ -6897,9 +6940,26 @@ function __initVirtualRuntime(rootScope) {
 
     let syncExecDepth = 0;
 
+    const stdinStream = new PassThrough();
+    const stdinLinesQueue = [];
+    if (options && typeof options.stdin === 'string' && options.stdin.length > 0) {
+      const normalizedStdin = options.stdin.replace(/\r\n/g, '\n');
+      const parts = normalizedStdin.split('\n');
+      if (parts.length > 0 && parts[parts.length - 1] === '' && normalizedStdin.endsWith('\n')) {
+        parts.pop();
+      }
+      for (const ln of parts) stdinLinesQueue.push(ln);
+      stdinStream.write(options.stdin);
+      if (typeof options.onRequestStdin !== 'function') {
+        stdinStream.end();
+      }
+    } else if (!options || typeof options.onRequestStdin !== 'function') {
+      stdinStream.end();
+    }
+
     const sandboxProcess = Object.assign(new EventEmitter(), {
-      env: Object.assign({ NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/user' }, options.env || {}),
-      argv: argv || ['node', entry.startsWith('/') ? entry : `/workspace/${entry}`],
+      env: Object.assign({ NODE_ENV: 'development', PATH: '/usr/local/bin:/usr/bin:/bin', HOME: currentHome }, options.env || {}),
+      argv: argv || ['node', entry.startsWith('/') ? entry : VirtualPath.resolve(currentCwd, entry)],
       argv0: 'node',
       execArgv: [],
       execPath: '/usr/local/bin/node',
@@ -6949,7 +7009,7 @@ function __initVirtualRuntime(rootScope) {
       hrtime: hrtimeFn,
       stdout: { write: (s) => { emitStdout(String(s)); return true; }, isTTY: false },
       stderr: { write: (s) => { emitStderr(String(s)); return true; }, isTTY: false },
-      stdin: new PassThrough(),
+      stdin: stdinStream,
       nextTick: (cb, ...args) => queueMicrotask(() => cb(...args)),
       exit: (code = 0) => {
         exitCode = Number(code) || 0;
@@ -7876,20 +7936,97 @@ function __initVirtualRuntime(rootScope) {
       }
     };
 
-    function makeReadlineInterface() {
+    function readNextStdinLine(promptText) {
+      if (promptText) {
+        emitStdout(String(promptText));
+      }
+      if (stdinLinesQueue.length > 0) {
+        return Promise.resolve(stdinLinesQueue.shift());
+      }
+      if (options && typeof options.onRequestStdin === 'function' && !hasExited) {
+        const pendingToken = {};
+        resourceTracker.inFlightHttp.add(pendingToken);
+        return Promise.resolve(options.onRequestStdin(''))
+          .then((val) => {
+            resourceTracker.inFlightHttp.delete(pendingToken);
+            if (val === null || val === undefined) return null;
+            const s = String(val);
+            stdinStream.write(s + '\n');
+            return s;
+          })
+          .catch(() => {
+            resourceTracker.inFlightHttp.delete(pendingToken);
+            return null;
+          });
+      }
+      return Promise.resolve(null);
+    }
+
+    function makeReadlineInterface(rlOpts) {
       const iface = new EventEmitter();
+      let closed = false;
+      let promptStr = (rlOpts && typeof rlOpts.prompt === 'string') ? rlOpts.prompt : '> ';
       iface.terminal = false;
       iface.line = '';
       iface.cursor = 0;
-      iface.question = (query, cb) => { if (typeof cb === 'function') queueMicrotask(() => cb('')); };
-      iface.prompt = () => {};
-      iface.setPrompt = () => {};
-      iface.getPrompt = () => '';
-      iface.write = () => {};
+      iface.question = (query, optionsOrCb, maybeCb) => {
+        const cb = typeof optionsOrCb === 'function' ? optionsOrCb : maybeCb;
+        readNextStdinLine(query).then((ans) => {
+          const resolvedAns = ans === null ? '' : ans;
+          iface.line = resolvedAns;
+          if (typeof cb === 'function' && !closed && !hasExited) {
+            cb(resolvedAns);
+          }
+        });
+      };
+      iface.prompt = () => {
+        emitStdout(promptStr);
+      };
+      iface.setPrompt = (p) => {
+        promptStr = String(p ?? '');
+      };
+      iface.getPrompt = () => promptStr;
+      iface.write = (d) => {
+        if (d !== undefined && d !== null) emitStdout(String(d));
+      };
       iface.pause = () => iface;
-      iface.resume = () => iface;
-      iface.close = () => { queueMicrotask(() => iface.emit('close')); return iface; };
-      iface[Symbol.asyncIterator] = async function* () {};
+      iface.resume = () => {
+        queueMicrotask(async () => {
+          while (!closed && !hasExited && stdinLinesQueue.length > 0) {
+            const ln = stdinLinesQueue.shift();
+            iface.line = ln;
+            iface.emit('line', ln);
+          }
+        });
+        return iface;
+      };
+      iface.close = () => {
+        if (!closed) {
+          closed = true;
+          queueMicrotask(() => iface.emit('close'));
+        }
+        return iface;
+      };
+      iface[Symbol.asyncIterator] = async function* () {
+        while (!closed && !hasExited) {
+          const ln = await readNextStdinLine('');
+          if (ln === null) break;
+          iface.line = ln;
+          yield ln;
+        }
+      };
+      queueMicrotask(() => {
+        if (iface.listenerCount('line') > 0 && stdinLinesQueue.length > 0) {
+          while (!closed && !hasExited && stdinLinesQueue.length > 0) {
+            const ln = stdinLinesQueue.shift();
+            iface.line = ln;
+            iface.emit('line', ln);
+          }
+          if (!options || typeof options.onRequestStdin !== 'function') {
+            iface.close();
+          }
+        }
+      });
       return iface;
     }
     const VirtualReadline = {
@@ -7902,9 +8039,10 @@ function __initVirtualRuntime(rootScope) {
       emitKeypressEvents: () => {}
     };
     const VirtualReadlinePromises = {
-      createInterface: () => {
-        const iface = makeReadlineInterface();
-        iface.question = () => Promise.resolve('');
+      createInterface: (rlOpts) => {
+        const iface = makeReadlineInterface(rlOpts);
+        iface.question = (query) =>
+          readNextStdinLine(query).then((ans) => (ans === null ? '' : ans));
         return iface;
       },
       Interface: class ReadlinePromisesInterface extends EventEmitter {}
@@ -8708,6 +8846,15 @@ function __initVirtualRuntime(rootScope) {
             body = transpiledRepl;
           }
         }
+        let replCtx = null;
+        if (options && typeof options.replSessionId === 'string' && options.replSessionId) {
+          replCtx = _replSessions.get(options.replSessionId);
+          if (!replCtx) {
+            replCtx = Object.create(null);
+            _replSessions.set(options.replSessionId, replCtx);
+          }
+          body = transformStatefulReplBody(body, replCtx);
+        }
         const replFn = compileFunction(
           [
             'require',
@@ -8721,7 +8868,8 @@ function __initVirtualRuntime(rootScope) {
             'setImmediate',
             'clearImmediate',
             'Bun',
-            'fetch'
+            'fetch',
+            '__replCtx'
           ],
           `return (async () => {\n${body}\n})();`
         );
@@ -8738,14 +8886,21 @@ function __initVirtualRuntime(rootScope) {
             sandboxSetImmediate,
             sandboxClearImmediate,
             BunObj,
-            sandboxGlobal.fetch
+            sandboxGlobal.fetch,
+            replCtx || Object.create(null)
           )
         );
+        if (replCtx && replValue !== undefined) {
+          replCtx._ = replValue;
+        }
         if (!hasExited && replValue !== undefined && options.printReplResult !== false) {
           emitStdout(formatConsoleArg(replValue) + '\n');
         }
       } else {
-        let entryAbs = vfs.existsSync(entry) ? entry : `/workspace/${entry.replace(/^\/+/, '')}`;
+        const resolvedRelEntry = entry.startsWith('/') ? entry : VirtualPath.resolve(currentCwd, entry);
+        let entryAbs = vfs.existsSync(resolvedRelEntry)
+          ? resolvedRelEntry
+          : (vfs.existsSync(entry) ? entry : `/workspace/${entry.replace(/^\/+/, '')}`);
         if (!vfs.existsSync(entryAbs)) {
           const alt = `/workspace/src/${entry.replace(/^\/+/, '')}`;
           if (vfs.existsSync(alt)) entryAbs = alt;
@@ -8924,6 +9079,7 @@ function __initVirtualRuntime(rootScope) {
         }
       }
       _activeCwdGetter = prevCwdGetter;
+      _activeHomeGetter = prevHomeGetter;
     }
 
     const failedTests = testResults.filter((t) => !t.passed).length;
@@ -9710,22 +9866,54 @@ function __initVirtualRuntime(rootScope) {
     createVirtualPortTable,
     createVirtualWasi,
     executeWasiModule,
-    executeInVirtualRuntime
+    executeInVirtualRuntime,
+    clearReplSession(sessionId) {
+      if (sessionId) _replSessions.delete(sessionId);
+      else _replSessions.clear();
+    }
   };
 
 }
 
 function __workerMessageLoop(workerScope) {
   const runtime = workerScope.__virtualRuntime;
+  const pendingStdinResolvers = new Map();
+  let stdinReqSeq = 1;
+
   workerScope.onmessage = async function (event) {
     const msg = event.data || {};
     const { requestId, type, payload = {} } = msg;
+    if (type === 'clear-repl') {
+      if (runtime && typeof runtime.clearReplSession === 'function') {
+        runtime.clearReplSession(msg.replSessionId);
+      }
+      return;
+    }
+    if (type === 'stdin-reply') {
+      const resolver = pendingStdinResolvers.get(msg.stdinId);
+      if (resolver) {
+        pendingStdinResolvers.delete(msg.stdinId);
+        resolver(msg.value);
+      }
+      return;
+    }
     if (type !== 'execute') return;
     workerScope.postMessage({ requestId, type: 'started' });
     try {
       const result = await runtime.executeInVirtualRuntime({
         ...payload,
         _captureVfsDiff: true,
+        ...(payload.interactiveStdin
+          ? {
+              onRequestStdin(prompt) {
+                const stdinId = `${requestId}_${stdinReqSeq++}`;
+                return new Promise((resolveStdin) => {
+                  pendingStdinResolvers.set(stdinId, resolveStdin);
+                  workerScope.postMessage({ requestId, type: 'stdin-request', stdinId, prompt });
+                });
+              }
+            }
+          : {}),
         onStdout(text) {
           workerScope.postMessage({ requestId, type: 'stdout', text });
         },
@@ -9782,6 +9970,9 @@ function _ensureWarmWorker() {
   }
   if (_warmWorker) _destroyWarmWorker();
   _warmWorker = new Worker(_ensureWorkerUrl());
+  if (_warmWorker && typeof _warmWorker.unref === 'function') {
+    _warmWorker.unref();
+  }
   return _warmWorker;
 }
 
@@ -9861,6 +10052,7 @@ function _extractWorkerFilesFromVfs(vfs) {
       };
       walk('/workspace');
       walk('/tmp');
+      walk('/home');
     }
   } catch (err) {
     _hostLogger.debug('_extractWorkerFilesFromVfs failed', err);
@@ -9960,6 +10152,9 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         worker = new Worker(_ensureWorkerUrl());
         isWarmWorker = false;
       }
+      if (worker && typeof worker.ref === 'function') {
+        worker.ref();
+      }
     } catch (_) {
       if (isWarmWorker) _warmWorkerBusy = false;
       resolve(_hostRuntime.executeInVirtualRuntime(options));
@@ -9998,6 +10193,9 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
           if (_warmWorker) {
             _warmWorker.onmessage = null;
             _warmWorker.onerror = null;
+            if (typeof _warmWorker.unref === 'function') {
+              _warmWorker.unref();
+            }
           }
         }
       } else {
@@ -10005,25 +10203,30 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
       }
     }
 
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      releaseWorker(true);
-      const timeoutMsg = `Execution timed out after ${timeoutMs}ms (infinite loop or hung timer terminated).\n`;
-      resolve({
-        ok: false,
-        timedOut: true,
-        exitCode: 124,
-        durationMs: timeoutMs,
-        stdout: streamedStdoutChunks.join(''),
-        stderr: streamedStderrChunks.join('') + timeoutMsg,
-        testResults: streamedTestResults.slice(),
-        testSummary: buildTestSummary(),
-        fsSnapshot: [],
-        httpTrace: [],
-        error: { message: `Execution timed out after ${timeoutMs}ms` }
-      });
-    }, timeoutMs + 500);
+    let timer = null;
+    const armWatchdog = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        releaseWorker(true);
+        const timeoutMsg = `Execution timed out after ${timeoutMs}ms (infinite loop or hung timer terminated).\n`;
+        resolve({
+          ok: false,
+          timedOut: true,
+          exitCode: 124,
+          durationMs: timeoutMs,
+          stdout: streamedStdoutChunks.join(''),
+          stderr: streamedStderrChunks.join('') + timeoutMsg,
+          testResults: streamedTestResults.slice(),
+          testSummary: buildTestSummary(),
+          fsSnapshot: [],
+          httpTrace: [],
+          error: { message: `Execution timed out after ${timeoutMs}ms` }
+        });
+      }, timeoutMs + 500);
+    };
+    armWatchdog();
 
     _activeWorkerJobs.set(requestId, {
       requestId,
@@ -10076,6 +10279,30 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         userCodeStarted = true;
         if (typeof msg.text === 'string') streamedStderrChunks.push(msg.text);
         if (typeof options.onStderr === 'function') options.onStderr(msg.text);
+      } else if (msg.type === 'stdin-request') {
+        userCodeStarted = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (typeof options.onRequestStdin === 'function') {
+          Promise.resolve(options.onRequestStdin(msg.prompt || ''))
+            .then((val) => {
+              if (!settled) {
+                armWatchdog();
+                worker.postMessage({ requestId, type: 'stdin-reply', stdinId: msg.stdinId, value: val });
+              }
+            })
+            .catch(() => {
+              if (!settled) {
+                armWatchdog();
+                worker.postMessage({ requestId, type: 'stdin-reply', stdinId: msg.stdinId, value: null });
+              }
+            });
+        } else {
+          armWatchdog();
+          worker.postMessage({ requestId, type: 'stdin-reply', stdinId: msg.stdinId, value: null });
+        }
       } else if (msg.type === 'test-result') {
         userCodeStarted = true;
         if (msg.testResult) streamedTestResults.push(msg.testResult);
@@ -10149,6 +10376,8 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
         entry: options.entry,
         mode: options.mode,
         replCode: options.replCode,
+        replSessionId: options.replSessionId,
+        interactiveStdin: typeof options.onRequestStdin === 'function',
         testFilter: options.testFilter,
         timeoutMs: options.timeoutMs,
         maxOutputBytes: options.maxOutputBytes,

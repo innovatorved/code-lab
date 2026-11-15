@@ -7,6 +7,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>code-lab — Browser IDE & GitHub Repository Explorer</title>
   <meta name="description" content="Clone and run any public GitHub repository directly in your browser with zero server setup. Powered by code-lab.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -37,39 +38,43 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       Ved Gupta Monochrome Neutral Design Tokens (matches system-design)
+       VS Code Dark Modern & Light Modern Host Tokens
        ═══════════════════════════════════════════════════════════════ */
+    :root {
+      color-scheme: light dark;
+    }
+
     :root,
     [data-theme="dark"] {
-      --bg: #000000;
-      --bg-alt: #0a0a0a;
-      --surface: #0a0a0a;
-      --surface-hover: #171717;
-      --surface-active: #262626;
-      --border: #262626;
-      --border-strong: #404040;
-      --border-focus: #737373;
-      --divider: #171717;
+      --bg: #1f1f1f;
+      --bg-alt: #181818;
+      --surface: #181818;
+      --surface-hover: #2a2d2e;
+      --surface-active: #37373d;
+      --border: #2b2b2b;
+      --border-strong: #454545;
+      --border-focus: #0078d4;
+      --divider: #2b2b2b;
 
-      --fg: #ffffff;
-      --fg-prose: #e5e5e5;
-      --fg-muted: #a1a1a1;
-      --fg-faint: #8f8f8f;
+      --fg: #cccccc;
+      --fg-prose: #cccccc;
+      --fg-muted: #9d9d9d;
+      --fg-faint: #6e7681;
 
-      --accent: #ffffff;
-      --accent-hover: #e5e5e5;
-      --accent-muted: rgba(255, 255, 255, 0.08);
-      --accent-border: rgba(255, 255, 255, 0.22);
-      --accent-fg: #000000;
+      --accent: #0078d4;
+      --accent-hover: #026ec1;
+      --accent-muted: rgba(0, 120, 212, 0.14);
+      --accent-border: rgba(77, 170, 252, 0.35);
+      --accent-fg: #ffffff;
 
-      --success: #05df72;
-      --success-muted: rgba(5, 223, 114, 0.12);
-      --warning: #ffd236;
-      --warning-muted: rgba(255, 210, 54, 0.12);
-      --error: #fb2c36;
-      --error-muted: rgba(251, 44, 54, 0.12);
-      --info: #54a2ff;
-      --info-muted: rgba(84, 162, 255, 0.12);
+      --success: #89d185;
+      --success-muted: rgba(137, 209, 133, 0.14);
+      --warning: #cca700;
+      --warning-muted: rgba(204, 167, 0, 0.14);
+      --error: #f14c4c;
+      --error-muted: rgba(241, 76, 76, 0.14);
+      --info: #4daafc;
+      --info-muted: rgba(77, 170, 252, 0.14);
 
       --r-sm: 4px;
       --r-md: 6px;
@@ -77,41 +82,41 @@
       --r-xl: 12px;
       --r-full: 999px;
 
-      --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Geist", Roboto, sans-serif;
       --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, monospace;
       color-scheme: dark;
     }
 
     [data-theme="light"] {
       --bg: #ffffff;
-      --bg-alt: #fafafa;
-      --surface: #ffffff;
-      --surface-hover: #f5f5f5;
-      --surface-active: #e5e5e5;
+      --bg-alt: #f8f8f8;
+      --surface: #f8f8f8;
+      --surface-hover: #f2f2f2;
+      --surface-active: #e8e8e8;
       --border: #e5e5e5;
-      --border-strong: #d4d4d4;
-      --border-focus: #a1a1a1;
-      --divider: #f0f0f0;
+      --border-strong: #cecece;
+      --border-focus: #005fb8;
+      --divider: #e5e5e5;
 
-      --fg: #000000;
-      --fg-prose: #171717;
-      --fg-muted: #737373;
-      --fg-faint: #a1a1a1;
+      --fg: #3b3b3b;
+      --fg-prose: #3b3b3b;
+      --fg-muted: #616161;
+      --fg-faint: #868686;
 
-      --accent: #000000;
-      --accent-hover: #262626;
-      --accent-muted: rgba(0, 0, 0, 0.06);
-      --accent-border: rgba(0, 0, 0, 0.15);
+      --accent: #005fb8;
+      --accent-hover: #0258a8;
+      --accent-muted: rgba(0, 95, 184, 0.1);
+      --accent-border: rgba(0, 95, 184, 0.25);
       --accent-fg: #ffffff;
 
-      --success: #05df72;
-      --success-muted: rgba(5, 223, 114, 0.12);
-      --warning: #f59e0b;
-      --warning-muted: rgba(245, 158, 11, 0.12);
-      --error: #e11d48;
-      --error-muted: rgba(225, 29, 72, 0.12);
-      --info: #2563eb;
-      --info-muted: rgba(37, 99, 235, 0.12);
+      --success: #388a34;
+      --success-muted: rgba(56, 138, 52, 0.12);
+      --warning: #bf8803;
+      --warning-muted: rgba(191, 136, 3, 0.12);
+      --error: #e51400;
+      --error-muted: rgba(229, 20, 0, 0.12);
+      --info: #005fb8;
+      --info-muted: rgba(0, 95, 184, 0.12);
 
       color-scheme: light;
     }
@@ -126,7 +131,8 @@
       background: var(--bg);
       color: var(--fg);
       font-family: var(--font-sans);
-      height: 100vh;
+      height: 100dvh;
+      width: 100vw;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -134,19 +140,9 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    /* ═══════════════════════════════════════════════════════════════
-       Top Navigation Bar (52px matching system-design --topbar-h)
-       ═══════════════════════════════════════════════════════════════ */
+    /* Single-row VS Code Titlebar inside CodeLabWorkbench — hide stacked outer header */
     .app-header {
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 16px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-      z-index: 30;
+      display: none !important;
     }
 
     .brand-section {
@@ -168,12 +164,8 @@
     }
 
     :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-      outline: 2px solid var(--fg);
-      outline-offset: 2px;
-    }
-
-    :where(button):active:not(:disabled) {
-      scale: 0.98;
+      outline: 1px solid var(--border-focus);
+      outline-offset: -1px;
     }
 
     .app-brand {
@@ -289,7 +281,8 @@
       flex: 1;
       position: relative;
       display: flex;
-      height: calc(100vh - 40px);
+      height: 100dvh;
+      width: 100vw;
     }
 
     .landing-overlay {
@@ -824,11 +817,27 @@
             window.CodeLabCpp && (window.CodeLabCpp.cppExtension || window.CodeLabCpp.default)
           ].filter(Boolean);
           const isBlank = Boolean(options.blank || targetLabId.startsWith('workspace-') || targetLabId.startsWith('blank-'));
+          const defaultWelcomeTemplates = [
+            { id: 'react', title: 'React 18 + TypeScript', description: 'Interactive counter & state app', badge: 'JSX / TS' },
+            { id: 'sql', title: 'SQL Studio (SQLite WASM)', description: 'Schema browser, EXPLAIN plan & Guided Lab', badge: 'SQL' },
+            { id: 'python', title: 'Python 3 Data & Algorithms', description: 'Pyodide WASM + browser stdin/stdout', badge: 'PY' },
+            { id: 'cpp', title: 'C++20 Systems Playground', description: 'Clang/WASI compiler & binary execution', badge: 'C++20' },
+            { id: 'sd-cluster', title: 'Distributed Cluster Lab', description: 'Consistent hashing & node failover', badge: 'SYS' },
+            { id: 'sd-shortener', title: 'URL Shortener Architecture', description: 'Base62 encoding & rate-limiting', badge: 'SYS' }
+          ];
           ideInstance = window.CodeLab.mount(mountEl, {
             labId: targetLabId,
             title: options.title || 'code-lab',
+            fullbleed: true,
             theme: document.documentElement.getAttribute('data-theme') || 'dark',
             extensions: options.extensions || defaultExtensions,
+            welcomeTemplates: options.welcomeTemplates || defaultWelcomeTemplates,
+            onSelectWelcomeTemplate: options.onSelectWelcomeTemplate || ((demoId) => {
+              if (demoId === 'react') openFrameworkDemo({ forceReset: false });
+              else if (demoId === 'sql') openSqlDemo({ forceReset: false });
+              else if (demoId === 'sd-cluster' || demoId === 'sd-shortener') openSystemDesignDemo(demoId, { forceReset: false });
+              else if (demoId === 'cpp' || demoId === 'python') openLanguageDemo(demoId, { forceReset: false });
+            }),
             files: options.files || (isBlank ? {} : {
               'README.md': '# Welcome to code-lab v0.5.0\n\n- **Settings UI & Workspace JSON**: Press `Cmd+,` / `Ctrl+,` (or click **Settings** in the top bar) to configure editor, terminal, and SQL dialect preferences, backed by `.codelab/settings.json`.\n- **SQL Studio & Guided Labs**: Open the **SQL Studio** demo from the home screen or run `sqlite3` directly in the POSIX terminal.\n- **Multi-Runtime Terminal**: Click `+` in the terminal drawer header for multiple sessions, or run `git clone <owner/repo>`, `node`, `bun`, `python3`, or `clang++`.\n',
               '.codelab/settings.json': '{\n  "editor.fontSize": 13,\n  "editor.tabSize": 2,\n  "sql.dialect": "sqlite"\n}\n'
@@ -1169,6 +1178,8 @@
               const url = new URL(window.location.href);
               url.searchParams.delete('repo');
               url.searchParams.delete('demo');
+              url.searchParams.delete('blank');
+              url.searchParams.delete('empty');
               window.history.replaceState({}, '', url.toString());
               saveSessionMeta({ mode: 'blank', labId: newId });
             }
@@ -1181,6 +1192,8 @@
         const url = new URL(window.location.href);
         url.searchParams.delete('repo');
         url.searchParams.delete('demo');
+        url.searchParams.delete('blank');
+        url.searchParams.delete('empty');
         window.history.replaceState({}, '', url.toString());
         saveSessionMeta({ mode: 'blank', labId });
         if (ide) {
@@ -1323,9 +1336,12 @@
       const initialParams = new URLSearchParams(window.location.search);
       const urlRepo = initialParams.get('repo');
       const urlDemo = initialParams.get('demo');
+      const urlBlank = initialParams.get('blank') === '1' || initialParams.get('blank') === 'true' || initialParams.get('empty') === '1';
       const urlWorkspace = initialParams.get('workspace') || initialParams.get('labId');
       const savedSession = loadSessionMeta();
-      if (urlWorkspace) {
+      if (urlBlank) {
+        openBlankWorkspace({ force: true });
+      } else if (urlWorkspace) {
         const isBlank = urlWorkspace.startsWith('workspace-') || urlWorkspace.startsWith('blank-');
         const ide = ensureIde({ labId: urlWorkspace, blank: isBlank, files: {} });
         landingOverlay.classList.add('hidden');

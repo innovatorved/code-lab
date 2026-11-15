@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 /**
  * Zod Schemas and Inferred TypeScript Types for code-lab v0.5.0

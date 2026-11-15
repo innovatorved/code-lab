@@ -48,6 +48,8 @@
     2: 'cl-ansi-dim',
     3: 'cl-ansi-italic',
     4: 'cl-ansi-underline',
+    7: 'cl-ansi-inverse',
+    9: 'cl-ansi-strike',
     30: 'cl-ansi-black',
     31: 'cl-ansi-red',
     32: 'cl-ansi-green',
@@ -119,10 +121,18 @@
     if (!s.includes('\x1b') && !s.includes('\r')) return s;
 
     let text = s;
-    const lastClearScreen = text.lastIndexOf('\x1b[2J');
-    if (lastClearScreen !== -1) {
-      text = text.slice(lastClearScreen + 4);
-      text = text.replace(/^\x1b\[(?:1;1)?H/, '');
+    // Strip OSC sequences (e.g. window title \x1b]0;...\x07) while preserving OSC-8 link visible labels
+    text = text.replace(/\x1b\]8;[^;]*;[^\x07\x1b]*(?:\x07|\x1b\\)([\s\S]*?)\x1b\]8;;(?:\x07|\x1b\\)/g, '$1');
+    text = text.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+
+    const clearIdx2 = text.lastIndexOf('\x1b[2J');
+    const clearIdx3 = text.lastIndexOf('\x1b[3J');
+    const clearRis = text.lastIndexOf('\x1bc');
+    const lastClear = Math.max(clearIdx2, clearIdx3, clearRis);
+    if (lastClear !== -1) {
+      const skipLen = lastClear === clearRis ? 2 : 4;
+      text = text.slice(lastClear + skipLen);
+      text = text.replace(/^(?:\x1b\[[23]J|\x1b\[(?:\d+;\d+)?H)+/, '');
     }
 
     text = text.replace(/\r\n/g, '\n');
@@ -190,6 +200,8 @@
       dim: false,
       italic: false,
       underline: false,
+      inverse: false,
+      strike: false,
       fgClass: null,
       bgClass: null,
       fgColor: null,
@@ -201,6 +213,8 @@
       state.dim = false;
       state.italic = false;
       state.underline = false;
+      state.inverse = false;
+      state.strike = false;
       state.fgClass = null;
       state.bgClass = null;
       state.fgColor = null;
@@ -215,12 +229,20 @@
       if (state.dim) classes.push('cl-ansi-dim');
       if (state.italic) classes.push('cl-ansi-italic');
       if (state.underline) classes.push('cl-ansi-underline');
+      if (state.inverse) classes.push('cl-ansi-inverse');
+      if (state.strike) classes.push('cl-ansi-strike');
       if (state.fgClass) classes.push(state.fgClass);
       if (state.bgClass) classes.push(state.bgClass);
 
       const styles = [];
       if (state.fgColor) styles.push(`color:${state.fgColor}`);
       if (state.bgColor) styles.push(`background-color:${state.bgColor}`);
+      if (state.inverse && !state.fgClass && !state.bgClass) {
+        styles.push('filter:invert(1)');
+      }
+      if (state.strike) {
+        styles.push('text-decoration:line-through');
+      }
 
       if (classes.length === 0 && styles.length === 0) {
         return escaped;
@@ -248,6 +270,10 @@
           state.italic = true;
         } else if (code === 4) {
           state.underline = true;
+        } else if (code === 7) {
+          state.inverse = true;
+        } else if (code === 9) {
+          state.strike = true;
         } else if (code === 22) {
           state.bold = false;
           state.dim = false;
@@ -255,6 +281,10 @@
           state.italic = false;
         } else if (code === 24) {
           state.underline = false;
+        } else if (code === 27) {
+          state.inverse = false;
+        } else if (code === 29) {
+          state.strike = false;
         } else if (code === 39) {
           state.fgClass = null;
           state.fgColor = null;
@@ -403,9 +433,20 @@
       while (i < str.length) {
         if (str[i] === '\x1b') {
           const rest = str.slice(i);
-          if (/^\x1b(?:\[[0-9;?]*)?$/.test(rest)) {
+          if (rest === '\x1b' || /^\x1b\[[0-9;?]*$/.test(rest) || /^\x1b\][^\x07]*(?:\x1b)?$/.test(rest)) {
             this._pendingEscape = rest;
             break;
+          }
+          if (rest.startsWith('\x1bc')) {
+            i += 2;
+            this.clear();
+            modified = false;
+            continue;
+          }
+          const oscMatch = /^\x1b\]([^\x07\x1b]*)(?:\x07|\x1b\\)/.exec(rest);
+          if (oscMatch) {
+            i += oscMatch[0].length;
+            continue;
           }
 
           const csiMatch = /^\x1b\[([0-9;?]*)([A-Za-z])/.exec(rest);
@@ -438,11 +479,12 @@
                 if (targetLine) targetLine.text = '';
                 this._activeLineEl = null;
               }
-            } else if (cmd === 'G') {
+            } else if (cmd === 'G' || cmd === 'H' || cmd === 'f') {
               this._cursorCol = 0;
-              this._needsRewrite = true;
-            } else if (cmd === 'J' && params === '2') {
+              if (cmd === 'G') this._needsRewrite = true;
+            } else if (cmd === 'J' && (params === '2' || params === '3')) {
               this.clear();
+              modified = false;
             } else if (cmd === 'm') {
               const cur = this._getActiveLine(type);
               cur.text += seq;
@@ -745,6 +787,14 @@
 
       if (input) {
         this._addListener(input, 'keydown', (e) => this.handleKeyDown(e));
+        this._addListener(input, 'paste', (e) => {
+          const clip = e && e.clipboardData && typeof e.clipboardData.getData === 'function'
+            ? e.clipboardData.getData('text/plain')
+            : '';
+          if (!clip) return;
+          if (e.preventDefault) e.preventDefault();
+          this.pasteText(clip);
+        });
         this._addListener(input, 'input', () => {
           if (this.isCommandRunning()) {
             input.value = '';
@@ -789,19 +839,39 @@
       }
 
       const key = e.key;
+      const isCtrlOnly = Boolean(e.ctrlKey && !e.metaKey);
+      const isMetaOnly = Boolean(e.metaKey && !e.ctrlKey);
       const isCtrl = Boolean(e.ctrlKey || e.metaKey);
 
-      if (isCtrl && (key === 'l' || key === 'L')) {
+      // macOS Cmd+K or Ctrl+L clears terminal
+      if ((isCtrl && (key === 'l' || key === 'L')) || (isMetaOnly && (key === 'k' || key === 'K'))) {
         if (e.preventDefault) e.preventDefault();
         this.clear();
         return;
       }
 
-      if (isCtrl && (key === 'c' || key === 'C')) {
+      // Allow native clipboard copy on Cmd+C (macOS) or Ctrl+Shift+C, or Ctrl+C when idle with text selected
+      if (isMetaOnly && (key === 'c' || key === 'C')) {
+        return;
+      }
+      if (isMetaOnly && (key === 'v' || key === 'V')) {
+        return;
+      }
+      if (isCtrlOnly && (key === 'c' || key === 'C')) {
+        if (e.shiftKey) return;
+        const hasSelection =
+          !this.isBusy &&
+          typeof window !== 'undefined' &&
+          typeof window.getSelection === 'function' &&
+          String(window.getSelection()).length > 0;
+        if (hasSelection) return;
         if (e.preventDefault) e.preventDefault();
         const wasBusy = this.isBusy || (this._readLineQueue && this._readLineQueue.length > 0);
         this.isBusy = false;
-        this._pushLog({ type: 'system', text: wasBusy ? '^C' : `${this.getPrompt()}${this.buffer}^C` });
+        const sigLog = this._pushLog({ type: 'system', text: wasBusy ? '^C' : `${this.getPrompt()}${this.buffer}^C` });
+        this._appendDomLine(sigLog);
+        this._activeLineCommitted = true;
+        this._activeLineEl = null;
         this.buffer = '';
         this.cursor = 0;
         this.historyIdx = -1;
@@ -812,7 +882,8 @@
         if (this.onInterrupt) {
           try { this.onInterrupt(); } catch (err) { _terminalLogger.warn('Terminal onInterrupt callback threw.', err); }
         }
-        this.render();
+        this.updateActiveLine();
+        this._scrollToBottom();
         return;
       }
 
@@ -886,6 +957,39 @@
         this.searchMatchIdx = -1;
       }
 
+      // Word navigation: Alt+B / Alt+ArrowLeft / Ctrl+ArrowLeft & Alt+F / Alt+ArrowRight / Ctrl+ArrowRight
+      if ((e.altKey && (key === 'b' || key === 'B' || key === 'ArrowLeft')) || (isCtrlOnly && key === 'ArrowLeft')) {
+        if (e.preventDefault) e.preventDefault();
+        let pos = this.cursor;
+        while (pos > 0 && /\s/.test(this.buffer[pos - 1])) pos--;
+        while (pos > 0 && !/\s/.test(this.buffer[pos - 1])) pos--;
+        this.cursor = pos;
+        this.updateActiveLine();
+        return;
+      }
+
+      if ((e.altKey && (key === 'f' || key === 'F' || key === 'ArrowRight')) || (isCtrlOnly && key === 'ArrowRight')) {
+        if (e.preventDefault) e.preventDefault();
+        let pos = this.cursor;
+        while (pos < this.buffer.length && /\s/.test(this.buffer[pos])) pos++;
+        while (pos < this.buffer.length && !/\s/.test(this.buffer[pos])) pos++;
+        this.cursor = pos;
+        this.updateActiveLine();
+        return;
+      }
+
+      // Word delete backward: Ctrl+W or Alt+Backspace
+      if ((isCtrlOnly && (key === 'w' || key === 'W')) || (e.altKey && key === 'Backspace')) {
+        if (e.preventDefault) e.preventDefault();
+        let pos = this.cursor;
+        while (pos > 0 && /\s/.test(this.buffer[pos - 1])) pos--;
+        while (pos > 0 && !/\s/.test(this.buffer[pos - 1])) pos--;
+        this.buffer = this.buffer.slice(0, pos) + this.buffer.slice(this.cursor);
+        this.cursor = pos;
+        this.updateActiveLine();
+        return;
+      }
+
       if (key === 'ArrowLeft') {
         if (e.preventDefault) e.preventDefault();
         if (this.cursor > 0) {
@@ -955,6 +1059,11 @@
       if (isCtrl && (key === 'd' || key === 'D')) {
         if (this.buffer === '') {
           if (e.preventDefault) e.preventDefault();
+          if (this._readLineQueue && this._readLineQueue.length > 0) {
+            this._drainReadLineQueue(null);
+            this.updateActiveLine();
+            return;
+          }
           if (this.replMode) {
             this._pushLog({ type: 'system', text: `${this.getPrompt()}.exit` });
             this.replMode = false;
@@ -1013,6 +1122,33 @@
         this.buffer = this.buffer.slice(0, this.cursor) + key + this.buffer.slice(this.cursor);
         this.cursor++;
         this.updateActiveLine();
+      }
+    }
+
+    async pasteText(rawText) {
+      if (!rawText || this.isCommandRunning()) return;
+      const normalized = String(rawText).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      if (!normalized.includes('\n')) {
+        this.buffer = this.buffer.slice(0, this.cursor) + normalized + this.buffer.slice(this.cursor);
+        this.cursor += normalized.length;
+        this.updateActiveLine();
+        return;
+      }
+      const parts = normalized.split('\n');
+      for (let i = 0; i < parts.length; i++) {
+        const seg = parts[i];
+        if (i < parts.length - 1) {
+          this.buffer = this.buffer.slice(0, this.cursor) + seg + this.buffer.slice(this.cursor);
+          this.cursor = this.buffer.length;
+          this.submitLine();
+          while (this.isCommandRunning()) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        } else if (seg.length > 0) {
+          this.buffer = seg;
+          this.cursor = seg.length;
+          this.updateActiveLine();
+        }
       }
     }
 

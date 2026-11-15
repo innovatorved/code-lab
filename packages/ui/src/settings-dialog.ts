@@ -41,11 +41,18 @@ const ALL_CATEGORIES: ReadonlyArray<'All' | SettingCategory> = [
   'SQL'
 ];
 
+const FONT_SANS =
+  "var(--cl-font-sans,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif)";
+
 const BTN_STYLE =
-  'padding:5px 10px;border-radius:5px;border:1px solid var(--cl-border,#262626);background:var(--cl-surface,#0a0a0a);color:var(--cl-fg,#f5f5f5);cursor:pointer;font-size:12px;';
+  'padding:4px 10px;border-radius:2px;border:1px solid var(--cl-input-border,var(--cl-border,#3c3c3c));background:var(--cl-input-bg,#313131);color:var(--cl-fg,#cccccc);cursor:pointer;font-size:12px;font-family:' +
+  FONT_SANS +
+  ';line-height:18px;';
 
 const CONTROL_STYLE =
-  'padding:5px 8px;border-radius:5px;border:1px solid var(--cl-border,#262626);background:var(--cl-surface,#0a0a0a);color:var(--cl-fg,#f5f5f5);font-size:12.5px;';
+  'padding:4px 8px;border-radius:2px;border:1px solid var(--cl-input-border,var(--cl-border,#3c3c3c));background:var(--cl-input-bg,#313131);color:var(--cl-fg,#cccccc);font-size:13px;font-family:' +
+  FONT_SANS +
+  ';line-height:18px;';
 
 function isDomHostElement(candidate: unknown): candidate is HTMLElement {
   return Boolean(
@@ -101,22 +108,22 @@ export class SettingsDialogController implements IDisposable {
         : '';
 
     return (
-      `<div class="cl-settings-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--cl-border,#262626);flex-wrap:wrap;">` +
-      `<h2 id="${titleId}" style="margin:0;font-size:15px;font-weight:600;color:var(--cl-fg,#f5f5f5);">Settings</h2>` +
-      `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">` +
+      `<div class="cl-settings-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;border-bottom:1px solid var(--cl-border,#2b2b2b);flex-wrap:wrap;font-family:${FONT_SANS};">` +
+      `<h2 id="${titleId}" style="margin:0;font-size:13px;font-weight:600;color:var(--cl-fg-active,var(--cl-fg,#cccccc));letter-spacing:0.01em;">Settings</h2>` +
+      `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">` +
       `<button type="button" class="codelab-btn" data-settings-action="open-json" aria-label="Open Settings (JSON)" title="Open .codelab/settings.json" style="${BTN_STYLE}">Open Settings (JSON)</button>` +
       `<button type="button" class="codelab-btn" data-settings-action="reset-all" aria-label="Reset All Settings" title="Reset all settings to defaults" style="${BTN_STYLE}">Reset All Settings</button>` +
       `<button type="button" class="codelab-btn" data-settings-action="export" title="Export Settings JSON" style="${BTN_STYLE}">Export</button>` +
       closeBtnHtml +
       `</div>` +
       `</div>` +
-      `<div style="padding:10px 16px 0 16px;border-bottom:1px solid var(--cl-border,#262626);display:flex;flex-direction:column;gap:8px;">` +
-      `<input type="search" data-role="settings-search" aria-label="Search settings" value="${escapeAttr(this.searchQuery)}" placeholder="Search settings (e.g. fontSize, theme, wordWrap, autoSave)..." style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--cl-border,#262626);background:var(--cl-surface,#0a0a0a);color:var(--cl-fg,#f5f5f5);font-size:13px;" />` +
-      `<div role="tablist" aria-label="Settings scope" data-role="settings-scopes" style="display:flex;align-items:center;gap:4px;overflow-x:auto;"></div>` +
+      `<div style="padding:10px 20px 0 20px;border-bottom:1px solid var(--cl-border,#2b2b2b);display:flex;flex-direction:column;gap:8px;font-family:${FONT_SANS};">` +
+      `<input type="search" data-role="settings-search" aria-label="Search settings" value="${escapeAttr(this.searchQuery)}" placeholder="Search settings" style="width:100%;height:26px;padding:3px 8px;border-radius:2px;border:1px solid var(--cl-input-border,var(--cl-border,#3c3c3c));background:var(--cl-input-bg,#313131);color:var(--cl-fg,#cccccc);font-size:13px;font-family:${FONT_SANS};box-sizing:border-box;" />` +
+      `<div role="tablist" aria-label="Settings scope" data-role="settings-scopes" style="display:flex;align-items:center;gap:2px;overflow-x:auto;"></div>` +
       `</div>` +
-      `<div class="cl-settings-body" style="display:grid;grid-template-columns:150px minmax(0,1fr);${bodyHeightStyle}">` +
-      `<nav data-role="settings-categories" aria-label="Setting categories" style="border-right:1px solid var(--cl-border,#262626);padding:8px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;"></nav>` +
-      `<div data-role="settings-list" style="padding:12px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;"></div>` +
+      `<div class="cl-settings-body" style="display:grid;grid-template-columns:180px minmax(0,1fr);font-family:${FONT_SANS};${bodyHeightStyle}">` +
+      `<nav data-role="settings-categories" aria-label="Setting categories" style="border-right:1px solid var(--cl-border,#2b2b2b);padding:8px 0;display:flex;flex-direction:column;gap:1px;overflow-y:auto;"></nav>` +
+      `<div data-role="settings-list" style="padding:8px 24px 24px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;"></div>` +
       `</div>`
     );
   }
@@ -409,7 +416,7 @@ export class SettingsDialogController implements IDisposable {
     root.setAttribute('data-role', 'settings-inline-root');
     root.setAttribute(
       'style',
-      'display:flex;flex-direction:column;height:100%;min-height:0;background:var(--cl-bg,#000000);color:var(--cl-fg,#f5f5f5);'
+      `display:flex;flex-direction:column;height:100%;min-height:0;background:var(--cl-editor-bg,var(--cl-bg,#1f1f1f));color:var(--cl-fg,#cccccc);font-family:${FONT_SANS};`
     );
     root.innerHTML = this.buildSurfaceInnerHtml('inline');
 
@@ -458,7 +465,7 @@ export class SettingsDialogController implements IDisposable {
         const selected = this.activeScope === tab.id;
         return (
           `<button type="button" role="tab" data-settings-scope="${tab.id}" aria-selected="${selected ? 'true' : 'false'}" ` +
-          `style="flex:none;padding:6px 12px;border-top:1px solid transparent;border-left:1px solid transparent;border-right:1px solid transparent;border-bottom:2px solid ${selected ? 'var(--cl-accent,#0369a1)' : 'transparent'};background:${selected ? 'var(--cl-surface,#0a0a0a)' : 'transparent'};color:${selected ? 'var(--cl-fg,#f5f5f5)' : 'var(--cl-fg-muted,var(--cl-muted,#64748b))'};cursor:pointer;font-size:12.5px;font-weight:500;">` +
+          `style="flex:none;padding:6px 12px;border:none;border-bottom:2px solid ${selected ? 'var(--cl-btn-primary-bg,var(--cl-accent,#0078d4))' : 'transparent'};background:transparent;color:${selected ? 'var(--cl-fg-active,var(--cl-fg,#ffffff))' : 'var(--cl-fg-muted,var(--cl-muted,#9d9d9d))'};cursor:pointer;font-size:13px;font-weight:${selected ? '600' : '400'};font-family:${FONT_SANS};">` +
           `${escapeAttr(tab.label)}` +
           `</button>`
         );
@@ -473,7 +480,7 @@ export class SettingsDialogController implements IDisposable {
       const selected = cat === this.activeCategory;
       return (
         `<button type="button" data-settings-cat="${cat}" aria-current="${selected ? 'true' : 'false'}" ` +
-        `style="text-align:left;padding:6px 10px;border-radius:5px;border:1px solid ${selected ? 'var(--cl-accent,#0369a1)' : 'transparent'};background:${selected ? 'var(--cl-accent,#0369a1)' : 'transparent'};color:${selected ? 'var(--cl-accent-fg,#ffffff)' : 'var(--cl-fg,#f5f5f5)'};cursor:pointer;font-size:12.5px;font-weight:500;">` +
+        `style="text-align:left;padding:4px 16px;border:none;border-left:2px solid ${selected ? 'var(--cl-btn-primary-bg,var(--cl-accent,#0078d4))' : 'transparent'};background:${selected ? 'var(--cl-list-active,#04395e)' : 'transparent'};color:${selected ? 'var(--cl-list-active-fg,#ffffff)' : 'var(--cl-fg,#cccccc)'};cursor:pointer;font-size:13px;font-weight:${selected ? '600' : '400'};font-family:${FONT_SANS};line-height:22px;">` +
         `${escapeAttr(cat)}` +
         `</button>`
       );
@@ -539,23 +546,28 @@ export class SettingsDialogController implements IDisposable {
             ? (insp.workspaceValue !== undefined ? 'workspace' : '')
             : (insp.effectiveSource !== 'default' ? insp.effectiveSource : '');
 
+        const modifiedBorder = canReset
+          ? '2px solid var(--cl-btn-primary-bg,var(--cl-accent,#0078d4))'
+          : '2px solid transparent';
+
         return (
-          `<div class="cl-setting-item" data-setting-row="${escapeAttr(desc.key)}" style="padding:10px 12px;border:1px solid var(--cl-border,#262626);border-radius:7px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">` +
-          `<div style="min-width:0;">` +
-          `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">` +
-          `<strong style="font-size:13px;color:var(--cl-fg,#f5f5f5);">${escapeAttr(desc.title)}</strong>` +
-          `<code style="font-size:11px;color:var(--cl-fg-muted,var(--cl-muted,#64748b));">${escapeAttr(desc.key)}</code>` +
+          `<div class="cl-setting-item" data-setting-row="${escapeAttr(desc.key)}" style="padding:12px 12px 12px 14px;border-left:${modifiedBorder};border-bottom:1px solid var(--cl-border,#2b2b2b);display:flex;flex-direction:column;gap:6px;font-family:${FONT_SANS};">` +
+          `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">` +
+          `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;">` +
+          `<span style="font-size:12px;color:var(--cl-fg-muted,var(--cl-muted,#9d9d9d));font-weight:500;">${escapeAttr(desc.category)}:</span>` +
+          `<strong style="font-size:13px;font-weight:600;color:var(--cl-fg-active,var(--cl-fg,#ffffff));">${escapeAttr(desc.title)}</strong>` +
+          `<code style="font-size:11.5px;color:var(--cl-fg-muted,var(--cl-muted,#9d9d9d));font-family:var(--cl-font-mono,monospace);">${escapeAttr(desc.key)}</code>` +
           (badgeLabel
-            ? `<span data-role="setting-badge" style="font-size:10px;padding:1px 6px;border-radius:4px;background:var(--cl-accent,#0369a1);color:var(--cl-accent-fg,#ffffff);font-weight:600;">${escapeAttr(badgeLabel)}</span>`
+            ? `<span data-role="setting-badge" style="font-size:10px;padding:1px 6px;border-radius:2px;background:var(--cl-btn-primary-bg,var(--cl-accent,#0078d4));color:var(--cl-btn-primary-fg,#ffffff);font-weight:600;">${escapeAttr(badgeLabel)}</span>`
             : '') +
           `</div>` +
-          `<div style="font-size:12px;color:var(--cl-fg-muted,var(--cl-muted,#64748b));margin-top:3px;">${escapeAttr(desc.description)}</div>` +
-          `</div>` +
-          `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">` +
-          this.renderControl(desc, displayedVal) +
           (canReset
             ? `<button type="button" class="codelab-btn" data-reset-key="${escapeAttr(desc.key)}" title="Reset to Default (${escapeAttr(JSON.stringify(desc.defaultValue))})" style="${BTN_STYLE}">Reset</button>`
             : '') +
+          `</div>` +
+          `<div style="font-size:13px;line-height:1.45;color:var(--cl-fg-muted,var(--cl-muted,#9d9d9d));">${escapeAttr(desc.description)}</div>` +
+          `<div style="display:flex;align-items:center;gap:8px;margin-top:2px;">` +
+          this.renderControl(desc, displayedVal) +
           `</div>` +
           `</div>`
         );

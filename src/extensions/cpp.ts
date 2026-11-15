@@ -1619,17 +1619,151 @@ export const CPP_COMPLETIONS_AND_HOVERS: Record<string, CppSymbolDoc> = {
   }
 };
 
-let _monacoCppRegistered = false;
+let _cppWorkspaceFilesGetter: (() => Record<string, string>) | null = null;
+const _monacoCppInstances = new WeakSet<object>();
+
+const CPP_STL_CONTAINER_MEMBERS: Record<string, Array<{ name: string; detail: string; insert?: string; doc: string }>> = {
+  vector: [
+    { name: 'push_back', detail: 'void push_back(const T& val)', insert: 'push_back(${1:val})', doc: 'Appends an element to the end ($O(1)$ amortized).' },
+    { name: 'emplace_back', detail: 'T& emplace_back(Args&&... args)', insert: 'emplace_back(${1:args})', doc: 'Constructs an element in-place at the end.' },
+    { name: 'pop_back', detail: 'void pop_back()', insert: 'pop_back()', doc: 'Removes the last element ($O(1)$).' },
+    { name: 'size', detail: 'size_t size() const noexcept', insert: 'size()', doc: 'Returns the number of elements.' },
+    { name: 'empty', detail: 'bool empty() const noexcept', insert: 'empty()', doc: 'Checks whether the container is empty.' },
+    { name: 'clear', detail: 'void clear() noexcept', insert: 'clear()', doc: 'Clears the contents.' },
+    { name: 'begin', detail: 'iterator begin() noexcept', insert: 'begin()', doc: 'Returns an iterator to the beginning.' },
+    { name: 'end', detail: 'iterator end() noexcept', insert: 'end()', doc: 'Returns an iterator to the end.' },
+    { name: 'front', detail: 'T& front()', insert: 'front()', doc: 'Accesses the first element.' },
+    { name: 'back', detail: 'T& back()', insert: 'back()', doc: 'Accesses the last element.' },
+    { name: 'resize', detail: 'void resize(size_t count)', insert: 'resize(${1:n})', doc: 'Resizes the container to contain count elements.' },
+    { name: 'reserve', detail: 'void reserve(size_t new_cap)', insert: 'reserve(${1:cap})', doc: 'Reserves storage capacity.' }
+  ],
+  string: [
+    { name: 'size', detail: 'size_t size() const noexcept', insert: 'size()', doc: 'Returns character count.' },
+    { name: 'length', detail: 'size_t length() const noexcept', insert: 'length()', doc: 'Returns character count.' },
+    { name: 'empty', detail: 'bool empty() const noexcept', insert: 'empty()', doc: 'Returns true if string is empty.' },
+    { name: 'substr', detail: 'string substr(size_t pos = 0, size_t count = npos) const', insert: 'substr(${1:pos}, ${2:len})', doc: 'Returns a substring.' },
+    { name: 'find', detail: 'size_t find(const string& str, size_t pos = 0) const', insert: 'find(${1:str})', doc: 'Finds first occurrence of substring or `string::npos`.' },
+    { name: 'push_back', detail: 'void push_back(char ch)', insert: 'push_back(${1:ch})', doc: 'Appends a character.' },
+    { name: 'c_str', detail: 'const char* c_str() const noexcept', insert: 'c_str()', doc: 'Returns null-terminated character array.' },
+    { name: 'begin', detail: 'iterator begin() noexcept', insert: 'begin()', doc: 'Iterator to start.' },
+    { name: 'end', detail: 'iterator end() noexcept', insert: 'end()', doc: 'Iterator past end.' }
+  ],
+  map: [
+    { name: 'insert', detail: 'pair<iterator, bool> insert(const value_type& value)', insert: 'insert({${1:key}, ${2:val}})', doc: 'Inserts key-value pair.' },
+    { name: 'emplace', detail: 'pair<iterator, bool> emplace(Args&&... args)', insert: 'emplace(${1:key}, ${2:val})', doc: 'Constructs element in-place.' },
+    { name: 'find', detail: 'iterator find(const Key& key)', insert: 'find(${1:key})', doc: 'Finds element with specific key.' },
+    { name: 'count', detail: 'size_t count(const Key& key) const', insert: 'count(${1:key})', doc: 'Returns 1 if key exists, 0 otherwise.' },
+    { name: 'contains', detail: 'bool contains(const Key& key) const (C++20)', insert: 'contains(${1:key})', doc: 'Checks if there is an element with key (C++20).' },
+    { name: 'erase', detail: 'size_t erase(const Key& key)', insert: 'erase(${1:key})', doc: 'Removes element by key or iterator.' },
+    { name: 'size', detail: 'size_t size() const noexcept', insert: 'size()', doc: 'Returns number of entries.' },
+    { name: 'empty', detail: 'bool empty() const noexcept', insert: 'empty()', doc: 'Checks if container is empty.' },
+    { name: 'begin', detail: 'iterator begin() noexcept', insert: 'begin()', doc: 'Iterator to first entry.' },
+    { name: 'end', detail: 'iterator end() noexcept', insert: 'end()', doc: 'Iterator past last entry.' }
+  ],
+  set: [
+    { name: 'insert', detail: 'pair<iterator, bool> insert(const Key& value)', insert: 'insert(${1:val})', doc: 'Inserts element into set.' },
+    { name: 'find', detail: 'iterator find(const Key& key)', insert: 'find(${1:val})', doc: 'Finds element matching key.' },
+    { name: 'count', detail: 'size_t count(const Key& key) const', insert: 'count(${1:val})', doc: 'Returns number of matching elements.' },
+    { name: 'contains', detail: 'bool contains(const Key& key) const (C++20)', insert: 'contains(${1:val})', doc: 'Checks if element exists (C++20).' },
+    { name: 'erase', detail: 'size_t erase(const Key& key)', insert: 'erase(${1:val})', doc: 'Erases element.' },
+    { name: 'size', detail: 'size_t size() const noexcept', insert: 'size()', doc: 'Returns size.' },
+    { name: 'empty', detail: 'bool empty() const noexcept', insert: 'empty()', doc: 'Checks if empty.' }
+  ],
+  queue: [
+    { name: 'push', detail: 'void push(const T& value)', insert: 'push(${1:val})', doc: 'Inserts element at back of queue.' },
+    { name: 'pop', detail: 'void pop()', insert: 'pop()', doc: 'Removes front/top element.' },
+    { name: 'front', detail: 'T& front()', insert: 'front()', doc: 'Accesses first element (queue).' },
+    { name: 'top', detail: 'const T& top() const', insert: 'top()', doc: 'Accesses top element (priority_queue / stack).' },
+    { name: 'empty', detail: 'bool empty() const', insert: 'empty()', doc: 'Checks whether underlying container is empty.' },
+    { name: 'size', detail: 'size_t size() const', insert: 'size()', doc: 'Returns number of elements.' }
+  ],
+  ListNode: [
+    { name: 'val', detail: 'int val', insert: 'val', doc: 'Node integer value.' },
+    { name: 'next', detail: 'ListNode* next', insert: 'next', doc: 'Pointer to next node in singly-linked list.' }
+  ],
+  TreeNode: [
+    { name: 'val', detail: 'int val', insert: 'val', doc: 'Node integer value.' },
+    { name: 'left', detail: 'TreeNode* left', insert: 'left', doc: 'Left child pointer.' },
+    { name: 'right', detail: 'TreeNode* right', insert: 'right', doc: 'Right child pointer.' }
+  ]
+};
+
+function inferCppLocalContainerKind(source: string, ident: string): string | null {
+  const escaped = ident.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const declRe = new RegExp(`(?:std::)?(unordered_map|map|unordered_set|set|vector|string|priority_queue|queue|stack|ListNode|TreeNode)\\s*(?:<[^;{}=]*>)?\\s*[*&]?\\s*\\b${escaped}\\b`);
+  const m = source.match(declRe);
+  if (!m) return null;
+  const raw = m[1];
+  if (raw === 'unordered_map' || raw === 'map') return 'map';
+  if (raw === 'unordered_set' || raw === 'set') return 'set';
+  if (raw === 'priority_queue' || raw === 'queue' || raw === 'stack') return 'queue';
+  return raw;
+}
+
+function collectWorkspaceCppSymbols(currentSource: string, currentPath = 'main.cpp') {
+  const files: Record<string, string> = _cppWorkspaceFilesGetter ? { ...(_cppWorkspaceFilesGetter() || {}) } : {};
+  const cleanCurrent = String(currentPath || 'main.cpp').replace(/^file:\/\/\/workspace\//, '').replace(/^\/workspace\//, '').replace(/^\/+/, '') || 'main.cpp';
+  if (currentSource) files[cleanCurrent] = currentSource;
+
+  const symbols: Array<{ name: string; kind: 'function' | 'struct' | 'class'; detail: string; file: string; line: number; col: number; params: string[] }> = [];
+  for (const [filePath, src] of Object.entries(files)) {
+    if (!/\.(?:cpp|cc|cxx|c|h|hpp|hxx)$/i.test(filePath)) continue;
+    const lines = String(src || '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+      const scMatch = line.match(/^\s*(struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+      if (scMatch) {
+        symbols.push({
+          name: scMatch[2],
+          kind: scMatch[1] as 'struct' | 'class',
+          detail: `${scMatch[1]} ${scMatch[2]}`,
+          file: filePath,
+          line: i + 1,
+          col: line.indexOf(scMatch[2]) + 1,
+          params: []
+        });
+        continue;
+      }
+      const fnMatch = line.match(/^\s*(?:template\s*<[^>]+>\s*)?(?:inline\s+|static\s+|constexpr\s+)*([A-Za-z_][A-Za-z0-9_:<>,&\s*]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^;{}]*)\)\s*(?:const\s*)?(?:noexcept\s*)?[{;]/);
+      if (fnMatch && !/^(?:if|for|while|switch|catch|return)$/.test(fnMatch[2])) {
+        const ret = fnMatch[1].trim();
+        const name = fnMatch[2];
+        const rawParams = fnMatch[3].trim();
+        symbols.push({
+          name,
+          kind: 'function',
+          detail: `${ret} ${name}(${rawParams})`,
+          file: filePath,
+          line: i + 1,
+          col: line.indexOf(name) + 1,
+          params: rawParams ? rawParams.split(',').map((p) => p.trim()).filter(Boolean) : []
+        });
+      }
+    }
+  }
+  return symbols;
+}
 
 /**
- * Registers Monaco C++20 completion and hover providers.
+ * Registers Monaco C++20 completion, STL member completion, hover, signature help, and definition providers.
  */
-export function registerMonacoCppLanguageService(monacoInstance: any): boolean {
+export function registerMonacoCppLanguageService(
+  monacoInstance: any,
+  getWorkspaceFiles?: () => Record<string, string>
+): boolean {
+  if (typeof getWorkspaceFiles === 'function') {
+    _cppWorkspaceFilesGetter = getWorkspaceFiles;
+  }
   if (!monacoInstance || !monacoInstance.languages) return false;
-  if (_monacoCppRegistered) return true;
-  _monacoCppRegistered = true;
+  if (_monacoCppInstances.has(monacoInstance)) return true;
+  _monacoCppInstances.add(monacoInstance);
 
   try {
+    const CIK = monacoInstance.languages.CompletionItemKind || {};
+    const CITR = monacoInstance.languages.CompletionItemInsertTextRule || {};
+
     monacoInstance.languages.registerCompletionItemProvider('cpp', {
       triggerCharacters: ['.', ':', '>', '<'],
       provideCompletionItems(model: any, position: any) {
@@ -1640,19 +1774,60 @@ export function registerMonacoCppLanguageService(monacoInstance: any): boolean {
           startColumn: wordInfo.startColumn,
           endColumn: wordInfo.endColumn
         };
+        const fullSource = typeof model.getValue === 'function' ? model.getValue() : '';
+        const linePrefix = typeof model.getLineContent === 'function'
+          ? String(model.getLineContent(position.lineNumber) || '').slice(0, position.column - 1)
+          : '';
 
+        // Member access `vec.` or `node->`
+        const memberMatch = linePrefix.match(/([A-Za-z_][A-Za-z0-9_]*)\s*(?:\.|->)\s*[A-Za-z0-9_]*$/);
+        if (memberMatch) {
+          const containerKind = inferCppLocalContainerKind(fullSource, memberMatch[1]);
+          const members = containerKind ? CPP_STL_CONTAINER_MEMBERS[containerKind] : null;
+          if (members) {
+            return {
+              suggestions: members.map((m) => ({
+                label: m.name,
+                kind: m.insert?.includes('(') ? (CIK.Method ?? 0) : (CIK.Field ?? 4),
+                detail: m.detail,
+                documentation: { value: m.doc },
+                insertText: m.insert || m.name,
+                insertTextRules: CITR.InsertAsSnippet,
+                range
+              }))
+            };
+          }
+        }
+
+        const seen = new Set<string>();
         const suggestions = Object.keys(CPP_COMPLETIONS_AND_HOVERS).map((key) => {
           const item = CPP_COMPLETIONS_AND_HOVERS[key];
+          seen.add(item.label);
           return {
             label: item.label,
-            kind: monacoInstance.languages.CompletionItemKind.Function,
+            kind: CIK.Function ?? 1,
             detail: item.detail,
             documentation: { value: item.documentation },
             insertText: item.insertText || item.label,
-            insertTextRules: monacoInstance.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            insertTextRules: CITR.InsertAsSnippet,
             range
           };
         });
+
+        const wsSyms = collectWorkspaceCppSymbols(fullSource, model.uri?.path || 'main.cpp');
+        for (const sym of wsSyms) {
+          if (seen.has(sym.name)) continue;
+          seen.add(sym.name);
+          suggestions.push({
+            label: sym.name,
+            kind: sym.kind === 'function' ? (CIK.Function ?? 1) : (CIK.Struct ?? 6),
+            detail: sym.detail,
+            documentation: { value: `Defined in \`${sym.file}:${sym.line}\`` },
+            insertText: sym.kind === 'function' ? `${sym.name}(${sym.params.length ? '$1' : ''})` : sym.name,
+            insertTextRules: CITR.InsertAsSnippet,
+            range
+          });
+        }
 
         return { suggestions };
       }
@@ -1663,27 +1838,70 @@ export function registerMonacoCppLanguageService(monacoInstance: any): boolean {
         const word = model.getWordAtPosition(position);
         if (!word) return null;
 
-        // Try exact match or std:: + word
         const key = CPP_COMPLETIONS_AND_HOVERS[word.word]
           ? word.word
           : (CPP_COMPLETIONS_AND_HOVERS['std::' + word.word] ? 'std::' + word.word : null);
 
-        if (!key) return null;
-        const item = CPP_COMPLETIONS_AND_HOVERS[key];
-        return {
-          range: {
-            startLineNumber: position.lineNumber,
-            endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn
-          },
-          contents: [
-            { value: `**${item.label}** — \`${item.detail}\`` },
-            { value: item.documentation }
-          ]
-        };
+        if (key) {
+          const item = CPP_COMPLETIONS_AND_HOVERS[key];
+          return {
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endColumn: word.endColumn
+            },
+            contents: [
+              { value: `**${item.label}** — \`${item.detail}\`` },
+              { value: item.documentation }
+            ]
+          };
+        }
+
+        const wsSyms = collectWorkspaceCppSymbols(model.getValue?.() || '', model.uri?.path || 'main.cpp');
+        const wsHit = wsSyms.find((s) => s.name === word.word);
+        if (wsHit) {
+          return {
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endColumn: word.endColumn
+            },
+            contents: [
+              { value: `\`\`\`cpp\n${wsHit.detail}\n\`\`\`` },
+              { value: `Defined in \`${wsHit.file}:${wsHit.line}\`` }
+            ]
+          };
+        }
+        return null;
       }
     });
+
+    if (typeof monacoInstance.languages.registerDefinitionProvider === 'function' && monacoInstance.Uri) {
+      monacoInstance.languages.registerDefinitionProvider('cpp', {
+        provideDefinition(model: any, position: any) {
+          const word = model.getWordAtPosition(position);
+          if (!word) return null;
+          const wsSyms = collectWorkspaceCppSymbols(model.getValue?.() || '', model.uri?.path || 'main.cpp');
+          const hit = wsSyms.find((s) => s.name === word.word);
+          if (!hit) return null;
+          const uri = typeof monacoInstance.Uri.file === 'function'
+            ? monacoInstance.Uri.file('/workspace/' + hit.file.replace(/^\/+/, ''))
+            : model.uri;
+          return {
+            uri,
+            range: {
+              startLineNumber: hit.line,
+              startColumn: hit.col,
+              endLineNumber: hit.line,
+              endColumn: hit.col + hit.name.length
+            }
+          };
+        }
+      });
+    }
+
     return true;
   } catch (err) {
     if (typeof console !== 'undefined' && console.warn) {
@@ -1895,20 +2113,61 @@ export function analyzeCppSource(source: string, filename = 'main.cpp', vfs?: an
     }
   }
 
-  // 5. Missing semicolon after class or struct definitions
-  const structRegex = /(?:struct|class)\s+([A-Za-z0-9_]+)\s*\{[^}]*\}\s*(?!;)(?=[A-Za-z0-9_#\s\n])/g;
-  let structMatch: RegExpExecArray | null;
-  while ((structMatch = structRegex.exec(source)) !== null) {
-    const lineIndex = source.slice(0, structMatch.index + structMatch[0].length).split('\n').length;
-    diagnostics.push({
-      id: `cpp-missing-semicolon-${lineIndex}`,
-      file: filename,
-      line: lineIndex,
-      col: 1,
-      severity: 'error',
-      message: `Missing semicolon ';' after '${structMatch[1]}' class/struct definition.`,
-      source: 'cpp-linter'
-    });
+  // 5. Balanced-brace check for missing semicolon after class or struct definitions
+  if (stack.length === 0) {
+    const structHeadRegex = /\b(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^{;]*)?\{/g;
+    let structMatch: RegExpExecArray | null;
+    while ((structMatch = structHeadRegex.exec(source)) !== null) {
+      const typeName = structMatch[1];
+      let pos = structMatch.index + structMatch[0].length;
+      let depth = 1;
+      let inStr = false;
+      let inChr = false;
+      let inBlk = false;
+      let inLn = false;
+      while (pos < source.length && depth > 0) {
+        const ch = source[pos];
+        const nx = source[pos + 1] || '';
+        if (inLn) {
+          if (ch === '\n') inLn = false;
+          pos++;
+          continue;
+        }
+        if (inBlk) {
+          if (ch === '*' && nx === '/') { inBlk = false; pos += 2; continue; }
+          pos++;
+          continue;
+        }
+        if (!inStr && !inChr) {
+          if (ch === '/' && nx === '/') { inLn = true; pos += 2; continue; }
+          if (ch === '/' && nx === '*') { inBlk = true; pos += 2; continue; }
+        }
+        if (!inChr && ch === '"' && source[pos - 1] !== '\\') { inStr = !inStr; pos++; continue; }
+        if (!inStr && ch === '\'' && source[pos - 1] !== '\\') { inChr = !inChr; pos++; continue; }
+        if (!inStr && !inChr) {
+          if (ch === '{') depth++;
+          else if (ch === '}') depth--;
+        }
+        pos++;
+      }
+      if (depth === 0) {
+        const afterClose = source.slice(pos).replace(/^(?:\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)+/, '');
+        // Valid: `;` immediately OR variable declarators like `p1, *p2;` before next newline/block
+        const validTerminator = /^;|^[A-Za-z_*&][A-Za-z0-9_,\s*&[\]=()]*;/.test(afterClose);
+        if (afterClose.length > 0 && !validTerminator) {
+          const lineIndex = source.slice(0, pos).split('\n').length;
+          diagnostics.push({
+            id: `cpp-missing-semicolon-${lineIndex}`,
+            file: filename,
+            line: lineIndex,
+            col: 1,
+            severity: 'error',
+            message: `Missing semicolon ';' after '${typeName}' class/struct definition.`,
+            source: 'cpp-linter'
+          });
+        }
+      }
+    }
   }
 
   return diagnostics;
@@ -1998,10 +2257,17 @@ export function installCppExtension(workbench: any, options: ExtendedCppExtensio
   workbench.cppCompiler = compilerFn;
   workbench.cppOptions = toolchain.options;
 
-  // Register Monaco language service if monaco is available
+  // Register Monaco language service immediately and queue hook if Monaco loads asynchronously
+  const getWsFiles = () => (workbench && workbench.files ? workbench.files : {});
   if (typeof window !== 'undefined' && (window as any).monaco) {
-    registerMonacoCppLanguageService((window as any).monaco);
+    registerMonacoCppLanguageService((window as any).monaco, getWsFiles);
   }
+  if (!Array.isArray(workbench._monacoReadyHooks)) {
+    workbench._monacoReadyHooks = [];
+  }
+  workbench._monacoReadyHooks.push((monaco: any) => {
+    registerMonacoCppLanguageService(monaco, getWsFiles);
+  });
 
   if (!workbench.enabledLanguages || !(workbench.enabledLanguages instanceof Set)) {
     workbench.enabledLanguages = new Set(['js', 'cpp']);

@@ -1,6 +1,6 @@
 # @innovatorved/code-lab
 
-Modular browser-native IDE workbench (`v0.5.0`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 71 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
+Modular browser-native IDE workbench (`v0.5.0`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 73 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
 
 
 ## Highlights
@@ -8,7 +8,7 @@ Modular browser-native IDE workbench (`v0.5.0`), Web Worker runtime for Node.js,
 - **Layered Modular Core**: Four-layer workspace architecture with dependency injection, workspace settings and custom keybindings, a visual Settings dialog, Dark, Light, and High-Contrast themes, and lazy-loaded plugins.
 - **SQL Editor & Playground (~16.5 KB gzipped)**: Standalone PostgreSQL 18 and SQLite 3 editor supporting inline lesson blocks, split-pane query studios, SQL formatting, schema-aware alias autocomplete, inline wavy diagnostics, and accessible keyboard navigation.
 - **Node.js, Bun & WebAssembly Toolchains**: Built-in JavaScript and JSX runtime with 50 built-in modules (50 Node.js built-ins) and native Bun APIs, plus opt-in TypeScript, Clang/LLVM C++20 WebAssembly, and Pyodide Python 3.12 extensions.
-- **POSIX Shell & 71 Coreutils**: Multi-session terminal with pipelines, stream redirection, background servers, public GitHub repository cloning, package installation, HTTP load testing, and 71 UNIX commands.
+- **POSIX Shell & 73 Coreutils**: Multi-session terminal with pipelines, stream redirection, background servers, public GitHub repository cloning, package installation, HTTP load testing, and 73 UNIX commands.
 - **Guided Labs & Headless Grading**: Step-by-step coding and SQL challenges with progressive hints, side-by-side solution diffs, and zero-UI headless worker execution.
 
 
@@ -78,7 +78,7 @@ const sql = createSqlEditor(document.getElementById('sql')!, {
 | `@innovatorved/code-lab/sql` | Zero-dependency PostgreSQL 18 and SQLite 3 inline and playground editor (~16.5 KB gzipped) |
 | `@innovatorved/code-lab/sql.css` | Standalone SQL editor stylesheet |
 | `@innovatorved/code-lab/runtime` | Headless Web Worker runtime for programmatic code and test execution |
-| `@innovatorved/code-lab/shell` | Pure-JavaScript POSIX shell interpreter and 71 UNIX utilities |
+| `@innovatorved/code-lab/shell` | Pure-JavaScript POSIX shell interpreter and 73 UNIX utilities |
 | `@innovatorved/code-lab/terminal` | 256-color PTY terminal emulator engine |
 | `@innovatorved/code-lab/schemas` | Zod runtime validation schemas and TypeScript types |
 | `@innovatorved/code-lab/extensions/*` | Opt-in extensions for Guided Labs, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly |

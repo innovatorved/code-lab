@@ -1078,25 +1078,35 @@ declare module 'bun:sqlite' {
           }
         });
 
-        // Configure TS/JS defaults & ambient Node types
+        // Configure TS/JS defaults, Modern themes & ambient Node types
+        const wbComp = (root && root.CodeLabWorkbenchComponents) ||
+          (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents) ||
+          null;
+        if (wbComp && typeof wbComp.registerCodeLabMonacoThemes === 'function') {
+          wbComp.registerCodeLabMonacoThemes(m);
+        }
         if (m.languages && m.languages.typescript) {
           const tsDefaults = m.languages.typescript.typescriptDefaults;
           const jsDefaults = m.languages.typescript.javascriptDefaults;
           const compilerOpts = {
-            target: m.languages.typescript.ScriptTarget.ES2020,
-            module: m.languages.typescript.ModuleKind.CommonJS,
+            target: m.languages.typescript.ScriptTarget.ESNext || m.languages.typescript.ScriptTarget.ES2020,
+            module: m.languages.typescript.ModuleKind.ESNext || m.languages.typescript.ModuleKind.CommonJS,
             moduleResolution: m.languages.typescript.ModuleResolutionKind.NodeJs,
             allowNonTsExtensions: true,
             allowJs: true,
             checkJs: false,
             strict: false,
             noEmit: true,
-            esModuleInterop: true
+            esModuleInterop: true,
+            allowSyntheticDefaultImports: true,
+            resolveJsonModule: true
           };
           tsDefaults.setCompilerOptions(compilerOpts);
           jsDefaults.setCompilerOptions(compilerOpts);
+          if (typeof tsDefaults.setEagerModelSync === 'function') tsDefaults.setEagerModelSync(true);
+          if (typeof jsDefaults.setEagerModelSync === 'function') jsDefaults.setEagerModelSync(true);
           tsDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
-          jsDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false });
+          jsDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
           tsDefaults.addExtraLib(NODE_AMBIENT_DTS, 'file:///node-ambient.d.ts');
           jsDefaults.addExtraLib(NODE_AMBIENT_DTS, 'file:///node-ambient.d.ts');
         }
@@ -1269,7 +1279,12 @@ int main() {
     'test.js': `'use strict';\nconst { describe, it } = require('node:test');\nconst assert = require('node:assert/strict');\nconst { solve } = require('./index.js');\n\ndescribe('Standalone Sandbox', () => {\n  it('returns the input payload', () => {\n    assert.deepEqual(solve({ a: 1 }), { a: 1 });\n  });\n});\n`
   };
 
-  const CL_ICONS = {
+  const _wbComponents = (typeof CodeLabWorkbenchComponents !== 'undefined' && CodeLabWorkbenchComponents) ||
+    (root && root.CodeLabWorkbenchComponents) ||
+    (typeof globalThis !== 'undefined' && globalThis.CodeLabWorkbenchComponents) ||
+    {};
+
+  const CL_ICONS = Object.assign({
     arrowLeft: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
     target: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
     code: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
@@ -1320,8 +1335,9 @@ int main() {
     panelBottom: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/></svg>',
     chevronUp: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>',
     collapseAll: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
-    close: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-  };
+    close: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    splitHorizontal: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1H3L2 2v11l1 1h11l1-1V2l-1-1zM8 13H3V2h5v11zm6 0H9V2h5v11z"/></svg>'
+  }, (_wbComponents && _wbComponents.CL_ICONS) || {});
 
   let _workbenchInstanceCounter = 0;
   const _fallbackStorage = new Map();
@@ -1551,13 +1567,13 @@ int main() {
         ...(options.guided || {}),
         ...(options.starterFiles ? { starterFiles: options.starterFiles } : {}),
         ...(options.tsStarterFiles ? { tsStarterFiles: options.tsStarterFiles } : {}),
-        ...((options.tsSolutionFiles || options.tsFiles) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles } : {}),
+        ...((options.tsSolutionFiles || options.tsFiles || options.filesTs) ? { tsSolutionFiles: options.tsSolutionFiles || options.tsFiles || options.filesTs } : {}),
         ...(options.cppStarterFiles ? { cppStarterFiles: options.cppStarterFiles } : {}),
-        ...((options.cppSolutionFiles || options.cppFiles) ? { cppSolutionFiles: options.cppSolutionFiles || options.cppFiles } : {}),
+        ...((options.cppSolutionFiles || options.cppFiles || options.filesCpp) ? { cppSolutionFiles: options.cppSolutionFiles || options.cppFiles || options.filesCpp } : {}),
         ...(options.pyStarterFiles ? { pyStarterFiles: options.pyStarterFiles } : {}),
-        ...((options.pySolutionFiles || options.pyFiles) ? { pySolutionFiles: options.pySolutionFiles || options.pyFiles } : {}),
+        ...((options.pySolutionFiles || options.pyFiles || options.filesPy) ? { pySolutionFiles: options.pySolutionFiles || options.pyFiles || options.filesPy } : {}),
         ...(options.sqlStarterFiles ? { sqlStarterFiles: options.sqlStarterFiles } : {}),
-        ...((options.sqlSolutionFiles || options.sqlFiles) ? { sqlSolutionFiles: options.sqlSolutionFiles || options.sqlFiles } : {})
+        ...((options.sqlSolutionFiles || options.sqlFiles || options.filesSql) ? { sqlSolutionFiles: options.sqlSolutionFiles || options.sqlFiles || options.filesSql } : {})
       };
       this.steps = options.steps || this.guidedConfig?.steps || [];
       this.hasGuidedLab = Boolean(
@@ -1684,7 +1700,9 @@ int main() {
         : (typeof this.savedState?.sidebarVisible === 'boolean' ? this.savedState.sidebarVisible : true);
       this.panelVisible = typeof options.panelVisible === 'boolean'
         ? options.panelVisible
-        : (typeof this.savedState?.panelVisible === 'boolean' ? this.savedState.panelVisible : true);
+        : (typeof options.drawerCollapsed === 'boolean'
+          ? !options.drawerCollapsed
+          : (typeof this.savedState?.panelVisible === 'boolean' ? this.savedState.panelVisible : true));
       this.drawerCollapsed = !this.panelVisible;
       this.panelHeight = (typeof this.savedState?.panelHeight === 'number' && this.savedState.panelHeight >= 100)
         ? this.savedState.panelHeight
@@ -2311,9 +2329,11 @@ int main() {
       if (typeof createPosixShell === 'function') {
         try {
           this.shell = createPosixShell({
+            instanceId: this.instanceId,
             cwd: this.cwd,
             files: this.files,
             portTable: this.portTable,
+            onRequestStdin: (promptText) => this._requestInteractiveTerminalStdin(promptText),
             env: {
               PWD: this.cwd || '/workspace',
               TERM: 'xterm-256color',
@@ -2970,12 +2990,43 @@ int main() {
       }
     }
 
+    _ensureSystemColorSchemeListener() {
+      if (this._systemSchemeMedia || typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      try {
+        const mql = window.matchMedia('(prefers-color-scheme: dark)');
+        if (!mql) return;
+        const onChange = () => {
+          if (this._destroyed) return;
+          if (this.themeOption === 'auto') {
+            this.setTheme('auto');
+          }
+        };
+        if (typeof mql.addEventListener === 'function') {
+          mql.addEventListener('change', onChange);
+          this._systemSchemeCleanup = () => {
+            try { mql.removeEventListener('change', onChange); } catch (_err) { void _err; }
+          };
+        } else if (typeof mql.addListener === 'function') {
+          mql.addListener(onChange);
+          this._systemSchemeCleanup = () => {
+            try { mql.removeListener(onChange); } catch (_err) { void _err; }
+          };
+        }
+        this._systemSchemeMedia = mql;
+      } catch (_err) {
+        void _err;
+      }
+    }
+
     setTheme(nextTheme) {
       const normalized = (nextTheme === 'light' || nextTheme === 'dark' || nextTheme === 'high-contrast' || nextTheme === 'auto')
         ? nextTheme
         : 'dark';
       this.themeOption = normalized;
       this.theme = normalized;
+      if (normalized === 'auto') {
+        this._ensureSystemColorSchemeListener();
+      }
       const resolved = this._resolvedTheme();
       if (this.themes && typeof this.themes.setTheme === 'function' && !this._applyingThemeFromService) {
         try {
@@ -2999,7 +3050,11 @@ int main() {
         }
         if (shellEl) {
           shellEl.setAttribute('data-cl-theme', resolved);
-          if (typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.setAttribute === 'function') {
+          const shouldSyncRootHtml = Boolean(
+            (this.options && (this.options.fullbleed || this.options.syncDocumentTheme)) ||
+            (typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.hasAttribute === 'function' && document.documentElement.hasAttribute('data-theme'))
+          );
+          if (shouldSyncRootHtml && typeof document !== 'undefined' && document.documentElement && typeof document.documentElement.setAttribute === 'function') {
             try {
               document.documentElement.setAttribute('data-theme', resolved);
             } catch (_err) {
@@ -3010,12 +3065,12 @@ int main() {
             if (typeof shellEl.removeAttribute === 'function') shellEl.removeAttribute('data-theme');
           } else {
             shellEl.setAttribute('data-theme', normalized);
-            if (this.themes && typeof this.themes.applyToElement === 'function' && shellEl.style && typeof shellEl.style.setProperty === 'function') {
-              try {
-                this.themes.applyToElement(shellEl);
-              } catch (err) {
-                this.logger.debug('themes.applyToElement failed.', err);
-              }
+          }
+          if (this.themes && typeof this.themes.applyToElement === 'function' && shellEl.style && typeof shellEl.style.setProperty === 'function') {
+            try {
+              this.themes.applyToElement(shellEl);
+            } catch (err) {
+              this.logger.debug('themes.applyToElement failed.', err);
             }
           }
           if (shellEl.style) {
@@ -3035,15 +3090,24 @@ int main() {
         }
       }
       if (this.monaco && this.monaco.editor && typeof this.monaco.editor.setTheme === 'function') {
-        const monacoTheme = resolved === 'light'
-          ? 'codelab-light'
-          : resolved === 'high-contrast'
-            ? 'codelab-hc-dark'
-            : 'codelab-dark';
+        const monacoTheme = (_wbComponents && typeof _wbComponents.getMonacoThemeName === 'function')
+          ? _wbComponents.getMonacoThemeName(resolved, this.monaco)
+          : (resolved === 'light'
+            ? 'codelab-light'
+            : resolved === 'high-contrast'
+              ? 'codelab-hc-dark'
+              : 'codelab-dark');
         try {
           this.monaco.editor.setTheme(monacoTheme);
         } catch (err) {
           this.logger.debug('monaco.editor.setTheme failed.', err);
+        }
+      }
+      if (this._xtermEngines instanceof Map) {
+        for (const eng of this._xtermEngines.values()) {
+          if (eng && typeof eng.setTheme === 'function') {
+            try { eng.setTheme(resolved); } catch (_err) { void _err; }
+          }
         }
       }
       if (this._sqlWorkbenchEditor && typeof this._sqlWorkbenchEditor.setTheme === 'function') {
@@ -3582,9 +3646,50 @@ int main() {
           }
           if (!this.activeFile && this.openTabs.length > 0) {
             this.activeFile = this._pickDefaultFile() || this.openTabs[0];
-            if (this.activeTab !== '__settings__') this.activeTab = this.activeFile;
+            if (this.activeTab !== '__settings__' && this.activeTab !== '__welcome__') this.activeTab = this.activeFile;
           }
           this._syncFilesToShellVfs({ pruneExtraneous: forceHydrate });
+          if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
+            if (project.binaryFiles && typeof project.binaryFiles === 'object') {
+              for (const [relBin, bytes] of Object.entries(project.binaryFiles)) {
+                if (!relBin || !(bytes instanceof Uint8Array)) continue;
+                try {
+                  const absBin = '/workspace/' + String(relBin).replace(/^\/+/, '');
+                  const parentBin = absBin.split('/').slice(0, -1).join('/');
+                  if (parentBin && typeof this.shell.vfs.mkdirSync === 'function') {
+                    this.shell.vfs.mkdirSync(parentBin, { recursive: true });
+                  }
+                  this.shell.vfs.writeFileSync(absBin, bytes);
+                } catch (_err) { void _err; }
+              }
+            }
+            if (project.gitFiles && typeof project.gitFiles === 'object') {
+              for (const [relGit, bytes] of Object.entries(project.gitFiles)) {
+                if (!relGit) continue;
+                try {
+                  const absGit = '/workspace/.git/' + String(relGit).replace(/^(?:\.git\/|\/)+/, '');
+                  const parentGit = absGit.split('/').slice(0, -1).join('/');
+                  if (parentGit && typeof this.shell.vfs.mkdirSync === 'function') {
+                    this.shell.vfs.mkdirSync(parentGit, { recursive: true });
+                  }
+                  this.shell.vfs.writeFileSync(absGit, bytes instanceof Uint8Array ? bytes : String(bytes));
+                } catch (_err) { void _err; }
+              }
+            }
+          }
+          if (project.gitMeta && typeof project.gitMeta === 'object' && typeof this._restoreSavedGitState === 'function') {
+            this._restoreSavedGitState(project.gitMeta);
+          } else if (project.gitFiles && root.CodeLabScm && typeof root.CodeLabScm.hydrateFromIsoGitRepo === 'function' && this.shell && this.shell.vfs) {
+            const gs = this._getGitState();
+            if (gs) {
+              Promise.resolve(root.CodeLabScm.hydrateFromIsoGitRepo(this.shell.vfs, gs)).then((hydrated) => {
+                if (hydrated && !this._destroyed) {
+                  if (this.activeSidebarView === 'scm') this._renderScmSidebar();
+                  this._updateStatusBar();
+                }
+              }).catch((_e) => { void _e; });
+            }
+          }
           this._buildSavedStateSnapshot({ flushFiles: true });
           this._syncAllModels();
           this._syncDotCodelabConfig();
@@ -3663,12 +3768,52 @@ int main() {
             const stateSnapshot = state;
             const targetLabId = this.labId;
             const targetTitle = this.title || this.labId;
+            const binaryFilesSnapshot = {};
+            const gitFilesSnapshot = {};
+            if (this.shell && this.shell.vfs && typeof this.shell.vfs.readdirSync === 'function') {
+              const collectRawDir = (dirPath, isGitTree) => {
+                let entries = [];
+                try { entries = this.shell.vfs.readdirSync(dirPath) || []; } catch (_e) { void _e; return; }
+                for (const ent of entries) {
+                  const name = typeof ent === 'string' ? ent : (ent && ent.name ? ent.name : '');
+                  if (!name || name === '.' || name === '..' || name === 'node_modules') continue;
+                  const full = (dirPath === '/' ? '' : dirPath) + '/' + name;
+                  if (!isGitTree && name === '.git') {
+                    collectRawDir(full, true);
+                    continue;
+                  }
+                  let st = null;
+                  try { st = this.shell.vfs.statSync(full); } catch (_e) { void _e; }
+                  if (st && typeof st.isDirectory === 'function' && st.isDirectory()) {
+                    collectRawDir(full, isGitTree);
+                  } else {
+                    try {
+                      const rawBuf = this.shell.vfs.readFileSync(full);
+                      if (rawBuf instanceof Uint8Array) {
+                        if (isGitTree) {
+                          gitFilesSnapshot[full.slice('/workspace/.git/'.length)] = new Uint8Array(rawBuf);
+                        } else {
+                          const rel = full.slice('/workspace/'.length);
+                          if (!Object.prototype.hasOwnProperty.call(filesSnapshot, rel)) {
+                            binaryFilesSnapshot[rel] = new Uint8Array(rawBuf);
+                          }
+                        }
+                      }
+                    } catch (_e) { void _e; }
+                  }
+                }
+              };
+              collectRawDir('/workspace', false);
+            }
             this._idbSaveChain = Promise.resolve(this._idbSaveChain).then(() => {
               if (this._idbStorage && typeof this._idbStorage.saveProject === 'function') {
                 return this._idbStorage.saveProject({
                   id: targetLabId,
                   name: targetTitle,
                   files: filesSnapshot,
+                  binaryFiles: Object.keys(binaryFilesSnapshot).length > 0 ? binaryFilesSnapshot : undefined,
+                  gitFiles: Object.keys(gitFilesSnapshot).length > 0 ? gitFilesSnapshot : undefined,
+                  gitMeta: stateSnapshot && stateSnapshot.gitState ? stateSnapshot.gitState : undefined,
                   updatedAt: savedAt
                 });
               }
@@ -3856,7 +4001,7 @@ int main() {
         }
       }
       if (curEl) {
-        const showCursor = Boolean(this.activeFile && this.openTabs && this.openTabs.length > 0 && this.activeTab !== '__settings__');
+        const showCursor = Boolean(this.activeFile && this.openTabs && this.openTabs.length > 0 && this.activeTab !== '__settings__' && this.activeTab !== '__welcome__');
         curEl.style.display = showCursor ? 'inline-flex' : 'none';
         if (showCursor && this.cursorPos) {
           curEl.textContent = `Ln ${this.cursorPos.lineNumber || 1}, Col ${this.cursorPos.column || 1}`;
@@ -3871,16 +4016,20 @@ int main() {
       if (langEl) {
         if (this.activeTab === '__settings__') {
           langEl.textContent = 'Settings (UI)';
+        } else if (this.activeTab === '__welcome__') {
+          langEl.textContent = 'Welcome';
+        } else if (this.lang === 'sql' || (this.activeFile && /\.sql$/i.test(this.activeFile))) {
+          langEl.textContent = this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18';
+        } else if (!this.hasGuidedLab && this.activeFile && _wbComponents && typeof _wbComponents.getLanguageDisplayLabel === 'function') {
+          langEl.textContent = _wbComponents.getLanguageDisplayLabel(this.activeFile, this.lang);
         } else {
-          langEl.textContent = this.lang === 'sql'
-            ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18')
-            : this.lang === 'cpp'
-              ? 'C++20 (Clang/WASI)'
-              : this.lang === 'py'
-                ? 'Python 3.12 (CPython WASI)'
-                : this.lang === 'ts'
-                  ? 'TypeScript 5.x'
-                  : 'JavaScript (CJS/ESM)';
+          langEl.textContent = this.lang === 'cpp'
+            ? 'C++20 (Clang/WASI)'
+            : this.lang === 'py'
+              ? 'Python 3.12 (CPython WASI)'
+              : this.lang === 'ts'
+                ? 'TypeScript 5.x'
+                : 'JavaScript (CJS/ESM)';
         }
       }
       if (typeof this._updateScmActivityBadge === 'function') {
@@ -4154,9 +4303,14 @@ int main() {
     }
 
     _renderLanguageSwitcherHtml() {
+      const isGuided = Boolean(this.hasGuidedLab || (Array.isArray(this.steps) && this.steps.length > 0));
+      if (!isGuided && !(this.options && this.options.showLanguageSelector)) {
+        return '';
+      }
       const hasMulti = Boolean(
         this.hasMultipleLanguages ||
-        (this.enabledLanguages && this.enabledLanguages.size > 1)
+        (this.enabledLanguages && this.enabledLanguages.size > 1) ||
+        (this.options && this.options.showLanguageSelector)
       );
       if (!hasMulti) return '';
       const showJs = Boolean(!this.enabledLanguages || this.enabledLanguages.has('js'));
@@ -4400,10 +4554,20 @@ int main() {
               return `<button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${isAct ? 'active' : ''}" data-cl-activity="${escapeHtml(viewId)}" title="${escapeHtml(panel.title || panel.id)}" aria-label="${escapeHtml(panel.title || panel.id)}" aria-pressed="${isAct}">${CL_ICONS.box}</button>`;
             }).join('')
         : '';
+      if (this._hostHasExplicitHeight === undefined) {
+        this._hostHasExplicitHeight = Boolean(
+          this.container &&
+          this.container.children &&
+          this.container.children.length === 0 &&
+          typeof this.container.getBoundingClientRect === 'function' &&
+          this.container.getBoundingClientRect().height > 20
+        );
+      }
       const shellClasses = [
         'codelab',
         'codelab-workbench',
         this.options && this.options.fullbleed ? 'codelab--fullbleed' : '',
+        this._hostHasExplicitHeight ? 'codelab--sized-host' : '',
         isGuideCollapsed ? 'guide-collapsed' : '',
         isSingleSql ? 'is-sql-single-file' : '',
         !this.sidebarVisible ? 'sidebar-collapsed files-collapsed' : '',
@@ -4447,9 +4611,9 @@ int main() {
                   <span>${escapeHtml(this.backLabel)}</span>
                 </button>
               ` : ''}
-              <span class="codelab-brand ${this.onClose ? 'codelab-brand--with-back' : ''}" title="${escapeHtml(brandLabel)}">
+              <span class="codelab-brand ${this.onClose ? 'codelab-brand--with-back' : ''} ${(!this.hasGuidedLab && !this.onClose) ? 'codelab-brand--compact' : ''}" title="${escapeHtml(brandLabel)}">
                 <span class="codelab-brand__dot"></span>
-                <span>${escapeHtml(brandLabel)}</span>
+                <span class="codelab-brand__label">${escapeHtml(brandLabel)}</span>
               </span>
               <div class="codelab-menubar" id="cl-menubar" role="menubar" aria-label="Application Menu">
                 ${menubarHtml}
@@ -4626,9 +4790,19 @@ int main() {
                     <button type="button" class="codelab-explorer__btn" data-cl-action="new-folder-root" title="New Folder" aria-label="New Folder">${CL_ICONS.folder}</button>
                     <button type="button" class="codelab-explorer__btn" data-cl-action="collapse-all-folders" title="Collapse Folders in Explorer" aria-label="Collapse Folders">${CL_ICONS.collapseAll}</button>
                   </div>
-                  <span id="cl-explorer-lang">${this.lang.toUpperCase()}</span>
+                  <span id="cl-explorer-lang" style="display:none">${this.lang.toUpperCase()}</span>
                 </div>
                 <div class="codelab-explorer__list" id="cl-explorer-list"></div>
+                <div class="codelab-explorer__sections" id="cl-explorer-sections">
+                  <details class="codelab-explorer-section" id="cl-explorer-outline">
+                    <summary class="codelab-explorer-section__summary"><span>Outline</span></summary>
+                    <div class="codelab-explorer-section__body" id="cl-explorer-outline-body"></div>
+                  </details>
+                  <details class="codelab-explorer-section" id="cl-explorer-timeline">
+                    <summary class="codelab-explorer-section__summary"><span>Timeline</span></summary>
+                    <div class="codelab-explorer-section__body" id="cl-explorer-timeline-body"></div>
+                  </details>
+                </div>
               </div>
 
               <div class="codelab-sidebar__view" id="cl-sidebar-search" data-sidebar-view="search" ${this.activeSidebarView === 'search' ? '' : 'hidden'}>
@@ -4690,6 +4864,7 @@ int main() {
                     </div>
                     <div class="codelab-md-preview prose" id="cl-md-preview" style="display:none"></div>
                     <div class="codelab-settings-host" id="cl-settings-host" role="region" aria-label="Settings Editor" hidden style="display:none"></div>
+                    <div class="codelab-welcome-host" id="cl-welcome-host" role="region" aria-label="Welcome" hidden style="display:none"></div>
                     <div class="codelab-inline-diff-host" id="cl-inline-diff-container" data-role="scm-diff-host" role="region" aria-label="Source Control Diff View" hidden style="display:none"></div>
                     <div class="codelab-empty-editor" id="cl-empty-editor" style="display:none"></div>
                   </div>
@@ -4701,10 +4876,10 @@ int main() {
               </div>
 
               <!-- Interactive Horizontal Splitter -->
-              <div class="codelab-splitter-h" id="cl-splitter-h" role="separator" aria-orientation="horizontal" title="Drag to resize bottom panel (double-click to reset)"></div>
+              <div class="codelab-splitter-h" id="cl-splitter-h" role="separator" aria-orientation="horizontal" title="Drag to resize or snap-collapse bottom panel (double-click to reset)"></div>
 
               <!-- Region 5: Bottom Panel (Problems / Output / Terminal / Ports / ...) -->
-              <section class="codelab-drawer codelab-bottom" id="cl-drawer" aria-label="Bottom Panel">
+              <section class="codelab-drawer codelab-bottom ${this.panelVisible === false ? 'is-minimized' : ''}" id="cl-drawer" aria-label="Bottom Panel">
                 <div class="codelab-drawer__bar">
                   <div class="codelab-drawer__tabs" role="tablist" aria-label="Execution Output Panels">
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'sql-results' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'sql-results'}" class="codelab-drawer__tab ${this.drawerTab === 'sql-results' ? 'active' : ''}" data-cl-drawertab="sql-results" title="SQL Query Results &amp; EXPLAIN Plan" style="display:${showSqlTab ? 'inline-flex' : 'none'}">
@@ -4714,7 +4889,7 @@ int main() {
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'problems' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'problems'}" class="codelab-drawer__tab ${this.drawerTab === 'problems' ? 'active' : ''}" data-cl-drawertab="problems" title="Compiler &amp; Runtime Problems">
                       ${CL_ICONS.warning}
                       <span>Problems</span>
-                      <span class="codelab-badge" id="cl-problems-count">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
+                      <span class="codelab-badge" id="cl-problems-count" style="display:${(this._diagnosticsStore && this._diagnosticsStore.getAll().length > 0) ? 'inline-flex' : 'none'}">${this._diagnosticsStore ? this._diagnosticsStore.getAll().length : 0}</span>
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'output' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'output'}" class="codelab-drawer__tab ${this.drawerTab === 'output' ? 'active' : ''}" data-cl-drawertab="output" title="Workbench &amp; Runtime Output" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.code}
@@ -4727,12 +4902,12 @@ int main() {
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'ports' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'ports'}" class="codelab-drawer__tab ${this.drawerTab === 'ports' ? 'active' : ''}" data-cl-drawertab="ports" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.radio}
                       <span>Ports</span>
-                      <span class="codelab-drawer__pill" id="cl-ports-pill">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
+                      <span class="codelab-drawer__pill" id="cl-ports-pill" style="display:${(this.portTable && typeof this.portTable.listServers === 'function' && this.portTable.listServers().length > 0) ? 'inline-flex' : 'none'}">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'tests' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests" style="${(isSingleSql && !this._findEntryFile('test')) ? 'display:none' : ''}">
                       ${CL_ICONS.check}
                       <span>Test Suite</span>
-                      <span class="codelab-drawer__pill" id="cl-test-pill">Ready</span>
+                      <span class="codelab-drawer__pill" id="cl-test-pill" style="display:none">Ready</span>
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'stdin' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.keyboard}
@@ -4745,12 +4920,12 @@ int main() {
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'network' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.activity}
                       <span>Network</span>
-                      <span class="codelab-drawer__pill" id="cl-network-pill">${(this.lastHttpTrace || []).length} reqs</span>
+                      <span class="codelab-drawer__pill" id="cl-network-pill" style="display:${(this.lastHttpTrace || []).length > 0 ? 'inline-flex' : 'none'}">${(this.lastHttpTrace || []).length} reqs</span>
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'inspector' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.database}
                       <span>Virtual Disk &amp; HTTP</span>
-                      <span class="codelab-drawer__pill" id="cl-vfs-pill">0 files</span>
+                      <span class="codelab-drawer__pill" id="cl-vfs-pill" style="display:none">0 files</span>
                     </button>
                     ${this.kernel ? `
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'observability' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'observability'}" class="codelab-drawer__tab ${this.drawerTab === 'observability' ? 'active' : ''}" data-cl-drawertab="observability" title="Services, Settings &amp; Event Telemetry">
@@ -4764,13 +4939,14 @@ int main() {
                   <div class="codelab-drawer__actions">
                     <div class="codelab-drawer__term-actions" id="cl-drawer-term-actions" style="display:${isTermDrawer ? 'inline-flex' : 'none'}">
                       <div class="codelab-terminal-sessions" id="cl-terminal-sessions"></div>
-                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal (⌃⇧\`)" aria-label="New Terminal Session" style="padding:2px 6px;font-size:11px;">+</button>
-                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-kill-terminal-btn" data-cl-action="kill-terminal-session" title="Kill Terminal" aria-label="Kill Active Terminal" style="padding:2px 6px;font-size:11px;">${CL_ICONS.trash}</button>
-                      <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt" style="padding:2px 8px;font-size:11px;font-family:var(--cl-font-mono);">Ctrl+C</button>
-                      <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Terminal" aria-label="Clear Terminal" style="padding:2px 6px;font-size:11px;">Clear</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-new-terminal-btn" data-cl-action="new-terminal-session" title="New Terminal (⌃⇧\`)" aria-label="New Terminal Session">${CL_ICONS.plus}</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-split-terminal-btn" data-cl-action="split-terminal-session" title="Split Terminal (⌘\\)" aria-label="Split Terminal">${CL_ICONS.splitHorizontal}</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon" id="cl-kill-terminal-btn" data-cl-action="kill-terminal-session" title="Kill Terminal" aria-label="Kill Active Terminal">${CL_ICONS.trash}</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon codelab-btn--ctrl-c" id="cl-ctrl-c-btn" data-cl-action="interrupt" title="Send Ctrl+C — interrupt a running command" aria-label="Send Ctrl+C interrupt">^C</button>
+                      <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="clear-terminal" title="Clear Terminal (⌘K)" aria-label="Clear Terminal">Clear</button>
                     </div>
-                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-maximize-drawer-btn" data-cl-action="maximize-drawer" title="Maximize / Restore Panel Size" aria-label="Maximize or Restore Panel Size" aria-pressed="${this.panelMaximized ? 'true' : 'false'}" style="padding:2px 6px;font-size:11px;">${this.panelMaximized ? CL_ICONS.chevronDown : CL_ICONS.chevronUp}</button>
-                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-close-drawer-btn" data-cl-action="close-drawer" title="Close Panel (⌘J)" aria-label="Close Panel" style="padding:2px 6px;font-size:11px;">${CL_ICONS.close}</button>
+                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-maximize-drawer-btn" data-cl-action="maximize-drawer" title="Maximize / Restore Panel Size" aria-label="Maximize or Restore Panel Size" aria-pressed="${this.panelMaximized ? 'true' : 'false'}">${this.panelMaximized ? CL_ICONS.chevronDown : CL_ICONS.chevronUp}</button>
+                    <button type="button" class="codelab-btn codelab-btn--icon" id="cl-close-drawer-btn" data-cl-action="close-drawer" title="Close Panel (⌘J)" aria-label="Close Panel">${CL_ICONS.close}</button>
                   </div>
                 </div>
                 <div class="codelab-drawer__body" id="cl-drawer-body"></div>
@@ -4778,7 +4954,7 @@ int main() {
             </div>
           </div>
 
-          <!-- Interactive 24px Status Bar Footer -->
+          <!-- Interactive 22px Status Bar Footer -->
           <footer class="codelab-statusbar" id="cl-statusbar" role="status" aria-live="polite">
             <div class="codelab-statusbar__left">
               <span class="codelab-statusbar__item" id="cl-status-runtime">
@@ -4802,7 +4978,8 @@ int main() {
               <button type="button" class="codelab-statusbar__btn" id="cl-status-cursor" data-cl-action="go-to-line" title="Go to Line/Column">Ln 1, Col 1</button>
               <button type="button" class="codelab-statusbar__btn" id="cl-status-indent" data-cl-action="open-settings" title="Select Indentation">Spaces: ${tabSizeVal}</button>
               <span class="codelab-statusbar__item">UTF-8</span>
-              <button type="button" class="codelab-statusbar__btn" id="cl-status-lang" data-cl-action="open-settings" title="Language Mode">${this.lang === 'sql' ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18') : this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</button>
+              <button type="button" class="codelab-statusbar__btn" id="cl-status-lang" data-cl-action="open-settings" title="Select Language Mode">${this.lang === 'sql' ? (this.sqlDialect === 'sqlite' ? 'SQLite 3' : 'PostgreSQL 18') : this.lang === 'cpp' ? 'C++20 (Clang/WASI)' : this.lang === 'py' ? 'Python 3.12 (CPython WASI)' : this.lang === 'ts' ? 'TypeScript 5.x' : 'JavaScript (CJS/ESM)'}</button>
+              <button type="button" class="codelab-statusbar__btn" id="cl-status-panel-toggle" data-cl-action="toggle-drawer" title="Toggle Panel (⌘J)" aria-label="Toggle Panel">${CL_ICONS.panelBottom}</button>
             </div>
           </footer>
 
@@ -4815,7 +4992,10 @@ int main() {
         </div>
       `;
 
-      if (this.themeOption !== 'auto' && this.themes && typeof this.themes.applyToElement === 'function') {
+      if (this.themeOption === 'auto') {
+        this._ensureSystemColorSchemeListener();
+      }
+      if (this.themes && typeof this.themes.applyToElement === 'function') {
         const shellEl = this.container.querySelector('.codelab');
         if (shellEl && shellEl.style && typeof shellEl.style.setProperty === 'function') {
           try {
@@ -4906,6 +5086,13 @@ int main() {
         }
       }
       const code = this.files[filePath];
+      if (_wbComponents && typeof _wbComponents.findEnclosingSymbolAtLine === 'function') {
+        const curLine = (this.cursorPos && this.cursorPos.lineNumber) ? this.cursorPos.lineNumber : 1;
+        const sym = _wbComponents.findEnclosingSymbolAtLine(filePath, code, curLine);
+        if (sym && sym.name) {
+          return sym.containerName ? `${sym.containerName}.${sym.name}` : sym.name;
+        }
+      }
       const classMatch = code.match(/\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
       if (classMatch) return classMatch[1];
       const fnMatch = code.match(/\b(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
@@ -4916,7 +5103,7 @@ int main() {
     _renderBreadcrumbs() {
       const host = this.container.querySelector('#cl-breadcrumbs');
       if (!host) return;
-      if (!this.activeFile || !this.openTabs || this.openTabs.length === 0 || this.activeTab === '__settings__') {
+      if (!this.activeFile || !this.openTabs || this.openTabs.length === 0 || this.activeTab === '__settings__' || this.activeTab === '__welcome__') {
         host.innerHTML = '';
         host.hidden = true;
         if (host.style) host.style.display = 'none';
@@ -5441,13 +5628,31 @@ int main() {
           }
         }
 
+        const gitStatusMap = new Map();
+        if (typeof this.getGitStatus === 'function') {
+          try {
+            for (const entry of (this.getGitStatus() || [])) {
+              if (entry && entry.path) {
+                const rawSt = String(entry.status || '').toLowerCase();
+                const code = rawSt.includes('untracked') ? 'U'
+                  : rawSt.includes('added') ? 'A'
+                  : rawSt.includes('deleted') ? 'D'
+                  : 'M';
+                gitStatusMap.set(entry.path, code);
+              }
+            }
+          } catch (_e) { void _e; }
+        }
         const sortedFiles = Array.from(node.files.entries()).sort((a, b) => a[0].localeCompare(b[0]));
         for (const [baseName, fullPath] of sortedFiles) {
           const isActive = fullPath === this.activeFile;
           const badge = fullPath.endsWith('.md') ? 'DOC' : fullPath.endsWith('.json') ? 'PKG' : /\.sql$/i.test(fullPath) ? 'SQL' : /(^|\/)test\./i.test(fullPath) ? 'TEST' : /(^|\/)(demo|main)\./i.test(fullPath) ? 'DEMO' : /\.(hpp|h)$/i.test(fullPath) ? 'HDR' : 'SRC';
           const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(fullPath) ? 'cpp' : /\.sql$/i.test(fullPath) ? 'sql' : fullPath.endsWith('.py') ? 'py' : fullPath.endsWith('.ts') ? 'ts' : fullPath.endsWith('.js') ? 'js' : fullPath.endsWith('.json') ? 'json' : fullPath.endsWith('.md') ? 'md' : 'txt';
-          const fileIcon = (ext === 'json' || ext === 'sql') ? CL_ICONS.database : ext === 'md' ? CL_ICONS.book : CL_ICONS.file;
+          const fileIcon = (_wbComponents && typeof _wbComponents.getFileIconSvg === 'function')
+            ? _wbComponents.getFileIconSvg(baseName)
+            : ((ext === 'json' || ext === 'sql') ? CL_ICONS.database : ext === 'md' ? CL_ICONS.book : CL_ICONS.file);
           const indent = depth * 14 + 10;
+          const gitBadgeCode = gitStatusMap.get(fullPath) || '';
           const isRenamingFile = Boolean(
             this.renamingItem &&
             this.renamingItem.type === 'file' &&
@@ -5466,11 +5671,11 @@ int main() {
           } else {
             const isFileDirty = Boolean(this._dirtyFiles && this._dirtyFiles.has(fullPath));
             treeHtml += `
-              <button type="button" class="codelab-file-item ${isActive ? 'active' : ''}"${isFileDirty ? ' data-dirty="true"' : ''} draggable="true" data-cl-file="${escapeHtml(fullPath)}" data-file="${escapeHtml(fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
+              <button type="button" class="codelab-file-item ${isActive ? 'active' : ''}"${isFileDirty ? ' data-dirty="true"' : ''}${gitBadgeCode ? ` data-git-status="${gitBadgeCode}"` : ''} draggable="true" data-cl-file="${escapeHtml(fullPath)}" data-file="${escapeHtml(fullPath)}" data-depth="${depth}" style="padding-left: ${indent}px;">
                 <span class="codelab-file-icon">${fileIcon}</span>
                 <span class="codelab-file-name" title="${escapeHtml(baseName)}">${escapeHtml(baseName)}</span>
                 ${isFileDirty ? '<span class="codelab-file-dirty" title="Unsaved changes" aria-hidden="true"></span>' : ''}
-                <span class="codelab-file-badge">${badge}</span>
+                ${gitBadgeCode ? `<span class="codelab-file-git-status codelab-file-git-status--${gitBadgeCode.toLowerCase()}" aria-label="Git ${gitBadgeCode}">${gitBadgeCode}</span>` : `<span class="codelab-file-badge">${badge}</span>`}
               </button>
             `;
           }
@@ -5815,22 +6020,37 @@ int main() {
 
       // Tabs rendering (strictly WAI-ARIA compliant: zero nested <button> inside [role="tab"]!)
       const openTabs = Array.isArray(this.openTabs) ? this.openTabs : [];
-      const effectiveActiveTab = this.settingsTabOpen && this.activeTab === '__settings__'
+      const effectiveActiveTab = (this.settingsTabOpen && this.activeTab === '__settings__')
         ? '__settings__'
-        : this.activeFile;
+        : (this.welcomeTabOpen && this.activeTab === '__welcome__')
+          ? '__welcome__'
+          : this.activeFile;
+      const hasCustomFileIcons = Boolean(_wbComponents && typeof _wbComponents.getFileIconSvg === 'function');
       const tabsHtml = openTabs.map(f => {
         const isActive = f === effectiveActiveTab;
         const isDirty = Boolean(this._dirtyFiles && this._dirtyFiles.has(f));
         const ext = /\.(cpp|cc|cxx|hpp|h)$/i.test(f) ? 'cpp' : /\.sql$/i.test(f) ? 'sql' : f.endsWith('.py') ? 'py' : f.endsWith('.ts') ? 'ts' : f.endsWith('.js') ? 'js' : f.endsWith('.json') ? 'json' : f.endsWith('.md') ? 'md' : 'txt';
+        const tabIconHtml = hasCustomFileIcons
+          ? _wbComponents.getFileIconSvg(f)
+          : (ext === 'cpp' ? 'C++' : ext.toUpperCase());
         return `
           <div role="tab" tabindex="${isActive ? '0' : '-1'}" aria-selected="${isActive}"${isDirty ? ' data-dirty="true"' : ''} class="codelab-tab ${isActive ? 'active' : ''}" data-cl-file="${escapeHtml(f)}" data-tab-file="${escapeHtml(f)}">
-            <span class="codelab-tab__ext codelab-tab__ext--${ext}">${ext === 'cpp' ? 'C++' : ext.toUpperCase()}</span>
+            <span class="codelab-tab__ext codelab-tab__ext--${ext}">${tabIconHtml}</span>
             <span class="codelab-tab__label">${escapeHtml(f)}</span>
             ${isDirty ? '<span class="codelab-tab__dirty" title="Unsaved changes" aria-hidden="true"></span>' : ''}
             <span role="button" tabindex="0" class="codelab-tab__close" data-action="close-tab" data-cl-close-file="${escapeHtml(f)}" title="Close ${escapeHtml(f)}" aria-label="Close ${escapeHtml(f)}">×</span>
           </div>
         `;
       }).join('');
+      const welcomeTabHtml = this.welcomeTabOpen
+        ? `
+          <div role="tab" tabindex="${effectiveActiveTab === '__welcome__' ? '0' : '-1'}" aria-selected="${effectiveActiveTab === '__welcome__'}" class="codelab-tab ${effectiveActiveTab === '__welcome__' ? 'active' : ''}" data-cl-tab="__welcome__" data-tab-file="__welcome__">
+            <span class="codelab-tab__ext codelab-tab__ext--md">${CL_ICONS.code}</span>
+            <span class="codelab-tab__label">Welcome</span>
+            <span role="button" tabindex="0" class="codelab-tab__close" data-action="close-tab" data-cl-close-tab="__welcome__" title="Close Welcome" aria-label="Close Welcome">×</span>
+          </div>
+        `
+        : '';
       const settingsTabHtml = this.settingsTabOpen
         ? `
           <div role="tab" tabindex="${effectiveActiveTab === '__settings__' ? '0' : '-1'}" aria-selected="${effectiveActiveTab === '__settings__'}" class="codelab-tab ${effectiveActiveTab === '__settings__' ? 'active' : ''}" data-cl-tab="__settings__" data-tab-file="__settings__">
@@ -5857,13 +6077,14 @@ int main() {
         </button>
       `;
 
-      const mdToggleHtml = (this.activeFile && /\.md$/i.test(this.activeFile) && effectiveActiveTab !== '__settings__')
+      const mdToggleHtml = (this.activeFile && /\.md$/i.test(this.activeFile) && effectiveActiveTab !== '__settings__' && effectiveActiveTab !== '__welcome__')
         ? `<button type="button" class="codelab-pkg-btn ${this._mdPreviewOpen ? 'active' : ''}" data-cl-action="toggle-md-preview" aria-pressed="${Boolean(this._mdPreviewOpen)}" title="${this._mdPreviewOpen ? 'Edit Markdown Source' : 'Open Markdown Preview'}">
             <span>${this._mdPreviewOpen ? 'Edit Source' : 'Preview'}</span>
           </button>`
         : '';
 
-      tabsEl.innerHTML = tabsHtml + settingsTabHtml;
+      tabsEl.innerHTML = welcomeTabHtml + tabsHtml + settingsTabHtml;
+      this._renderExplorerOutlineAndTimeline();
       const tabsActionsEl = this.container.querySelector('#cl-file-tabs-actions');
       if (tabsActionsEl) {
         tabsActionsEl.innerHTML = mdToggleHtml + newFileControl + pkgBtnHtml;
@@ -6539,6 +6760,10 @@ int main() {
         this.closeSettings();
         return;
       }
+      if (filename === '__welcome__') {
+        this.closeWelcomeTab();
+        return;
+      }
       if (!Array.isArray(this.openTabs) || !this.openTabs.includes(filename)) {
         return;
       }
@@ -6553,7 +6778,7 @@ int main() {
           this.activeFile = null;
         }
       }
-      if (this.activeTab !== '__settings__') {
+      if (this.activeTab !== '__settings__' && this.activeTab !== '__welcome__') {
         this.activeTab = this.activeFile;
       }
 
@@ -6565,7 +6790,21 @@ int main() {
       if (keepFilename === '__settings__') {
         this.openTabs = [];
         this.activeFile = null;
+        this.welcomeTabOpen = false;
         this.activeTab = '__settings__';
+        this._saveState();
+        this._syncActiveFileToView();
+        return;
+      }
+      if (keepFilename === '__welcome__') {
+        this.openTabs = [];
+        this.activeFile = null;
+        this.settingsTabOpen = false;
+        this.welcomeTabOpen = true;
+        this.activeTab = '__welcome__';
+        if (this._settingsDialog && typeof this._settingsDialog.unmountInline === 'function') {
+          this._settingsDialog.unmountInline();
+        }
         this._saveState();
         this._syncActiveFileToView();
         return;
@@ -6575,6 +6814,7 @@ int main() {
         this.openTabs = [keepFilename];
         this.activeFile = keepFilename;
         this.settingsTabOpen = false;
+        this.welcomeTabOpen = false;
         this.activeTab = keepFilename;
         if (this._settingsDialog && typeof this._settingsDialog.unmountInline === 'function') {
           this._settingsDialog.unmountInline();
@@ -6588,6 +6828,7 @@ int main() {
       this.openTabs = [];
       this.activeFile = null;
       this.settingsTabOpen = false;
+      this.welcomeTabOpen = false;
       this.activeTab = null;
       if (this._settingsDialog && typeof this._settingsDialog.unmountInline === 'function') {
         this._settingsDialog.unmountInline();
@@ -6688,6 +6929,9 @@ int main() {
           ? this._diagnosticsStore.getAll().length
           : 0;
         problemsCountEl.textContent = String(count);
+        if (problemsCountEl.style) {
+          problemsCountEl.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
       }
       this._updateTelemetryHud();
 
@@ -6695,11 +6939,13 @@ int main() {
         if (!this.lastTestResults.length) {
           testPill.textContent = 'Ready';
           testPill.className = 'codelab-drawer__pill';
+          if (testPill.style) testPill.style.display = 'none';
         } else {
           const passed = this.lastTestResults.filter(t => t.status === 'pass').length;
           const total = this.lastTestResults.length;
           testPill.textContent = `${passed}/${total} Passed`;
           testPill.className = `codelab-drawer__pill ${passed === total ? 'pass' : 'fail'}`;
+          if (testPill.style) testPill.style.display = 'inline-flex';
         }
       }
       if (portsPill) {
@@ -6707,15 +6953,25 @@ int main() {
           ? this.portTable.listServers().length
           : 0;
         portsPill.textContent = `${portCount} open`;
+        if (portsPill.style) portsPill.style.display = portCount > 0 ? 'inline-flex' : 'none';
       }
       if (networkPill) {
         const netCount = (this.lastHttpTrace || []).length;
         networkPill.textContent = `${netCount} reqs`;
+        if (networkPill.style) networkPill.style.display = netCount > 0 ? 'inline-flex' : 'none';
       }
       if (vfsPill) {
         const diskCount = this.lastFsSnapshot.length;
         const httpCount = this.lastHttpTrace.length;
         vfsPill.textContent = httpCount > 0 ? `${diskCount} files · ${httpCount} reqs` : `${diskCount} files`;
+        if (vfsPill.style) vfsPill.style.display = (diskCount > 0 || httpCount > 0) ? 'inline-flex' : 'none';
+      }
+
+      if (bodyEl && bodyEl.classList) {
+        bodyEl.classList.toggle('is-flush-panel', this.drawerTab === 'terminal');
+      }
+      if (this.drawerTab !== 'terminal' && this._xtermWrapEl && this._xtermWrapEl.parentNode === bodyEl) {
+        try { bodyEl.removeChild(this._xtermWrapEl); } catch (_err) { void _err; }
       }
 
       if (this.drawerTab === 'problems') {
@@ -6815,6 +7071,10 @@ int main() {
         const termFontPx = this.configuration
           ? Math.max(10, Math.min(28, Number(this.configuration.get('terminal.fontSize', 13)) || 13))
           : 13;
+        if (this._shouldUseXterm()) {
+          this._renderXtermTerminalBody(bodyEl, termFontPx);
+          return;
+        }
         const logsHtml = this.terminalLogs
           .map(item => {
             const html = ansiToHtml ? ansiToHtml(item.text || '') : escapeHtml(item.text || '');
@@ -7136,7 +7396,14 @@ int main() {
       if (chunk === null || chunk === undefined || chunk === '') return;
       const rawText = String(chunk);
 
-      if (this.ptyEngine && this.ptyEngine.container && typeof this.ptyEngine.writeStreamChunk === 'function') {
+      const activeXterm = this._getActiveXtermEngine();
+      if (activeXterm && typeof activeXterm.writeStreamChunk === 'function') {
+        try {
+          activeXterm.writeStreamChunk(rawText, type);
+        } catch (err) {
+          this.logger.debug('activeXterm.writeStreamChunk failed.', err);
+        }
+      } else if (this.ptyEngine && this.ptyEngine.container && typeof this.ptyEngine.writeStreamChunk === 'function') {
         try {
           this.ptyEngine.writeStreamChunk(rawText, type);
         } catch (err) {
@@ -7149,10 +7416,8 @@ int main() {
       const termSurface = this.container ? this.container.querySelector('#cl-terminal-surface') : null;
       const drawerBody = this.container ? this.container.querySelector('.codelab-drawer__body') : null;
 
-      // The workbench owns live terminal rendering. Only defer when an attached PTY
-      // engine is itself rendering into the DOM (it is created with a null container in
-      // production, so this remains the sole renderer there).
-      const ptyOwnsDom = Boolean(this.ptyEngine && this.ptyEngine.container);
+      // The workbench owns live terminal rendering unless xterm or an attached PTY engine owns the DOM.
+      const ptyOwnsDom = Boolean((activeXterm && activeXterm.container) || (this.ptyEngine && this.ptyEngine.container));
       const canPatchDom = Boolean(termLogEl && typeof document !== 'undefined' && !ptyOwnsDom);
 
       // Write a single logical line into the live terminal DOM immediately, so output
@@ -7178,7 +7443,7 @@ int main() {
       const maxScrollback = this._getTerminalScrollback();
       const commitActiveLine = () => {
         const entry = { type: this._activeStreamType || type, text: this._activeStreamLine };
-        this._pushTerminalLog(entry);
+        this._pushTerminalLog(entry, { fromStream: true });
         if (Array.isArray(this.outputLogs)) {
           this.outputLogs.push(entry);
           if (this.outputLogs.length > maxScrollback) {
@@ -7297,10 +7562,29 @@ int main() {
       return trimmed;
     }
 
-    _pushTerminalLog(entry) {
+    _pushTerminalLog(entry, opts = null) {
       if (!entry) return;
+      const activeXterm = this._getActiveXtermEngine();
+      if (activeXterm && activeXterm.logs === this.terminalLogs) {
+        if (!(opts && opts.fromStream) && typeof activeXterm.writeln === 'function') {
+          try {
+            activeXterm.writeln(String(entry.text ?? ''), entry.type || 'stdout');
+          } catch (_err) {
+            void _err;
+          }
+        }
+        this._trimTerminalLogs();
+        return;
+      }
       if (Array.isArray(this.terminalLogs)) {
         Array.prototype.push.call(this.terminalLogs, entry);
+      }
+      if (activeXterm && !(opts && opts.fromStream) && typeof activeXterm.writeln === 'function') {
+        try {
+          activeXterm.writeln(String(entry.text ?? ''), entry.type || 'stdout');
+        } catch (_err) {
+          void _err;
+        }
       }
       this._trimTerminalLogs();
     }
@@ -7318,7 +7602,7 @@ int main() {
           type: this._activeStreamType || 'stdout',
           text: this._activeStreamLine
         };
-        this._pushTerminalLog(entry);
+        this._pushTerminalLog(entry, { fromStream: true });
         const maxScrollback = this._getTerminalScrollback();
         if (this.terminalLogs.length > maxScrollback) {
           this.terminalLogs.splice(0, this.terminalLogs.length - maxScrollback);
@@ -7361,15 +7645,55 @@ int main() {
       `;
     }
 
-    _handleInterrupt() {
+    interruptTerminal() {
+      return Boolean(this._handleInterrupt());
+    }
+
+    submitTerminalStdin(line) {
+      const activeXterm = this._getActiveXtermEngine();
+      if (activeXterm && typeof activeXterm.submitLine === 'function') {
+        activeXterm.buffer = String(line ?? '');
+        activeXterm.cursor = activeXterm.buffer.length;
+        activeXterm.submitLine();
+        return true;
+      }
+      if (this.ptyEngine && typeof this.ptyEngine.submitLine === 'function') {
+        this.ptyEngine.buffer = String(line ?? '');
+        this.ptyEngine.cursor = this.ptyEngine.buffer.length;
+        this.ptyEngine.submitLine();
+        return true;
+      }
+      return false;
+    }
+
+    _submitInteractiveTerminalStdin(line) {
+      return this.submitTerminalStdin(line);
+    }
+
+    _handleInterrupt(opts = null) {
+      const fromXterm = Boolean(opts && opts.fromXterm);
+      let didInterrupt = false;
       if (this._cloneInFlight || this._activeCloneAbortController) {
         this.cancelClone();
+        didInterrupt = true;
       }
-      const isCommandRunning = Boolean(this.isRunning || this._activeCommandAbortController);
+      let cancelledWorker = false;
+      if (typeof root.CodeLabRuntime?.cancelWorkerExecution === 'function') {
+        try {
+          cancelledWorker = Boolean(
+            root.CodeLabRuntime.cancelWorkerExecution('SIGINT: Interrupted by user (Ctrl+C)', this.instanceId) ||
+            root.CodeLabRuntime.cancelWorkerExecution('SIGINT: Interrupted by user (Ctrl+C)', 'default')
+          );
+        } catch (err) {
+          this.logger.debug('cancelWorkerExecution failed.', err);
+        }
+      }
+      const isCommandRunning = Boolean(this.isRunning || this._activeCommandAbortController || cancelledWorker);
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
       const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
 
       if (isCommandRunning) {
+        didInterrupt = true;
         if (this._activeCommandAbortController) {
           try {
             this._activeCommandAbortController.abort('SIGINT');
@@ -7379,25 +7703,21 @@ int main() {
           this._activeCommandAbortController = null;
         }
 
-        if (typeof root.CodeLabRuntime?.cancelWorkerExecution === 'function') {
-          try {
-            root.CodeLabRuntime.cancelWorkerExecution('SIGINT: Interrupted by user (Ctrl+C)', this.instanceId);
-          } catch (err) {
-            this.logger.debug('cancelWorkerExecution failed.', err);
-          }
-        }
-
         this.isRunning = false;
         this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
         this._updateRunStateUI();
 
         this._flushTerminalStream();
-        this._pushTerminalLog({ type: 'stdout', text: '^C' });
+        if (!fromXterm) {
+          this._pushTerminalLog({ type: 'stdout', text: '^C' });
+        }
       } else {
         if (this.inRepl) {
           this.inRepl = false;
-          this._pushTerminalLog({ type: 'stdout', text: '^C\nExiting REPL...' });
-        } else {
+          if (!fromXterm) {
+            this._pushTerminalLog({ type: 'stdout', text: '^C\nExiting REPL...' });
+          }
+        } else if (!fromXterm) {
           const currentInput = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
           this._pushTerminalLog({ type: 'stdout', text: `${promptLabel} ${currentInput}^C` });
         }
@@ -7408,11 +7728,17 @@ int main() {
       this.replHistoryIdx = -1;
 
       this._renderDrawerBody();
-      const nextInput = this.container?.querySelector?.('#cl-repl-input');
-      if (nextInput && typeof nextInput.focus === 'function') {
-        nextInput.value = '';
-        nextInput.focus();
+      const activeXterm = this._getActiveXtermEngine();
+      if (activeXterm && typeof activeXterm.focus === 'function') {
+        activeXterm.focus();
+      } else {
+        const nextInput = this.container?.querySelector?.('#cl-repl-input');
+        if (nextInput && typeof nextInput.focus === 'function') {
+          nextInput.value = '';
+          nextInput.focus();
+        }
       }
+      return didInterrupt;
     }
 
     _updatePtyActiveLine() {
@@ -8504,6 +8830,269 @@ int main() {
       return this.dispatchHttpClientRequest();
     }
 
+    get vfs() {
+      return this.shell ? this.shell.vfs : null;
+    }
+
+    _shouldUseXterm() {
+      const mode = (this.options && this.options.terminalEngine) || 'auto';
+      if (mode === 'dom') return false;
+      if (!_wbComponents || typeof _wbComponents.canUseXtermInEnvironment !== 'function' || typeof _wbComponents.XtermTerminalEngine !== 'function') {
+        return false;
+      }
+      return Boolean(_wbComponents.canUseXtermInEnvironment(this.container));
+    }
+
+    _getActiveXtermEngine() {
+      if (!(this._xtermEngines instanceof Map)) return null;
+      const sessions = this._ensureTerminalSessions();
+      const activeId = this._activeTerminalSessionId || (sessions[0] && sessions[0].id) || 'session-1';
+      return this._xtermEngines.get(activeId) || null;
+    }
+
+    _getOrCreateXtermEngineForSession(session, fontPx) {
+      if (!this._shouldUseXterm() || !session) return null;
+      if (!(this._xtermEngines instanceof Map)) {
+        this._xtermEngines = new Map();
+      }
+      let eng = this._xtermEngines.get(session.id);
+      const resolvedTheme = this._resolvedTheme();
+      if (!eng) {
+        eng = new _wbComponents.XtermTerminalEngine(null, {
+          cwd: session.cwd || this.cwd || '/workspace',
+          theme: resolvedTheme,
+          fontSize: fontPx || 13,
+          maxScrollback: this._getTerminalScrollback(),
+          initialLogs: Array.isArray(session.logs) ? session.logs : [],
+          onCommand: (cmd) => {
+            if (this._activeTerminalSessionId !== session.id) {
+              this.switchTerminalSession(session.id);
+            }
+            return this._handleReplCommand(cmd, { skipEcho: true });
+          },
+          onInterrupt: () => {
+            if (this._activeTerminalSessionId !== session.id) {
+              this.switchTerminalSession(session.id);
+            }
+            this._handleInterrupt({ fromXterm: true });
+          },
+          getCompletions: (buf, cur) => {
+            const slice = String(buf || '').slice(0, typeof cur === 'number' ? cur : String(buf || '').length);
+            const lastSpace = slice.lastIndexOf(' ');
+            const tokenStart = lastSpace === -1 ? 0 : lastSpace + 1;
+            const token = slice.slice(tokenStart);
+            const matches = this._getCompletionCandidates(slice);
+            return { tokenStart, token, matches };
+          },
+          onOpenFileLink: (relFile, lineNum, colNum) => {
+            const clean = String(relFile || '').replace(/^\/workspace\//, '').replace(/^\/+/, '');
+            if (clean && this.files && Object.prototype.hasOwnProperty.call(this.files, clean)) {
+              this.openFile(clean);
+              this._revealLineColInActiveEditor(lineNum || 1, colNum || 1);
+            }
+          }
+        });
+        session.logs = eng.logs;
+        if (session.id === this._activeTerminalSessionId) {
+          this.terminalLogs = eng.logs;
+        }
+        this._xtermEngines.set(session.id, eng);
+      } else {
+        if (typeof eng.setTheme === 'function') eng.setTheme(resolvedTheme);
+        if (typeof eng.setFontSize === 'function') eng.setFontSize(fontPx || 13);
+        if (typeof eng.setMaxScrollback === 'function') eng.setMaxScrollback(this._getTerminalScrollback());
+      }
+      return eng;
+    }
+
+    _renderXtermTerminalBody(bodyEl, termFontPx) {
+      if (!bodyEl || typeof document === 'undefined') return;
+      const sessions = this._ensureTerminalSessions();
+      const activeSession = sessions.find(s => s.id === this._activeTerminalSessionId) || sessions[0];
+      if (!activeSession) return;
+
+      let leftSplit = null;
+      let rightSplit = null;
+      if (Array.isArray(this._splitTerminalSessionIds) && this._splitTerminalSessionIds.length >= 2) {
+        const s0 = sessions.find(s => s.id === this._splitTerminalSessionIds[0]) || null;
+        const s1 = sessions.find(s => s.id === this._splitTerminalSessionIds[1]) || null;
+        if (s0 && s1 && s0.id !== s1.id && (activeSession.id === s0.id || activeSession.id === s1.id)) {
+          leftSplit = s0;
+          rightSplit = s1;
+        } else if (!s0 || !s1 || s0.id === s1.id) {
+          this._splitTerminalSessionIds = [];
+          this._splitTerminalSessionId = null;
+        }
+      } else if (this._splitTerminalSessionId && this._splitTerminalSessionId !== activeSession.id) {
+        const s1 = sessions.find(s => s.id === this._splitTerminalSessionId) || null;
+        if (s1) {
+          leftSplit = activeSession;
+          rightSplit = s1;
+          this._splitTerminalSessionIds = [activeSession.id, s1.id];
+        } else {
+          this._splitTerminalSessionId = null;
+        }
+      }
+
+      const isSplit = Boolean(leftSplit && rightSplit);
+      const panes = isSplit ? [leftSplit, rightSplit] : [activeSession];
+      const layoutKey = isSplit ? `${leftSplit.id}|${rightSplit.id}` : activeSession.id;
+
+      if (!this._xtermWrapEl || this._xtermWrapLayoutKey !== layoutKey) {
+        if (this._xtermWrapEl && this._xtermWrapEl.parentNode) {
+          try { this._xtermWrapEl.parentNode.removeChild(this._xtermWrapEl); } catch (_e) { void _e; }
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'codelab-terminal-split-wrap codelab-terminal-split-grid' + (isSplit ? ' is-split' : '');
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(wrap);
+        this._xtermWrapEl = wrap;
+        this._xtermWrapLayoutKey = layoutKey;
+
+        for (const sess of panes) {
+          const pane = document.createElement('div');
+          pane.className = 'codelab-terminal-pane codelab-terminal-split-pane' + (sess.id === activeSession.id ? ' is-focused' : '');
+          pane.setAttribute('data-session-id', sess.id);
+          pane.addEventListener('pointerdown', () => {
+            if (this._activeTerminalSessionId !== sess.id) {
+              this._saveActiveTerminalSessionState();
+              this._applyTerminalSessionState(sess);
+              this._renderTerminalSessionsBar();
+              this._renderXtermTerminalBody(bodyEl, termFontPx);
+            }
+          });
+          wrap.appendChild(pane);
+          const eng = this._getOrCreateXtermEngineForSession(sess, termFontPx);
+          if (eng) {
+            eng.mount(pane);
+          }
+        }
+      } else if (this._xtermWrapEl.parentNode !== bodyEl) {
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(this._xtermWrapEl);
+      }
+
+      if (this._xtermWrapEl) {
+        this._xtermWrapEl.querySelectorAll('.codelab-terminal-pane').forEach(pane => {
+          const sid = pane.getAttribute('data-session-id') || '';
+          const isPaneActive = sid === activeSession.id;
+          pane.classList.toggle('is-focused', isPaneActive);
+          pane.querySelectorAll('[id]').forEach(el => {
+            const baseId = el.getAttribute('data-cl-base-id') || el.id.replace(new RegExp(`-${sid}$`), '');
+            el.setAttribute('data-cl-base-id', baseId);
+            el.id = (!isSplit || isPaneActive) ? baseId : `${baseId}-${sid}`;
+          });
+        });
+      }
+
+      const activeEng = this._getOrCreateXtermEngineForSession(activeSession, termFontPx);
+      if (activeEng) {
+        if (typeof activeEng.syncDomMirrorWithLogs === 'function') {
+          activeEng.syncDomMirrorWithLogs(this.terminalLogs);
+        }
+        this.terminalLogs = activeEng.logs;
+        activeSession.logs = activeEng.logs;
+        if (typeof activeEng.setCwd === 'function') activeEng.setCwd(this.cwd || '/workspace');
+        if (typeof activeEng.setReplMode === 'function') activeEng.setReplMode(Boolean(this.inRepl), this.replLang || 'node');
+        if (typeof activeEng.setBusy === 'function') activeEng.setBusy(Boolean(this.isRunning));
+        if (typeof activeEng.fit === 'function') activeEng.fit();
+      }
+      if (isSplit) {
+        const otherSess = leftSplit.id === activeSession.id ? rightSplit : leftSplit;
+        const otherEng = this._getOrCreateXtermEngineForSession(otherSess, termFontPx);
+        if (otherEng && typeof otherEng.fit === 'function') otherEng.fit();
+      }
+    }
+
+    splitActiveTerminalSession() {
+      const sessions = this._ensureTerminalSessions();
+      if ((Array.isArray(this._splitTerminalSessionIds) && this._splitTerminalSessionIds.length >= 2) || this._splitTerminalSessionId) {
+        this._splitTerminalSessionIds = [];
+        this._splitTerminalSessionId = null;
+        this._xtermWrapLayoutKey = '';
+        this._renderDrawerBody();
+        return null;
+      }
+      const primaryId = this._activeTerminalSessionId || (sessions[0] && sessions[0].id);
+      let second = sessions.find(s => s.id !== primaryId);
+      if (!second) {
+        const newId = this.createTerminalSession();
+        second = this._terminalSessions.find(s => s.id === newId);
+        if (primaryId) {
+          const orig = this._terminalSessions.find(s => s.id === primaryId);
+          if (orig) this._applyTerminalSessionState(orig);
+        }
+      }
+      if (second && primaryId) {
+        this._splitTerminalSessionIds = [primaryId, second.id];
+        this._splitTerminalSessionId = second.id;
+        this._xtermWrapLayoutKey = '';
+        this.switchDrawerTab('terminal', { ensureVisible: true, focus: true });
+        return second.id;
+      }
+      return null;
+    }
+
+    async _requestInteractiveTerminalStdin(promptText = '', signal = null) {
+      if (this.customStdin && String(this.customStdin).length > 0) {
+        const lines = String(this.customStdin).split(/\r?\n/);
+        const first = lines.shift() ?? '';
+        this.customStdin = lines.join('\n');
+        return first;
+      }
+      const activeXterm = this._getActiveXtermEngine();
+      if (activeXterm && typeof activeXterm.readLine === 'function') {
+        if (!this.panelVisible || this.drawerTab !== 'terminal') {
+          this.switchDrawerTab('terminal', { ensureVisible: true, focus: true });
+        } else {
+          activeXterm.focus();
+        }
+        return activeXterm.readLine(String(promptText ?? ''), { signal: signal || undefined });
+      }
+      if (this.ptyEngine && typeof this.ptyEngine.readLine === 'function' && this.ptyEngine.container) {
+        return this.ptyEngine.readLine(String(promptText ?? ''), { signal: signal || undefined });
+      }
+      return null;
+    }
+
+    _renderExplorerOutlineAndTimeline() {
+      if (!this.container || typeof this.container.querySelector !== 'function') return;
+      const outlineBody = this.container.querySelector('#cl-explorer-outline-body');
+      const timelineBody = this.container.querySelector('#cl-explorer-timeline-body');
+      if (outlineBody) {
+        const activeFile = (this.activeTab === '__settings__' || this.activeTab === '__welcome__') ? null : this.activeFile;
+        const code = (activeFile && this.files && typeof this.files[activeFile] === 'string') ? this.files[activeFile] : '';
+        const symbols = (activeFile && code && _wbComponents && typeof _wbComponents.extractDocumentSymbols === 'function')
+          ? _wbComponents.extractDocumentSymbols(activeFile, code)
+          : [];
+        if (!symbols || symbols.length === 0) {
+          outlineBody.innerHTML = `<div class="codelab-explorer-section__empty">${activeFile ? 'No symbols found in active editor.' : 'Open a file to inspect symbols.'}</div>`;
+        } else {
+          outlineBody.innerHTML = symbols.slice(0, 80).map(sym => `
+            <button type="button" class="codelab-outline-item" data-cl-action="reveal-symbol" data-symbol-file="${escapeHtml(sym.file || activeFile)}" data-symbol-line="${Number(sym.line || 1)}" data-symbol-col="${Number(sym.column || 1)}" title="${escapeHtml(sym.name)} (Ln ${Number(sym.line || 1)})">
+              <span class="codelab-outline-item__kind codelab-outline-item__kind--${escapeHtml(sym.kind || 'variable')}">${escapeHtml((sym.kind || 'sym').slice(0, 1).toUpperCase())}</span>
+              <span class="codelab-outline-item__name">${escapeHtml(sym.name)}</span>
+              <span class="codelab-outline-item__line">:${Number(sym.line || 1)}</span>
+            </button>
+          `).join('');
+        }
+      }
+      if (timelineBody) {
+        const commits = typeof this.getGitLog === 'function' ? this.getGitLog(15) : [];
+        if (!commits || commits.length === 0) {
+          timelineBody.innerHTML = '<div class="codelab-explorer-section__empty">No Git commits recorded yet.</div>';
+        } else {
+          timelineBody.innerHTML = commits.map(c => `
+            <div class="codelab-timeline-item" title="${escapeHtml(c.hash)} — ${escapeHtml(c.author || '')}">
+              <span class="codelab-timeline-item__dot" aria-hidden="true"></span>
+              <span class="codelab-timeline-item__msg">${escapeHtml(c.message)}</span>
+              <span class="codelab-timeline-item__hash">${escapeHtml(String(c.hash || '').slice(0, 7))}</span>
+            </div>
+          `).join('');
+        }
+      }
+    }
+
     switchDrawerTab(tab, opts = {}) {
       if (!tab) return;
       if (!opts || !opts.fromConfig) {
@@ -8538,8 +9127,13 @@ int main() {
       }
       this._renderDrawerBody();
       if (opts && opts.focus && this.drawerTab === 'terminal' && this.container) {
-        const termInput = this.container.querySelector('#cl-repl-input');
-        if (termInput && typeof termInput.focus === 'function') termInput.focus();
+        const activeXterm = this._getActiveXtermEngine();
+        if (activeXterm && typeof activeXterm.focus === 'function') {
+          activeXterm.focus();
+        } else {
+          const termInput = this.container.querySelector('#cl-repl-input');
+          if (termInput && typeof termInput.focus === 'function') termInput.focus();
+        }
       }
       if (!opts || (!opts.fromConfig && !opts.skipSave)) {
         this._saveState();
@@ -8548,6 +9142,11 @@ int main() {
 
     setPanelVisible(visible, opts = {}) {
       const next = Boolean(visible);
+      if (!next && this.panelHeight >= 100) {
+        this._savedPanelHeight = this.panelHeight;
+      } else if (next && (!this.panelHeight || this.panelHeight < 100)) {
+        this.panelHeight = Math.max(140, this._savedPanelHeight || 220);
+      }
       this.panelVisible = next;
       this.drawerCollapsed = !next;
       if (!next) {
@@ -8557,7 +9156,11 @@ int main() {
         const shell = this.container.querySelector('.codelab');
         if (shell && shell.classList) {
           shell.classList.toggle('panel-collapsed', !next);
-          if (!next) shell.classList.remove('panel-maximized');
+          if (!next) {
+            shell.classList.remove('panel-maximized');
+          } else if (this.panelHeight >= 100) {
+            this._setShellCssVar(shell, '--cl-drawer-height', `${this.panelHeight}px`);
+          }
         }
         const drawer = this.container.querySelector('#cl-drawer');
         if (drawer && drawer.classList) {
@@ -8568,16 +9171,25 @@ int main() {
           toggleBtn.classList.toggle('active', next);
           toggleBtn.setAttribute('aria-pressed', String(next));
         }
+        const statusToggleBtn = this.container.querySelector('#cl-status-panel-toggle');
+        if (statusToggleBtn) {
+          statusToggleBtn.classList.toggle('active', next);
+          statusToggleBtn.setAttribute('aria-pressed', String(next));
+        }
       }
       if (this.editor && typeof this.editor.layout === 'function') {
         this.editor.layout();
         setTimeout(() => {
           if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          if (next) {
+            const activeXterm = this._getActiveXtermEngine();
+            if (activeXterm && typeof activeXterm.fit === 'function') activeXterm.fit();
+          }
         }, 50);
       }
       if (!opts || !opts.skipRender) {
         if (next) this._renderDrawerBody();
-        this._saveState();
+        if (!opts || !opts.skipSave) this._saveState();
       }
       return this.panelVisible;
     }
@@ -8611,6 +9223,8 @@ int main() {
         this.editor.layout();
         setTimeout(() => {
           if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          const activeXterm = this._getActiveXtermEngine();
+          if (activeXterm && typeof activeXterm.fit === 'function') activeXterm.fit();
         }, 50);
       }
       this._saveState();
@@ -8620,7 +9234,7 @@ int main() {
     toggleTerminal() {
       if (this.panelVisible && this.drawerTab === 'terminal') {
         this.setPanelVisible(false);
-        if (this.editor && typeof this.editor.focus === 'function' && this.activeTab !== '__settings__') {
+        if (this.editor && typeof this.editor.focus === 'function' && this.activeTab !== '__settings__' && this.activeTab !== '__welcome__') {
           this.editor.focus();
         }
         return false;
@@ -10033,6 +10647,40 @@ int main() {
       loadMonaco(this.monacoUrl).then(m => {
         if (this._destroyed || !this.container) return;
         this.monaco = m;
+        const wsPrefix = '/workspace-' + encodeURIComponent(this.instanceId);
+        if (_wbComponents && typeof _wbComponents.initializeMonacoIntelligence === 'function') {
+          try {
+            _wbComponents.initializeMonacoIntelligence(m, () => this.files || {});
+          } catch (err) {
+            this.logger.debug('initializeMonacoIntelligence skipped.', err);
+          }
+        }
+        if (_wbComponents && typeof _wbComponents.syncTsConfigToMonaco === 'function') {
+          try {
+            _wbComponents.syncTsConfigToMonaco(m, this.files || {}, 'file://' + wsPrefix);
+          } catch (err) {
+            this.logger.debug('syncTsConfigToMonaco skipped.', err);
+          }
+        }
+        if (Array.isArray(this._monacoReadyHooks)) {
+          for (const fn of this._monacoReadyHooks) {
+            if (typeof fn === 'function') {
+              try {
+                fn(m);
+              } catch (err) {
+                this.logger.debug('Extension monacoReadyHook threw.', err);
+              }
+            }
+          }
+        }
+        if (!this._ataController && _wbComponents && typeof _wbComponents.WorkspaceAtaController === 'function') {
+          try {
+            this._ataController = new _wbComponents.WorkspaceAtaController(m);
+            this._ataController.scheduleScan(this.files || {});
+          } catch (err) {
+            this.logger.debug('WorkspaceAtaController init skipped.', err);
+          }
+        }
         if (this._diagnosticsStore && typeof this._diagnosticsStore.setFileDiagnostics === 'function' && this.files) {
           for (const fn of Object.keys(this.files)) {
             if (/\.(?:m?js|cjs|ts)$/i.test(fn)) {
@@ -10093,11 +10741,13 @@ int main() {
         }
 
         const resolvedInitTheme = this._resolvedTheme();
-        const initMonacoTheme = resolvedInitTheme === 'light'
-          ? 'codelab-light'
-          : resolvedInitTheme === 'high-contrast'
-            ? 'codelab-hc-dark'
-            : 'codelab-dark';
+        const initMonacoTheme = (_wbComponents && typeof _wbComponents.getMonacoThemeName === 'function')
+          ? _wbComponents.getMonacoThemeName(resolvedInitTheme, m)
+          : (resolvedInitTheme === 'light'
+            ? 'codelab-light'
+            : resolvedInitTheme === 'high-contrast'
+              ? 'codelab-hc-dark'
+              : 'codelab-dark');
 
         // Create models for all code files
         this._syncAllModels();
@@ -10120,8 +10770,24 @@ int main() {
           smoothScrolling: true,
           cursorBlinking: 'smooth',
           renderLineHighlight: 'all',
-          bracketPairColorization: { enabled: true }
+          bracketPairColorization: { enabled: true },
+          glyphMargin: false,
+          folding: true
         });
+
+        if (_wbComponents && typeof _wbComponents.registerCrossFileEditorOpener === 'function') {
+          this._editorOpenerDisposable = _wbComponents.registerCrossFileEditorOpener(m, (relFile, ln, col) => {
+            if (this.files && Object.prototype.hasOwnProperty.call(this.files, relFile)) {
+              this.openFile(relFile);
+              this._revealLineColInActiveEditor(ln || 1, col || 1);
+              return true;
+            }
+            return false;
+          }, wsPrefix);
+        }
+        if (_wbComponents && typeof _wbComponents.attachAutoCloseTagBehavior === 'function') {
+          this._autoCloseTagDisposable = _wbComponents.attachAutoCloseTagBehavior(m, this.editor);
+        }
 
         this._applyConfigurationChanges(null);
 
@@ -10206,15 +10872,21 @@ int main() {
         if (liveFallbackWrap) liveFallbackWrap.style.display = 'none';
         this._syncActiveFileToView();
 
-        // Watch theme changes on <html>
-        if (typeof MutationObserver !== 'undefined') {
+        // Watch theme changes on <html> only when document theme sync is active
+        const observeDocTheme = Boolean(
+          (this.options && (this.options.fullbleed || this.options.syncDocumentTheme)) ||
+          (typeof document !== 'undefined' && document.documentElement && document.documentElement.hasAttribute('data-theme'))
+        );
+        if (typeof MutationObserver !== 'undefined' && observeDocTheme && typeof document !== 'undefined' && document.documentElement) {
           this._themeObserver = new MutationObserver(() => {
             const rt = this._resolvedTheme();
-            const targetMonacoTheme = rt === 'light'
-              ? 'codelab-light'
-              : rt === 'high-contrast'
-                ? 'codelab-hc-dark'
-                : 'codelab-dark';
+            const targetMonacoTheme = (_wbComponents && typeof _wbComponents.getMonacoThemeName === 'function')
+              ? _wbComponents.getMonacoThemeName(rt, m)
+              : (rt === 'light'
+                ? 'codelab-light'
+                : rt === 'high-contrast'
+                  ? 'codelab-hc-dark'
+                  : 'codelab-dark');
             m.editor.setTheme(targetMonacoTheme);
           });
           this._themeObserver.observe(document.documentElement, {
@@ -10222,7 +10894,8 @@ int main() {
             attributeFilter: ['data-theme']
           });
         }
-      }).catch(() => {
+      }).catch((err) => {
+        void err;
         if (this._destroyed || !this.container) return;
         // Fallback editor remains visible if offline / CDN blocked
         const liveFallbackWrap = this.container.querySelector('#cl-fallback-wrap');
@@ -10257,6 +10930,20 @@ int main() {
       if (cleanRel.startsWith('.codelab/') && !this._syncingWorkspaceSettingsFile) {
         this._syncDotCodelabConfig({ isInitialMount: false });
       }
+      if (this.monaco && (cleanRel === 'tsconfig.json' || cleanRel === 'jsconfig.json') && _wbComponents && typeof _wbComponents.syncTsConfigToMonaco === 'function') {
+        try {
+          _wbComponents.syncTsConfigToMonaco(this.monaco, this.files || {}, 'file:///workspace-' + encodeURIComponent(this.instanceId));
+        } catch (err) {
+          this.logger.debug('Live tsconfig sync skipped.', err);
+        }
+      }
+      if (this._ataController && (cleanRel === 'package.json' || /\.(?:m?js|cjs|jsx|ts|tsx)$/i.test(cleanRel))) {
+        try {
+          this._ataController.scheduleScan(this.files || {});
+        } catch (err) {
+          this.logger.debug('ATA scan skipped.', err);
+        }
+      }
       if (this._lintDebounceTimer) {
         clearTimeout(this._lintDebounceTimer);
       }
@@ -10268,6 +10955,10 @@ int main() {
       }, 150);
       if (this.activeSidebarView === 'scm' && typeof this._renderScmSidebar === 'function') {
         this._renderScmSidebar();
+      }
+      this._updateEditorGitGutter();
+      if (this.activeSidebarView === 'explorer' && typeof this._renderExplorerOutlineAndTimeline === 'function') {
+        this._renderExplorerOutlineAndTimeline();
       }
       const allowPreviewReload = !this.configuration || this.configuration.get('preview.autoReload', true) !== false;
       if (allowPreviewReload && (this.drawerTab === 'preview' || (this.previewState && this.previewState.dockMode === 'split')) && this.previewState && this.previewState.port) {
@@ -10307,7 +10998,8 @@ int main() {
       if (!this.monaco || !this.monaco.editor || typeof this.monaco.editor.getModelMarkers !== 'function') return;
       this._ensureDiagnosticsStore();
       if (!this._diagnosticsStore || typeof this._diagnosticsStore.setFileDiagnostics !== 'function') return;
-      const prefix = `file:///${encodeURIComponent(this.instanceId)}/`;
+      const wsPrefix = '/workspace-' + encodeURIComponent(this.instanceId);
+      const prefix = `file://${wsPrefix}/`;
       for (const [filename, model] of this.models.entries()) {
         const uri = model && model.uri ? model.uri : null;
         let markers = [];
@@ -10343,31 +11035,41 @@ int main() {
 
     _getOrCreateModel(filename) {
       if (!filename || !this.monaco || !this.monaco.editor) return null;
-      const uriParser = (this.monaco.Uri && typeof this.monaco.Uri.parse === 'function')
-        ? this.monaco.Uri
-        : (this.monaco.editor.Uri && typeof this.monaco.editor.Uri.parse === 'function')
-          ? this.monaco.editor.Uri
-          : null;
-      const rawUri = `file:///${encodeURIComponent(this.instanceId)}/${filename}`;
-      const uri = uriParser ? uriParser.parse(rawUri) : { toString: () => rawUri };
+      const wsPrefix = '/workspace-' + encodeURIComponent(this.instanceId);
+      const cleanRel = String(filename).replace(/^\/+/, '');
+      let uri = null;
+      if (_wbComponents && typeof _wbComponents.toWorkspaceModelUri === 'function') {
+        uri = _wbComponents.toWorkspaceModelUri(this.monaco, cleanRel, wsPrefix);
+      }
+      if (!uri) {
+        const uriParser = (this.monaco.Uri && typeof this.monaco.Uri.parse === 'function')
+          ? this.monaco.Uri
+          : (this.monaco.editor.Uri && typeof this.monaco.editor.Uri.parse === 'function')
+            ? this.monaco.editor.Uri
+            : null;
+        const rawUri = `file://${wsPrefix}/${cleanRel}`;
+        uri = uriParser ? uriParser.parse(rawUri) : { toString: () => rawUri };
+      }
       let model = typeof this.monaco.editor.getModel === 'function' ? this.monaco.editor.getModel(uri) : null;
-      const lang = /\.(cpp|cc|cxx|hpp|h)$/i.test(filename)
-        ? 'cpp'
-        : /\.py$/i.test(filename)
-          ? 'python'
-          : /\.sql$/i.test(filename)
-            ? 'sql'
-            : filename.endsWith('.ts')
-              ? 'typescript'
-              : filename.endsWith('.json')
-                ? 'json'
-                : filename.endsWith('.html')
-                  ? 'html'
-                  : filename.endsWith('.css')
-                    ? 'css'
-                    : filename.endsWith('.md')
-                      ? 'markdown'
-                      : 'javascript';
+      const lang = (_wbComponents && typeof _wbComponents.getMonacoLanguageForFile === 'function')
+        ? _wbComponents.getMonacoLanguageForFile(filename, this.lang)
+        : (/\.(cpp|cc|cxx|hpp|h)$/i.test(filename)
+          ? 'cpp'
+          : /\.py$/i.test(filename)
+            ? 'python'
+            : /\.sql$/i.test(filename)
+              ? 'sql'
+              : /\.(?:ts|tsx|mts|cts)$/i.test(filename)
+                ? 'typescript'
+                : filename.endsWith('.json')
+                  ? 'json'
+                  : filename.endsWith('.html')
+                    ? 'html'
+                    : filename.endsWith('.css')
+                      ? 'css'
+                      : filename.endsWith('.md')
+                        ? 'markdown'
+                        : 'javascript');
       const configuredTabSize = this.configuration
         ? Math.max(1, Math.min(8, Number(this.configuration.get('editor.tabSize', 2)) || 2))
         : 2;
@@ -10430,6 +11132,202 @@ int main() {
           this._getOrCreateModel(filename);
         }
       }
+      if (this.monaco && _wbComponents && typeof _wbComponents.syncTsConfigToMonaco === 'function') {
+        try {
+          _wbComponents.syncTsConfigToMonaco(this.monaco, this.files || {}, 'file:///workspace-' + encodeURIComponent(this.instanceId));
+        } catch (err) {
+          this.logger.debug('syncTsConfigToMonaco after syncAllModels skipped.', err);
+        }
+      }
+      if (this._ataController && typeof this._ataController.scheduleScan === 'function') {
+        try {
+          this._ataController.scheduleScan(this.files || {});
+        } catch (err) {
+          this.logger.debug('ATA scan after syncAllModels skipped.', err);
+        }
+      }
+    }
+
+    _updateEditorGitGutter() {
+      if (!this.editor || !this.monaco || !this.activeFile || this.activeTab === '__settings__' || this.activeTab === '__welcome__') {
+        return;
+      }
+      const scmMod = root.CodeLabScm;
+      const gs = this._getGitState();
+      if (!scmMod || typeof scmMod.computeGitGutterChanges !== 'function' || !gs || !gs.initialized) {
+        if (this._gitGutterDecorations && typeof this._gitGutterDecorations.clear === 'function') {
+          try { this._gitGutterDecorations.clear(); } catch (_err) { void _err; }
+        }
+        return;
+      }
+      const headMap = gs.headFiles || gs.headSnapshot || {};
+      const hasHead = Object.prototype.hasOwnProperty.call(headMap, this.activeFile);
+      const headText = hasHead ? String(headMap[this.activeFile] ?? '') : '';
+      const curText = String(this.files[this.activeFile] ?? '');
+      const changes = hasHead
+        ? scmMod.computeGitGutterChanges(headText, curText)
+        : (curText.length > 0 ? [{ type: 'added', startLine: 1, endLine: Math.max(1, curText.split('\n').length) }] : []);
+      const RangeCtor = this.monaco.Range;
+      if (typeof RangeCtor !== 'function') return;
+      const decorations = (changes || []).map((ch) => {
+        const cls = ch.type === 'added'
+          ? 'codelab-git-gutter-added'
+          : ch.type === 'deleted'
+            ? 'codelab-git-gutter-deleted'
+            : 'codelab-git-gutter-modified';
+        const sLine = Math.max(1, Number(ch.startLine || 1));
+        const eLine = Math.max(sLine, Number(ch.endLine || sLine));
+        return {
+          range: new RangeCtor(sLine, 1, eLine, 1),
+          options: {
+            isWholeLine: true,
+            linesDecorationsClassName: cls
+          }
+        };
+      });
+      if (typeof this.editor.createDecorationsCollection === 'function') {
+        if (!this._gitGutterDecorations) {
+          this._gitGutterDecorations = this.editor.createDecorationsCollection(decorations);
+        } else {
+          this._gitGutterDecorations.set(decorations);
+        }
+      } else if (typeof this.editor.deltaDecorations === 'function') {
+        this._gitGutterDecorationIds = this.editor.deltaDecorations(this._gitGutterDecorationIds || [], decorations);
+      }
+    }
+
+    openWelcomeTab() {
+      this._activeScmDiffFile = null;
+      this.welcomeTabOpen = true;
+      this.activeTab = '__welcome__';
+      this._syncActiveFileToView();
+    }
+
+    closeWelcomeTab() {
+      if (!this.welcomeTabOpen && this.activeTab !== '__welcome__') return;
+      this.welcomeTabOpen = false;
+      const nextFile = (this.activeFile && Array.isArray(this.openTabs) && this.openTabs.includes(this.activeFile))
+        ? this.activeFile
+        : (Array.isArray(this.openTabs) && this.openTabs.length > 0 ? this.openTabs[0] : null);
+      this.activeFile = nextFile;
+      this.activeTab = this.settingsTabOpen ? '__settings__' : nextFile;
+      this._syncActiveFileToView();
+    }
+
+    _renderWelcomeHost(welcomeHost) {
+      if (!welcomeHost) return;
+      const wsMod = this._getWorkspaceStorageMod();
+      const recentList = (wsMod && typeof wsMod.listWorkspaces === 'function') ? wsMod.listWorkspaces().slice(0, 5) : [];
+      const templates = (this.options && Array.isArray(this.options.welcomeTemplates))
+        ? this.options.welcomeTemplates
+        : [];
+      const templatesHtml = templates.length > 0
+        ? `
+          <div class="codelab-welcome__section">
+            <h3 class="codelab-welcome__heading">Start with a Template</h3>
+            <div class="codelab-welcome__templates">
+              ${templates.map((tpl) => `
+                <button type="button" class="codelab-welcome__card" data-cl-action="welcome-load-template" data-demo="${escapeHtml(tpl.id || '')}">
+                  <span class="codelab-welcome__card-badge">${escapeHtml(tpl.badge || 'Stack')}</span>
+                  <strong class="codelab-welcome__card-title">${escapeHtml(tpl.title || tpl.id || 'Template')}</strong>
+                  <span class="codelab-welcome__card-desc">${escapeHtml(tpl.description || '')}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `
+        : '';
+      const recentHtml = recentList.length > 0
+        ? recentList.map((ws) => `
+            <button type="button" class="codelab-welcome__link" data-cl-action="welcome-open-recent" data-workspace-id="${escapeHtml(ws.labId)}">
+              <span>${escapeHtml(ws.title || ws.labId)}</span>
+              <span class="codelab-welcome__link-meta">${escapeHtml(ws.repo || ws.labId)}</span>
+            </button>
+          `).join('')
+        : '<div class="codelab-welcome__muted">No recent workspaces yet.</div>';
+
+      welcomeHost.innerHTML = `
+        <div class="codelab-welcome__inner">
+          <header class="codelab-welcome__hero">
+            <div class="codelab-welcome__title-row">
+              <span class="codelab-welcome__logo" aria-hidden="true">${CL_ICONS.code || ''}</span>
+              <div>
+                <h2 class="codelab-welcome__title">CodeLab Studio</h2>
+                <p class="codelab-welcome__subtitle">Browser-native IDE — Node.js v22 Worker, TypeScript 5, Python 3.12, C++20 WASI, SQL &amp; Git</p>
+              </div>
+            </div>
+          </header>
+          <div class="codelab-welcome__grid">
+            <div class="codelab-welcome__col">
+              <div class="codelab-welcome__section">
+                <h3 class="codelab-welcome__heading">Start</h3>
+                <div class="codelab-welcome__actions">
+                  <button type="button" class="codelab-welcome__action" data-cl-action="welcome-new-file">
+                    ${CL_ICONS.newFile || ''}<span>New File...</span><kbd>⌘N</kbd>
+                  </button>
+                  <button type="button" class="codelab-welcome__action" data-cl-action="welcome-clone-repo">
+                    ${CL_ICONS.gitBranch || ''}<span>Clone Git Repository...</span><kbd>⌘⇧G</kbd>
+                  </button>
+                  <button type="button" class="codelab-welcome__action" data-cl-action="new-blank-workspace">
+                    ${CL_ICONS.newFolder || ''}<span>New Blank Workspace...</span>
+                  </button>
+                  <button type="button" class="codelab-welcome__action" data-cl-action="command-palette">
+                    ${CL_ICONS.search || ''}<span>Show All Commands...</span><kbd>⌘⇧P</kbd>
+                  </button>
+                </div>
+              </div>
+              <div class="codelab-welcome__section">
+                <h3 class="codelab-welcome__heading">Clone GitHub Repository</h3>
+                <form class="codelab-welcome__clone-bar" data-cl-welcome-clone-form>
+                  <input data-cl-welcome-repo-input class="codelab-welcome__clone-input" type="text" placeholder="owner/repo or https://github.com/owner/repo" autocomplete="off" spellcheck="false" aria-label="GitHub repository URL or owner/repo" />
+                  <button data-cl-welcome-clone-btn type="submit" class="codelab-btn codelab-btn--primary">Clone</button>
+                </form>
+              </div>
+              <div class="codelab-welcome__section">
+                <h3 class="codelab-welcome__heading">Recent</h3>
+                <div class="codelab-welcome__recent">${recentHtml}</div>
+              </div>
+            </div>
+            <div class="codelab-welcome__col">
+              ${templatesHtml || `
+                <div class="codelab-welcome__section">
+                  <h3 class="codelab-welcome__heading">Walkthroughs</h3>
+                  <div class="codelab-welcome__walkthroughs">
+                    <div class="codelab-welcome__walkthrough">
+                      <strong>Full IntelliSense &amp; Cross-File Navigation</strong>
+                      <span>Press <kbd>F12</kbd> on any imported function or class to jump directly across workspace files.</span>
+                    </div>
+                    <div class="codelab-welcome__walkthrough">
+                      <strong>Integrated xterm.js &amp; POSIX Shell</strong>
+                      <span>Press <kbd>⌃\`</kbd> or <kbd>⌘J</kbd> to toggle the panel, split terminals, or run <code>node</code>, <code>python3</code>, <code>clang++</code>, and <code>git</code>.</span>
+                    </div>
+                    <div class="codelab-welcome__walkthrough">
+                      <strong>Real Git &amp; Side-by-Side Diffs</strong>
+                      <span>Stage hunks, switch branches, stash changes, and inspect side-by-side diffs in Source Control.</span>
+                    </div>
+                  </div>
+                </div>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+      const cloneForm = welcomeHost.querySelector('[data-cl-welcome-clone-form]');
+      if (cloneForm) {
+        cloneForm.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          const inp = welcomeHost.querySelector('[data-cl-welcome-repo-input]');
+          const val = inp ? String(inp.value || '').trim() : '';
+          if (!val) {
+            this.openCloneDialog();
+            return;
+          }
+          this.closeWelcomeTab();
+          this.cloneRepo(val, { intoRoot: true, force: true }).catch((err) => {
+            this.logger.warn('Welcome clone failed.', err);
+          });
+        });
+      }
     }
 
     _syncActiveFileToView() {
@@ -10439,8 +11337,41 @@ int main() {
       const fallbackEl = this.container.querySelector('#cl-fallback-editor');
       const mdPreview = this.container.querySelector('#cl-md-preview');
       const settingsHost = this.container.querySelector('#cl-settings-host');
+      const welcomeHost = this.container.querySelector('#cl-welcome-host');
       const inlineDiffHost = this.container.querySelector('#cl-inline-diff-container');
       const emptyEl = this.container.querySelector('#cl-empty-editor');
+
+      // Non-destructive Welcome Tab
+      if (this.welcomeTabOpen && this.activeTab === '__welcome__') {
+        this._activeScmDiffFile = null;
+        if (monacoHost) monacoHost.style.display = 'none';
+        if (sqlHost) sqlHost.style.display = 'none';
+        if (fallbackWrap) fallbackWrap.style.display = 'none';
+        if (mdPreview) mdPreview.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (settingsHost) {
+          settingsHost.hidden = true;
+          if (settingsHost.style) settingsHost.style.display = 'none';
+        }
+        if (inlineDiffHost) {
+          inlineDiffHost.hidden = true;
+          if (inlineDiffHost.style) inlineDiffHost.style.display = 'none';
+        }
+        if (welcomeHost) {
+          welcomeHost.hidden = false;
+          if (welcomeHost.style) welcomeHost.style.display = 'block';
+          this._renderWelcomeHost(welcomeHost);
+        }
+        this._renderFileLists();
+        this._renderBreadcrumbs();
+        this._updateStatusBar();
+        return;
+      }
+
+      if (welcomeHost) {
+        welcomeHost.hidden = true;
+        if (welcomeHost.style) welcomeHost.style.display = 'none';
+      }
 
       // Non-destructive Settings Tab: hide code surfaces via display:none WITHOUT calling editor.setModel(null) or disposing!
       if (this.settingsTabOpen && this.activeTab === '__settings__') {
@@ -10490,7 +11421,7 @@ int main() {
         actSettingsBtn.setAttribute('aria-pressed', 'false');
       }
 
-      // Non-destructive Source Control Inline Diff: hide sibling editor hosts via display:none WITHOUT mutating models/buffers!
+      // Non-destructive Source Control Diff: side-by-side Monaco DiffEditor when available, with unified fallback!
       if (this._activeScmDiffFile && inlineDiffHost) {
         if (monacoHost) monacoHost.style.display = 'none';
         if (sqlHost) sqlHost.style.display = 'none';
@@ -10504,6 +11435,9 @@ int main() {
         this._renderBreadcrumbs();
         this._updateStatusBar();
         return;
+      }
+      if (this._scmDiffManager && typeof this._scmDiffManager.closeInlineDiff === 'function') {
+        try { this._scmDiffManager.closeInlineDiff(); } catch (_err) { void _err; }
       }
       if (inlineDiffHost) {
         inlineDiffHost.hidden = true;
@@ -10572,7 +11506,7 @@ int main() {
         sqlHost &&
         sqlPack &&
         typeof sqlPack.createSqlEditor === 'function' &&
-        (!this.editor || (this.options && this.options.editorEngine !== 'monaco'))
+        (this._isSingleFileSqlMode() || !this.editor || (this.options && this.options.editorEngine === 'sql'))
       );
 
       if (isMd && this._mdPreviewOpen) {
@@ -10655,6 +11589,7 @@ int main() {
           if (model && this.editor.getModel() !== model) {
             this.editor.setModel(model);
           }
+          this._updateEditorGitGutter();
           const pos = typeof this.editor.getPosition === 'function' ? this.editor.getPosition() : null;
           if (pos) {
             this.cursorPos = {
@@ -10834,12 +11769,26 @@ int main() {
         const keyLower = (e.key || '').toLowerCase();
         const mod = Boolean(e.metaKey || e.ctrlKey);
         const tgt = e.target;
+        const inTerminal = Boolean(
+          tgt &&
+          typeof tgt.closest === 'function' &&
+          tgt.closest('#cl-terminal-surface, .xterm, .codelab-terminal-pane')
+        );
         const inCustomContentEditable = Boolean(
           tgt &&
           (tgt.isContentEditable || (typeof tgt.closest === 'function' && tgt.closest('[contenteditable="true"]'))) &&
           !(typeof tgt.closest === 'function' && tgt.closest('#cl-monaco-host, .monaco-editor'))
         );
         if (inCustomContentEditable && mod && !e.shiftKey && !e.altKey && keyLower === 'b') {
+          return;
+        }
+        if (inTerminal && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && keyLower === 'b') {
+          return;
+        }
+        if (inTerminal && mod && !e.shiftKey && !e.altKey && e.key === '\\') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.splitActiveTerminalSession();
           return;
         }
         if (mod && !e.shiftKey && !e.altKey && keyLower === 's') {
@@ -10873,8 +11822,13 @@ int main() {
             this.setPanelVisible(true, { skipRender: true });
             this.createTerminalSession();
             this.switchDrawerTab('terminal', { ensureVisible: true });
-            const termInp = this.container ? this.container.querySelector('#cl-repl-input') : null;
-            if (termInp && typeof termInp.focus === 'function') termInp.focus();
+            const activeXt = this._getActiveXtermEngine();
+            if (activeXt && typeof activeXt.focus === 'function') {
+              activeXt.focus();
+            } else {
+              const termInp = this.container ? this.container.querySelector('#cl-repl-input') : null;
+              if (termInp && typeof termInp.focus === 'function') termInp.focus();
+            }
           } else {
             this.toggleTerminal();
           }
@@ -11932,8 +12886,20 @@ int main() {
             this.closeSettings();
             return;
           }
+          if (tabKey === '__welcome__') {
+            this.closeWelcomeTab();
+            return;
+          }
           const fname = closeBtn.dataset.clCloseFile || closeBtn.dataset.clFile || tabEl.dataset.clFile;
           if (fname) this.closeTab(fname);
+          return;
+        }
+
+        const welcomeTabBtn = e.target.closest('[data-cl-tab="__welcome__"]');
+        if (welcomeTabBtn) {
+          this._activeScmDiffFile = null;
+          this.activeTab = '__welcome__';
+          this._syncActiveFileToView();
           return;
         }
 
@@ -12281,6 +13247,8 @@ int main() {
           } else if (action === 'new-terminal-session') {
             this.createTerminalSession();
             if (this.drawerTab !== 'terminal') this.switchDrawerTab('terminal');
+          } else if (action === 'split-terminal-session') {
+            this.splitActiveTerminalSession();
           } else if (action === 'kill-terminal-session') {
             this.killActiveTerminalSession();
           } else if (action === 'switch-terminal-session') {
@@ -12290,6 +13258,49 @@ int main() {
             e.stopPropagation();
             const sid = actionBtn.dataset.sessionId;
             if (sid) this.closeTerminalSession(sid);
+          } else if (action === 'reveal-symbol') {
+            const symFile = actionBtn.dataset.symbolFile || this.activeFile;
+            const symLine = Math.max(1, Number(actionBtn.dataset.symbolLine || 1));
+            const symCol = Math.max(1, Number(actionBtn.dataset.symbolCol || 1));
+            if (symFile) {
+              this.openFile(symFile);
+              this._revealLineColInActiveEditor(symLine, symCol);
+            }
+          } else if (action === 'open-welcome') {
+            this.openWelcomeTab();
+          } else if (action === 'welcome-new-file') {
+            this.closeWelcomeTab();
+            this.setSidebarView('explorer', { ensureOpen: true, focus: false });
+            this.startInlineCreate('file', this.explorerFolder || '');
+          } else if (action === 'welcome-clone-repo') {
+            this.openCloneDialog();
+          } else if (action === 'welcome-open-recent') {
+            const wid = actionBtn.dataset.workspaceId;
+            if (wid) {
+              this.closeWelcomeTab();
+              this.switchWorkspace(wid);
+            }
+          } else if (action === 'welcome-load-template') {
+            const demoId = actionBtn.dataset.demo || '';
+            if (this.options && typeof this.options.onSelectWelcomeTemplate === 'function') {
+              this.closeWelcomeTab();
+              this.options.onSelectWelcomeTemplate(demoId, this);
+            } else if (this.options && Array.isArray(this.options.welcomeTemplates)) {
+              const tpl = this.options.welcomeTemplates.find((t) => t && t.id === demoId);
+              if (tpl && tpl.files && typeof tpl.files === 'object') {
+                this.closeWelcomeTab();
+                if (tpl.language) this.lang = tpl.language;
+                if (tpl.entry) this.entry = tpl.entry;
+                if (tpl.title) this.title = tpl.title;
+                this.setFiles(tpl.files);
+                this._updateTopbarBrandTitle();
+                const firstFile = tpl.entry && tpl.files[tpl.entry] ? tpl.entry : Object.keys(tpl.files)[0];
+                if (firstFile) this.openFile(firstFile);
+              }
+            }
+          } else if (action === 'scm-toggle-diff-mode') {
+            this._scmForceUnifiedDiff = !this._scmForceUnifiedDiff;
+            this._syncActiveFileToView();
           } else if (action === 'scm-init') {
             this._initGitRepoInScm();
           } else if (action === 'scm-stage-file' || action === 'scm-stage') {
@@ -12849,6 +13860,15 @@ int main() {
       return builtin;
     }
 
+    toggleCommandPalette(open, mode = 'commands') {
+      const isOpen = Boolean(this.container && this.container.querySelector('#cl-modal-slot .codelab-palette'));
+      if (open === false || (open === undefined && isOpen)) {
+        this.closeCommandPalette();
+      } else {
+        this.openCommandPalette(mode);
+      }
+    }
+
     openCommandPalette(mode = 'commands') {
       const slot = this.container.querySelector('#cl-modal-slot');
       if (!slot) return;
@@ -12918,19 +13938,103 @@ int main() {
       if (!listEl) return;
       const trimmed = String(rawValue || '').trim();
       const isCommandQuery = trimmed.startsWith('>') || (this.paletteMode === 'commands' && rawValue.startsWith('>'));
-      const query = (trimmed.startsWith('>') ? trimmed.slice(1) : trimmed).trim().toLowerCase();
+      const isDocSymbolQuery = !isCommandQuery && trimmed.startsWith('@');
+      const isWsSymbolQuery = !isCommandQuery && trimmed.startsWith('#');
+      const rawQuery = isCommandQuery
+        ? trimmed.replace(/^>\s*/, '')
+        : (isDocSymbolQuery || isWsSymbolQuery ? trimmed.slice(1).trim() : trimmed);
+      const query = rawQuery.toLowerCase();
+      const fuzzyScore = (_wbComponents && (typeof _wbComponents.fuzzyScoreText === 'function' || typeof _wbComponents.scoreFuzzyMatch === 'function'))
+        ? (_wbComponents.fuzzyScoreText || _wbComponents.scoreFuzzyMatch)
+        : null;
+      const fuzzyHl = (_wbComponents && (typeof _wbComponents.renderHighlightedText === 'function' || typeof _wbComponents.highlightFuzzyMatches === 'function'))
+        ? (_wbComponents.renderHighlightedText || _wbComponents.highlightFuzzyMatches)
+        : null;
 
       let items = [];
       if (isCommandQuery) {
         const cmds = this._getPaletteCommands();
-        items = cmds
-          .filter(c => !query || c.label.toLowerCase().includes(query) || c.id.toLowerCase().includes(query))
-          .map(c => ({
+        if (query && fuzzyScore) {
+          const scored = [];
+          for (const c of cmds) {
+            const mLabel = fuzzyScore(rawQuery, c.label);
+            const mId = fuzzyScore(rawQuery, c.id);
+            const best = mLabel || mId;
+            if (best) {
+              scored.push({
+                score: (mLabel ? mLabel.score : 0) || (mId ? mId.score - 4 : 0),
+                indices: mLabel ? mLabel.indices : [],
+                cmd: c
+              });
+            }
+          }
+          scored.sort((a, b) => b.score - a.score);
+          items = scored.map(({ cmd: c, indices }) => ({
             type: 'command',
             id: c.id,
             label: c.label,
+            labelHtml: fuzzyHl && indices.length > 0 ? fuzzyHl(c.label, indices) : escapeHtml(c.label),
             shortcut: c.shortcut || '',
             action: c.action
+          }));
+        } else {
+          items = cmds
+            .filter(c => !query || c.label.toLowerCase().includes(query) || c.id.toLowerCase().includes(query))
+            .map(c => ({
+              type: 'command',
+              id: c.id,
+              label: c.label,
+              labelHtml: escapeHtml(c.label),
+              shortcut: c.shortcut || '',
+              action: c.action
+            }));
+        }
+      } else if (isDocSymbolQuery) {
+        const activeTarget = (this.activeFile && this.activeTab !== '__settings__' && this.activeTab !== '__welcome__')
+          ? this.activeFile
+          : this._pickDefaultFile();
+        const symbols = (activeTarget && _wbComponents && typeof _wbComponents.extractDocumentSymbols === 'function')
+          ? _wbComponents.extractDocumentSymbols(activeTarget, String(this.files[activeTarget] ?? ''))
+          : [];
+        items = symbols
+          .filter(sym => !query || sym.name.toLowerCase().includes(query))
+          .map(sym => ({
+            type: 'symbol',
+            id: `${activeTarget}:${sym.line}:${sym.name}`,
+            label: `${sym.name} (${sym.kind})`,
+            labelHtml: `${escapeHtml(sym.name)} <span style="opacity:0.6;font-size:11px;">${escapeHtml(sym.kind)} · Ln ${sym.line}</span>`,
+            shortcut: activeTarget || '',
+            action: () => {
+              if (activeTarget) {
+                this.openFile(activeTarget);
+                this._revealLineColInActiveEditor(sym.line || 1, sym.column || 1);
+              }
+            }
+          }));
+      } else if (isWsSymbolQuery) {
+        const allSymbols = [];
+        if (_wbComponents && typeof _wbComponents.extractDocumentSymbols === 'function') {
+          for (const fname of this._orderedFileNames()) {
+            if (this._isPathExcluded(fname)) continue;
+            const syms = _wbComponents.extractDocumentSymbols(fname, String(this.files[fname] ?? ''));
+            for (const sym of syms) {
+              allSymbols.push({ file: fname, sym });
+            }
+          }
+        }
+        items = allSymbols
+          .filter(({ sym, file }) => !query || sym.name.toLowerCase().includes(query) || file.toLowerCase().includes(query))
+          .slice(0, 80)
+          .map(({ sym, file }) => ({
+            type: 'symbol',
+            id: `${file}:${sym.line}:${sym.name}`,
+            label: `${sym.name} — ${file}`,
+            labelHtml: `${escapeHtml(sym.name)} <span style="opacity:0.6;font-size:11px;">${escapeHtml(file)}:${sym.line}</span>`,
+            shortcut: sym.kind,
+            action: () => {
+              this.openFile(file);
+              this._revealLineColInActiveEditor(sym.line || 1, sym.column || 1);
+            }
           }));
       } else {
         const files = this._orderedFileNames().filter(f => !this._isPathExcluded(f));
@@ -12940,17 +14044,35 @@ int main() {
           ...(Array.isArray(searchExcl) ? searchExcl : []),
           ...this._getExcludePatterns()
         ];
-        const ranked = (mod && typeof mod.rankWorkspaceFiles === 'function')
-          ? mod.rankWorkspaceFiles(files, query, excludePatterns)
-          : files.filter(f => !query || f.toLowerCase().includes(query));
-        items = ranked
-          .map(f => ({
+        if (query && fuzzyScore) {
+          const scored = [];
+          for (const f of files) {
+            const m = fuzzyScore(rawQuery, f);
+            if (m) scored.push({ file: f, score: m.score + (f === this.activeFile ? 3 : 0), indices: m.indices });
+          }
+          scored.sort((a, b) => b.score - a.score);
+          items = scored.map(({ file: f, indices }) => ({
             type: 'file',
             id: f,
             label: f,
+            labelHtml: fuzzyHl && indices.length > 0 ? fuzzyHl(f, indices) : escapeHtml(f),
             shortcut: f === this.activeFile ? 'Active' : '',
             action: () => this.openFile(f)
           }));
+        } else {
+          const ranked = (mod && typeof mod.rankWorkspaceFiles === 'function')
+            ? mod.rankWorkspaceFiles(files, query, excludePatterns)
+            : files.filter(f => !query || f.toLowerCase().includes(query));
+          items = ranked
+            .map(f => ({
+              type: 'file',
+              id: f,
+              label: f,
+              labelHtml: escapeHtml(f),
+              shortcut: f === this.activeFile ? 'Active' : '',
+              action: () => this.openFile(f)
+            }));
+        }
       }
 
       this._currentPaletteItems = items;
@@ -12959,13 +14081,14 @@ int main() {
       }
 
       if (items.length === 0) {
-        listEl.innerHTML = `<div class="codelab-palette__empty">No matching ${isCommandQuery ? 'commands' : 'files'} found</div>`;
+        const kindLabel = isCommandQuery ? 'commands' : (isDocSymbolQuery || isWsSymbolQuery ? 'symbols' : 'files');
+        listEl.innerHTML = `<div class="codelab-palette__empty">No matching ${kindLabel} found</div>`;
         return;
       }
 
       listEl.innerHTML = items.map((item, idx) => `
         <button type="button" class="codelab-palette__item ${idx === this.paletteSelectedIndex ? 'is-selected' : ''}" role="option" aria-selected="${idx === this.paletteSelectedIndex}" data-palette-idx="${idx}" data-palette-id="${escapeHtml(item.id)}">
-          <span class="codelab-palette__item-label">${escapeHtml(item.label)}</span>
+          <span class="codelab-palette__item-label">${item.labelHtml || escapeHtml(item.label)}</span>
           ${item.shortcut ? `<span class="codelab-palette__item-kbd">${escapeHtml(item.shortcut)}</span>` : ''}
         </button>
       `).join('');
@@ -13306,12 +14429,25 @@ int main() {
           const mainEl = this.container.querySelector('.codelab-workbench-main, .codelab-main');
           if (!mainEl) return;
           const rect = mainEl.getBoundingClientRect();
-          const minH = 110;
-          const maxH = Math.max(minH, Math.floor(rect.height * 0.75));
-          const nextH = Math.min(maxH, Math.max(minH, Math.round(rect.bottom - ev.clientY)));
+          const rawH = Math.round(rect.bottom - ev.clientY);
+          if (rawH < 56) {
+            if (this.panelVisible) {
+              this._savedPanelHeight = Math.max(140, this.panelHeight || 220);
+              this.setPanelVisible(false, { skipRender: true, skipSave: true });
+            }
+            return;
+          }
+          if (!this.panelVisible && rawH >= 72) {
+            this.setPanelVisible(true, { skipRender: true, skipSave: true });
+          }
+          const minH = 96;
+          const maxH = Math.max(minH, Math.floor(rect.height * 0.82));
+          const nextH = Math.min(maxH, Math.max(minH, rawH));
           this.panelHeight = nextH;
           this._setShellCssVar(curShell, '--cl-drawer-height', `${nextH}px`);
-          if (this.editor) this.editor.layout();
+          if (this.editor && typeof this.editor.layout === 'function') this.editor.layout();
+          const xt = this._getActiveXtermEngine();
+          if (xt && typeof xt.fit === 'function') xt.fit();
         },
         onEnd: () => {
           this._saveState();
@@ -13327,6 +14463,7 @@ int main() {
       if (fSplitter && !fSplitter._clDblBound) {
         fSplitter._clDblBound = true;
         fSplitter.addEventListener('dblclick', () => {
+          if (!this.sidebarVisible) this.setSidebarVisible(true);
           applyExplorerWidth(260, this.container.querySelector('.codelab'));
           this._saveState();
         });
@@ -13337,11 +14474,20 @@ int main() {
           const bodyEl = this.container.querySelector('.codelab-body');
           const sidebarEl = this.container.querySelector('#cl-sidebar, .codelab-sidebar');
           const bodyRect = (bodyEl || curShell).getBoundingClientRect();
-          const sbRect = sidebarEl ? sidebarEl.getBoundingClientRect() : bodyRect;
+          const sbRect = sidebarEl && this.sidebarVisible ? sidebarEl.getBoundingClientRect() : bodyRect;
+          const isRight = curShell.classList.contains('sidebar-right');
+          const rawW = isRight ? (bodyRect.right - 48 - ev.clientX) : (ev.clientX - (this.sidebarVisible ? sbRect.left : bodyRect.left + 48));
+          if (rawW < 72) {
+            if (this.sidebarVisible) {
+              this.setSidebarVisible(false);
+            }
+            return;
+          }
+          if (!this.sidebarVisible && rawW >= 96) {
+            this.setSidebarVisible(true);
+          }
           const minW = 150;
           const maxW = Math.max(minW, Math.floor(bodyRect.width * 0.5));
-          const isRight = curShell.classList.contains('sidebar-right');
-          const rawW = isRight ? (sbRect.right - ev.clientX) : (ev.clientX - sbRect.left);
           const nextW = Math.min(maxW, Math.max(minW, Math.round(rawW)));
           applyExplorerWidth(nextW, curShell);
         },
@@ -14032,6 +15178,43 @@ int main() {
       `;
     }
 
+    _openModalDialog(slot) {
+      if (!slot || typeof slot.querySelector !== 'function') return null;
+      const dlg = slot.querySelector('dialog.codelab-dialog');
+      if (!dlg) return null;
+      if (typeof dlg.showModal === 'function') {
+        try {
+          if (!dlg.open) dlg.showModal();
+        } catch (err) {
+          void err;
+          dlg.setAttribute('open', '');
+        }
+      } else {
+        dlg.setAttribute('open', '');
+      }
+      dlg.addEventListener('cancel', (ev) => {
+        ev.preventDefault();
+        this.closeModal();
+      });
+      if (typeof HTMLDialogElement === 'undefined' || !('closedBy' in HTMLDialogElement.prototype)) {
+        dlg.addEventListener('click', (ev) => {
+          if (!ev || typeof dlg.getBoundingClientRect !== 'function') return;
+          const rect = dlg.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const clickedInDialog = (
+            rect.top <= ev.clientY &&
+            ev.clientY <= rect.top + rect.height &&
+            rect.left <= ev.clientX &&
+            ev.clientX <= rect.left + rect.width
+          );
+          if (!clickedInDialog) {
+            this.closeModal();
+          }
+        });
+      }
+      return dlg;
+    }
+
     closeModal(opts = {}) {
       this._lastBackdropPointerDownTarget = null;
       const slot = this.container ? this.container.querySelector('#cl-modal-slot') : null;
@@ -14040,7 +15223,13 @@ int main() {
       this._modalReturnFocusEl = null;
       const onCloseCb = this._onModalClosedCallback || null;
       this._onModalClosedCallback = null;
-      if (slot) slot.innerHTML = '';
+      if (slot) {
+        const openDlg = typeof slot.querySelector === 'function' ? slot.querySelector('dialog.codelab-dialog[open]') : null;
+        if (openDlg && typeof openDlg.close === 'function') {
+          try { openDlg.close(); } catch (_err) { void _err; }
+        }
+        slot.innerHTML = '';
+      }
       if (typeof onCloseCb === 'function') {
         try { onCloseCb(); } catch (_err) { void _err; }
       }
@@ -14078,6 +15267,7 @@ int main() {
       const configuredTimeoutMs = this.configuration
         ? Math.max(500, Math.min(120000, Number(this.configuration.get('runtime.timeoutMs', 8000)) || 8000))
         : 8000;
+      const activeSignal = execOptions.signal || this._activeCommandAbortController?.signal;
       const payload = {
         ...execOptions,
         timeoutMs: execOptions && execOptions.timeoutMs !== undefined ? execOptions.timeoutMs : configuredTimeoutMs,
@@ -14086,7 +15276,8 @@ int main() {
         cppCompiler: execOptions.cppCompiler || this.cppCompiler,
         onStdout: execOptions.onStdout || ((chunk) => this._appendTerminalStream('stdout', chunk)),
         onStderr: execOptions.onStderr || ((chunk) => this._appendTerminalStream('stderr', chunk)),
-        signal: execOptions.signal || this._activeCommandAbortController?.signal
+        onRequestStdin: execOptions.onRequestStdin || ((promptText) => this._requestInteractiveTerminalStdin(promptText, activeSignal)),
+        signal: activeSignal
       };
       try {
         const isCppEntry = Boolean(payload && typeof payload.entry === 'string' && /\.(cpp|cc|cxx|wasm)$/i.test(payload.entry));
@@ -16023,6 +17214,13 @@ int main() {
         if (outSurface && outSurface.style) {
           outSurface.style.fontSize = `${termFontSize}px`;
         }
+        if (this._xtermEngines instanceof Map) {
+          const maxSbCfg = this._getTerminalScrollback();
+          for (const eng of this._xtermEngines.values()) {
+            if (eng && typeof eng.setFontSize === 'function') eng.setFontSize(termFontSize);
+            if (eng && typeof eng.setMaxScrollback === 'function') eng.setMaxScrollback(maxSbCfg);
+          }
+        }
         const trimmedLogs = this._trimTerminalLogs();
         if (trimmedLogs && (this.drawerTab === 'terminal' || this.drawerTab === 'output')) {
           this._renderDrawerBody();
@@ -16297,7 +17495,7 @@ int main() {
       return abs.replace(/^\/+/, '');
     }
 
-    async _handleReplCommand(cmd) {
+    async _handleReplCommand(cmd, opts = null) {
       if (this.isRunning) return;
       const trimmed = (cmd || '').trim();
       if (!trimmed) return;
@@ -16305,21 +17503,24 @@ int main() {
         this.replHistory.push(trimmed);
       }
       this.replHistoryIdx = -1;
-      const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
-      const promptPrefix = this.inRepl ? '> ' : `codelab:${cwdShort}$ `;
-      const echoLine = `${promptPrefix}${trimmed}`;
-      this._pushTerminalLog({ type: 'system', text: echoLine });
-      const maxSbEcho = this._getTerminalScrollback();
-      if (this.terminalLogs.length > maxSbEcho) {
-        this.terminalLogs.splice(0, this.terminalLogs.length - maxSbEcho);
-      }
-      const termLogEl = this.container ? this.container.querySelector('#cl-terminal-log') : null;
-      const ptyOwnsDom = Boolean(this.ptyEngine && this.ptyEngine.container);
-      if (termLogEl && typeof document !== 'undefined' && !ptyOwnsDom) {
-        const echoEl = document.createElement('div');
-        echoEl.className = 'codelab-log-line system';
-        echoEl.innerHTML = ansiToHtml ? ansiToHtml(echoLine) : escapeHtml(echoLine);
-        termLogEl.appendChild(echoEl);
+      const skipEcho = Boolean(opts && opts.skipEcho);
+      if (!skipEcho) {
+        const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
+        const promptPrefix = this.inRepl ? '> ' : `codelab:${cwdShort}$ `;
+        const echoLine = `${promptPrefix}${trimmed}`;
+        this._pushTerminalLog({ type: 'system', text: echoLine });
+        const maxSbEcho = this._getTerminalScrollback();
+        if (this.terminalLogs.length > maxSbEcho) {
+          this.terminalLogs.splice(0, this.terminalLogs.length - maxSbEcho);
+        }
+        const termLogEl = this.container ? this.container.querySelector('#cl-terminal-log') : null;
+        const ptyOwnsDom = Boolean((this.ptyEngine && this.ptyEngine.container) || this._getActiveXtermEngine());
+        if (termLogEl && typeof document !== 'undefined' && !ptyOwnsDom) {
+          const echoEl = document.createElement('div');
+          echoEl.className = 'codelab-log-line system';
+          echoEl.innerHTML = ansiToHtml ? ansiToHtml(echoLine) : escapeHtml(echoLine);
+          termLogEl.appendChild(echoEl);
+        }
       }
 
       if (this.inRepl) {
@@ -16353,6 +17554,7 @@ int main() {
             files: { ...this.files },
             mode: 'repl',
             replCode: trimmed,
+            replSessionId: this._activeTerminalSessionId || 'default',
             signal: abortCtrl.signal,
             onStdout: (c) => { streamedStdout = true; this._appendTerminalStream('stdout', c); },
             onStderr: (c) => { streamedStderr = true; this._appendTerminalStream('stderr', c); }
@@ -16393,21 +17595,27 @@ int main() {
         this._renderDrawerBody();
         return;
       }
-      if (trimmed === 'run' || trimmed === 'npm start' || trimmed === 'npm run demo') {
+      const hasPkgJson = Boolean(this.files && this.files['package.json']);
+      if (trimmed === 'run' || ((this.hasGuidedLab || !hasPkgJson) && (trimmed === 'npm start' || trimmed === 'npm run demo'))) {
         await this.runDemo();
         return;
       }
-      if (trimmed === 'test' || trimmed === 'npm test' || trimmed === 'npm t') {
+      if (trimmed === 'test' || ((this.hasGuidedLab || !hasPkgJson) && (trimmed === 'npm test' || trimmed === 'npm t'))) {
         await this.runTests();
         return;
       }
 
       const firstWord = (trimmed.split(/\s+/)[0] || '').replace(/^.*\//, '');
+      const isEnvVarAssignment = /^[A-Za-z_][A-Za-z0-9_]*=/.test(trimmed);
       const shellKnowsCommand = Boolean(
-        firstWord &&
+        isEnvVarAssignment ||
+        trimmed.startsWith('./') ||
+        trimmed.startsWith('../') ||
+        trimmed.startsWith('/') ||
+        (firstWord &&
         this.shell &&
         typeof this.shell.hasCommand === 'function' &&
-        this.shell.hasCommand(firstWord)
+        this.shell.hasCommand(firstWord))
       );
       const looksLikeJsExpr = !shellKnowsCommand && (
         /^(const|let|var|function|class|await|return|typeof|instanceof|new\s+|Math\.|JSON\.|Object\.|Array\.|Promise\.|console\.|process\.|Buffer\.|require\s*\(|import\s*\(|[0-9]+\s*[\+\-\*\/\%]|['"`\[{])/.test(trimmed)
@@ -16421,7 +17629,6 @@ int main() {
         this._updateRunStateUI();
         let streamedStdout = false;
         let streamedStderr = false;
-        const logsCountBefore = this.terminalLogs.length;
 
         try {
           this._syncFilesToShellVfs();
@@ -16435,6 +17642,7 @@ int main() {
               streamedStderr = true;
               this._appendTerminalStream('stderr', c);
             },
+            onRequestStdin: (promptText) => this._requestInteractiveTerminalStdin(promptText, abortCtrl.signal),
             signal: abortCtrl.signal
           });
           this._flushTerminalStream();
@@ -16443,6 +17651,8 @@ int main() {
           this._syncVfsSnapshot(null, true);
           if (/^\s*git\b/.test(trimmed) || (this.shell && this.shell.gitState && this.shell.gitState.initialized)) {
             this._saveState();
+            this._updateEditorGitGutter();
+            this._renderFileLists();
           }
           if (this.activeSidebarView === 'scm' && typeof this._renderScmSidebar === 'function') {
             this._renderScmSidebar();
@@ -17009,8 +18219,8 @@ int main() {
         : `Are you sure you want to discard all working-tree changes in "${cleanRel}" and restore HEAD?`;
 
       slot.innerHTML = `
-        <div class="codelab-modal-backdrop">
-          <div class="codelab-modal" role="dialog" aria-modal="true" aria-labelledby="cl-discard-modal-title" aria-describedby="cl-discard-modal-desc" style="max-width:420px;">
+        <dialog class="codelab-dialog" closedby="any" aria-labelledby="cl-discard-modal-title" aria-describedby="cl-discard-modal-desc" style="max-width:420px;">
+          <div class="codelab-modal" role="document">
             <div class="codelab-modal__header">
               <span id="cl-discard-modal-title">Discard Changes</span>
               <button type="button" class="codelab-btn codelab-btn--icon" data-cl-action="close-modal" title="Close" aria-label="Close">&times;</button>
@@ -17023,8 +18233,9 @@ int main() {
               </div>
             </div>
           </div>
-        </div>
+        </dialog>
       `;
+      this._openModalDialog(slot);
       const cancelBtn = slot.querySelector('#cl-discard-cancel-btn');
       const confirmBtn = slot.querySelector('#cl-discard-confirm-btn');
       if (cancelBtn && typeof cancelBtn.focus === 'function') {
@@ -17109,6 +18320,11 @@ int main() {
           } catch (_err) {
             void _err;
           }
+          if (scmMod && typeof scmMod.syncToIsoGitRepo === 'function') {
+            Promise.resolve(scmMod.syncToIsoGitRepo(this.shell.vfs, gs, '/workspace')).catch((_e) => {
+              void _e;
+            });
+          }
         }
         if (this._activeScmDiffFile) {
           const remaining = this.getGitStatus();
@@ -17119,6 +18335,8 @@ int main() {
             this._syncActiveFileToView();
           }
         }
+        this._updateEditorGitGutter();
+        this._renderFileLists();
         this._syncFilesToShellVfs({ keepGitDir: true });
         this._saveState();
       }
@@ -17144,6 +18362,7 @@ int main() {
       if (!cleanName || cleanName.startsWith('-') || cleanName.includes('..')) return false;
       const gs = this._getGitState();
       if (!gs) return false;
+      const scmMod = root.CodeLabScm;
       if (!(gs.branches instanceof Set)) {
         gs.branches = new Set(Array.isArray(gs.branches) ? gs.branches : [gs.branch || 'main']);
       }
@@ -17173,6 +18392,11 @@ int main() {
         } catch (_err) {
           void _err;
         }
+        if (scmMod && typeof scmMod.syncToIsoGitRepo === 'function') {
+          Promise.resolve(scmMod.syncToIsoGitRepo(this.shell.vfs, gs, '/workspace')).catch((_e) => {
+            void _e;
+          });
+        }
       }
       if (checkout) {
         return this.checkoutGitBranch(cleanName);
@@ -17188,26 +18412,42 @@ int main() {
       if (!cleanName) return false;
       const gs = this._getGitState();
       if (!gs) return false;
+      const scmMod = root.CodeLabScm;
       if (!(gs.branches instanceof Set)) {
         gs.branches = new Set(Array.isArray(gs.branches) ? gs.branches : [gs.branch || 'main']);
       }
       if (!gs.branches.has(cleanName)) return false;
-      if (!gs.branchHeads || typeof gs.branchHeads !== 'object') gs.branchHeads = {};
-      const prevBranch = gs.branch || 'main';
-      if (prevBranch !== cleanName) {
-        gs.branchHeads[prevBranch] = {
-          headCommit: gs.headCommit || '',
-          headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
-          commits: Array.isArray(gs.commits) ? gs.commits.slice() : []
-        };
-        const targetInfo = gs.branchHeads[cleanName];
-        if (targetInfo && typeof targetInfo === 'object') {
-          gs.headCommit = targetInfo.headCommit || '';
-          this._syncGitHeadState(gs, targetInfo.headSnapshot || {});
-          gs.commits = Array.isArray(targetInfo.commits) ? targetInfo.commits.slice() : [];
+
+      let switchedViaScm = false;
+      if (scmMod && typeof scmMod.checkoutBranch === 'function') {
+        const res = scmMod.checkoutBranch(this.shell || { gitState: gs, cwd: '/workspace' }, cleanName, this.files);
+        if (res && res.ok) {
+          switchedViaScm = true;
+        } else if (res && !res.ok && res.error) {
+          this._showToast(res.error, 'error');
+          return false;
         }
       }
-      gs.branch = cleanName;
+
+      if (!switchedViaScm) {
+        if (!gs.branchHeads || typeof gs.branchHeads !== 'object') gs.branchHeads = {};
+        const prevBranch = gs.branch || 'main';
+        if (prevBranch !== cleanName) {
+          gs.branchHeads[prevBranch] = {
+            headCommit: gs.headCommit || '',
+            headSnapshot: { ...(gs.headSnapshot || gs.headFiles || {}) },
+            commits: Array.isArray(gs.commits) ? gs.commits.slice() : []
+          };
+          const targetInfo = gs.branchHeads[cleanName];
+          if (targetInfo && typeof targetInfo === 'object') {
+            gs.headCommit = targetInfo.headCommit || '';
+            this._syncGitHeadState(gs, targetInfo.headSnapshot || {});
+            gs.commits = Array.isArray(targetInfo.commits) ? targetInfo.commits.slice() : [];
+          }
+        }
+        gs.branch = cleanName;
+      }
+
       if (this.shell && this.shell.vfs && typeof this.shell.vfs.writeFileSync === 'function') {
         try {
           if (typeof this.shell.vfs.mkdirSync === 'function') {
@@ -17217,14 +18457,29 @@ int main() {
         } catch (_err) {
           void _err;
         }
+        if (scmMod && typeof scmMod.syncToIsoGitRepo === 'function') {
+          Promise.resolve(scmMod.syncToIsoGitRepo(this.shell.vfs, gs, '/workspace')).catch((_e) => {
+            void _e;
+          });
+        }
       }
+      if (Array.isArray(this.openTabs)) {
+        this.openTabs = this.openTabs.filter((t) => Object.prototype.hasOwnProperty.call(this.files, t));
+      }
+      if (this.activeFile && !Object.prototype.hasOwnProperty.call(this.files, this.activeFile)) {
+        this.activeFile = this.openTabs[0] || this._pickDefaultFile() || null;
+        if (this.activeTab !== '__settings__' && this.activeTab !== '__welcome__') {
+          this.activeTab = this.activeFile;
+        }
+      }
+      this._syncFilesToShellVfs({ pruneExtraneous: true, keepGitDir: true });
+      this._syncAllModels();
       this._saveState();
       if (this.activeSidebarView === 'scm') {
         this._renderScmSidebar();
       }
-      if (this._activeScmDiffFile) {
-        this._syncActiveFileToView();
-      }
+      this._syncActiveFileToView();
+      this._updateEditorGitGutter();
       this._updateStatusBar();
       return true;
     }
@@ -17245,7 +18500,7 @@ int main() {
     openScmDiff(relPath, opts = {}) {
       const cleanRel = String(relPath || '').trim().replace(/^\/+/, '');
       if (!cleanRel) return false;
-      if (this.activeTab === '__settings__') {
+      if (this.activeTab === '__settings__' || this.activeTab === '__welcome__') {
         this.activeTab = this.activeFile || null;
       }
       this._activeScmDiffFile = cleanRel;
@@ -17258,6 +18513,9 @@ int main() {
       if (!this._activeScmDiffFile) return false;
       this._activeScmDiffFile = null;
       this._activeScmDiffStaged = false;
+      if (this._scmDiffManager && typeof this._scmDiffManager.closeInlineDiff === 'function') {
+        try { this._scmDiffManager.closeInlineDiff(); } catch (_err) { void _err; }
+      }
       this._syncActiveFileToView();
       return true;
     }
@@ -17285,6 +18543,58 @@ int main() {
       const rightLabel = isStaged ? `Index (Staged): ${relPath}` : `Working Tree: ${relPath}`;
       const diff = this._computeLineDiff(leftText, rightText);
       const hasFileInWorktree = Object.prototype.hasOwnProperty.call(this.files, relPath);
+      const canUseMonacoDiff = Boolean(
+        !this._scmForceUnifiedDiff &&
+        this.monaco &&
+        this.monaco.editor &&
+        typeof this.monaco.editor.createDiffEditor === 'function' &&
+        _wbComponents &&
+        typeof _wbComponents.CodeLabDiffEditorManager === 'function'
+      );
+
+      if (this._scmDiffManager && typeof this._scmDiffManager.closeInlineDiff === 'function') {
+        try { this._scmDiffManager.closeInlineDiff(); } catch (_err) { void _err; }
+      }
+
+      const headerHtml = `
+        <div class="codelab-scm-diff-header">
+          <div class="codelab-scm-diff-header__title">
+            <strong>${escapeHtml(relPath)}</strong>
+            <span class="codelab-scm-diff-header__meta">${escapeHtml(leftLabel)} &rarr; ${escapeHtml(rightLabel)}</span>
+            <span class="codelab-scm-diff-stats">
+              <span class="codelab-scm-diff-stats__add">+${diff.added}</span>
+              <span class="codelab-scm-diff-stats__del">−${diff.removed}</span>
+            </span>
+          </div>
+          <div class="codelab-scm-diff-header__actions">
+            ${this.monaco && this.monaco.editor && typeof this.monaco.editor.createDiffEditor === 'function'
+              ? `<button type="button" class="codelab-btn" data-cl-action="scm-toggle-diff-mode" title="Toggle Side-by-Side / Inline Diff">${this._scmForceUnifiedDiff ? 'Side-by-Side' : 'Inline'}</button>`
+              : ''}
+            ${hasFileInWorktree ? `<button type="button" class="codelab-btn" data-cl-action="scm-diff-open-editor" data-scm-path="${escapeHtml(relPath)}" title="Open File in Editor">Open File</button>` : ''}
+            <button type="button" class="codelab-btn" data-cl-action="scm-close-diff" title="Close Diff View" aria-label="Close Diff">Close Diff</button>
+          </div>
+        </div>
+      `;
+
+      if (canUseMonacoDiff) {
+        hostEl.innerHTML = `${headerHtml}<div class="codelab-scm-monaco-diff" style="flex:1;min-height:0;position:relative;"></div>`;
+        const monacoDiffSlot = hostEl.querySelector('.codelab-scm-monaco-diff');
+        if (monacoDiffSlot) {
+          if (!this._scmDiffManager) {
+            this._scmDiffManager = new _wbComponents.CodeLabDiffEditorManager(this);
+          }
+          const mounted = typeof this._scmDiffManager.mountMonacoDiffIntoSlot === 'function'
+            ? this._scmDiffManager.mountMonacoDiffIntoSlot(monacoDiffSlot, {
+                relPath,
+                originalContent: leftText,
+                modifiedContent: rightText,
+                sideBySide: true,
+                readOnly: true
+              })
+            : false;
+          if (mounted) return;
+        }
+      }
 
       const linesHtml = diff.hunks.map((h) => {
         const cls = h.type === 'add'
@@ -17302,20 +18612,7 @@ int main() {
       }).join('');
 
       hostEl.innerHTML = `
-        <div class="codelab-scm-diff-header">
-          <div class="codelab-scm-diff-header__title">
-            <strong>${escapeHtml(relPath)}</strong>
-            <span class="codelab-scm-diff-header__meta">${escapeHtml(leftLabel)} &rarr; ${escapeHtml(rightLabel)}</span>
-            <span class="codelab-scm-diff-stats">
-              <span class="codelab-scm-diff-stats__add">+${diff.added}</span>
-              <span class="codelab-scm-diff-stats__del">−${diff.removed}</span>
-            </span>
-          </div>
-          <div class="codelab-scm-diff-header__actions">
-            ${hasFileInWorktree ? `<button type="button" class="codelab-btn" data-cl-action="scm-diff-open-editor" data-scm-path="${escapeHtml(relPath)}" title="Open File in Editor">Open File</button>` : ''}
-            <button type="button" class="codelab-btn" data-cl-action="scm-close-diff" title="Close Diff View" aria-label="Close Diff">Close Diff</button>
-          </div>
-        </div>
+        ${headerHtml}
         <div class="codelab-scm-diff-body codelab-diff-unified">
           ${linesHtml || '<div class="codelab-sidebar-empty">No line differences.</div>'}
         </div>
@@ -18366,8 +19663,10 @@ int main() {
         this._renderDrawerBody();
       } else if (cmd === 'terminal:kill') {
         this.killActiveTerminalSession();
+      } else if (cmd === 'terminal:split') {
+        this.splitActiveTerminalSession();
       } else if (cmd === 'help:welcome') {
-        this.closeAllTabs();
+        this.openWelcomeTab();
       } else if (cmd === 'help:shortcuts') {
         this.showKeyboardShortcutsReference();
       } else if (cmd === 'help:about') {
@@ -18948,19 +20247,20 @@ int main() {
       if (!slot) return;
       this._captureModalReturnFocus();
       slot.innerHTML = `
-        <div class="codelab-modal-backdrop">
-          <div class="codelab-modal" role="dialog" aria-modal="true" aria-label="About CodeLab" style="max-width:420px;">
+        <dialog class="codelab-dialog" closedby="any" aria-label="About CodeLab" style="max-width:420px;">
+          <div class="codelab-modal" role="document">
             <div class="codelab-modal__header">
               <span>About CodeLab</span>
               <button type="button" class="codelab-btn" data-cl-action="close-modal">Close (Esc)</button>
             </div>
             <div class="codelab-modal__body" style="font-size:13px;line-height:1.5;">
               <p style="margin:0 0 8px;"><strong>@innovatorved/code-lab</strong> — Full-featured in-browser IDE &amp; runtime workbench.</p>
-              <p style="margin:0;color:var(--cl-fg-muted);font-size:12px;">Node.js v22 Worker · TypeScript 5.x · C++20 WASI · Python 3.12 WASI · SQLite / PostgreSQL</p>
+              <p style="margin:0;color:var(--cl-fg-muted);font-size:12px;">Node.js v22 Worker · TypeScript 5.x · C++20 WASI · Python 3.12 WASI · SQLite / PostgreSQL · Git</p>
             </div>
           </div>
-        </div>
+        </dialog>
       `;
+      this._openModalDialog(slot);
       const closeBtn = slot.querySelector('[data-cl-action="close-modal"]');
       if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
     }
@@ -18973,6 +20273,10 @@ int main() {
         if (active) {
           active.logs = fresh;
         }
+      }
+      const activeXt = this._getActiveXtermEngine();
+      if (activeXt && typeof activeXt.clear === 'function') {
+        try { activeXt.clear(); } catch (_err) { void _err; }
       }
     }
 
@@ -19114,6 +20418,16 @@ int main() {
           try { this._activeCommandAbortController.abort(); } catch (_err) { void _err; }
           this._activeCommandAbortController = null;
         }
+        if (this._xtermEngines instanceof Map) {
+          const oldEng = this._xtermEngines.get(sessions[0].id);
+          if (oldEng && typeof oldEng.destroy === 'function') {
+            try { oldEng.destroy(); } catch (_err) { void _err; }
+          }
+          this._xtermEngines.delete(sessions[0].id);
+        }
+        this._splitTerminalSessionIds = [];
+        this._splitTerminalSessionId = null;
+        this._xtermWrapLayoutKey = '';
         this.isRunning = false;
         const freshSession = {
           id: 'session-1',
@@ -19138,6 +20452,23 @@ int main() {
 
       this._saveActiveTerminalSessionState();
       const removed = sessions.splice(idx, 1)[0];
+      if (this._xtermEngines instanceof Map && removed) {
+        const oldEng = this._xtermEngines.get(removed.id);
+        if (oldEng && typeof oldEng.destroy === 'function') {
+          try { oldEng.destroy(); } catch (_err) { void _err; }
+        }
+        this._xtermEngines.delete(removed.id);
+      }
+      if (removed && this._splitTerminalSessionId === removed.id) {
+        this._splitTerminalSessionId = null;
+      }
+      this._xtermWrapLayoutKey = '';
+      if (Array.isArray(this._splitTerminalSessionIds) && removed) {
+        this._splitTerminalSessionIds = this._splitTerminalSessionIds.filter((sid) => sid !== removed.id);
+        if (this._splitTerminalSessionIds.length < 2) {
+          this._splitTerminalSessionIds = [];
+        }
+      }
       if (this._activeTerminalSessionId === removed.id) {
         if (this._activeCommandAbortController) {
           try { this._activeCommandAbortController.abort(); } catch (_err) { void _err; }
@@ -19845,6 +21176,11 @@ int main() {
             else gs.staged = new Map();
             if (gs.stagedFiles && typeof gs.stagedFiles.clear === 'function') gs.stagedFiles.clear();
             gs.commits = Array.isArray(result.commits) ? result.commits : [];
+            if (root.CodeLabScm && typeof root.CodeLabScm.syncToIsoGitRepo === 'function' && this.shell && this.shell.vfs) {
+              Promise.resolve(root.CodeLabScm.syncToIsoGitRepo(this.shell.vfs, gs, targetDir)).catch((_e) => {
+                void _e;
+              });
+            }
           }
 
           this._updateTopbarBrandTitle();
@@ -20099,6 +21435,34 @@ int main() {
         this._editorResizeObserver.disconnect();
         this._editorResizeObserver = null;
       }
+      if (typeof this._systemSchemeCleanup === 'function') {
+        try { this._systemSchemeCleanup(); } catch (_err) { void _err; }
+        this._systemSchemeCleanup = null;
+      }
+      if (this._ataController && typeof this._ataController.dispose === 'function') {
+        try { this._ataController.dispose(); } catch (_err) { void _err; }
+        this._ataController = null;
+      }
+      if (this._editorOpenerDisposable && typeof this._editorOpenerDisposable.dispose === 'function') {
+        try { this._editorOpenerDisposable.dispose(); } catch (_err) { void _err; }
+        this._editorOpenerDisposable = null;
+      }
+      if (this._autoCloseTagDisposable && typeof this._autoCloseTagDisposable.dispose === 'function') {
+        try { this._autoCloseTagDisposable.dispose(); } catch (_err) { void _err; }
+        this._autoCloseTagDisposable = null;
+      }
+      if (this._xtermEngines instanceof Map) {
+        for (const eng of this._xtermEngines.values()) {
+          if (eng && typeof eng.destroy === 'function') {
+            try { eng.destroy(); } catch (_err) { void _err; }
+          }
+        }
+        this._xtermEngines.clear();
+      }
+      if (this._scmDiffManager && typeof this._scmDiffManager.closeInlineDiff === 'function') {
+        try { this._scmDiffManager.closeInlineDiff(); } catch (_err) { void _err; }
+        this._scmDiffManager = null;
+      }
       if (this._diffManager && typeof this._diffManager.closeInlineDiff === 'function') {
         try {
           this._diffManager.closeInlineDiff();
@@ -20238,6 +21602,8 @@ int main() {
         });
       }
 
+      get vfs() { return this._instance ? this._instance.vfs : null; }
+      get shell() { return this._instance ? this._instance.shell : null; }
       getFiles() { return this._instance ? this._instance.getFiles() : {}; }
       setFiles(filesMap, opts) { return this._instance ? this._instance.setFiles(filesMap, opts) : undefined; }
       getFile(path) { return this._instance ? this._instance.getFile(path) : null; }
@@ -20323,6 +21689,7 @@ int main() {
       toggleTerminal() { if (this._instance) this._instance.toggleTerminal(); }
       listTerminalSessions() { return this._instance ? this._instance.listTerminalSessions() : []; }
       createTerminalSession(name) { return this._instance ? this._instance.createTerminalSession(name) : null; }
+      splitActiveTerminalSession() { return this._instance ? this._instance.splitActiveTerminalSession() : null; }
       switchTerminalSession(id) { return this._instance ? this._instance.switchTerminalSession(id) : false; }
       closeTerminalSession(id) { return this._instance ? this._instance.closeTerminalSession(id) : false; }
       killActiveTerminalSession() { return this._instance ? this._instance.killActiveTerminalSession() : false; }
@@ -20333,6 +21700,8 @@ int main() {
       openBlankWorkspace(opts) { return this._instance ? this._instance.openBlankWorkspace(opts) : Promise.resolve(null); }
       newBlankWorkspace(title) { return this._instance ? this._instance.newBlankWorkspace(title) : null; }
       switchWorkspace(id, opts) { return this._instance ? this._instance.switchWorkspace(id, opts) : Promise.resolve(false); }
+      openWelcomeTab() { if (this._instance) this._instance.openWelcomeTab(); }
+      closeWelcomeTab() { if (this._instance) this._instance.closeWelcomeTab(); }
       openSettings(opts) { if (this._instance) this._instance.openSettings(opts); }
       closeSettings() { if (this._instance) this._instance.closeSettings(); }
       openWorkspaceSettingsJson() { if (this._instance) this._instance.openWorkspaceSettingsJson(); }

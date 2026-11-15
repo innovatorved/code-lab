@@ -410,19 +410,108 @@ export const PYTHON_COMPLETIONS_AND_HOVERS: Record<string, PythonSymbolDoc> = {
   }
 };
 
-let _monacoPyRegistered = false;
+let _pyWorkspaceFilesGetter: (() => Record<string, string>) | null = null;
+const _monacoPyInstances = new WeakSet<object>();
+
+function collectWorkspacePythonSymbols(currentModelValue: string, currentUriPath = 'main.py') {
+  const files: Record<string, string> = _pyWorkspaceFilesGetter ? { ...(_pyWorkspaceFilesGetter() || {}) } : {};
+  const cleanCurrent = String(currentUriPath || 'main.py').replace(/^file:\/\/\/workspace\//, '').replace(/^\/workspace\//, '').replace(/^\/+/, '') || 'main.py';
+  if (currentModelValue) {
+    files[cleanCurrent] = currentModelValue;
+  }
+
+  const defs: Array<{
+    name: string;
+    kind: 'function' | 'class' | 'method' | 'module';
+    detail: string;
+    doc: string;
+    params: string[];
+    file: string;
+    line: number;
+    col: number;
+  }> = [];
+
+  for (const [filePath, src] of Object.entries(files)) {
+    if (!/\.py$/i.test(filePath)) continue;
+    const modName = filePath.replace(/\.py$/i, '').replace(/\//g, '.');
+    defs.push({
+      name: modName.split('.').pop() || modName,
+      kind: 'module',
+      detail: `module ${modName}`,
+      doc: `Workspace Python module \`${filePath}\``,
+      params: [],
+      file: filePath,
+      line: 1,
+      col: 1
+    });
+
+    const lines = String(src || '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fnMatch = line.match(/^(\s*)(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)(?:\s*->\s*([^:]+))?\s*:/);
+      if (fnMatch) {
+        const indent = fnMatch[1].length;
+        const name = fnMatch[2];
+        const rawParams = fnMatch[3].trim();
+        const ret = fnMatch[4] ? ` -> ${fnMatch[4].trim()}` : '';
+        const params = rawParams
+          ? rawParams.split(',').map((p) => p.trim()).filter((p) => p && p !== 'self' && p !== 'cls')
+          : [];
+        // Check optional docstring on following line
+        const nextTrim = (lines[i + 1] || '').trim();
+        const docMatch = nextTrim.match(/^(?:"""|''')([\s\S]*?)(?:"""|''')?$/);
+        defs.push({
+          name,
+          kind: indent > 0 ? 'method' : 'function',
+          detail: `def ${name}(${rawParams})${ret}`,
+          doc: docMatch && docMatch[1] ? docMatch[1].trim() : `Defined in \`${filePath}:${i + 1}\``,
+          params,
+          file: filePath,
+          line: i + 1,
+          col: line.indexOf(name) + 1
+        });
+        continue;
+      }
+      const clsMatch = line.match(/^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?\s*:/);
+      if (clsMatch) {
+        const name = clsMatch[1];
+        const bases = clsMatch[2] ? `(${clsMatch[2].trim()})` : '';
+        defs.push({
+          name,
+          kind: 'class',
+          detail: `class ${name}${bases}`,
+          doc: `Class defined in \`${filePath}:${i + 1}\``,
+          params: [],
+          file: filePath,
+          line: i + 1,
+          col: line.indexOf(name) + 1
+        });
+      }
+    }
+  }
+  return defs;
+}
 
 /**
- * Registers Monaco Python completion and hover providers.
+ * Registers Monaco Python completion, hover, signature help, definition, and symbol providers.
  */
-export function registerMonacoPythonLanguageService(monacoInstance: any): boolean {
+export function registerMonacoPythonLanguageService(
+  monacoInstance: any,
+  getWorkspaceFiles?: () => Record<string, string>
+): boolean {
+  if (typeof getWorkspaceFiles === 'function') {
+    _pyWorkspaceFilesGetter = getWorkspaceFiles;
+  }
   if (!monacoInstance || !monacoInstance.languages) return false;
-  if (_monacoPyRegistered) return true;
-  _monacoPyRegistered = true;
+  if (_monacoPyInstances.has(monacoInstance)) return true;
+  _monacoPyInstances.add(monacoInstance);
 
   try {
+    const CIK = monacoInstance.languages.CompletionItemKind || {};
+    const CITR = monacoInstance.languages.CompletionItemInsertTextRule || {};
+
     monacoInstance.languages.registerCompletionItemProvider('python', {
-      triggerCharacters: ['.'],
+      triggerCharacters: ['.', ' '],
       provideCompletionItems(model: any, position: any) {
         const wordInfo = model.getWordUntilPosition(position);
         const range = {
@@ -431,19 +520,66 @@ export function registerMonacoPythonLanguageService(monacoInstance: any): boolea
           startColumn: wordInfo.startColumn,
           endColumn: wordInfo.endColumn
         };
+        const fullSource = typeof model.getValue === 'function' ? model.getValue() : '';
+        const linePrefix = typeof model.getLineContent === 'function'
+          ? String(model.getLineContent(position.lineNumber) || '').slice(0, position.column - 1)
+          : '';
 
+        // `self.` attribute & method completion inside classes
+        if (/self\.[A-Za-z0-9_]*$/.test(linePrefix)) {
+          const members = new Map<string, { kind: any; detail: string }>();
+          const attrRe = /\bself\.([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
+          let m: RegExpExecArray | null;
+          while ((m = attrRe.exec(fullSource)) !== null) {
+            members.set(m[1], { kind: CIK.Field ?? 4, detail: 'instance attribute' });
+          }
+          const methodRe = /^\s+def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*self\b([^)]*)\)/gm;
+          while ((m = methodRe.exec(fullSource)) !== null) {
+            if (!m[1].startsWith('__')) {
+              members.set(m[1], { kind: CIK.Method ?? 0, detail: `method(${m[2].replace(/^\s*,\s*/, '').trim()})` });
+            }
+          }
+          return {
+            suggestions: Array.from(members.entries()).map(([name, info]) => ({
+              label: name,
+              kind: info.kind,
+              detail: info.detail,
+              insertText: info.kind === (CIK.Method ?? 0) ? `${name}($0)` : name,
+              insertTextRules: CITR.InsertAsSnippet,
+              range
+            }))
+          };
+        }
+
+        const seen = new Set<string>();
         const suggestions = Object.keys(PYTHON_COMPLETIONS_AND_HOVERS).map((key) => {
           const item = PYTHON_COMPLETIONS_AND_HOVERS[key];
+          seen.add(item.label);
           return {
             label: item.label,
-            kind: monacoInstance.languages.CompletionItemKind.Function,
+            kind: CIK.Function ?? 1,
             detail: item.detail,
             documentation: { value: item.documentation },
             insertText: item.insertText || item.label,
-            insertTextRules: monacoInstance.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            insertTextRules: CITR.InsertAsSnippet,
             range
           };
         });
+
+        const wsDefs = collectWorkspacePythonSymbols(fullSource, model.uri?.path || 'main.py');
+        for (const def of wsDefs) {
+          if (seen.has(def.name)) continue;
+          seen.add(def.name);
+          suggestions.push({
+            label: def.name,
+            kind: def.kind === 'class' ? (CIK.Class ?? 5) : def.kind === 'module' ? (CIK.Module ?? 8) : (CIK.Function ?? 1),
+            detail: def.detail,
+            documentation: { value: def.doc },
+            insertText: def.kind === 'function' ? `${def.name}(${def.params.length ? '$1' : ''})` : def.name,
+            insertTextRules: CITR.InsertAsSnippet,
+            range
+          });
+        }
 
         return { suggestions };
       }
@@ -461,22 +597,110 @@ export function registerMonacoPythonLanguageService(monacoInstance: any): boolea
             break;
           }
         }
-        if (!item) return null;
+        if (item) {
+          return {
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endColumn: word.endColumn
+            },
+            contents: [
+              { value: `**${item.label}** — \`${item.detail}\`` },
+              { value: item.documentation }
+            ]
+          };
+        }
 
-        return {
-          range: {
-            startLineNumber: position.lineNumber,
-            endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
-            endColumn: word.endColumn
-          },
-          contents: [
-            { value: `**${item.label}** — \`${item.detail}\`` },
-            { value: item.documentation }
-          ]
-        };
+        const wsDefs = collectWorkspacePythonSymbols(model.getValue?.() || '', model.uri?.path || 'main.py');
+        const wsHit = wsDefs.find((d) => d.name === word.word && d.kind !== 'module');
+        if (wsHit) {
+          return {
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endColumn: word.endColumn
+            },
+            contents: [
+              { value: `\`\`\`python\n${wsHit.detail}\n\`\`\`` },
+              { value: wsHit.doc }
+            ]
+          };
+        }
+        return null;
       }
     });
+
+    if (typeof monacoInstance.languages.registerSignatureHelpProvider === 'function') {
+      monacoInstance.languages.registerSignatureHelpProvider('python', {
+        signatureHelpTriggerCharacters: ['(', ','],
+        provideSignatureHelp(model: any, position: any) {
+          const linePrefix = String(model.getLineContent?.(position.lineNumber) || '').slice(0, position.column - 1);
+          const callMatch = linePrefix.match(/([A-Za-z_][A-Za-z0-9_]*)\s*\(([^()]*)$/);
+          if (!callMatch) return null;
+          const fnName = callMatch[1];
+          const activeParam = (callMatch[2].match(/,/g) || []).length;
+
+          const builtinKey = Object.keys(PYTHON_COMPLETIONS_AND_HOVERS).find(
+            (k) => k === fnName || k.endsWith('.' + fnName)
+          );
+          if (builtinKey) {
+            const doc = PYTHON_COMPLETIONS_AND_HOVERS[builtinKey];
+            const inner = doc.detail.match(/\(([^)]*)\)/)?.[1] || '';
+            const params = inner ? inner.split(',').map((p) => ({ label: p.trim() })) : [];
+            return {
+              value: {
+                signatures: [{ label: doc.detail, documentation: doc.documentation, parameters: params }],
+                activeSignature: 0,
+                activeParameter: Math.min(activeParam, Math.max(0, params.length - 1))
+              },
+              dispose() {}
+            };
+          }
+
+          const wsDefs = collectWorkspacePythonSymbols(model.getValue?.() || '', model.uri?.path || 'main.py');
+          const wsFn = wsDefs.find((d) => d.name === fnName && (d.kind === 'function' || d.kind === 'method'));
+          if (wsFn) {
+            const params = wsFn.params.map((p) => ({ label: p }));
+            return {
+              value: {
+                signatures: [{ label: wsFn.detail, documentation: wsFn.doc, parameters: params }],
+                activeSignature: 0,
+                activeParameter: Math.min(activeParam, Math.max(0, params.length - 1))
+              },
+              dispose() {}
+            };
+          }
+          return null;
+        }
+      });
+    }
+
+    if (typeof monacoInstance.languages.registerDefinitionProvider === 'function' && monacoInstance.Uri) {
+      monacoInstance.languages.registerDefinitionProvider('python', {
+        provideDefinition(model: any, position: any) {
+          const word = model.getWordAtPosition(position);
+          if (!word) return null;
+          const wsDefs = collectWorkspacePythonSymbols(model.getValue?.() || '', model.uri?.path || 'main.py');
+          const hit = wsDefs.find((d) => d.name === word.word && d.kind !== 'module');
+          if (!hit) return null;
+          const uri = typeof monacoInstance.Uri.file === 'function'
+            ? monacoInstance.Uri.file('/workspace/' + hit.file.replace(/^\/+/, ''))
+            : model.uri;
+          return {
+            uri,
+            range: {
+              startLineNumber: hit.line,
+              startColumn: hit.col,
+              endLineNumber: hit.line,
+              endColumn: hit.col + hit.name.length
+            }
+          };
+        }
+      });
+    }
+
     return true;
   } catch (err) {
     if (typeof console !== 'undefined' && console.warn) {
@@ -501,12 +725,24 @@ export function analyzePythonSource(source: string, filename = 'main.py'): Diagn
 
   let expectIndentAfterLine = 0;
   let expectIndentMin = 0;
+  let inTripleQuote: string | null = null;
 
   for (let l = 0; l < lines.length; l++) {
     const line = lines[l];
     const lineNum = l + 1;
     let inStr = false;
     let strChar = '';
+
+    if (inTripleQuote) {
+      const closeIdx = line.indexOf(inTripleQuote);
+      if (closeIdx === -1) {
+        continue;
+      }
+      inTripleQuote = null;
+      // Continue scanning after closing triple quote on this line if needed
+      const rest = line.slice(closeIdx + 3).trim();
+      if (!rest || rest.startsWith('#')) continue;
+    }
 
     // Check mixed tab and space indentation
     const indentMatch = line.match(/^([ \t]+)/);
@@ -548,9 +784,26 @@ export function analyzePythonSource(source: string, filename = 'main.py'): Diagn
       expectIndentAfterLine = 0;
     }
 
+    const stackDepthAtLineStart = stack.length;
+    let commentCol = -1;
+
     for (let c = 0; c < line.length; c++) {
       const ch = line[c];
-      if (!inStr && ch === '#') break; // Comment
+      if (!inStr && ch === '#') {
+        commentCol = c;
+        break; // Comment
+      }
+
+      if (!inStr && (line.slice(c, c + 3) === '"""' || line.slice(c, c + 3) === "'''")) {
+        const delim = line.slice(c, c + 3);
+        const endSameLine = line.indexOf(delim, c + 3);
+        if (endSameLine !== -1) {
+          c = endSameLine + 2;
+          continue;
+        }
+        inTripleQuote = delim;
+        break;
+      }
 
       if (ch === '"' || ch === '\'') {
         if (!inStr) {
@@ -597,7 +850,7 @@ export function analyzePythonSource(source: string, filename = 'main.py'): Diagn
       }
     }
 
-    if (inStr && !line.includes('"""') && !line.includes("'''")) {
+    if (inStr && !inTripleQuote && !line.endsWith('\\')) {
       diagnostics.push({
         id: `py-eol-string-${lineNum}`,
         file: filename,
@@ -611,24 +864,43 @@ export function analyzePythonSource(source: string, filename = 'main.py'): Diagn
       } as any);
     }
 
-    // Check missing colon or setup expected indentation
-    if (/^(?:def\b|class\b|if\b|elif\b|else\b|for\b|while\b|try\b|finally\b|except\b|with\b)/.test(trimmed)) {
-      if (!trimmed.endsWith(':')) {
-        diagnostics.push({
-          id: `py-missing-colon-${lineNum}`,
-          file: filename,
-          line: lineNum,
-          startLineNumber: lineNum,
-          col: line.length,
-          startColumn: line.length,
-          severity: 'error',
-          message: `SyntaxError: expected ':' at end of line.`,
-          source: 'python-linter'
-        } as any);
-      } else if (trimmed.endsWith(':')) {
+    // Strip inline comment before checking compound statement header `:`
+    const codeOnlyTrimmed = (commentCol >= 0 ? line.slice(0, commentCol) : line).trim();
+
+    // Check missing colon or setup expected indentation only when brackets are balanced
+    if (
+      !inTripleQuote &&
+      stack.length === 0 &&
+      stackDepthAtLineStart === 0 &&
+      !codeOnlyTrimmed.endsWith('\\') &&
+      /^(?:(?:async\s+)?def\b|class\b|if\b|elif\b|else\b|for\b|while\b|try\b|finally\b|except\b|(?:async\s+)?with\b)/.test(codeOnlyTrimmed)
+    ) {
+      if (!codeOnlyTrimmed.endsWith(':')) {
+        // Allow single-line suites e.g. `if x: return 1`
+        if (!/:/.test(codeOnlyTrimmed)) {
+          diagnostics.push({
+            id: `py-missing-colon-${lineNum}`,
+            file: filename,
+            line: lineNum,
+            startLineNumber: lineNum,
+            col: line.length,
+            startColumn: line.length,
+            severity: 'error',
+            message: `SyntaxError: expected ':' at end of line.`,
+            source: 'python-linter'
+          } as any);
+        }
+      } else {
         expectIndentAfterLine = lineNum;
         expectIndentMin = indentLen;
       }
+    } else if (!inTripleQuote && stack.length === 0 && stackDepthAtLineStart > 0 && codeOnlyTrimmed.endsWith(':')) {
+      // End of multiline `def foo(\n  a: int\n) -> int:`
+      let headerLine = l - 1;
+      while (headerLine > 0 && !lines[headerLine].trim()) headerLine--;
+      const baseIndent = (lines[headerLine]?.match(/^([ \t]+)/)?.[1] || '').length;
+      expectIndentAfterLine = lineNum;
+      expectIndentMin = Math.min(indentLen, baseIndent);
     }
   }
 
@@ -1110,12 +1382,29 @@ export class PythonToolchainManager {
       if (typeof window !== 'undefined' && pyodide.setStdout) {
         pyodide.setStdout({ batched: (msg: string) => handleOut(msg + '\n') });
         pyodide.setStderr({ batched: (msg: string) => handleErr(msg + '\n') });
-        if (req.stdin && pyodide.setStdin) {
+        let effectiveStdin = req.stdin || '';
+        let prePromptedInteractive = false;
+        if (!effectiveStdin && typeof (req as any).onRequestStdin === 'function' && /\binput\s*\(/.test(codeToRun)) {
+          const promptMatches = Array.from(codeToRun.matchAll(/\binput\s*\(\s*(?:(['"])((?:\\.|(?!\1).)*)\1)?\s*\)/g));
+          const collectedLines: string[] = [];
+          const maxPrompts = Math.min(8, Math.max(1, promptMatches.length));
+          for (let pi = 0; pi < maxPrompts; pi++) {
+            const rawPrompt = promptMatches[pi]?.[2] || '';
+            const ans = await (req as any).onRequestStdin(rawPrompt);
+            if (ans === null || ans === undefined) break;
+            collectedLines.push(String(ans));
+          }
+          if (collectedLines.length > 0) {
+            effectiveStdin = collectedLines.join('\n') + '\n';
+            prePromptedInteractive = true;
+          }
+        }
+        if (effectiveStdin && pyodide.setStdin) {
           let pos = 0;
           pyodide.setStdin({
             stdin: () => {
-              if (pos < req.stdin!.length) {
-                return req.stdin!.charCodeAt(pos++);
+              if (pos < effectiveStdin.length) {
+                return effectiveStdin.charCodeAt(pos++);
               }
               return null;
             }
@@ -1125,7 +1414,7 @@ export class PythonToolchainManager {
         const fileLabel = JSON.stringify(req.entry || '<exec>');
         const encodedCode = JSON.stringify(codeToRun);
         const runnerWrapper = `
-import sys, tracemalloc
+import sys, builtins, tracemalloc
 if '/usr/lib/python' not in sys.path:
     sys.path.insert(0, '/usr/lib/python')
 if '/workspace' not in sys.path:
@@ -1133,12 +1422,15 @@ if '/workspace' not in sys.path:
 if 'codelab_test' in sys.modules and hasattr(sys.modules['codelab_test'], '_reset_codelab_test'):
     sys.modules['codelab_test']._reset_codelab_test()
 
+_cl_orig_input = builtins.input
+${prePromptedInteractive ? `builtins.input = lambda _prompt='': sys.stdin.readline().rstrip('\\r\\n')` : ''}
 _cl_user_code = ${encodedCode}
 _cl_ns = {'__name__': '__main__', '__file__': ${fileLabel}, '__builtins__': __builtins__}
 tracemalloc.start()
 try:
     exec(compile(_cl_user_code, ${fileLabel}, 'exec'), _cl_ns)
 finally:
+    builtins.input = _cl_orig_input
     _, _peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 `;
@@ -1311,9 +1603,16 @@ function installPythonExtension(workbench: any, options: ExtendedPythonExtension
     workbench.shell.options.pythonToolchain = toolchain;
   }
 
+  const getWsFiles = () => (workbench && workbench.files ? workbench.files : {});
   if (typeof window !== 'undefined' && (window as any).monaco) {
-    registerMonacoPythonLanguageService((window as any).monaco);
+    registerMonacoPythonLanguageService((window as any).monaco, getWsFiles);
   }
+  if (!Array.isArray(workbench._monacoReadyHooks)) {
+    workbench._monacoReadyHooks = [];
+  }
+  workbench._monacoReadyHooks.push((monaco: any) => {
+    registerMonacoPythonLanguageService(monaco, getWsFiles);
+  });
 
   if (!workbench.enabledLanguages || !(workbench.enabledLanguages instanceof Set)) {
     workbench.enabledLanguages = new Set(['js', 'py']);

@@ -30,6 +30,8 @@
     "src/workbench/share.ts",
     "src/workbench/guided-pane.ts",
     "src/workbench/icons.ts",
+    "src/workbench/xterm-adapter.ts",
+    "src/workbench/intellisense.ts",
     "packages/*/src/**/*.ts",
     "apps/web/src/**/*.ts"
   ]
