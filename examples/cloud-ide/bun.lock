@@ -5,7 +5,7 @@
     "": {
       "name": "code-lab-cloud-ide",
       "dependencies": {
-        "@innovatorved/code-lab": "0.6.1",
+        "@innovatorved/code-lab": "0.7.0",
         "astro": "^7.3.2",
       },
     },
@@ -143,7 +143,7 @@
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.5", "", { "os": "win32", "cpu": "x64" }, "sha512-x76eH0vEiHlcMQu8Y8IenntaACtddpT6W0wmXtWrnKcnKI7ME5DdgqhAD6SEWOEl1v2zDvkZDhFA9KnURwpfqg=="],
 
-    "@innovatorved/code-lab": ["@innovatorved/code-lab@0.6.1", "", { "dependencies": { "zod": "^4.6.7" } }, "sha512-nIn0TlZeqab25LWWERUWWHzbmNY/cMbZCCRWRZFVSWk5eSFaW9XFXgs6o0BoybGnaoKqKwCTFLPYSYdsw1SyCQ=="],
+    "@innovatorved/code-lab": ["@innovatorved/code-lab@0.7.0", "", { "dependencies": { "zod": "^4.6.7" } }, "sha512-RwGXeya1IUDydKaeXMREtzkYUdC7eA4aa/Y+/Drxto8rtlPEWgquwwPWd3Ef1Vh2ZFlVv0vtPJBPs022Tns2TQ=="],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
