@@ -3535,7 +3535,7 @@
     if (scriptArgs && scriptArgs.length > 0) {
       cmd += ' ' + scriptArgs.map(quoteShellArg).join(' ');
     }
-    const fallback = tryDevScriptFallback(scriptName, cmd, ctx);
+    const fallback = await tryDevScriptFallback(scriptName, cmd, ctx);
     if (fallback) return fallback;
     const binPrefix = `${PosixPath.join(ctx.cwd || '/workspace', 'node_modules/.bin')}:/workspace/node_modules/.bin`;
     const scriptEnv = {
@@ -3547,6 +3547,7 @@
       env: scriptEnv,
       stdin: ctx.stdin,
       signal: ctx.signal,
+      isBackground: ctx.isBackground,
       onStdout: ctx.onStdout,
       onStderr: ctx.onStderr,
       onRequestStdin: ctx.onRequestStdin || (ctx.shell && ctx.shell.options ? ctx.shell.options.onRequestStdin : undefined)
@@ -4100,31 +4101,96 @@
   // Common dev-server commands that cannot run inside the virtual runtime are
   // transparently redirected to the built-in preview server.
   const PREVIEW_TOOL_RE = /\b(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|serve|http-server)\b/;
+  const NATIVE_DEV_SERVER_RE = /^(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts)$/;
   // The same tools, when typed directly at the prompt (`ng serve`, `vite`).
   // `serve` is omitted: it is a first-class builtin shell command.
   const DIRECT_DEV_TOOL_RE = /^(vite|ng|astro|next|webpack|parcel|esbuild|snowpack|react-scripts|http-server)$/;
 
-  function tryDevScriptFallback(scriptName, cmd, ctx, opts) {
+  /**
+   * Holds a foreground interactive server command open until Ctrl+C (SIGINT)
+   * or external port shutdown, unregistering the port cleanly on interrupt.
+   */
+  async function waitForForegroundServer(entry, ctx, banner) {
+    const portTable = ctx && ctx.shell ? ctx.shell.portTable : null;
+    const isInteractiveFg = Boolean(ctx && !ctx.isBackground && ctx.signal);
+    if (!isInteractiveFg) {
+      return { code: 0, stdout: banner, stderr: '' };
+    }
+
+    const fullBanner = `${banner.replace(/\n+$/, '')}\n  ➜  Press Ctrl+C to stop\n\n`;
+    if (typeof ctx.onStdout === 'function') {
+      ctx.onStdout(fullBanner);
+    }
+
+    const closeServer = () => {
+      if (entry && entry.server && typeof entry.server.close === 'function') {
+        try { entry.server.close(); } catch (err) { _shellLogger.debug('Foreground server close failed.', err); }
+      } else if (portTable && typeof portTable.unregisterServer === 'function' && entry) {
+        try { portTable.unregisterServer(entry.port); } catch (err) { _shellLogger.debug('Foreground server unregister failed.', err); }
+      }
+    };
+
+    if (ctx.signal.aborted) {
+      closeServer();
+      return { code: 130, stdout: fullBanner, stderr: '', alreadyStreamed: typeof ctx.onStdout === 'function', aborted: true };
+    }
+
+    return await new Promise((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        if (ctx.signal && typeof ctx.signal.removeEventListener === 'function') {
+          try { ctx.signal.removeEventListener('abort', onAbort); } catch (_) { void _; }
+        }
+        if (portTable && typeof portTable.off === 'function') {
+          try { portTable.off('close', onPortClose); } catch (_) { void _; }
+        }
+      };
+      const finish = (code, aborted) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({
+          code,
+          stdout: fullBanner,
+          stderr: '',
+          alreadyStreamed: typeof ctx.onStdout === 'function',
+          aborted
+        });
+      };
+      const onAbort = () => {
+        closeServer();
+        finish(130, true);
+      };
+      const onPortClose = (closedPort, closedEntry) => {
+        if (entry && Number(closedPort) === Number(entry.port) && (!closedEntry || closedEntry === entry)) {
+          finish(0, false);
+        }
+      };
+      ctx.signal.addEventListener('abort', onAbort, { once: true });
+      if (portTable && typeof portTable.on === 'function') {
+        portTable.on('close', onPortClose);
+      }
+    });
+  }
+
+  async function tryDevScriptFallback(scriptName, cmd, ctx, opts) {
     if (!PREVIEW_TOOL_RE.test(cmd)) return null;
-    // Only fall back when the referenced tool is not actually installed.
     const bin = (cmd.match(PREVIEW_TOOL_RE) || [])[1];
     const force = Boolean(opts && opts.force);
     const binPath = PosixPath.join('/workspace/node_modules/.bin', bin);
-    if (!force && ctx.vfs.existsSync(binPath)) return null;
+    const isInstalled = ctx.vfs.existsSync(binPath);
+    if (!force && !NATIVE_DEV_SERVER_RE.test(bin) && isInstalled) return null;
     const portMatch = cmd.match(/--port(?:=|\s+)(\d+)/);
     const defaultPorts = { ng: 4200, vite: 5173, astro: 4321, next: 3000 };
     const port = portMatch ? Number(portMatch[1]) : (defaultPorts[bin] || 3000);
     const rootDir = typeof ctx.resolvePath === 'function' ? ctx.resolvePath('.') : (ctx.cwd || '/workspace');
     const entry = registerPreviewServer(ctx, rootDir, port);
     if (!entry) return null;
-    const note = force
+    const note = (force || isInstalled)
       ? `${bin} is a native dev server and cannot execute inside this virtual runtime — using the CodeLab preview server instead.`
       : `${bin} is not available in this virtual runtime — using the CodeLab preview server instead.`;
-    return {
-      code: 0,
-      stdout: `\n> ${scriptName}\n> ${cmd}\n\n  ${note}\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`,
-      stderr: ''
-    };
+    const banner = `\n> ${scriptName}\n> ${cmd}\n\n  ${note}\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n\n`;
+    return await waitForForegroundServer(entry, ctx, banner);
   }
 
   function evaluatePosixTest(args, ctx) {
@@ -8249,11 +8315,8 @@
       if (!entry) {
         return { code: 1, stdout: '', stderr: 'serve: no virtual port table available\n' };
       }
-      return {
-        code: 0,
-        stdout: `\n  ⚡ CodeLab preview server\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n  ➜  Root:    ${rootDir}\n  ➜  Preview: open the Web Preview drawer for port ${entry.port}\n\n`,
-        stderr: ''
-      };
+      const banner = `\n  ⚡ CodeLab preview server\n\n  ➜  Local:   http://127.0.0.1:${entry.port}/\n  ➜  Root:    ${rootDir}\n  ➜  Preview: open the Web Preview drawer for port ${entry.port}\n\n`;
+      return await waitForForegroundServer(entry, ctx, banner);
     },
 
     // -----------------------------------------------------------------------
@@ -10803,7 +10866,7 @@
         // this runtime — whether or not it was installed — so route it to the
         // built-in preview server rather than reporting a misleading "command
         // not found".
-        const fb = tryDevScriptFallback(cmdName, [cmdName, ...args].join(' '), cmdCtx, { force: true });
+        const fb = await tryDevScriptFallback(cmdName, [cmdName, ...args].join(' '), cmdCtx, { force: true });
         res = fb || { code: 127, stdout: '', stderr: `shell: ${cmdName}: command not found\n` };
       } else if (typeof this.options.onProcessSpawn === 'function') {
         const spawned = await this.options.onProcessSpawn(cmdName, args, {

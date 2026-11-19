@@ -623,17 +623,39 @@ export class SettingsDialogController implements IDisposable {
         nextValue = el.value;
       }
 
+      let applied = false;
       if (hasValidValue) {
         if (this.activeScope === 'workspace') {
-          if (this.config.setWorkspaceSetting(key, nextValue)) {
+          applied = this.config.setWorkspaceSetting(key, nextValue);
+          if (applied) {
             this.notifyWorkspaceMutated(mode);
           }
         } else {
           const hadWorkspaceOverride = this.config.inspect(key).workspaceValue !== undefined;
-          if (this.config.setUserSetting(key, nextValue) && hadWorkspaceOverride) {
+          applied = this.config.setUserSetting(key, nextValue);
+          if (applied && hadWorkspaceOverride) {
             this.config.setWorkspaceSetting(key, nextValue);
             this.notifyWorkspaceMutated(mode);
           }
+        }
+      }
+      if (!applied) {
+        const min = desc.schema.minimum;
+        const max = desc.schema.maximum;
+        const rangeHint =
+          min !== undefined && max !== undefined
+            ? `Value must be between ${min} and ${max}.`
+            : min !== undefined
+              ? `Value must be at least ${min}.`
+              : max !== undefined
+                ? `Value must be at most ${max}.`
+                : 'Invalid setting value.';
+        if ('setCustomValidity' in el && typeof (el as HTMLInputElement).setCustomValidity === 'function') {
+          (el as HTMLInputElement).setCustomValidity(rangeHint);
+          if (typeof (el as HTMLInputElement).reportValidity === 'function') {
+            (el as HTMLInputElement).reportValidity();
+          }
+          (el as HTMLInputElement).setCustomValidity('');
         }
       }
       this.renderAllActiveSurfaces('items');

@@ -616,7 +616,7 @@
         <span>Problems</span>
       </button>
 
-      <button type="button" class="action-btn" id="header-settings-btn" title="Open Settings (Cmd+,)" style="display: none !important;">
+      <button type="button" class="action-btn" id="header-settings-btn" title="Open Settings (Cmd+,)">
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
@@ -827,7 +827,7 @@
             }),
             files: options.files || (isBlank ? {} : {
               'README.md': '# Welcome to code-lab v0.6.1\n\n- **Settings UI & Workspace JSON**: Press `Cmd+,` / `Ctrl+,` (or click **Settings** in the top bar) to configure editor, terminal, and SQL dialect preferences, backed by `.codelab/settings.json`.\n- **SQL Studio & Guided Labs**: Open the **SQL Studio** demo from the home screen or run `sqlite3` directly in the POSIX terminal.\n- **Multi-Runtime Terminal**: Click `+` in the terminal drawer header for multiple sessions, or run `git clone <owner/repo>`, `node`, `bun`, `python3`, or `clang++`.\n',
-              '.codelab/settings.json': '{\n  "editor.fontSize": 13,\n  "editor.tabSize": 2,\n  "sql.dialect": "sqlite"\n}\n'
+              '.codelab/settings.json': '{\n  "sql.defaultDialect": "sqlite"\n}\n'
             }),
             entry: isBlank ? null : (options.entry || 'demo.js'),
             ...options
@@ -851,9 +851,6 @@
             setTimeout(() => {
               const ed = ide._editor || ide.editor;
               if (ed && typeof ed.layout === 'function') ed.layout();
-              if (typeof ide.previewApp === 'function' && ide.files && (ide.files['index.html'] || ide.files['public/index.html'])) {
-                ide.previewApp();
-              }
             }, 60);
           }
           return;
@@ -923,15 +920,12 @@
           window.history.replaceState({}, '', url.toString());
           saveSessionMeta({ mode: 'repo', repo: targetRepo, labId: targetLabId });
 
-          // Transition to full IDE
+          // Transition to full IDE (do not auto-run/preview cloned repos; let the user run explicitly)
           setTimeout(() => {
             landingOverlay.classList.add('hidden');
             if (ide) {
               const ed = ide._editor || ide.editor;
               if (ed && typeof ed.layout === 'function') ed.layout();
-              if (typeof ide.previewApp === 'function' && ide.files && (ide.files['index.html'] || ide.files['public/index.html'])) {
-                ide.previewApp();
-              }
             }
           }, 350);
 

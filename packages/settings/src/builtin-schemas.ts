@@ -84,6 +84,22 @@ export const BUILTIN_SETTINGS: readonly SettingDescriptor[] = [
     schema: { type: 'boolean', default: true }
   },
   {
+    key: 'workbench.sidebar.defaultLocation',
+    category: 'Workbench',
+    title: 'Sidebar Location',
+    description: 'Controls whether the primary sidebar is docked on the left or right.',
+    defaultValue: 'left',
+    schema: { type: 'string', enum: ['left', 'right'], default: 'left' }
+  },
+  {
+    key: 'workbench.statusBar.visible',
+    category: 'Workbench',
+    title: 'Status Bar Visible',
+    description: 'Controls the visibility of the status bar at the bottom of the workbench.',
+    defaultValue: true,
+    schema: { type: 'boolean', default: true }
+  },
+  {
     key: 'workbench.panel.defaultTab',
     category: 'Workbench',
     title: 'Default Bottom Panel Tab',

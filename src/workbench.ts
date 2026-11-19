@@ -2107,10 +2107,20 @@ int main() {
         }
 
         // Load persisted user settings from localStorage if available
+        const persistedUserKeys = new Set();
         if (this.persistState && this.configuration) {
           const savedUserSettings = safeStorageGet(`${STORAGE_PREFIX}user-settings`, this.logger);
           if (savedUserSettings) {
             this.configuration.importProfile(savedUserSettings);
+            try {
+              const parsedSaved = JSON.parse(savedUserSettings);
+              const savedObj = parsedSaved && typeof parsedSaved.user === 'object' ? parsedSaved.user : parsedSaved;
+              if (savedObj && typeof savedObj === 'object') {
+                for (const k of Object.keys(savedObj)) persistedUserKeys.add(k);
+              }
+            } catch (_err) {
+              void _err;
+            }
           }
         }
 
@@ -2127,9 +2137,35 @@ int main() {
           }
         }
 
-        // Apply constructor overrides onto Layer 4 if passed in options.settings
-        if (this.options && this.options.settings && typeof this.options.settings === 'object' && this.configuration) {
-          this.configuration.setOverrides(this.options.settings);
+        // Apply host-provided initial settings/config cleanly:
+        // - `options.userSettings` / `options.defaultSettings` (and `options.settings` / `options.config`
+        //   when `options.lockSettings !== true`) seed Layer 2 user settings so host apps can customize
+        //   defaults while end-users can still adjust them in the Settings UI.
+        // - `options.overrides` (or `options.settings` with `options.lockSettings === true`) lock Layer 4.
+        if (this.options && this.configuration) {
+          const seedSources = [
+            this.options.defaultSettings,
+            this.options.userSettings,
+            this.options.config,
+            this.options.lockSettings === true ? null : this.options.settings
+          ];
+          for (const src of seedSources) {
+            if (!src || typeof src !== 'object') continue;
+            for (const [k, v] of Object.entries(src)) {
+              if (!this.persistState || !persistedUserKeys.has(k)) {
+                this.configuration.setUserSetting(k, v);
+              }
+            }
+          }
+          const lockedOverrides = {
+            ...(this.options.lockSettings === true && this.options.settings && typeof this.options.settings === 'object'
+              ? this.options.settings
+              : {}),
+            ...(this.options.overrides && typeof this.options.overrides === 'object' ? this.options.overrides : {})
+          };
+          if (Object.keys(lockedOverrides).length > 0) {
+            this.configuration.setOverrides(lockedOverrides);
+          }
         }
 
         // Register built-in commands & keybindings
@@ -3523,38 +3559,35 @@ int main() {
           }
         }
       }
-      if (targetFile && this.files[targetFile] !== undefined) {
-        this._syncDotCodelabConfig();
-        this._vfsWriteFile(targetFile, this.files[targetFile]);
-      } else {
-        this._syncFilesToShellVfs();
-      }
-      if (!this._savedSnapshot) this._savedSnapshot = {};
-      const autoSaveMode = this.configuration
-        ? this.configuration.get('files.autoSave', 'afterDelay')
-        : 'afterDelay';
-      if (saveAll || !targetFile || (autoSaveMode !== 'off' && autoSaveMode !== 'onFocusChange')) {
-        this._savedSnapshot = { ...(this.files || {}) };
-        this._clearFileDirty();
-        this._saveState({ flushFiles: true });
-      } else {
-        if (this.files[targetFile] !== undefined) {
-          this._savedSnapshot[targetFile] = this.files[targetFile];
+      const finalizeSave = () => {
+        if (targetFile && this.files[targetFile] !== undefined) {
+          this._syncDotCodelabConfig();
+          this._vfsWriteFile(targetFile, this.files[targetFile]);
         } else {
-          delete this._savedSnapshot[targetFile];
+          this._syncFilesToShellVfs();
         }
-        this._clearFileDirty(targetFile);
-        this._saveState({ flushSnapshotOnly: true });
-      }
+        if (!this._savedSnapshot) this._savedSnapshot = {};
+        const autoSaveMode = this.configuration
+          ? this.configuration.get('files.autoSave', 'afterDelay')
+          : 'afterDelay';
+        if (saveAll || !targetFile || (autoSaveMode !== 'off' && autoSaveMode !== 'onFocusChange')) {
+          this._savedSnapshot = { ...(this.files || {}) };
+          this._clearFileDirty();
+          this._saveState({ flushFiles: true });
+        } else {
+          if (this.files[targetFile] !== undefined) {
+            this._savedSnapshot[targetFile] = this.files[targetFile];
+          } else {
+            delete this._savedSnapshot[targetFile];
+          }
+          this._clearFileDirty(targetFile);
+          this._saveState({ flushSnapshotOnly: true });
+        }
+      };
+      finalizeSave();
       if (formatPromise && typeof formatPromise.then === 'function') {
         formatPromise.then(() => {
-          if (this._destroyed) return;
-          if (targetFile && this.files[targetFile] !== undefined) {
-            this._vfsWriteFile(targetFile, this.files[targetFile]);
-            if (this._savedSnapshot) this._savedSnapshot[targetFile] = this.files[targetFile];
-          }
-          this._clearFileDirty(saveAll ? undefined : targetFile);
-          this._saveState({ flushSnapshotOnly: true });
+          if (!this._destroyed) finalizeSave();
         }).catch((err) => {
           this.logger.debug('Async formatOnSave completion skipped.', err);
         });
@@ -4297,6 +4330,17 @@ int main() {
       this.container.querySelectorAll('[data-cl-action="run-code"], [data-cl-action="run-entry"], [data-cl-action="run-active-file"], [data-cl-action="run-demo"], [data-cl-action="run-tests"], [data-cl-action="verify-step"]').forEach(btn => {
         btn.disabled = this.isRunning;
       });
+      if (this._xtermEngines instanceof Map && Array.isArray(this._terminalSessions)) {
+        for (const sess of this._terminalSessions) {
+          const eng = this._xtermEngines.get(sess.id);
+          if (eng && typeof eng.setBusy === 'function') {
+            const sessBusy = sess.id === this._activeTerminalSessionId
+              ? Boolean(sess.isRunning || this.isRunning)
+              : Boolean(sess.isRunning);
+            eng.setBusy(sessBusy);
+          }
+        }
+      }
       this._updatePtyActiveLine();
     }
 
@@ -7398,23 +7442,55 @@ int main() {
       }
     }
 
-    _appendTerminalStream(type = 'stdout', chunk = '') {
+    _getTerminalSessionById(sessionId) {
+      const sessions = this._ensureTerminalSessions();
+      if (sessionId) {
+        return sessions.find((s) => s.id === sessionId) || null;
+      }
+      return sessions.find((s) => s.id === this._activeTerminalSessionId) || sessions[0] || null;
+    }
+
+    _getXtermEngineForSessionId(sessionId) {
+      if (!(this._xtermEngines instanceof Map)) return null;
+      if (sessionId) return this._xtermEngines.get(sessionId) || null;
+      return this._getActiveXtermEngine();
+    }
+
+    _appendTerminalStream(type = 'stdout', chunk = '', sessionId = null) {
       if (chunk === null || chunk === undefined || chunk === '') return;
       const rawText = String(chunk);
+      const targetSessionId = sessionId || this._activeTerminalSessionId || null;
+      const isTargetActive = !targetSessionId || targetSessionId === this._activeTerminalSessionId;
 
-      const activeXterm = this._getActiveXtermEngine();
-      if (activeXterm && typeof activeXterm.writeStreamChunk === 'function') {
+      const targetXterm = this._getXtermEngineForSessionId(targetSessionId);
+      if (targetXterm && typeof targetXterm.writeStreamChunk === 'function') {
         try {
-          activeXterm.writeStreamChunk(rawText, type);
+          targetXterm.writeStreamChunk(rawText, type);
         } catch (err) {
-          this.logger.debug('activeXterm.writeStreamChunk failed.', err);
+          this.logger.debug('targetXterm.writeStreamChunk failed.', err);
         }
-      } else if (this.ptyEngine && this.ptyEngine.container && typeof this.ptyEngine.writeStreamChunk === 'function') {
+      } else if (isTargetActive && this.ptyEngine && this.ptyEngine.container && typeof this.ptyEngine.writeStreamChunk === 'function') {
         try {
           this.ptyEngine.writeStreamChunk(rawText, type);
         } catch (err) {
           this.logger.debug('ptyEngine.writeStreamChunk failed.', err);
         }
+      }
+
+      if (!isTargetActive) {
+        const targetSess = this._getTerminalSessionById(targetSessionId);
+        if (targetSess && Array.isArray(targetSess.logs) && (!targetXterm || targetXterm.logs !== targetSess.logs)) {
+          const lines = rawText.replace(/\r\n/g, '\n').split('\n');
+          const maxSb = this._getTerminalScrollback();
+          for (const line of lines) {
+            if (line === '') continue;
+            targetSess.logs.push({ type, text: line });
+          }
+          if (targetSess.logs.length > maxSb) {
+            targetSess.logs.splice(0, targetSess.logs.length - maxSb);
+          }
+        }
+        return;
       }
 
       this._activeStreamType = type;
@@ -7423,7 +7499,7 @@ int main() {
       const drawerBody = this.container ? this.container.querySelector('.codelab-drawer__body') : null;
 
       // The workbench owns live terminal rendering unless xterm or an attached PTY engine owns the DOM.
-      const ptyOwnsDom = Boolean((activeXterm && activeXterm.container) || (this.ptyEngine && this.ptyEngine.container));
+      const ptyOwnsDom = Boolean((targetXterm && targetXterm.container) || (this.ptyEngine && this.ptyEngine.container));
       const canPatchDom = Boolean(termLogEl && typeof document !== 'undefined' && !ptyOwnsDom);
 
       // Write a single logical line into the live terminal DOM immediately, so output
@@ -7570,11 +7646,16 @@ int main() {
 
     _pushTerminalLog(entry, opts = null) {
       if (!entry) return;
-      const activeXterm = this._getActiveXtermEngine();
-      if (activeXterm && activeXterm.logs === this.terminalLogs) {
-        if (!(opts && opts.fromStream) && typeof activeXterm.writeln === 'function') {
+      const targetSessionId = (opts && opts.sessionId) || this._activeTerminalSessionId || null;
+      const isTargetActive = !targetSessionId || targetSessionId === this._activeTerminalSessionId;
+      const targetSess = isTargetActive ? null : this._getTerminalSessionById(targetSessionId);
+      const targetLogs = targetSess && Array.isArray(targetSess.logs) ? targetSess.logs : this.terminalLogs;
+      const targetXterm = this._getXtermEngineForSessionId(targetSessionId);
+
+      if (targetXterm && targetXterm.logs === targetLogs) {
+        if (!(opts && opts.fromStream) && typeof targetXterm.writeln === 'function') {
           try {
-            activeXterm.writeln(String(entry.text ?? ''), entry.type || 'stdout');
+            targetXterm.writeln(String(entry.text ?? ''), entry.type || 'stdout');
           } catch (_err) {
             void _err;
           }
@@ -7582,12 +7663,12 @@ int main() {
         this._trimTerminalLogs();
         return;
       }
-      if (Array.isArray(this.terminalLogs)) {
-        Array.prototype.push.call(this.terminalLogs, entry);
+      if (Array.isArray(targetLogs)) {
+        Array.prototype.push.call(targetLogs, entry);
       }
-      if (activeXterm && !(opts && opts.fromStream) && typeof activeXterm.writeln === 'function') {
+      if (targetXterm && !(opts && opts.fromStream) && typeof targetXterm.writeln === 'function') {
         try {
-          activeXterm.writeln(String(entry.text ?? ''), entry.type || 'stdout');
+          targetXterm.writeln(String(entry.text ?? ''), entry.type || 'stdout');
         } catch (_err) {
           void _err;
         }
@@ -7678,6 +7759,8 @@ int main() {
 
     _handleInterrupt(opts = null) {
       const fromXterm = Boolean(opts && opts.fromXterm);
+      const targetSessionId = (opts && opts.sessionId) || this._activeTerminalSessionId || null;
+      const targetSession = this._getTerminalSessionById(targetSessionId);
       let didInterrupt = false;
       if (this._cloneInFlight || this._activeCloneAbortController) {
         this.cancelClone();
@@ -7694,38 +7777,51 @@ int main() {
           this.logger.debug('cancelWorkerExecution failed.', err);
         }
       }
-      const isCommandRunning = Boolean(this.isRunning || this._activeCommandAbortController || cancelledWorker);
+      const sessionAbort = targetSession ? targetSession.abortController : null;
+      const sessionRunning = Boolean(targetSession && targetSession.isRunning);
+      const isActiveTarget = !targetSession || targetSession.id === this._activeTerminalSessionId;
+      const activeAbort = sessionAbort || (isActiveTarget ? this._activeCommandAbortController : null);
+      const isCommandRunning = Boolean(sessionRunning || activeAbort || (isActiveTarget && (this.isRunning || cancelledWorker)));
       const cwdShort = (this.cwd || '/workspace').replace(/^\/workspace\/?/, '') || '~';
       const promptLabel = this.inRepl ? '> ' : `codelab:${cwdShort}$`;
 
       if (isCommandRunning) {
         didInterrupt = true;
-        if (this._activeCommandAbortController) {
+        if (activeAbort) {
           try {
-            this._activeCommandAbortController.abort('SIGINT');
+            activeAbort.abort('SIGINT');
           } catch (err) {
             this.logger.debug('AbortController.abort failed.', err);
           }
-          this._activeCommandAbortController = null;
+          if (targetSession && targetSession.abortController === activeAbort) {
+            targetSession.abortController = null;
+          }
+          if (this._activeCommandAbortController === activeAbort) {
+            this._activeCommandAbortController = null;
+          }
         }
-
-        this.isRunning = false;
-        this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
+        if (targetSession) {
+          targetSession.isRunning = false;
+        }
+        if (isActiveTarget) {
+          this.isRunning = false;
+          this._setRuntimeStatus('idle', 'Ready · Node v22 VFS');
+        }
         this._updateRunStateUI();
 
         this._flushTerminalStream();
         if (!fromXterm) {
-          this._pushTerminalLog({ type: 'stdout', text: '^C' });
+          this._pushTerminalLog({ type: 'stdout', text: '^C' }, { sessionId: targetSessionId });
         }
       } else {
         if (this.inRepl) {
           this.inRepl = false;
           if (!fromXterm) {
-            this._pushTerminalLog({ type: 'stdout', text: '^C\nExiting REPL...' });
+            this._pushTerminalLog({ type: 'stdout', text: '^C\nExiting REPL...' }, { sessionId: targetSessionId });
           }
         } else if (!fromXterm) {
           const currentInput = (this._ptyInputBeforeCursor || '') + (this._ptyInputAfterCursor || '');
-          this._pushTerminalLog({ type: 'stdout', text: `${promptLabel} ${currentInput}^C` });
+          this._pushTerminalLog({ type: 'stdout', text: `${promptLabel} ${currentInput}^C` }, { sessionId: targetSessionId });
         }
       }
 
@@ -8874,13 +8970,13 @@ int main() {
             if (this._activeTerminalSessionId !== session.id) {
               this.switchTerminalSession(session.id);
             }
-            return this._handleReplCommand(cmd, { skipEcho: true });
+            return this._handleReplCommand(cmd, { skipEcho: true, sessionId: session.id });
           },
           onInterrupt: () => {
             if (this._activeTerminalSessionId !== session.id) {
               this.switchTerminalSession(session.id);
             }
-            this._handleInterrupt({ fromXterm: true });
+            this._handleInterrupt({ fromXterm: true, sessionId: session.id });
           },
           getCompletions: (buf, cur) => {
             const slice = String(buf || '').slice(0, typeof cur === 'number' ? cur : String(buf || '').length);
@@ -9759,7 +9855,7 @@ int main() {
       this._renderDrawerBody();
 
       try {
-        const res = await this.shell.execute(`serve ${rootDir}`, {});
+        const res = await this.shell.execute(`serve ${rootDir}`, { isBackground: true });
         if (res && res.stdout) this._pushTerminalLog({ type: 'stdout', text: res.stdout.replace(/\n$/, '') });
         if (res && res.stderr) this._pushTerminalLog({ type: 'stderr', text: res.stderr.replace(/\n$/, '') });
       } catch (err) {
@@ -17629,31 +17725,45 @@ int main() {
       );
 
       if (this.shell && typeof this.shell.execute === 'function' && !looksLikeJsExpr) {
+        const targetSessionId = (opts && opts.sessionId) || this._activeTerminalSessionId || 'session-1';
+        const targetSession = this._getTerminalSessionById(targetSessionId);
         const abortCtrl = new AbortController();
-        this._activeCommandAbortController = abortCtrl;
-        this.isRunning = true;
+        if (targetSession) {
+          targetSession.abortController = abortCtrl;
+          targetSession.isRunning = true;
+        }
+        if (targetSessionId === this._activeTerminalSessionId) {
+          this._activeCommandAbortController = abortCtrl;
+          this.isRunning = true;
+        }
         this._updateRunStateUI();
         let streamedStdout = false;
         let streamedStderr = false;
 
         try {
           this._syncFilesToShellVfs();
-          this.shell.cwd = this.cwd || '/workspace';
+          this.shell.cwd = (targetSession && targetSession.cwd) || this.cwd || '/workspace';
           const shellRes = await this.shell.execute(trimmed, {
             onStdout: (c) => {
               streamedStdout = true;
-              this._appendTerminalStream('stdout', c);
+              this._appendTerminalStream('stdout', c, targetSessionId);
             },
             onStderr: (c) => {
               streamedStderr = true;
-              this._appendTerminalStream('stderr', c);
+              this._appendTerminalStream('stderr', c, targetSessionId);
             },
             onRequestStdin: (promptText) => this._requestInteractiveTerminalStdin(promptText, abortCtrl.signal),
             signal: abortCtrl.signal
           });
-          this._flushTerminalStream();
+          if (targetSessionId === this._activeTerminalSessionId) {
+            this._flushTerminalStream();
+          }
           const aborted = this._isAbortResult(shellRes, abortCtrl.signal);
-          this.cwd = this.shell.cwd || this.cwd;
+          const nextCwd = this.shell.cwd || (targetSession && targetSession.cwd) || this.cwd;
+          if (targetSession) targetSession.cwd = nextCwd;
+          if (targetSessionId === this._activeTerminalSessionId) {
+            this.cwd = nextCwd;
+          }
           this._syncVfsSnapshot(null, true);
           if (/^\s*git\b/.test(trimmed) || (this.shell && this.shell.gitState && this.shell.gitState.initialized)) {
             this._saveState();
@@ -17666,39 +17776,56 @@ int main() {
           this._updateStatusBar();
 
           if (shellRes && shellRes.clear) {
-            this._clearTerminalLogs();
+            if (targetSessionId === this._activeTerminalSessionId) {
+              this._clearTerminalLogs();
+            } else if (targetSession) {
+              targetSession.logs = [];
+            }
             this._renderDrawerBody();
             return;
           }
           if (shellRes && shellRes.interactiveRepl) {
-            this.inRepl = true;
+            if (targetSession) targetSession.inRepl = true;
+            if (targetSessionId === this._activeTerminalSessionId) {
+              this.inRepl = true;
+            }
             if (shellRes.stdout && !streamedStdout) {
-              this._pushTerminalLog({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+              this._pushTerminalLog({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') }, { sessionId: targetSessionId });
             }
             this._renderDrawerBody();
             return;
           }
 
           if (!aborted && shellRes && shellRes.stdout && !streamedStdout) {
-            this._pushTerminalLog({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') });
+            this._pushTerminalLog({ type: 'stdout', text: shellRes.stdout.replace(/\n$/, '') }, { sessionId: targetSessionId });
           }
           if (!aborted && shellRes && shellRes.stderr && !streamedStderr) {
-            this._pushTerminalLog({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') });
+            this._pushTerminalLog({ type: 'stderr', text: shellRes.stderr.replace(/\n$/, '') }, { sessionId: targetSessionId });
           }
           this._renderDrawerBody();
           return;
         } catch (err) {
-          this._flushTerminalStream();
+          if (targetSessionId === this._activeTerminalSessionId) {
+            this._flushTerminalStream();
+          }
           if (!(abortCtrl.signal.aborted || (err && err.name === 'AbortError'))) {
-            this._pushTerminalLog({ type: 'stderr', text: formatErrorText(err) });
+            this._pushTerminalLog({ type: 'stderr', text: formatErrorText(err) }, { sessionId: targetSessionId });
           }
           this._renderDrawerBody();
           return;
         } finally {
+          if (targetSession) {
+            if (targetSession.abortController === abortCtrl) {
+              targetSession.abortController = null;
+            }
+            targetSession.isRunning = false;
+          }
           if (this._activeCommandAbortController === abortCtrl) {
             this._activeCommandAbortController = null;
           }
-          this.isRunning = false;
+          if (targetSessionId === this._activeTerminalSessionId) {
+            this.isRunning = false;
+          }
           this._updateRunStateUI();
         }
       }
@@ -20317,6 +20444,10 @@ int main() {
       active.replHistoryIdx = typeof this.replHistoryIdx === 'number' ? this.replHistoryIdx : -1;
       active.beforeCursor = this._ptyInputBeforeCursor || '';
       active.afterCursor = this._ptyInputAfterCursor || '';
+      active.isRunning = Boolean(active.isRunning || this.isRunning);
+      if (this._activeCommandAbortController && !active.abortController) {
+        active.abortController = this._activeCommandAbortController;
+      }
       if (Array.isArray(this.terminalLogs)) {
         active.logs = this.terminalLogs;
       }
@@ -20340,6 +20471,11 @@ int main() {
       this.replHistoryIdx = typeof target.replHistoryIdx === 'number' ? target.replHistoryIdx : -1;
       this._ptyInputBeforeCursor = target.beforeCursor || '';
       this._ptyInputAfterCursor = target.afterCursor || '';
+      this.isRunning = Boolean(target.isRunning);
+      this._activeCommandAbortController = target.abortController || null;
+      if (typeof this._updateRunStateUI === 'function') {
+        this._updateRunStateUI();
+      }
     }
 
     _ensureTerminalSessions() {
@@ -20458,6 +20594,11 @@ int main() {
 
       this._saveActiveTerminalSessionState();
       const removed = sessions.splice(idx, 1)[0];
+      if (removed && removed.abortController) {
+        try { removed.abortController.abort('SIGINT'); } catch (_err) { void _err; }
+        removed.abortController = null;
+        removed.isRunning = false;
+      }
       if (this._xtermEngines instanceof Map && removed) {
         const oldEng = this._xtermEngines.get(removed.id);
         if (oldEng && typeof oldEng.destroy === 'function') {

@@ -346,6 +346,93 @@ async function runSuite() {
     assert.match(res.stderr, /command not found/);
   });
 
+  await check('B12 foreground `serve` with AbortSignal holds terminal until Ctrl+C and closes port', async () => {
+    const { portTable, shell } = makeShell();
+    const ac = new AbortController();
+    let streamed = '';
+    let finished = false;
+    const runPromise = shell.execute('serve --port 4330', {
+      signal: ac.signal,
+      onStdout: (c) => { streamed += c; }
+    }).then((r) => { finished = true; return r; });
+
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(finished, false, 'foreground serve must stay running until Ctrl+C');
+    assert.ok(streamed.includes('http://127.0.0.1:4330/'), 'streams URL immediately');
+    assert.ok(streamed.includes('Ctrl+C'), 'mentions Ctrl+C');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 4330), 'port is listening while held');
+
+    ac.abort('SIGINT');
+    const res = await runPromise;
+    assert.equal(res.code, 130, 'exits with 130 on SIGINT');
+    assert.equal(res.aborted, true);
+    assert.equal(portTable.listServers().some((s) => Number(s.port) === 4330), false, 'port unregistered after Ctrl+C');
+  });
+
+  await check('B13 foreground `npm run dev` holds terminal until Ctrl+C and closes port', async () => {
+    const { portTable, shell } = makeShell();
+    const ac = new AbortController();
+    let finished = false;
+    const runPromise = shell.execute('npm run dev', {
+      signal: ac.signal,
+      onStdout: () => {}
+    }).then((r) => { finished = true; return r; });
+
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(finished, false, 'foreground npm run dev must stay running until Ctrl+C');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 5173), 'port 5173 listening');
+
+    ac.abort('SIGINT');
+    const res = await runPromise;
+    assert.equal(res.code, 130);
+    assert.equal(portTable.listServers().some((s) => Number(s.port) === 5173), false, 'port 5173 unregistered after Ctrl+C');
+  });
+
+  await check('B14 foreground `node server.js` and `bun run server.ts` hold until Ctrl+C and clean up ports', async () => {
+    const { vfs, portTable, shell } = makeShell();
+    vfs.writeFileSync('/workspace/node-srv.js', `
+      const http = require('node:http');
+      http.createServer((req, res) => res.end('ok')).listen(4411, () => console.log('NODE_READY'));
+    `);
+    const ac1 = new AbortController();
+    let nodeOut = '';
+    let nodeDone = false;
+    const nodePromise = shell.execute('node node-srv.js', {
+      signal: ac1.signal,
+      onStdout: (c) => { nodeOut += c; }
+    }).then((r) => { nodeDone = true; return r; });
+
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(nodeDone, false, 'foreground node server must stay alive until Ctrl+C');
+    assert.ok(nodeOut.includes('NODE_READY'), 'server printed startup log');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 4411), 'node server port is listening');
+
+    ac1.abort('SIGINT');
+    await nodePromise;
+    assert.equal(portTable.listServers().some((s) => Number(s.port) === 4411), false, 'node server port closed on Ctrl+C');
+
+    vfs.writeFileSync('/workspace/bun-srv.ts', `
+      Bun.serve({ port: 4412, fetch: () => new Response('bun-ok') });
+      console.log('BUN_READY');
+    `);
+    const ac2 = new AbortController();
+    let bunOut = '';
+    let bunDone = false;
+    const bunPromise = shell.execute('bun run bun-srv.ts', {
+      signal: ac2.signal,
+      onStdout: (c) => { bunOut += c; }
+    }).then((r) => { bunDone = true; return r; });
+
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(bunDone, false, 'foreground Bun.serve must stay alive until Ctrl+C');
+    assert.ok(bunOut.includes('BUN_READY'), 'bun server printed startup log');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 4412), 'bun server port is listening');
+
+    ac2.abort('SIGINT');
+    await bunPromise;
+    assert.equal(portTable.listServers().some((s) => Number(s.port) === 4412), false, 'bun server port closed on Ctrl+C');
+  });
+
   console.log(`\n=== Framework Suite Summary: ${passed} passed, ${failed} failed ===`);
   if (failed > 0) {
     for (const f of failures) console.error(`  FAILED: ${f.name}`);

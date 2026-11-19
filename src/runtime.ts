@@ -7714,6 +7714,8 @@ function __initVirtualRuntime(rootScope) {
       return isDeepEqual(a, b, true);
     }
 
+    const activeBunServers = new Set();
+
     const BunObj = {
       version: '1.1.0',
       serve(opts = {}) {
@@ -7724,6 +7726,7 @@ function __initVirtualRuntime(rootScope) {
           hostname,
           development: false,
           stop() {
+            activeBunServers.delete(serverObj);
             activePortTable.unregisterServer(port);
           }
         };
@@ -7735,6 +7738,7 @@ function __initVirtualRuntime(rootScope) {
           fetch: opts.fetch ? opts.fetch.bind(serverObj) : undefined,
           stop: () => serverObj.stop()
         });
+        activeBunServers.add(serverObj);
         return serverObj;
       },
       file(p) {
@@ -9012,11 +9016,29 @@ function __initVirtualRuntime(rootScope) {
         }
       }
 
+      const hasLiveServers = () => {
+        if (vhttp.hasActiveServers()) return true;
+        if (activeBunServers.size > 0) {
+          for (const srv of Array.from(activeBunServers)) {
+            if (!activePortTable.getServer(srv.port)) {
+              activeBunServers.delete(srv);
+            }
+          }
+          return activeBunServers.size > 0;
+        }
+        return false;
+      };
+
       const deadline = performance.now() + timeoutMs;
       let idleTicks = 0;
-      while (!hasExited && performance.now() < deadline) {
+      while (!hasExited) {
         if (signal && signal.aborted) {
           handleSigint();
+          break;
+        }
+        const liveServers = hasLiveServers();
+        const holdForInteractiveServer = Boolean(!isBackground && signal && liveServers);
+        if (!holdForInteractiveServer && performance.now() >= deadline) {
           break;
         }
         await Promise.resolve();
@@ -9026,7 +9048,7 @@ function __initVirtualRuntime(rootScope) {
           resourceTracker.activeImmediates.size > 0 ||
           resourceTracker.inFlightHttp.size > 0 ||
           resourceTracker.pendingTests.size > 0 ||
-          (isBackground && vhttp.hasActiveServers());
+          ((isBackground || Boolean(signal)) && liveServers);
 
         if (!busy) {
           idleTicks++;
@@ -9034,7 +9056,7 @@ function __initVirtualRuntime(rootScope) {
         } else {
           idleTicks = 0;
         }
-        await new Promise((r) => setTimeout(r, 2));
+        await new Promise((r) => setTimeout(r, holdForInteractiveServer ? 25 : 2));
       }
     } catch (err) {
       if (err && err._isProcessExit) {
@@ -9070,6 +9092,10 @@ function __initVirtualRuntime(rootScope) {
       if (!isBackground) {
         vhttp.closeAllServers();
         vnet.closeAllServers();
+        for (const srv of Array.from(activeBunServers)) {
+          try { srv.stop(); } catch (err) { _runtimeLogger.debug('executeInVirtualRuntime bun server stop failed', err); }
+        }
+        activeBunServers.clear();
         if (initialOpenFds && typeof vfs._listOpenFds === 'function' && typeof vfs.closeSync === 'function') {
           for (const fd of vfs._listOpenFds()) {
             if (!initialOpenFds.has(fd)) {

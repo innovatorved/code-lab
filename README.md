@@ -45,12 +45,23 @@ import '@innovatorved/code-lab/code-lab.css';
 const lab = CodeLab.mount('#editor', {
   id: 'http-demo',
   title: 'Bun HTTP Server',
+  lang: 'ts', // 'js' | 'ts' | 'sql' | 'py' | 'cpp'
+  showLanguageSelector: true,
   entry: 'server.ts',
+  // Pass user-customizable settings on init (or use `overrides` / `lockSettings: true` to lock them)
+  settings: {
+    'workbench.colorTheme': 'dark',
+    'editor.fontSize': 14,
+    'terminal.fontSize': 13,
+    'sql.defaultDialect': 'postgres'
+  },
   files: {
     'server.ts': 'Bun.serve({ port: 3000, fetch: () => Response.json({ ok: true }) });\n'
   }
 });
 ```
+
+Foreground servers started in the terminal (`serve`, `npm run dev`, `node server.js`, `bun run server.ts`) hold the terminal open until `Ctrl+C` (`SIGINT`) and automatically free their virtual port on exit. Append `&` (e.g., `node server.js &`) or open a second terminal session (`+`) to run commands concurrently.
 
 ### Lightweight SQL Inline Editor & Playground
 
@@ -87,6 +98,17 @@ const sql = createSqlEditor(document.getElementById('sql')!, {
 
 Full guides and API references live on the **[GitHub Wiki](https://github.com/innovatorved/code-lab/wiki)**.
 
+
+## Repository Layout
+
+```text
+├── packages/          # Layered workspace packages (core, fs, settings, commands, editor, terminal, runtime, preview, ui, sql)
+├── src/               # Workbench shell, POSIX shell, virtual runtime, SCM, search, diagnostics & language extensions
+├── apps/web/          # Reference browser workbench entrypoint
+├── examples/cloud-ide # Full Astro Cloud IDE demo app
+├── tests/             # 48 unit/integration suites, E2E suites, and Playwright browser specs
+└── tools/             # Build bundler, linter, architecture boundary checker, and gzip size guard
+```
 
 ## Development
 

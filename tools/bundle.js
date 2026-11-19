@@ -1280,7 +1280,20 @@ export interface CodeLabOptions {
   sqlSolutionFiles?: Record<string, string>;
   sqlStarterFiles?: Record<string, string>;
   /** Initial workspace/embed configuration overrides */
+  /** Initial user-customizable settings (or locked overrides when \`lockSettings: true\`). */
   settings?: Record<string, any>;
+  /** Initial Layer 2 user settings (editable in Settings UI). */
+  userSettings?: Record<string, any>;
+  /** Alias for \`userSettings\` default seed values. */
+  defaultSettings?: Record<string, any>;
+  /** Alias for \`settings\` configuration map. */
+  config?: Record<string, any>;
+  /** Locked Layer 4 setting overrides (cannot be changed via Settings UI). */
+  overrides?: Record<string, any>;
+  /** When true, \`settings\` is applied as locked Layer 4 overrides instead of editable user defaults. */
+  lockSettings?: boolean;
+  /** Show the JS/TS/C++/PY/SQL language switcher in the top toolbar. */
+  showLanguageSelector?: boolean;
   /** Force showing or hiding the file explorer in single-file SQL mode */
   showExplorer?: boolean;
   /** Editor engine preference ('sql' | 'monaco') */
