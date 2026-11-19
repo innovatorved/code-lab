@@ -5799,23 +5799,34 @@ int main() {
           ev.preventDefault();
           ev.stopPropagation();
           el.classList.remove('drag-over');
+          const folder = el.dataset.clFolder || '';
+          if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+            this.importDroppedFiles(ev.dataTransfer.files, folder);
+            return;
+          }
           const fileToMove = this._draggedFile || (ev.dataTransfer && ev.dataTransfer.getData('text/plain'));
-          const folder = el.dataset.clFolder;
-          if (fileToMove && folder !== undefined) {
+          if (fileToMove && el.dataset.clFolder !== undefined) {
             this.moveFile(fileToMove, folder);
           }
         });
       });
 
-      // Explorer container drop target (for moving to workspace root)
+      // Explorer container drop target (for moving to workspace root or importing OS files)
       if (!explorerEl._dragBound) {
         explorerEl._dragBound = true;
         explorerEl.addEventListener('dragover', ev => {
           ev.preventDefault();
+          if (ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('Files')) {
+            ev.dataTransfer.dropEffect = 'copy';
+          }
         });
         explorerEl.addEventListener('drop', ev => {
           if (ev.target.closest && ev.target.closest('.codelab-folder-item')) return;
           ev.preventDefault();
+          if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
+            this.importDroppedFiles(ev.dataTransfer.files, '');
+            return;
+          }
           const fileToMove = this._draggedFile || (ev.dataTransfer && ev.dataTransfer.getData('text/plain'));
           if (fileToMove) {
             this.moveFile(fileToMove, '');
@@ -13902,6 +13913,7 @@ int main() {
         { id: 'toggle-guide', label: 'View: Toggle Guide Sidebar', action: () => this.toggleGuide() },
         { id: 'toggle-drawer', label: 'View: Toggle Panel Visibility', shortcut: '⌘J', action: () => this.togglePanel() },
         { id: 'toggle-terminal', label: 'View: Toggle Terminal', shortcut: '⌃`', action: () => this.toggleTerminal() },
+        { id: 'toggle-zen-mode', label: 'View: Toggle Zen Mode', action: () => this.toggleZenMode() },
         { id: 'toggle-fullscreen', label: 'View: Toggle Fullscreen Workbench', action: () => this.toggleFullscreen() },
         { id: 'search-workspace', label: 'Search: Find & Replace Across Files...', shortcut: '⇧⌘F', action: () => this.openSearchView() },
         { id: 'open-scm', label: 'Git: Source Control (Status, Stage & Commit)...', shortcut: '⌃⇧G', action: () => this.openScmView() },
@@ -14997,6 +15009,91 @@ int main() {
         }
       }
       if (this.editor) setTimeout(() => this.editor.layout(), 50);
+    }
+
+    /**
+     * Imports local OS files dropped into the Explorer into the workspace and VFS.
+     */
+    async importDroppedFiles(fileList, targetFolder = '') {
+      const items = fileList ? Array.from(fileList) : [];
+      if (items.length === 0) return [];
+      const prefix = String(targetFolder || '').replace(/^\/+|\/+$/g, '');
+      const reservedRe = /(?:^|\/)(?:\.git|node_modules)(?:\/|$)/;
+      const MAX_FILE_BYTES = 2 * 1024 * 1024;
+      const imported = [];
+      let skipped = 0;
+
+      for (const file of items) {
+        if (!file || typeof file.name !== 'string') continue;
+        if (typeof file.size === 'number' && file.size > MAX_FILE_BYTES) {
+          skipped++;
+          continue;
+        }
+        const rawRel = (file.webkitRelativePath && String(file.webkitRelativePath).trim()) || file.name;
+        const cleanRel = rawRel.replace(/\\/g, '/').replace(/^\/+/, '');
+        const fullRel = prefix ? `${prefix}/${cleanRel}` : cleanRel;
+        const normalized = this._normalizeWorkspaceRelPath(fullRel);
+        if (!normalized || reservedRe.test(normalized)) {
+          skipped++;
+          continue;
+        }
+        try {
+          const text = typeof file.text === 'function' ? await file.text() : String(file.content ?? '');
+          this.files[normalized] = text;
+          this._vfsWriteFile(normalized, text);
+          imported.push(normalized);
+        } catch (err) {
+          this.logger.debug('Skipped unreadable dropped file.', normalized, err);
+          skipped++;
+        }
+      }
+
+      if (imported.length > 0) {
+        this._isBlankBase = false;
+        this._syncAllModels();
+        this._renderFileLists();
+        this.openFile(imported[0]);
+        this._saveState({ flushFiles: true });
+        this._lintAllWorkspaceFiles();
+        this._updateStatusBar();
+        if (typeof this._showToast === 'function') {
+          const extra = skipped > 0 ? ` (${skipped} skipped)` : '';
+          this._showToast(`Imported ${imported.length} file${imported.length === 1 ? '' : 's'}${extra}`, 'success');
+        }
+      } else if (skipped > 0 && typeof this._showToast === 'function') {
+        this._showToast(`Skipped ${skipped} unsupported or oversized file${skipped === 1 ? '' : 's'} (> 2 MB).`, 'warning');
+      }
+      return imported;
+    }
+
+    /**
+     * Toggles distraction-free Zen Mode by hiding sidebar, bottom panel, and status bar.
+     */
+    toggleZenMode() {
+      const shell = this.container ? this.container.querySelector('.codelab') : null;
+      if (!shell) return false;
+      this.isZenMode = !this.isZenMode;
+      if (this.isZenMode) {
+        this._zenPriorState = {
+          sidebarVisible: this.sidebarVisible !== false,
+          panelVisible: this.panelVisible !== false
+        };
+        shell.classList.add('is-zen-mode');
+        this.setSidebarVisible(false);
+        this.setPanelVisible(false);
+        if (typeof this._showToast === 'function') {
+          this._showToast('Zen Mode enabled — run "View: Toggle Zen Mode" to exit', 'info');
+        }
+      } else {
+        shell.classList.remove('is-zen-mode');
+        const prior = this._zenPriorState || { sidebarVisible: true, panelVisible: true };
+        this.setSidebarVisible(Boolean(prior.sidebarVisible));
+        this.setPanelVisible(Boolean(prior.panelVisible));
+      }
+      if (this.editor && typeof this.editor.layout === 'function') {
+        setTimeout(() => this.editor.layout(), 50);
+      }
+      return this.isZenMode;
     }
 
     stopExecution() {
@@ -19473,6 +19570,7 @@ int main() {
             label: 'Appearance',
             submenu: [
               { label: 'Full Screen', cmd: 'view:fullscreen' },
+              { label: 'Zen Mode', cmd: 'view:zen-mode' },
               { label: 'Move Primary Side Bar Left / Right', cmd: 'view:toggle-sidebar-side' },
               { label: 'Toggle Status Bar', cmd: 'view:toggle-statusbar' },
               { divider: true },
@@ -19749,6 +19847,8 @@ int main() {
         this.togglePanel();
       } else if (cmd === 'view:fullscreen') {
         this.toggleFullscreen();
+      } else if (cmd === 'view:zen-mode') {
+        this.toggleZenMode();
       } else if (cmd === 'view:toggle-sidebar-side') {
         if (this.configuration && typeof this.configuration.setUserSetting === 'function') {
           const cur = this.configuration.get('workbench.sidebar.defaultLocation', 'left');

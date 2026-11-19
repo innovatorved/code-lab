@@ -314,6 +314,11 @@ code-lab,
   border: none !important;
 }
 
+.codelab.is-zen-mode .codelab-statusbar,
+.codelab.is-zen-mode .codelab-activitybar {
+  display: none !important;
+}
+
 /* ── Top Workbench Titlebar (35px VS Code Titlebar) ── */
 .codelab-topbar,
 .codelab-titlebar,

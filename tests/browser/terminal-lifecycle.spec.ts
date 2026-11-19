@@ -107,3 +107,84 @@ test('init settings passed to CodeLab.mount() apply immediately and remain user-
   expect(result.initialTheme).toBe('light');
   expect(result.updatedSize).toBe(19);
 });
+
+test('drag-and-drop OS file upload and Zen Mode work in browser', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const t = (window as any).__codelabTest;
+    t.unmount();
+    t.mount({
+      persistState: false,
+      files: {
+        'src/app.js': 'console.log("hello");'
+      }
+    });
+    const raw = t.ide._instance || t.ide;
+
+    // 1. Test importDroppedFiles: normal file + ignored .git path
+    const goodFile = new File(['export const answer = 42;\n'], 'helper.js', { type: 'text/javascript' });
+    const ignoredFile = new File(['secret'], 'config', { type: 'text/plain' });
+    Object.defineProperty(ignoredFile, 'webkitRelativePath', { value: '.git/config' });
+
+    const imported = await raw.importDroppedFiles([goodFile, ignoredFile], 'src');
+    const content = raw.files['src/helper.js'];
+    const vfs = raw.shell?.vfs || raw.vfs;
+    const vfsContent = vfs && typeof vfs.readFileSync === 'function'
+      ? vfs.readFileSync('/workspace/src/helper.js', 'utf8')
+      : null;
+    const ignoredImported = Object.prototype.hasOwnProperty.call(raw.files, 'src/.git/config');
+    const activeFileAfterImport = raw.activeFile;
+
+    // 2. Test toggleZenMode: enters Zen Mode and restores prior layout when toggled off
+    const shell = raw.container.querySelector('.codelab');
+    const sidebarBefore = raw.sidebarVisible;
+    const panelBefore = raw.panelVisible;
+
+    const zenOn = raw.toggleZenMode();
+    const hasZenClassOn = Boolean(shell && shell.classList.contains('is-zen-mode'));
+    const statusBarEl = shell ? shell.querySelector('.codelab-statusbar') : null;
+    const statusBarHiddenDuringZen = statusBarEl ? getComputedStyle(statusBarEl).display === 'none' : true;
+    const sidebarDuringZen = raw.sidebarVisible;
+    const panelDuringZen = raw.panelVisible;
+
+    const zenOff = raw.toggleZenMode();
+    const hasZenClassOff = Boolean(shell && shell.classList.contains('is-zen-mode'));
+    const sidebarAfterZen = raw.sidebarVisible;
+    const panelAfterZen = raw.panelVisible;
+
+    return {
+      imported,
+      content,
+      vfsContent,
+      ignoredImported,
+      activeFileAfterImport,
+      sidebarBefore,
+      panelBefore,
+      zenOn,
+      hasZenClassOn,
+      statusBarHiddenDuringZen,
+      sidebarDuringZen,
+      panelDuringZen,
+      zenOff,
+      hasZenClassOff,
+      sidebarAfterZen,
+      panelAfterZen
+    };
+  });
+
+  expect(result.imported).toEqual(['src/helper.js']);
+  expect(result.content).toBe('export const answer = 42;\n');
+  expect(result.vfsContent).toBe('export const answer = 42;\n');
+  expect(result.ignoredImported).toBe(false);
+  expect(result.activeFileAfterImport).toBe('src/helper.js');
+
+  expect(result.zenOn).toBe(true);
+  expect(result.hasZenClassOn).toBe(true);
+  expect(result.statusBarHiddenDuringZen).toBe(true);
+  expect(result.sidebarDuringZen).toBe(false);
+  expect(result.panelDuringZen).toBe(false);
+
+  expect(result.zenOff).toBe(false);
+  expect(result.hasZenClassOff).toBe(false);
+  expect(result.sidebarAfterZen).toBe(result.sidebarBefore);
+  expect(result.panelAfterZen).toBe(result.panelBefore);
+});
