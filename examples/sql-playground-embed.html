@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodeLab — Lightweight SQL Playground Embed</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab-sql.css" />
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 24px auto; max-width: 860px; padding: 0 16px; }
+      #sql-editor { min-height: 240px; }
+      pre { background: #141414; color: #e5e5e5; padding: 12px; border-radius: 6px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h2>Standalone SQL Editor (~17 KB gzipped)</h2>
+    <div id="sql-editor"></div>
+    <pre id="sql-output">Press Cmd/Ctrl+Enter or click Run to execute SQL.</pre>
+
+    <script src="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab-sql.umd.js"></script>
+    <script>
+      const out = document.getElementById('sql-output');
+      window.CodeLabSql.createSqlEditor(document.getElementById('sql-editor'), {
+        mode: 'playground',
+        dialect: 'postgres',
+        value: 'SELECT id, email, plan\nFROM users\nWHERE active = true\nORDER BY id DESC\nLIMIT 10;\n',
+        async onRun({ effectiveSql, dialect }) {
+          out.textContent = `[${dialect}] Executed:\n${effectiveSql}`;
+        }
+      });
+    </script>
+  </body>
+</html>

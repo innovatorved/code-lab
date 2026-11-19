@@ -17743,6 +17743,12 @@ int main() {
         try {
           this._syncFilesToShellVfs();
           this.shell.cwd = (targetSession && targetSession.cwd) || this.cwd || '/workspace';
+          if (targetSession) {
+            if (!targetSession.env || typeof targetSession.env !== 'object') {
+              targetSession.env = { ...this._getBaseShellEnv(), PWD: this.shell.cwd };
+            }
+            this.shell.env = { ...targetSession.env, PWD: this.shell.cwd };
+          }
           const shellRes = await this.shell.execute(trimmed, {
             onStdout: (c) => {
               streamedStdout = true;
@@ -17760,7 +17766,12 @@ int main() {
           }
           const aborted = this._isAbortResult(shellRes, abortCtrl.signal);
           const nextCwd = this.shell.cwd || (targetSession && targetSession.cwd) || this.cwd;
-          if (targetSession) targetSession.cwd = nextCwd;
+          if (targetSession) {
+            targetSession.cwd = nextCwd;
+            if (this.shell && this.shell.env && typeof this.shell.env === 'object') {
+              targetSession.env = { ...this.shell.env, PWD: nextCwd };
+            }
+          }
           if (targetSessionId === this._activeTerminalSessionId) {
             this.cwd = nextCwd;
           }
@@ -20433,11 +20444,23 @@ int main() {
       }).join('');
     }
 
+    _getBaseShellEnv() {
+      if (!this._baseShellEnv && this.shell && this.shell.env && typeof this.shell.env === 'object') {
+        this._baseShellEnv = { ...this.shell.env };
+      }
+      return this._baseShellEnv
+        ? { ...this._baseShellEnv }
+        : { HOME: '/workspace', PWD: '/workspace', PATH: '/usr/local/bin:/usr/bin:/bin' };
+    }
+
     _saveActiveTerminalSessionState() {
       if (!Array.isArray(this._terminalSessions)) return;
       const active = this._terminalSessions.find((s) => s.id === this._activeTerminalSessionId);
       if (!active) return;
       active.cwd = this.cwd || (this.shell && this.shell.cwd) || '/workspace';
+      if (this.shell && this.shell.env && typeof this.shell.env === 'object') {
+        active.env = { ...this.shell.env, PWD: active.cwd };
+      }
       active.inRepl = Boolean(this.inRepl);
       active.replLang = this.replLang || 'node';
       active.replHistory = Array.isArray(this.replHistory) ? this.replHistory.slice() : [];
@@ -20461,9 +20484,10 @@ int main() {
       this.cwd = target.cwd || '/workspace';
       if (this.shell) {
         this.shell.cwd = this.cwd;
-        if (this.shell.env && typeof this.shell.env === 'object') {
-          this.shell.env.PWD = this.cwd;
+        if (!target.env || typeof target.env !== 'object') {
+          target.env = { ...this._getBaseShellEnv(), PWD: this.cwd };
         }
+        this.shell.env = { ...target.env, PWD: this.cwd };
       }
       this.inRepl = Boolean(target.inRepl);
       this.replLang = target.replLang || 'node';
@@ -20480,11 +20504,13 @@ int main() {
 
     _ensureTerminalSessions() {
       if (!Array.isArray(this._terminalSessions) || this._terminalSessions.length === 0) {
+        const initCwd = this.cwd || (this.shell && this.shell.cwd) || '/workspace';
         this._terminalSessions = [
           {
             id: 'session-1',
             name: 'bash-1',
-            cwd: this.cwd || (this.shell && this.shell.cwd) || '/workspace',
+            cwd: initCwd,
+            env: { ...this._getBaseShellEnv(), PWD: initCwd },
             logs: Array.isArray(this.terminalLogs) ? this.terminalLogs : (this.terminalLogs = []),
             inRepl: Boolean(this.inRepl),
             replLang: this.replLang || 'node',
@@ -20522,6 +20548,7 @@ int main() {
         id,
         name: label,
         cwd: '/workspace',
+        env: { ...this._getBaseShellEnv(), PWD: '/workspace' },
         logs: [],
         inRepl: false,
         replLang: 'node',

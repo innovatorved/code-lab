@@ -894,6 +894,9 @@ export class SettingsDialogController implements IDisposable {
             ? (insp.workspaceValue !== undefined ? 'workspace' : '')
             : (insp.effectiveSource !== 'default' ? insp.effectiveSource : '');
 
+        const hasWorkspaceOverrideNotice =
+          this.activeScope === 'user' && insp.workspaceValue !== undefined;
+
         const modClass = canReset ? ' cl-setting-item--modified' : '';
 
         return (
@@ -905,6 +908,9 @@ export class SettingsDialogController implements IDisposable {
           `<code class="cl-setting-item__key">${escapeAttr(desc.key)}</code>` +
           (badgeLabel
             ? `<span class="cl-setting-badge" data-role="setting-badge">${escapeAttr(badgeLabel)}</span>`
+            : '') +
+          (hasWorkspaceOverrideNotice
+            ? `<span class="cl-setting-badge" data-role="setting-workspace-override" title="Overridden in .codelab/settings.json">Modified in Workspace</span>`
             : '') +
           `</div>` +
           (canReset

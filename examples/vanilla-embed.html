@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodeLab — Vanilla HTML Embed</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.css" />
+    <style>
+      html, body, #ide { margin: 0; padding: 0; width: 100%; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="ide"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.js"></script>
+    <script>
+      window.CodeLab.mount('#ide', {
+        id: 'vanilla-embed-demo',
+        title: 'TypeScript & Bun Sandbox',
+        lang: 'ts',
+        showLanguageSelector: true,
+        entry: 'server.ts',
+        // User-customizable initial settings (use `overrides` or `lockSettings: true` to lock)
+        settings: {
+          'workbench.colorTheme': 'dark',
+          'editor.fontSize': 14,
+          'editor.tabSize': 2,
+          'terminal.fontSize': 13,
+          'sql.defaultDialect': 'postgres'
+        },
+        files: {
+          'server.ts': [
+            'const server = Bun.serve({',
+            '  port: 3000,',
+            '  fetch(req) {',
+            '    return Response.json({ ok: true, path: new URL(req.url).pathname });',
+            '  }',
+            '});',
+            'console.log(`Listening on http://127.0.0.1:${server.port}/`);',
+            ''
+          ].join('\n'),
+          'README.md': '# Vanilla Embed\n\nRun `bun run server.ts` in the terminal (press `Ctrl+C` to stop), or open a second terminal tab (`+`) to run `curl http://localhost:3000/hello`.\n'
+        }
+      });
+    </script>
+  </body>
+</html>

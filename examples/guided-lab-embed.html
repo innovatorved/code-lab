@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodeLab — Guided Lab Embed</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.css" />
+    <style>
+      html, body, #lab { margin: 0; padding: 0; width: 100%; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="lab"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@innovatorved/code-lab/dist/code-lab.js"></script>
+    <script>
+      window.CodeLab.mount('#lab', {
+        id: 'guided-rate-limiter',
+        title: 'Build a Token Bucket',
+        mode: 'guided',
+        lang: 'js',
+        showLanguageSelector: true,
+        entry: 'demo.js',
+        testEntry: 'test.js',
+        settings: {
+          'workbench.colorTheme': 'dark',
+          'editor.fontSize': 14
+        },
+        steps: [
+          {
+            title: 'Implement allow()',
+            prompt: 'Return `true` when tokens remain and decrement the bucket; otherwise return `false`.',
+            hints: ['Initialize `this.tokens = capacity` in the constructor.']
+          }
+        ],
+        starterFiles: {
+          'bucket.js': 'export class TokenBucket {\n  constructor(capacity) {\n    this.tokens = capacity;\n  }\n  allow() {\n    // TODO: decrement and return true if tokens > 0\n    return false;\n  }\n}\n',
+          'demo.js': 'import { TokenBucket } from "./bucket.js";\nconst b = new TokenBucket(2);\nconsole.log(b.allow(), b.allow(), b.allow());\n',
+          'test.js': 'import assert from "node:assert/strict";\nimport { TokenBucket } from "./bucket.js";\nconst b = new TokenBucket(2);\nassert.equal(b.allow(), true);\nassert.equal(b.allow(), true);\nassert.equal(b.allow(), false);\nconsole.log("All assertions passed!");\n'
+        },
+        solutionFiles: {
+          'bucket.js': 'export class TokenBucket {\n  constructor(capacity) {\n    this.tokens = capacity;\n  }\n  allow() {\n    if (this.tokens <= 0) return false;\n    this.tokens--;\n    return true;\n  }\n}\n'
+        }
+      });
+    </script>
+  </body>
+</html>

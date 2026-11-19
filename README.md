@@ -99,6 +99,14 @@ const sql = createSqlEditor(document.getElementById('sql')!, {
 Full guides and API references live on the **[GitHub Wiki](https://github.com/innovatorved/code-lab/wiki)**.
 
 
+## Embed Examples
+
+Ready-to-copy starters live in `examples/`:
+- [`examples/vanilla-embed.html`](./examples/vanilla-embed.html) — Zero-build CDN embed with customizable `settings`, language switcher, and Bun/TS server.
+- [`examples/react-embed.tsx`](./examples/react-embed.tsx) — Reusable React / Next.js client component wrapper.
+- [`examples/guided-lab-embed.html`](./examples/guided-lab-embed.html) — Step-by-step Guided Lab with hints, starter/solution files, and tests.
+- [`examples/sql-playground-embed.html`](./examples/sql-playground-embed.html) — Standalone PostgreSQL / SQLite playground (~17 KB gzipped).
+
 ## Repository Layout
 
 ```text
