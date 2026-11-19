@@ -586,7 +586,7 @@
       </button>
       <div class="brand-status-pill">
         <span class="status-dot" aria-hidden="true"></span>
-        <span id="version-status-label">v0.6.1 &middot; browser runtime</span>
+        <span id="version-status-label">v0.7.0 &middot; browser runtime</span>
       </div>
     </div>
 
@@ -826,7 +826,7 @@
               else if (demoId === 'cpp' || demoId === 'python') openLanguageDemo(demoId, { forceReset: false });
             }),
             files: options.files || (isBlank ? {} : {
-              'README.md': '# Welcome to code-lab v0.6.1\n\n- **Settings UI & Workspace JSON**: Press `Cmd+,` / `Ctrl+,` (or click **Settings** in the top bar) to configure editor, terminal, and SQL dialect preferences, backed by `.codelab/settings.json`.\n- **SQL Studio & Guided Labs**: Open the **SQL Studio** demo from the home screen or run `sqlite3` directly in the POSIX terminal.\n- **Multi-Runtime Terminal**: Click `+` in the terminal drawer header for multiple sessions, or run `git clone <owner/repo>`, `node`, `bun`, `python3`, or `clang++`.\n',
+              'README.md': '# Welcome to code-lab v0.7.0\n\n- **Settings UI & Workspace JSON**: Press `Cmd+,` / `Ctrl+,` (or click **Settings** in the top bar) to configure editor, terminal, and SQL dialect preferences, backed by `.codelab/settings.json`.\n- **SQL Studio & Guided Labs**: Open the **SQL Studio** demo from the home screen or run `sqlite3` directly in the POSIX terminal.\n- **Multi-Runtime Terminal**: Click `+` in the terminal drawer header for multiple sessions, or run `git clone <owner/repo>`, `node`, `bun`, `python3`, or `clang++`.\n',
               '.codelab/settings.json': '{\n  "sql.defaultDialect": "sqlite"\n}\n'
             }),
             entry: isBlank ? null : (options.entry || 'demo.js'),

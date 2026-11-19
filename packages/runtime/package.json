@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/runtime",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Typed sandbox execution service & worker host supervisor for CodeLab.",
   "type": "module",
   "main": "./src/index.ts",

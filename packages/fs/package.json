@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/fs",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Pluggable virtual filesystem service for CodeLab with Memory, IndexedDB, and OPFS backends.",
   "type": "module",
   "main": "./src/index.ts",

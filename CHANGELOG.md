@@ -4,6 +4,21 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-19
+
+### Added
+- **Drag-and-Drop Local OS File Upload into Explorer (`src/workbench.ts`, `src/code-lab.css`)**:
+  - Drop local files from the OS onto the Explorer root or any folder to import them into the workspace and shell VFS (`importDroppedFiles`), with visual `.drag-over` drop highlights, copy cursor feedback, 2 MB per-file guard, and reserved-path (`.git`, `node_modules`) protection.
+- **Zen / Focus Mode (`src/workbench.ts`, `src/code-lab.css`)**:
+  - Added `toggleZenMode()` (also exposed on `<code-lab>` and `dist/code-lab.d.ts`), wired into the **View → Zen Mode** menu and Command Palette (`View: Toggle Zen Mode`), hiding the sidebar, bottom panel, status bar, and activity bar and restoring prior layout state on exit.
+- **Customizable Initialization Settings & Embed Examples (`src/workbench.ts`, `packages/ui/src/settings-dialog.ts`, `examples/`)**:
+  - Seed editable user defaults via `options.settings` / `options.userSettings` / `options.config` and lock specific settings via `options.overrides` / `lockSettings: true`, with inline Settings UI validation and workspace override badges.
+  - Added standalone embed examples (`examples/react-embed.html`, `examples/nextjs-embed.tsx`, `examples/web-component.html`, `examples/sql-only.html`) and Cloud IDE CI verification.
+
+### Fixed
+- **Terminal Foreground Server Lifecycle & Multi-Session Isolation (`src/workbench.ts`, `src/shell.ts`)**:
+  - Prevented auto-running projects on `git clone`; held foreground servers (`serve`, `npm run dev`, `vite`, `node server.js`, `bun run server.ts`, `python3 -m http.server`) in the terminal until `Ctrl+C` while keeping sibling terminal sessions isolated with per-session running, abort, output, and environment state.
+
 ## [0.6.1] - 2026-11-16
 
 ### Changed

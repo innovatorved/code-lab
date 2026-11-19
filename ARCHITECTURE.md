@@ -1,4 +1,4 @@
-# `@innovatorved/code-lab` Architecture (v0.6.1)
+# `@innovatorved/code-lab` Architecture (v0.7.0)
 
 `@innovatorved/code-lab` is an embeddable, browser-native Node.js v22 + Bun v1.1 + WASI C++20 + Python 3.12 IDE, first-class SQL playground (`@innovatorved/code-lab/sql`), POSIX shell, PTY terminal, and virtual execution sandbox with self-contained browser bundles (zero runtime dependencies in `dist/*`; Zod schemas available under `@innovatorved/code-lab/schemas`; modular extensions under `@innovatorved/code-lab/extensions/{guided-lab,javascript,typescript,cpp,python}`).
 

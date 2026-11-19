@@ -1,6 +1,6 @@
 {
   "name": "@innovatorved/code-lab",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Modular browser-native IDE Workbench, Lightweight SQL Playground & Inline Editor (@innovatorved/code-lab/sql), POSIX Shell & Coreutils, PTY Terminal, Web Worker Node.js/Bun Virtual Runtime, C++20 WASI, and Python 3.12 Extension.",
   "workspaces": [
     "packages/*",

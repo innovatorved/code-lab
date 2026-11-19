@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/core",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Zero-DOM foundational primitives for CodeLab: ServiceContainer DI, IDisposable/DisposableStore, typed Emitter/Event bus, CodeLabError/Logger, ContributionRegistry, and POSIX path/glob utilities.",
   "type": "module",
   "main": "./src/index.ts",
