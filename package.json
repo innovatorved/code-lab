@@ -145,7 +145,7 @@
     "buffer": "^6.0.3",
     "esbuild": "^0.28.2",
     "isomorphic-git": "^1.44.14",
-    "monaco-editor": "0.52.2",
+    "monaco-editor": "0.57.0",
     "typescript": "6.0.3"
   },
   "publishConfig": {
