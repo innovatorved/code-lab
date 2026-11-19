@@ -1402,6 +1402,7 @@ export declare class CodeLabWorkbench {
   cursorPos: { lineNumber: number; column: number; ln: number; col: number };
   isRunning: boolean;
   isFullscreen: boolean;
+  isZenMode: boolean;
   constructor(container: HTMLElement | string, options?: CodeLabOptions);
   runDemo(): Promise<void>;
   runTests(filterTestNames?: string | string[] | null): Promise<void>;
@@ -1412,6 +1413,8 @@ export declare class CodeLabWorkbench {
   openSettings(): void;
   closeSettings(): void;
   openWorkspaceSettingsJson(): void;
+  toggleZenMode(): boolean;
+  importDroppedFiles(fileList: FileList | File[], targetFolder?: string): Promise<string[]>;
   runTask(idOrLabel: string): Promise<any>;
   registerPlugin(manifest: Record<string, any>): { dispose(): void };
   stopExecution(): void;
@@ -1528,6 +1531,8 @@ export declare class CodeLabElement extends HTMLElement {
   openSettings(): void;
   closeSettings(): void;
   openWorkspaceSettingsJson(): void;
+  toggleZenMode(): boolean;
+  importDroppedFiles(fileList: FileList | File[], targetFolder?: string): Promise<string[]>;
   runSql(modeOverride?: 'run' | 'verify' | 'explain', payloadOverride?: any): Promise<any>;
   setSqlSchema(schema: Record<string, any> | null): this;
   setSqlDialect(dialect: 'postgres' | 'sqlite'): this;

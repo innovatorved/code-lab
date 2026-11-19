@@ -5785,11 +5785,16 @@ int main() {
         });
       });
 
+      const isExternalFilesDrag = (ev) =>
+        Boolean(ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('Files'));
+
       // Attach folder drop events
       explorerEl.querySelectorAll('.codelab-folder-item').forEach(el => {
         el.addEventListener('dragover', ev => {
           ev.preventDefault();
-          if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+          if (ev.dataTransfer) {
+            ev.dataTransfer.dropEffect = isExternalFilesDrag(ev) ? 'copy' : 'move';
+          }
           el.classList.add('drag-over');
         });
         el.addEventListener('dragleave', () => {
@@ -5799,6 +5804,7 @@ int main() {
           ev.preventDefault();
           ev.stopPropagation();
           el.classList.remove('drag-over');
+          explorerEl.classList.remove('drag-over');
           const folder = el.dataset.clFolder || '';
           if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
             this.importDroppedFiles(ev.dataTransfer.files, folder);
@@ -5816,11 +5822,18 @@ int main() {
         explorerEl._dragBound = true;
         explorerEl.addEventListener('dragover', ev => {
           ev.preventDefault();
-          if (ev.dataTransfer && ev.dataTransfer.types && Array.from(ev.dataTransfer.types).includes('Files')) {
+          if (ev.dataTransfer && isExternalFilesDrag(ev)) {
             ev.dataTransfer.dropEffect = 'copy';
+            explorerEl.classList.add('drag-over');
+          }
+        });
+        explorerEl.addEventListener('dragleave', ev => {
+          if (!ev.relatedTarget || !explorerEl.contains(ev.relatedTarget)) {
+            explorerEl.classList.remove('drag-over');
           }
         });
         explorerEl.addEventListener('drop', ev => {
+          explorerEl.classList.remove('drag-over');
           if (ev.target.closest && ev.target.closest('.codelab-folder-item')) return;
           ev.preventDefault();
           if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length > 0) {
@@ -21979,6 +21992,8 @@ int main() {
       openSettings(opts) { if (this._instance) this._instance.openSettings(opts); }
       closeSettings() { if (this._instance) this._instance.closeSettings(); }
       openWorkspaceSettingsJson() { if (this._instance) this._instance.openWorkspaceSettingsJson(); }
+      toggleZenMode() { return this._instance ? this._instance.toggleZenMode() : false; }
+      importDroppedFiles(fileList, targetFolder = '') { return this._instance ? this._instance.importDroppedFiles(fileList, targetFolder) : Promise.resolve([]); }
       runSql(mode, payload) { return this._instance ? this._instance.runSql(mode, payload) : Promise.resolve(null); }
       setSqlSchema(schema) { if (this._instance) this._instance.setSqlSchema(schema); return this; }
       setSqlDialect(dialect) { if (this._instance) this._instance.setSqlDialect(dialect); return this; }

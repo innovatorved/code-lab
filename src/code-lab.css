@@ -1417,7 +1417,8 @@ code-lab,
   background: var(--cl-bg-hover);
 }
 
-.codelab-folder-item.drag-over {
+.codelab-folder-item.drag-over,
+.codelab-explorer.drag-over {
   background: var(--cl-bg-hover);
   outline: 1px dashed var(--cl-focus-border);
   outline-offset: -1px;
