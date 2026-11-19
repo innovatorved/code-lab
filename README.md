@@ -1,6 +1,13 @@
 # @innovatorved/code-lab
 
+[![CI](https://github.com/innovatorved/code-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/innovatorved/code-lab/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@innovatorved/code-lab.svg)](https://www.npmjs.com/package/@innovatorved/code-lab)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Live Cloud IDE](https://img.shields.io/badge/Live_Demo-code--lab.vedgupta.in-000000)](https://code-lab.vedgupta.in/)
+
 Modular browser-native IDE workbench (`v0.6.1`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 73 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
+
+**[Try the Live Cloud IDE →](https://code-lab.vedgupta.in/)**
 
 
 ## Highlights

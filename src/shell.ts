@@ -7691,6 +7691,33 @@
         return { code: 0, stdout: 'Python 3.12.8 (CPython WebAssembly via Pyodide)\n', stderr: '' };
       }
 
+      if (args[0] === '-m' && args[1] === 'http.server') {
+        let port = 8000;
+        let dirArg = '.';
+        for (let i = 2; i < args.length; i++) {
+          const a = args[i];
+          if ((a === '-d' || a === '--directory') && args[i + 1]) {
+            dirArg = args[++i];
+          } else if (a.startsWith('--directory=')) {
+            dirArg = a.slice('--directory='.length) || '.';
+          } else if (a === '-b' || a === '--bind') {
+            i++;
+          } else if (/^\d+$/.test(a)) {
+            port = Number(a);
+          }
+        }
+        const rootDir = ctx.resolvePath(dirArg);
+        if (!ctx.vfs.existsSync(rootDir)) {
+          return { code: 1, stdout: '', stderr: `python3: http.server: ${dirArg}: No such file or directory\n` };
+        }
+        const entry = registerPreviewServer(ctx, rootDir, port);
+        if (!entry) {
+          return { code: 1, stdout: '', stderr: 'python3: http.server: no virtual port table available\n' };
+        }
+        const banner = `Serving HTTP on 127.0.0.1 port ${entry.port} (http://127.0.0.1:${entry.port}/) ...\n`;
+        return await waitForForegroundServer(entry, ctx, banner);
+      }
+
       const pyCompiler =
         (ctx.shell && ctx.shell.options && ctx.shell.options.pythonCompiler) ||
         (typeof globalThis !== 'undefined' && globalThis.__codelabPythonCompiler) ||

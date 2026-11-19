@@ -55,6 +55,9 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Verify Cloud IDE example build
+        run: cd examples/cloud-ide && bun install --frozen-lockfile && bun run build
+
       - name: Verify bundle size budgets (@innovatorved/code-lab/sql < 35 KB gzip)
         run: bun run check:size
 

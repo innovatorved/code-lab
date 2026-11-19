@@ -433,6 +433,27 @@ async function runSuite() {
     assert.equal(portTable.listServers().some((s) => Number(s.port) === 4412), false, 'bun server port closed on Ctrl+C');
   });
 
+  await check('B15 `python3 -m http.server` holds terminal until Ctrl+C and closes port', async () => {
+    const { portTable, shell } = makeShell();
+    const ac = new AbortController();
+    let pyOut = '';
+    let pyDone = false;
+    const pyPromise = shell.execute('python3 -m http.server 8088', {
+      signal: ac.signal,
+      onStdout: (c) => { pyOut += c; }
+    }).then((r) => { pyDone = true; return r; });
+
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(pyDone, false, 'python3 -m http.server must stay running until Ctrl+C');
+    assert.ok(pyOut.includes('http://127.0.0.1:8088/'), 'prints serving URL');
+    assert.ok(portTable.listServers().some((s) => Number(s.port) === 8088), 'port 8088 listening');
+
+    ac.abort('SIGINT');
+    const res = await pyPromise;
+    assert.equal(res.code, 130);
+    assert.equal(portTable.listServers().some((s) => Number(s.port) === 8088), false, 'port 8088 closed on Ctrl+C');
+  });
+
   console.log(`\n=== Framework Suite Summary: ${passed} passed, ${failed} failed ===`);
   if (failed > 0) {
     for (const f of failures) console.error(`  FAILED: ${f.name}`);
