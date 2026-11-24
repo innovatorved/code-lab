@@ -22,7 +22,7 @@ export type GuidedStep = z.infer<typeof GuidedStepSchema>;
 
 // ── 2. Language Bundle ──────────────────────────────────────────────────────
 
-export const LanguageIdSchema = z.enum(['js', 'ts', 'cpp', 'py']);
+export const LanguageIdSchema = z.enum(['js', 'ts', 'cpp', 'py', 'sql']);
 export type LanguageId = z.infer<typeof LanguageIdSchema>;
 export const LanguageEnum = LanguageIdSchema;
 
@@ -100,7 +100,7 @@ export const CppExtensionOptionsSchema = z.object({
 export type CppExtensionOptions = z.input<typeof CppExtensionOptionsSchema>;
 
 export const PythonToolchainProgressSchema = z.object({
-  stage: z.enum(['downloading', 'caching', 'extracting', 'initializing', 'ready']),
+  stage: z.enum(['downloading', 'caching', 'extracting', 'initializing', 'ready', 'error']),
   loadedBytes: z.number().optional(),
   totalBytes: z.number().optional(),
   percent: z.number().optional(),

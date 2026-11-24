@@ -28,9 +28,11 @@
         },
         steps: [
           {
+            id: 'step-1',
             title: 'Implement allow()',
-            prompt: 'Return `true` when tokens remain and decrement the bucket; otherwise return `false`.',
-            hints: ['Initialize `this.tokens = capacity` in the constructor.']
+            instructions: 'Return `true` when tokens remain and decrement the bucket; otherwise return `false`.',
+            hint: 'Initialize `this.tokens = capacity` in the constructor and decrement when `this.tokens > 0`.',
+            targetFile: 'bucket.js'
           }
         ],
         starterFiles: {

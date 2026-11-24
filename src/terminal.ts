@@ -1008,7 +1008,7 @@
         return;
       }
 
-      if (key === 'Home' || (isCtrl && (key === 'a' || key === 'A'))) {
+      if (key === 'Home' || (e.ctrlKey && !e.metaKey && (key === 'a' || key === 'A'))) {
         if (e.preventDefault) e.preventDefault();
         this.cursor = 0;
         this.updateActiveLine();
@@ -1141,9 +1141,10 @@
           this.buffer = this.buffer.slice(0, this.cursor) + seg + this.buffer.slice(this.cursor);
           this.cursor = this.buffer.length;
           this.submitLine();
-          while (this.isCommandRunning()) {
+          while (this._mounted && this.isCommandRunning()) {
             await new Promise((r) => setTimeout(r, 10));
           }
+          if (!this._mounted) return;
         } else if (seg.length > 0) {
           this.buffer = seg;
           this.cursor = seg.length;
@@ -1379,6 +1380,7 @@
     parseAnsiToHtml,
     escapeHtml,
     ANSI_CODE_MAP,
+    ansi256ToColor,
     resolveAnsiControlCodes
   };
 });

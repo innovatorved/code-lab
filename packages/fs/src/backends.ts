@@ -121,6 +121,10 @@ export class IndexedDbBackend implements IFsBackend {
           db.close();
           resolve();
         };
+        tx.onabort = () => {
+          db.close();
+          resolve();
+        };
       } catch {
         db.close();
         resolve();
@@ -144,6 +148,10 @@ export class IndexedDbBackend implements IFsBackend {
           db.close();
           resolve();
         };
+        tx.onabort = () => {
+          db.close();
+          resolve();
+        };
       } catch {
         db.close();
         resolve();
@@ -164,6 +172,10 @@ export class IndexedDbBackend implements IFsBackend {
           resolve();
         };
         tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+        tx.onabort = () => {
           db.close();
           resolve();
         };

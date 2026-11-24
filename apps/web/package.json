@@ -1,6 +1,6 @@
 {
   "name": "@code-lab/web",
-  "version": "0.6.1",
+  "version": "0.7.1",
   "private": true,
   "description": "Standalone web shell & embeddable DI kernel composing all @code-lab/* workspace packages.",
   "type": "module",
@@ -15,10 +15,6 @@
     "@code-lab/settings": "workspace:*",
     "@code-lab/commands": "workspace:*",
     "@code-lab/sql": "workspace:*",
-    "@code-lab/editor": "workspace:*",
-    "@code-lab/runtime": "workspace:*",
-    "@code-lab/terminal": "workspace:*",
-    "@code-lab/preview": "workspace:*",
     "@code-lab/ui": "workspace:*"
   },
   "license": "MIT"

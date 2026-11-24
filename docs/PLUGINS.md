@@ -46,7 +46,7 @@ export interface CodeLabPluginManifest {
 | `contributes.settings` | Registers typed settings (`boolean`, `number`, `string`, enum) that automatically appear in the `<dialog>` Settings UI (`Cmd+,`) and validate `.codelab/settings.json`. |
 | `contributes.commands` | Adds commands to the Command Palette (`Cmd+K` / `Cmd+Shift+P`). Invoking a contributed command automatically activates the owning plugin first. |
 | `contributes.keybindings` | Binds keyboard chords (`Mod+Shift+L`) gated by `when` context expressions (`editorFocus && resourceLangId == 'sql'`). |
-| `contributes.themes` | Registers custom Dark, Light, or High-Contrast CSS-token themes selectable via `workbench.theme`. |
+| `contributes.themes` | Registers custom Dark, Light, or High-Contrast CSS-token themes selectable via `workbench.colorTheme`. |
 | `contributes.panels` | Adds custom tabs to the bottom drawer (`location: 'drawer'`) or sidebar (`location: 'sidebar'`). |
 | `contributes.languages` | Associates file extensions (`.prql`, `.graphql`) with language IDs and optional custom `runFile(path, source)` executors. |
 
@@ -143,7 +143,7 @@ export const queryAdvisorPlugin: CodeLabPluginManifest = {
 ```js
 const ide = CodeLab.mount('#ide', {
   lang: 'sql',
-  code: 'SELECT id, total_cents FROM orders LIMIT 25;',
+  files: { 'query.sql': 'SELECT id, total_cents FROM orders LIMIT 25;' },
   plugins: [queryAdvisorPlugin]
 });
 

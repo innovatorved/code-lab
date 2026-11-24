@@ -83,333 +83,9 @@
 
   // The bundler rewrites this literal from package.json at build time. Keeping
   // the fallback in sync lets tests require src/workbench.js directly.
-  const CODELAB_VERSION = '0.7.0';
+  const CODELAB_VERSION = '0.7.1';
 
   // Ambient TypeScript declarations for Node.js built-ins inside Monaco
-  const NODE_AMBIENT_DTS = `
-declare var require: (id: string) => any;
-declare var module: { exports: any };
-declare var exports: any;
-declare var __dirname: string;
-declare var __filename: string;
-declare var process: {
-  env: Record<string, string | undefined>;
-  argv: string[];
-  version: string;
-  versions: Record<string, string>;
-  platform: string;
-  arch: string;
-  pid: number;
-  cwd(): string;
-  hrtime: { (time?: [number, number]): [number, number]; bigint(): bigint };
-  nextTick(cb: (...args: any[]) => void, ...args: any[]): void;
-  stdout: { write(chunk: any): boolean };
-  stderr: { write(chunk: any): boolean };
-};
-declare class Buffer extends Uint8Array {
-  static from(data: any, encoding?: string): Buffer;
-  static alloc(size: number, fill?: any, encoding?: string): Buffer;
-  static allocUnsafe(size: number): Buffer;
-  static concat(list: Uint8Array[], totalLength?: number): Buffer;
-  static isBuffer(obj: any): obj is Buffer;
-  static byteLength(str: string | Uint8Array, encoding?: string): number;
-  static compare(a: Uint8Array, b: Uint8Array): number;
-  toString(encoding?: string, start?: number, end?: number): string;
-  write(str: string, offset?: number, length?: number, encoding?: string): number;
-  slice(start?: number, end?: number): Buffer;
-  subarray(start?: number, end?: number): Buffer;
-  equals(other: Uint8Array): boolean;
-  copy(target: Uint8Array, targetStart?: number, sourceStart?: number, sourceEnd?: number): number;
-  readUInt8(offset?: number): number;
-  readUInt16BE(offset?: number): number;
-  readUInt16LE(offset?: number): number;
-  readUInt32BE(offset?: number): number;
-  readUInt32LE(offset?: number): number;
-  readInt32BE(offset?: number): number;
-  readInt32LE(offset?: number): number;
-  readBigUInt64BE(offset?: number): bigint;
-  readBigInt64BE(offset?: number): bigint;
-  writeUInt8(value: number, offset?: number): number;
-  writeUInt16BE(value: number, offset?: number): number;
-  writeUInt16LE(value: number, offset?: number): number;
-  writeUInt32BE(value: number, offset?: number): number;
-  writeUInt32LE(value: number, offset?: number): number;
-  writeInt32BE(value: number, offset?: number): number;
-  writeInt32LE(value: number, offset?: number): number;
-  writeBigUInt64BE(value: bigint, offset?: number): number;
-  writeBigInt64BE(value: bigint, offset?: number): number;
-}
-declare module 'node:test' {
-  export function describe(name: string, fn: () => any): void;
-  export function it(name: string, fn: () => any): void;
-  export function test(name: string, fn: () => any): void;
-  export function before(fn: () => any): void;
-  export function after(fn: () => any): void;
-  export function beforeEach(fn: () => any): void;
-  export function afterEach(fn: () => any): void;
-}
-declare module 'test' { export * from 'node:test'; }
-declare module 'node:assert' {
-  function assert(value: any, message?: string | Error): void;
-  namespace assert {
-    function ok(value: any, message?: string | Error): void;
-    function equal(actual: any, expected: any, message?: string | Error): void;
-    function strictEqual(actual: any, expected: any, message?: string | Error): void;
-    function notEqual(actual: any, expected: any, message?: string | Error): void;
-    function notStrictEqual(actual: any, expected: any, message?: string | Error): void;
-    function deepEqual(actual: any, expected: any, message?: string | Error): void;
-    function deepStrictEqual(actual: any, expected: any, message?: string | Error): void;
-    function throws(block: () => any, error?: any, message?: string): void;
-    function doesNotThrow(block: () => any, error?: any, message?: string): void;
-    function rejects(block: (() => Promise<any>) | Promise<any>, error?: any, message?: string): Promise<void>;
-    function doesNotReject(block: (() => Promise<any>) | Promise<any>, error?: any, message?: string): Promise<void>;
-    function match(string: string, regexp: RegExp, message?: string): void;
-    function doesNotMatch(string: string, regexp: RegExp, message?: string): void;
-    function fail(message?: string | Error): never;
-  }
-  export = assert;
-}
-declare module 'assert' { import assert = require('node:assert'); export = assert; }
-declare module 'node:assert/strict' { import assert = require('node:assert'); export = assert; }
-declare module 'assert/strict' { import assert = require('node:assert'); export = assert; }
-declare module 'node:events' {
-  export class EventEmitter {
-    on(event: string | symbol, listener: (...args: any[]) => void): this;
-    once(event: string | symbol, listener: (...args: any[]) => void): this;
-    off(event: string | symbol, listener: (...args: any[]) => void): this;
-    removeListener(event: string | symbol, listener: (...args: any[]) => void): this;
-    removeAllListeners(event?: string | symbol): this;
-    emit(event: string | symbol, ...args: any[]): boolean;
-    listenerCount(event: string | symbol): number;
-    listeners(event: string | symbol): Function[];
-  }
-  export default EventEmitter;
-}
-declare module 'events' { export * from 'node:events'; }
-declare module 'node:crypto' {
-  export function createHash(algorithm: 'md5' | 'sha1' | 'sha256' | 'sha512' | string): {
-    update(data: string | Uint8Array): any;
-    digest(encoding?: 'hex' | 'base64' | 'base64url'): any;
-  };
-  export function createHmac(algorithm: string, key: string | Uint8Array): {
-    update(data: string | Uint8Array): any;
-    digest(encoding?: 'hex' | 'base64' | 'base64url'): any;
-  };
-  export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean;
-  export function randomUUID(): string;
-  export function randomBytes(size: number): Buffer;
-  export function randomInt(min: number, max?: number): number;
-  export function pbkdf2Sync(password: any, salt: any, iterations: number, keylen: number, digest: string): Buffer;
-  export function scryptSync(password: any, salt: any, keylen: number, options?: any): Buffer;
-  export function createCipheriv(algorithm: string, key: any, iv: any): any;
-  export function createDecipheriv(algorithm: string, key: any, iv: any): any;
-}
-declare module 'crypto' { export * from 'node:crypto'; }
-declare module 'node:fs' {
-  export function openSync(path: string, flags?: string): number;
-  export function closeSync(fd: number): void;
-  export function writeSync(fd: number, buffer: Uint8Array | string, offset?: number, length?: number, position?: number | null): number;
-  export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null): number;
-  export function fsyncSync(fd: number): void;
-  export function fstatSync(fd: number): { size: number; isDirectory(): boolean; isFile(): boolean };
-  export function statSync(path: string): { size: number; isDirectory(): boolean; isFile(): boolean };
-  export function existsSync(path: string): boolean;
-  export function mkdirSync(path: string, options?: any): void;
-  export function mkdtempSync(prefix: string): string;
-  export function readdirSync(path: string): string[];
-  export function readFileSync(path: string, options?: any): any;
-  export function writeFileSync(path: string, data: any, options?: any): void;
-  export function appendFileSync(path: string, data: any, options?: any): void;
-  export function copyFileSync(src: string, dest: string): void;
-  export function truncateSync(path: string, len?: number): void;
-  export function renameSync(oldPath: string, newPath: string): void;
-  export function unlinkSync(path: string): void;
-  export function rmSync(path: string, options?: any): void;
-  export const promises: typeof import('node:fs/promises');
-}
-declare module 'fs' { export * from 'node:fs'; }
-declare module 'node:fs/promises' {
-  export function readFile(path: string, options?: any): Promise<any>;
-  export function writeFile(path: string, data: any, options?: any): Promise<void>;
-  export function appendFile(path: string, data: any, options?: any): Promise<void>;
-  export function mkdir(path: string, options?: any): Promise<void>;
-  export function readdir(path: string): Promise<string[]>;
-  export function stat(path: string): Promise<{ size: number; isDirectory(): boolean; isFile(): boolean }>;
-  export function unlink(path: string): Promise<void>;
-  export function rm(path: string, options?: any): Promise<void>;
-  export function rename(oldPath: string, newPath: string): Promise<void>;
-}
-declare module 'fs/promises' { export * from 'node:fs/promises'; }
-declare module 'node:path' {
-  export function join(...paths: string[]): string;
-  export function resolve(...paths: string[]): string;
-  export function normalize(p: string): string;
-  export function relative(from: string, to: string): string;
-  export function isAbsolute(p: string): boolean;
-  export function dirname(p: string): string;
-  export function basename(p: string, ext?: string): string;
-  export function extname(p: string): string;
-  export function parse(p: string): { root: string; dir: string; base: string; ext: string; name: string };
-  export function format(pObj: any): string;
-  export const sep: string;
-  export const delimiter: string;
-}
-declare module 'path' { export * from 'node:path'; }
-declare module 'node:os' {
-  export function tmpdir(): string;
-  export function homedir(): string;
-  export function hostname(): string;
-  export function platform(): string;
-  export function arch(): string;
-  export function cpus(): any[];
-  export const EOL: string;
-}
-declare module 'os' { export * from 'node:os'; }
-declare module 'node:zlib' {
-  export function crc32(data: string | Uint8Array, value?: number): number;
-  export function gzipSync(buf: string | Uint8Array): Buffer;
-  export function gunzipSync(buf: Uint8Array): Buffer;
-  export function deflateSync(buf: string | Uint8Array): Buffer;
-  export function inflateSync(buf: Uint8Array): Buffer;
-}
-declare module 'zlib' { export * from 'node:zlib'; }
-declare module 'node:http' {
-  export class Agent { constructor(opts?: any); destroy(): void; }
-  export function createServer(handler: (req: any, res: any) => void): any;
-  export function request(options: any, callback?: (res: any) => void): any;
-  export function get(options: any, callback?: (res: any) => void): any;
-}
-declare module 'http' { export * from 'node:http'; }
-declare module 'node:https' { export * from 'node:http'; }
-declare module 'https' { export * from 'node:http'; }
-declare module 'node:net' {
-  export class Socket { constructor(opts?: any); connect(...args: any[]): this; write(data: any): boolean; end(data?: any): this; destroy(): this; on(ev: string, cb: (...args: any[]) => void): this; }
-  export class Server { listen(...args: any[]): this; close(cb?: () => void): this; on(ev: string, cb: (...args: any[]) => void): this; address(): any; }
-  export function createServer(fn?: (socket: Socket) => void): Server;
-  export function createConnection(...args: any[]): Socket;
-}
-declare module 'net' { export * from 'node:net'; }
-declare module 'node:stream' {
-  import { EventEmitter } from 'node:events';
-  export class Stream extends EventEmitter { pipe<T>(dest: T): T; }
-  export class Readable extends Stream { constructor(opts?: any); push(chunk: any): boolean; read(size?: number): any; }
-  export class Writable extends Stream { constructor(opts?: any); write(chunk: any, cb?: any): boolean; end(chunk?: any, cb?: any): this; }
-  export class Duplex extends Readable { write(chunk: any, cb?: any): boolean; end(chunk?: any, cb?: any): this; }
-  export class Transform extends Duplex {}
-  export class PassThrough extends Transform {}
-  export function pipeline(...streams: any[]): any;
-}
-declare module 'stream' { export * from 'node:stream'; }
-declare module 'node:util' {
-  export function format(fmt: any, ...args: any[]): string;
-  export function inspect(obj: any, opts?: any): string;
-  export function promisify(fn: Function): (...args: any[]) => Promise<any>;
-  export function callbackify(fn: Function): (...args: any[]) => void;
-  export function inherits(ctor: any, superCtor: any): void;
-  export const types: Record<string, (val: any) => boolean>;
-  export class TextEncoder { encode(input?: string): Uint8Array; }
-  export class TextDecoder { decode(input?: Uint8Array): string; }
-}
-declare module 'util' { export * from 'node:util'; }
-declare module 'node:url' {
-  export { URL, URLSearchParams };
-  export function parse(urlStr: string, parseQueryString?: boolean): any;
-  export function format(urlObj: any): string;
-}
-declare module 'url' { export * from 'node:url'; }
-declare module 'node:querystring' {
-  export function parse(str: string): Record<string, any>;
-  export function stringify(obj: Record<string, any>): string;
-}
-declare module 'querystring' { export * from 'node:querystring'; }
-declare module 'node:perf_hooks' {
-  export const performance: { now(): number; timeOrigin: number; mark(name: string): void; measure(name: string, start?: string, end?: string): void };
-}
-declare module 'perf_hooks' { export * from 'node:perf_hooks'; }
-declare module 'node:timers' {
-  export { setTimeout, clearTimeout, setInterval, clearInterval, setImmediate, clearImmediate };
-}
-declare module 'timers' { export * from 'node:timers'; }
-declare module 'node:timers/promises' {
-  export function setTimeout<T = void>(delay?: number, value?: T): Promise<T>;
-  export function setImmediate<T = void>(value?: T): Promise<T>;
-}
-declare module 'timers/promises' { export * from 'node:timers/promises'; }
-declare module 'node:string_decoder' {
-  export class StringDecoder { constructor(encoding?: string); write(buf: Uint8Array): string; end(buf?: Uint8Array): string; }
-}
-declare module 'string_decoder' { export * from 'node:string_decoder'; }
-declare module 'node:dns' {
-  export function lookup(hostname: string, cb: (err: any, address: string, family: number) => void): void;
-  export function resolve(hostname: string, cb: (err: any, records: string[]) => void): void;
-}
-declare module 'dns' { export * from 'node:dns'; }
-declare module 'node:child_process' {
-  export function execSync(cmd: string, opts?: any): Buffer | string;
-  export function spawn(cmd: string, args?: string[], opts?: any): any;
-}
-declare module 'child_process' { export * from 'node:child_process'; }
-declare module 'node:buffer' { export { Buffer }; }
-declare module 'buffer' { export { Buffer }; }
-declare const Bun: {
-  version: string;
-  revision: string;
-  env: Record<string, string | undefined>;
-  serve(options: { port?: number; hostname?: string; fetch(req: Request, server?: any): Response | Promise<Response>; error?(err: Error): Response | Promise<Response> }): { port: number; hostname: string; url: string; stop(closeActiveConnections?: boolean): void };
-  file(path: string, options?: { type?: string }): { size: number; type: string; text(): Promise<string>; json(): Promise<any>; arrayBuffer(): Promise<ArrayBuffer>; bytes(): Promise<Uint8Array>; exists(): Promise<boolean> };
-  write(dest: string | any, input: string | Uint8Array | ArrayBuffer | Response | any): Promise<number>;
-  sleep(ms: number): Promise<void>;
-  sleepSync(ms: number): void;
-  hash(input: string | Uint8Array, seed?: number): number;
-  deepEquals(a: any, b: any, strict?: boolean): boolean;
-  inspect(val: any): string;
-  nanoseconds(): number;
-  which(bin: string): string | null;
-  escapeHTML(str: string): string;
-  stringWidth(str: string): number;
-};
-declare module 'bun' {
-  export const version: string;
-  export const env: Record<string, string | undefined>;
-  export const serve: typeof Bun.serve;
-  export const file: typeof Bun.file;
-  export const write: typeof Bun.write;
-  export const sleep: typeof Bun.sleep;
-  export const sleepSync: typeof Bun.sleepSync;
-  export const hash: typeof Bun.hash;
-  export const deepEquals: typeof Bun.deepEquals;
-  export const inspect: typeof Bun.inspect;
-  export const nanoseconds: typeof Bun.nanoseconds;
-  export const which: typeof Bun.which;
-  export const escapeHTML: typeof Bun.escapeHTML;
-  export const stringWidth: typeof Bun.stringWidth;
-  export default Bun;
-}
-declare module 'bun:test' {
-  export function test(name: string, fn: () => any, timeout?: number): Promise<void>;
-  export function it(name: string, fn: () => any, timeout?: number): Promise<void>;
-  export function describe(name: string, fn: () => void): void;
-  export function beforeAll(fn: () => any): void;
-  export function afterAll(fn: () => any): void;
-  export function beforeEach(fn: () => any): void;
-  export function afterEach(fn: () => any): void;
-  export function expect(actual: any): any;
-  export const mock: any;
-  export const jest: any;
-}
-declare module 'bun:sqlite' {
-  export class Database {
-    constructor(filename?: string, options?: any);
-    exec(sql: string): this;
-    run(sql: string, ...params: any[]): { changes: number; lastInsertRowid: number };
-    query(sql: string): { all(...params: any[]): any[]; get(...params: any[]): any; values(...params: any[]): any[][]; run(...params: any[]): { changes: number; lastInsertRowid: number } };
-    prepare(sql: string): { all(...params: any[]): any[]; get(...params: any[]): any; values(...params: any[]): any[][]; run(...params: any[]): { changes: number; lastInsertRowid: number }; finalize(): void };
-    transaction<T extends (...args: any[]) => any>(fn: T): T;
-    close(): void;
-  }
-  export default Database;
-}
-`;
 
   const _sharedHtmlMod = (typeof CodeLabHtml !== 'undefined' && CodeLabHtml) ||
     (root && root.CodeLabHtml) ||
@@ -1113,8 +789,6 @@ declare module 'bun:sqlite' {
           if (typeof jsDefaults.setEagerModelSync === 'function') jsDefaults.setEagerModelSync(true);
           tsDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
           jsDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false });
-          tsDefaults.addExtraLib(NODE_AMBIENT_DTS, 'file:///node-ambient.d.ts');
-          jsDefaults.addExtraLib(NODE_AMBIENT_DTS, 'file:///node-ambient.d.ts');
         }
 
         resolve(m);
@@ -3719,15 +3393,14 @@ int main() {
           if (project.gitMeta && typeof project.gitMeta === 'object' && typeof this._restoreSavedGitState === 'function') {
             this._restoreSavedGitState(project.gitMeta);
           } else if (project.gitFiles && root.CodeLabScm && typeof root.CodeLabScm.hydrateFromIsoGitRepo === 'function' && this.shell && this.shell.vfs) {
-            const gs = this._getGitState();
-            if (gs) {
-              Promise.resolve(root.CodeLabScm.hydrateFromIsoGitRepo(this.shell.vfs, gs)).then((hydrated) => {
-                if (hydrated && !this._destroyed) {
-                  if (this.activeSidebarView === 'scm') this._renderScmSidebar();
-                  this._updateStatusBar();
-                }
-              }).catch((_e) => { void _e; });
-            }
+            Promise.resolve(root.CodeLabScm.hydrateFromIsoGitRepo(this.shell.vfs, '/workspace')).then((hydrated) => {
+              if (hydrated && !this._destroyed) {
+                this._gitState = hydrated;
+                if (this.shell) this.shell.gitState = hydrated;
+                if (this.activeSidebarView === 'scm') this._renderScmSidebar();
+                this._updateStatusBar();
+              }
+            }).catch((_e) => { void _e; });
           }
           this._buildSavedStateSnapshot({ flushFiles: true });
           this._syncAllModels();
@@ -3994,14 +3667,16 @@ int main() {
       if (probsTextEl) {
         let errs = 0;
         let warns = 0;
+        let infos = 0;
         if (this._diagnosticsStore && typeof this._diagnosticsStore.getAll === 'function') {
           const storeItems = this._diagnosticsStore.getAll();
           for (const p of storeItems) {
             if (p && p.severity === 'error') errs++;
             else if (p && p.severity === 'warning') warns++;
+            else if (p) infos++;
           }
         }
-        probsTextEl.textContent = `⊗ ${errs} ⚠ ${warns}`;
+        probsTextEl.textContent = infos > 0 ? `⊗ ${errs} ⚠ ${warns} ⓘ ${infos}` : `⊗ ${errs} ⚠ ${warns}`;
       }
       const hasDirty = Boolean((this._dirtyFiles && this._dirtyFiles.size > 0) || this.saveStatusState === 'dirty');
       if (saveEl) {
@@ -4759,9 +4434,6 @@ int main() {
               <button type="button" class="codelab-btn codelab-btn--icon ${this.panelVisible ? 'active' : ''}" id="cl-toggle-drawer-btn" data-cl-action="toggle-drawer" title="Toggle Panel (⌘J)" aria-label="Toggle Panel" aria-pressed="${this.panelVisible ? 'true' : 'false'}">
                 ${CL_ICONS.panelBottom}
               </button>
-              <button type="button" class="codelab-btn codelab-btn--icon" id="cl-settings-btn" data-cl-action="open-settings" title="Settings (⌘,)" aria-label="Open Settings">
-                ${CL_ICONS.settings}
-              </button>
               <button type="button" class="codelab-btn codelab-btn--icon" id="cl-fullscreen-btn" data-cl-action="toggle-fullscreen" title="Toggle Fullscreen IDE (Esc to exit)" aria-label="Toggle Fullscreen IDE">
                 ${CL_ICONS.maximize}
               </button>
@@ -4780,25 +4452,25 @@ int main() {
             <nav class="codelab-activitybar" id="cl-activitybar" aria-label="Activity Bar">
               <div class="codelab-activitybar__top">
                 <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.sidebarVisible && this.activeSidebarView === 'explorer' ? 'active' : ''}" data-cl-activity="explorer" title="Explorer (⇧⌘E)" aria-label="Explorer" aria-pressed="${this.sidebarVisible && this.activeSidebarView === 'explorer'}">
-                  ${CL_ICONS.files}
+                  ${CL_ICONS.activityExplorer || CL_ICONS.files}
                 </button>
                 <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.sidebarVisible && this.activeSidebarView === 'search' ? 'active' : ''}" data-cl-activity="search" title="Search (⇧⌘F)" aria-label="Search" aria-pressed="${this.sidebarVisible && this.activeSidebarView === 'search'}">
-                  ${CL_ICONS.search}
+                  ${CL_ICONS.activitySearch || CL_ICONS.search}
                 </button>
                 <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.sidebarVisible && this.activeSidebarView === 'scm' ? 'active' : ''}" data-cl-activity="scm" title="Source Control (⌃⇧G)" aria-label="Source Control" aria-pressed="${this.sidebarVisible && this.activeSidebarView === 'scm'}">
-                  ${CL_ICONS.gitBranch}
+                  ${CL_ICONS.activityScm || CL_ICONS.gitBranch}
                   <span class="codelab-activitybar__badge" id="cl-activity-scm-badge" hidden>0</span>
                 </button>
                 <div class="codelab-activitybar__plugins" id="cl-activitybar-plugins">${pluginSidebarBtnsHtml}</div>
                 ${this.hasGuidedLab ? `
                 <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${!isGuideCollapsed ? 'active' : ''}" data-cl-action="toggle-guide" title="Guided Lab Steps" aria-label="Guided Lab Steps" aria-pressed="${!isGuideCollapsed}">
-                  ${CL_ICONS.book}
+                  ${CL_ICONS.activityGuided || CL_ICONS.book}
                 </button>
                 ` : ''}
               </div>
               <div class="codelab-activitybar__bottom">
                 <button type="button" class="codelab-activitybar__btn codelab-activitybar__item ${this.activeTab === '__settings__' ? 'active' : ''}" data-cl-activity="settings" data-cl-action="open-settings" title="Settings (⌘,)" aria-label="Settings" aria-pressed="${this.activeTab === '__settings__'}">
-                  ${CL_ICONS.settings}
+                  ${CL_ICONS.activitySettings || CL_ICONS.settings}
                 </button>
               </div>
             </nav>
@@ -4954,9 +4626,9 @@ int main() {
                       <span>Ports</span>
                       <span class="codelab-drawer__pill" id="cl-ports-pill" style="display:${(this.portTable && typeof this.portTable.listServers === 'function' && this.portTable.listServers().length > 0) ? 'inline-flex' : 'none'}">${this.portTable && typeof this.portTable.listServers === 'function' ? this.portTable.listServers().length : 0} open</span>
                     </button>
-                    <button type="button" role="tab" tabindex="${this.drawerTab === 'tests' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests" style="${(isSingleSql && !this._findEntryFile('test')) ? 'display:none' : ''}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'tests' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'tests'}" class="codelab-drawer__tab ${this.drawerTab === 'tests' ? 'active' : ''}" data-cl-drawertab="tests" title="Test Suite" style="${(isSingleSql && !this._findEntryFile('test')) ? 'display:none' : ''}">
                       ${CL_ICONS.check}
-                      <span>Test Suite</span>
+                      <span>Tests</span>
                       <span class="codelab-drawer__pill" id="cl-test-pill" style="display:none">Ready</span>
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'stdin' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'stdin'}" class="codelab-drawer__tab ${this.drawerTab === 'stdin' ? 'active' : ''}" data-cl-drawertab="stdin" title="Standard Input" style="${isSingleSql ? 'display:none' : ''}">
@@ -4965,16 +4637,16 @@ int main() {
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'preview' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'preview'}" class="codelab-drawer__tab ${this.drawerTab === 'preview' ? 'active' : ''}" data-cl-drawertab="preview" title="In-browser Web Preview" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.globe}
-                      <span>Web Preview</span>
+                      <span>Preview</span>
                     </button>
                     <button type="button" role="tab" tabindex="${this.drawerTab === 'network' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'network'}" class="codelab-drawer__tab ${this.drawerTab === 'network' ? 'active' : ''}" data-cl-drawertab="network" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.activity}
                       <span>Network</span>
                       <span class="codelab-drawer__pill" id="cl-network-pill" style="display:${(this.lastHttpTrace || []).length > 0 ? 'inline-flex' : 'none'}">${(this.lastHttpTrace || []).length} reqs</span>
                     </button>
-                    <button type="button" role="tab" tabindex="${this.drawerTab === 'inspector' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector" style="${isSingleSql ? 'display:none' : ''}">
+                    <button type="button" role="tab" tabindex="${this.drawerTab === 'inspector' ? '0' : '-1'}" aria-selected="${this.drawerTab === 'inspector'}" class="codelab-drawer__tab ${this.drawerTab === 'inspector' ? 'active' : ''}" data-cl-drawertab="inspector" title="Virtual Disk &amp; HTTP Inspector" style="${isSingleSql ? 'display:none' : ''}">
                       ${CL_ICONS.database}
-                      <span>Virtual Disk &amp; HTTP</span>
+                      <span>Inspector</span>
                       <span class="codelab-drawer__pill" id="cl-vfs-pill" style="display:none">0 files</span>
                     </button>
                     ${this.kernel ? `
@@ -5136,9 +4808,14 @@ int main() {
         }
       }
       const code = this.files[filePath];
-      if (_wbComponents && typeof _wbComponents.findEnclosingSymbolAtLine === 'function') {
+      if (
+        _wbComponents &&
+        typeof _wbComponents.extractDocumentSymbols === 'function' &&
+        typeof _wbComponents.findEnclosingSymbolAtLine === 'function'
+      ) {
         const curLine = (this.cursorPos && this.cursorPos.lineNumber) ? this.cursorPos.lineNumber : 1;
-        const sym = _wbComponents.findEnclosingSymbolAtLine(filePath, code, curLine);
+        const symbols = _wbComponents.extractDocumentSymbols(filePath, code);
+        const sym = _wbComponents.findEnclosingSymbolAtLine(symbols, curLine);
         if (sym && sym.name) {
           return sym.containerName ? `${sym.containerName}.${sym.name}` : sym.name;
         }
@@ -5250,11 +4927,6 @@ int main() {
         </div>
         <div class="codelab-breadcrumbs__actions">
           ${diffBtnHtml}
-          <button type="button" class="codelab-breadcrumb__btn" data-action="command-palette" data-cl-action="command-palette" title="Open Command Palette (⌘⇧P)">
-            ${CL_ICONS.command}
-            <span>Command Palette</span>
-            <kbd class="codelab-breadcrumb__kbd">⌘⇧P</kbd>
-          </button>
           <button type="button" class="codelab-breadcrumb__btn" data-action="export-workspace" data-cl-action="export-workspace" title="Export Workspace Snapshot">
             ${CL_ICONS.download}
             <span>Export</span>
@@ -11768,6 +11440,17 @@ int main() {
     _bindEvents() {
       if (this._isBooting || this._eventsBound) return;
       this._eventsBound = true;
+      if (Array.isArray(this._containerListeners) && this.container && typeof this.container.removeEventListener === 'function') {
+        for (const [evType, evFn, evOpts] of this._containerListeners) {
+          try { this.container.removeEventListener(evType, evFn, evOpts); } catch (_err) { void _err; }
+        }
+      }
+      this._containerListeners = [];
+      const onContainer = (type, fn, opts) => {
+        if (!this.container || typeof this.container.addEventListener !== 'function') return;
+        this.container.addEventListener(type, fn, opts);
+        this._containerListeners.push([type, fn, opts]);
+      };
 
       this._bindSplitters();
 
@@ -12003,7 +11686,7 @@ int main() {
           return;
         }
       };
-      this.container.addEventListener('keydown', this._captureKeydownHandler, true);
+      onContainer('keydown', this._captureKeydownHandler, true);
       if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
         this._documentKeydownHandler = e => {
           if (!e || e.defaultPrevented || this._destroyed) return;
@@ -12052,7 +11735,7 @@ int main() {
         document.addEventListener('keydown', this._documentKeydownHandler);
       }
 
-      this.container.addEventListener('pointerdown', e => {
+      onContainer('pointerdown', e => {
         if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('#cl-activitybar [data-cl-activity]')) {
           const ae = (typeof document !== 'undefined' && document.activeElement) ? document.activeElement : null;
           const focusInOtherRegion = Boolean(
@@ -12066,7 +11749,7 @@ int main() {
         }
       }, true);
 
-      this.container.addEventListener('pointerdown', e => {
+      onContainer('pointerdown', e => {
         CodeLabWorkbench._lastActiveInstance = this;
         this._lastBackdropPointerDownTarget = (e && e.target) ? e.target : null;
         if (e && e.target && typeof e.target.closest === 'function' && e.target.closest('.codelab-menubar__trigger[data-cl-menu]')) {
@@ -12075,11 +11758,11 @@ int main() {
           this._menuOpenBeforePointerDown = undefined;
         }
       });
-      this.container.addEventListener('focusin', () => {
+      onContainer('focusin', () => {
         CodeLabWorkbench._lastActiveInstance = this;
       });
 
-      this.container.addEventListener('mouseover', e => {
+      onContainer('mouseover', e => {
         if (!e || !e.target || typeof e.target.closest !== 'function') return;
         if (this._activeTopMenu) {
           const trigger = e.target.closest('.codelab-menubar__trigger[data-cl-menu]');
@@ -12111,7 +11794,7 @@ int main() {
         }
       });
 
-      this.container.addEventListener('input', e => {
+      onContainer('input', e => {
         if (!e || !e.target) return;
         const t = e.target;
         if (t.id === 'cl-search-input') {
@@ -12153,7 +11836,7 @@ int main() {
         }
       });
 
-      this.container.addEventListener('change', e => {
+      onContainer('change', e => {
         if (!e || !e.target) return;
         const t = e.target;
         if (t.id === 'cl-scm-branch-select' && typeof t.value === 'string' && t.value) {
@@ -12163,7 +11846,7 @@ int main() {
         }
       });
 
-      this.container.addEventListener('keydown', e => {
+      onContainer('keydown', e => {
         const keyLower = (e.key || '').toLowerCase();
         const target = e.target;
         const hasClosest = Boolean(target && typeof target.closest === 'function');
@@ -12712,7 +12395,7 @@ int main() {
         }
       });
 
-      this.container.addEventListener('contextmenu', e => {
+      onContainer('contextmenu', e => {
         const tabEl = e.target.closest('.codelab-tab');
         if (tabEl && (tabEl.dataset.clFile || tabEl.dataset.tabFile)) {
           e.preventDefault();
@@ -12780,10 +12463,10 @@ int main() {
           }
         }
       };
-      this.container.addEventListener('auxclick', handleTabMiddleClick);
-      this.container.addEventListener('mousedown', handleTabMiddleClick);
+      onContainer('auxclick', handleTabMiddleClick);
+      onContainer('mousedown', handleTabMiddleClick);
 
-      this.container.addEventListener('click', e => {
+      onContainer('click', e => {
         const menuCmdBtn = e.target.closest('[data-cl-menu-cmd]');
         if (menuCmdBtn) {
           e.stopPropagation();
@@ -13641,7 +13324,7 @@ int main() {
         }
       });
 
-      this.container.addEventListener('change', e => {
+      onContainer('change', e => {
         const previewPortSelect = e.target && typeof e.target.closest === 'function'
           ? e.target.closest('[data-cl-action="preview-port-change"]')
           : null;
@@ -17150,7 +16833,7 @@ int main() {
       if (!this._diagnosticsStore && diagMod && typeof diagMod.createDiagnosticsStore === 'function') {
         this._diagnosticsStore = diagMod.createDiagnosticsStore();
         if (typeof this._diagnosticsStore.subscribe === 'function') {
-          this._diagnosticsStore.subscribe(() => {
+          this._diagnosticsUnsub = this._diagnosticsStore.subscribe(() => {
             if (this._destroyed || !this.container) return;
             const badgeEl = this.container.querySelector('#cl-problems-count');
             if (badgeEl && typeof this._diagnosticsStore.getAll === 'function') {
@@ -18246,9 +17929,9 @@ int main() {
             void _err;
           }
         }
-        if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFileSync === 'function') {
+        if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFile === 'function') {
           try {
-            this.kernel.fs.writeFileSync(absPath, content);
+            this.kernel.fs.writeFile(absPath, content);
           } catch (_err) {
             void _err;
           }
@@ -18416,9 +18099,9 @@ int main() {
           const restored = String(this.files[cleanRel] ?? '');
           if (this._dirtyFiles) this._dirtyFiles.delete(cleanRel);
           if (this._savedSnapshot) this._savedSnapshot[cleanRel] = restored;
-          if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFileSync === 'function') {
+          if (this.kernel && this.kernel.fs && typeof this.kernel.fs.writeFile === 'function') {
             try {
-              this.kernel.fs.writeFileSync(`/workspace/${cleanRel}`, restored);
+              this.kernel.fs.writeFile(`/workspace/${cleanRel}`, restored);
             } catch (_err) {
               void _err;
             }
@@ -21682,6 +21365,16 @@ int main() {
           if (entry && entry.el && typeof entry.el.remove === 'function') entry.el.remove();
         }
         this._portToasts.clear();
+      }
+      if (typeof this._diagnosticsUnsub === 'function') {
+        try { this._diagnosticsUnsub(); } catch (_err) { void _err; }
+        this._diagnosticsUnsub = null;
+      }
+      if (Array.isArray(this._containerListeners) && this.container && typeof this.container.removeEventListener === 'function') {
+        for (const [evType, evFn, evOpts] of this._containerListeners) {
+          try { this.container.removeEventListener(evType, evFn, evOpts); } catch (_err) { void _err; }
+        }
+        this._containerListeners = [];
       }
       if (this._markerDisposable && typeof this._markerDisposable.dispose === 'function') {
         try { this._markerDisposable.dispose(); } catch (err) { this.logger.debug('markerDisposable dispose skipped.', err); }

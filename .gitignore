@@ -8,6 +8,7 @@ wiki/
 examples/cloud-ide/dist/
 dist/
 examples/cloud-ide/public/dist/
+examples/cloud-ide/public/preview-sw.js
 test-results/
 playwright-report/
 blob-report/

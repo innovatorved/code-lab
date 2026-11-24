@@ -1062,6 +1062,7 @@ export class WorkspaceAtaController {
   private inFlight = new Set<string>();
   private disposables: Array<{ dispose?: () => void }> = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
 
   constructor(monaco: MonacoNamespaceLike | null | undefined) {
     this.monaco = monaco;
@@ -1118,19 +1119,24 @@ export class WorkspaceAtaController {
   }
 
   private async acquireOne(pkgName: string): Promise<void> {
+    if (this.disposed) return;
     const cached = await readAtaCache(pkgName);
+    if (this.disposed) return;
     if (cached) {
       this.injectExtraLib(pkgName, cached);
       return;
     }
     const fetched = await fetchPackageDtsFromCdn(pkgName);
+    if (this.disposed) return;
     if (fetched) {
       await writeAtaCache(pkgName, fetched);
+      if (this.disposed) return;
       this.injectExtraLib(pkgName, fetched);
     }
   }
 
   public dispose(): void {
+    this.disposed = true;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
@@ -1357,16 +1363,23 @@ const SQL_FUNCTIONS: Array<{ name: string; sig: string; doc: string }> = [
  * - JSON schemas (`package.json`, `tsconfig.json`, `jsconfig.json`)
  * - HTML Emmet completions, CSS cross-file variable completions/hovers, SQL schema completions/hovers
  */
+const monacoWorkspaceGetters = new WeakMap<object, WorkspaceFilesGetter>();
+
 export function initializeMonacoIntelligence(
   monaco: MonacoNamespaceLike | null | undefined,
   getWorkspaceFiles: WorkspaceFilesGetter
 ): void {
   if (!monaco || typeof monaco !== 'object') return;
+  monacoWorkspaceGetters.set(monaco, getWorkspaceFiles);
   registerCodeLabMonacoThemes(monaco);
   syncTsConfigToMonaco(monaco, getWorkspaceFiles() || {});
 
   if (registeredMonacoInstances.has(monaco)) return;
   registeredMonacoInstances.add(monaco);
+  const getCurrentFiles = (): Record<string, string> => {
+    const fn = monacoWorkspaceGetters.get(monaco);
+    return (fn ? fn() : {}) || {};
+  };
 
   // 1. Node.js / Web ambient declarations
   try {
@@ -1438,7 +1451,7 @@ export function initializeMonacoIntelligence(
       provideCompletionItems(model: MonacoTextModelLike, position: MonacoPositionLike) {
         const linePrefix = String(model.getLineContent(position.lineNumber) || '').slice(0, position.column - 1);
         if (!/(?:var\(\s*|--)[a-zA-Z0-9_-]*$/.test(linePrefix)) return { suggestions: [] };
-        const vars = collectCssVariables(getWorkspaceFiles() || {});
+        const vars = collectCssVariables(getCurrentFiles());
         const word = model.getWordUntilPosition(position);
         const startCol = Math.max(1, linePrefix.lastIndexOf('--') + 1 || word.startColumn);
         const range = {
@@ -1469,7 +1482,7 @@ export function initializeMonacoIntelligence(
             const start = m.index + 1;
             const end = start + m[0].length;
             if (position.column >= start && position.column <= end) {
-              const info = collectCssVariables(getWorkspaceFiles() || {}).get(m[0]);
+              const info = collectCssVariables(getCurrentFiles()).get(m[0]);
               if (!info) return null;
               const hoverRange = monaco.Range
                 ? new monaco.Range(position.lineNumber, start, position.lineNumber, end)
@@ -1500,7 +1513,7 @@ export function initializeMonacoIntelligence(
         endLineNumber: position.lineNumber,
         endColumn: word.endColumn
       };
-      const tables = collectSqlSchemaTables(getWorkspaceFiles() || {}, model.getValue?.() || '');
+      const tables = collectSqlSchemaTables(getCurrentFiles(), model.getValue?.() || '');
       const linePrefix = String(model.getLineContent(position.lineNumber) || '').slice(0, position.column - 1);
       const dotMatch = linePrefix.match(/([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z0-9_]*$/);
 
@@ -1578,7 +1591,7 @@ export function initializeMonacoIntelligence(
             contents: [{ value: `\`\`\`sql\n${fn.sig}\n\`\`\`` }, { value: fn.doc }]
           };
         }
-        const tables = collectSqlSchemaTables(getWorkspaceFiles() || {}, model.getValue?.() || '');
+        const tables = collectSqlSchemaTables(getCurrentFiles(), model.getValue?.() || '');
         const table = tables.find((t) => t.table.toLowerCase() === word.word.toLowerCase());
         if (table) {
           const cols = table.columns.map((c) => `  ${c.name} ${c.type}`).join(',\n');

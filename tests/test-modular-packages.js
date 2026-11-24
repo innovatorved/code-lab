@@ -420,7 +420,7 @@ async function main() {
   await runTest('[M7] Architecture boundary enforcer verifies live repo and rejects cross-layer, DOM-in-core, deep-import, and cycle violations', () => {
     const liveCheck = checkBoundaries(loader.ROOT);
     assert.equal(liveCheck.ok, true, `Live repo boundary violations: ${liveCheck.violations.join('; ')}`);
-    assert.equal(liveCheck.packageCount, 11);
+    assert.equal(liveCheck.packageCount, 7);
 
     // Build a synthetic mini-workspace in tmpdir with deliberate violations
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cl-boundary-test-'));

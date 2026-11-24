@@ -369,12 +369,8 @@ export function createSqlEditor(
 
   const updateCompletionsFromCursor = (): void => {
     if (readOnly || !schema) {
-      // Still allow dot-less keyword/function completion if schema is absent only when >=2 chars,
-      // or full completion when schema is provided
-      if (!schema) {
-        closeCompletions();
-        return;
-      }
+      closeCompletions();
+      return;
     }
     const cursor = textareaEl.selectionStart ?? currentValue.length;
     if ((textareaEl.selectionEnd ?? cursor) !== cursor) {

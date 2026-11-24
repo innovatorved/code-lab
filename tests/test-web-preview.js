@@ -167,7 +167,7 @@ async function runSuite() {
     const wb = new CodeLabWorkbench(makeContainer(), { labId: 'm3-tab', files: { 'index.js': '' } });
     const tab = wb.container.querySelector('[data-cl-drawertab="preview"]');
     assert.ok(tab, 'Web Preview drawer tab should exist');
-    assert.match(tab.innerHTML, /Web Preview/);
+    assert.match(tab.innerHTML, /Preview/);
   });
 
   await test('C2 Open Web Preview switches to the preview tab and renders browser chrome', async () => {

@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Live Cloud IDE](https://img.shields.io/badge/Live_Demo-code--lab.vedgupta.in-000000)](https://code-lab.vedgupta.in/)
 
-Modular browser-native IDE workbench (`v0.7.0`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 73 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
+Modular browser-native IDE workbench (`v0.7.1`), Web Worker runtime for Node.js, Bun, TypeScript, C++20 WebAssembly, and Python 3.12 WebAssembly, POSIX shell with 73 UNIX coreutils, and lightweight SQL playground built with strict TypeScript and Zod schemas — zero backend servers or cross-origin isolation headers required.
 
 **[Try the Live Cloud IDE →](https://code-lab.vedgupta.in/)**
 
@@ -121,7 +121,7 @@ Ready-to-copy starters live in `examples/`:
 ├── src/               # Workbench shell, POSIX shell, virtual runtime, SCM, search, diagnostics & language extensions
 ├── apps/web/          # Reference browser workbench entrypoint
 ├── examples/cloud-ide # Full Astro Cloud IDE demo app
-├── tests/             # 48 unit/integration suites, E2E suites, and Playwright browser specs
+├── tests/             # 48 unit/integration suites + E2E runner (49 suites) and Playwright browser specs
 └── tools/             # Build bundler, linter, architecture boundary checker, and gzip size guard
 ```
 

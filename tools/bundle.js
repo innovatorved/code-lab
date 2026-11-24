@@ -910,6 +910,7 @@ const ansiToHtml = CodeLabTerminal.ansiToHtml;
 const parseAnsiToHtml = CodeLabTerminal.parseAnsiToHtml;
 const escapeHtml = CodeLabTerminal.escapeHtml;
 const ANSI_CODE_MAP = CodeLabTerminal.ANSI_CODE_MAP;
+const ansi256ToColor = CodeLabTerminal.ansi256ToColor;
 const resolveAnsiControlCodes = CodeLabTerminal.resolveAnsiControlCodes;
 
 export {
@@ -921,6 +922,7 @@ export {
   parseAnsiToHtml,
   escapeHtml,
   ANSI_CODE_MAP,
+  ansi256ToColor,
   resolveAnsiControlCodes
 };
 export default CodeLabTerminal;
@@ -1813,7 +1815,6 @@ fs.mkdirSync(DIST_DIR, { recursive: true });
 
 // 1. Write to dist/*
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.js'), IIFE_BUNDLE, 'utf8');
-fs.writeFileSync(path.join(DIST_DIR, 'code-lab.umd.js'), IIFE_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab.esm.js'), ESM_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab-sql.umd.js'), SQL_UMD_BUNDLE, 'utf8');
 fs.writeFileSync(path.join(DIST_DIR, 'code-lab-sql.esm.js'), SQL_ESM_BUNDLE, 'utf8');
@@ -1853,10 +1854,6 @@ if (fs.existsSync(cssPath)) {
 const sampleHtmlPath = path.join(SRC_DIR, 'sample.html');
 if (fs.existsSync(sampleHtmlPath)) {
   fs.copyFileSync(sampleHtmlPath, path.join(DIST_DIR, 'sample.html'));
-  const CLOUD_IDE_PUBLIC_DIST = path.join(PKG_DIR, 'examples/cloud-ide/public/dist');
-  if (fs.existsSync(CLOUD_IDE_PUBLIC_DIST)) {
-    fs.copyFileSync(sampleHtmlPath, path.join(CLOUD_IDE_PUBLIC_DIST, 'sample.html'));
-  }
 }
 
 // 2c. Build preview-sw.js: the shared CSP module + the worker script, so the
@@ -1879,16 +1876,16 @@ fs.mkdirSync(EXT_DIR, { recursive: true });
 try {
   const umdFooter = (globalName) =>
     `--footer:js=if(typeof module!=="undefined"&&module.exports)module.exports=${globalName};if(typeof globalThis!=="undefined")globalThis.${globalName}=${globalName};`;
-  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=iife', '--global-name=CodeLabGuidedLab', umdFooter('CodeLabGuidedLab'), '--outfile=dist/extensions/guided-lab.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/guided-lab.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/javascript.ts', '--bundle', '--format=iife', '--global-name=CodeLabJavaScript', umdFooter('CodeLabJavaScript'), '--outfile=dist/extensions/javascript.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/javascript.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/javascript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--format=iife', '--global-name=CodeLabTypeScript', umdFooter('CodeLabTypeScript'), '--outfile=dist/extensions/typescript.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/typescript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--format=iife', '--global-name=CodeLabCpp', umdFooter('CodeLabCpp'), '--outfile=dist/extensions/cpp.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/cpp.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/python.ts', '--bundle', '--format=iife', '--global-name=CodeLabPython', umdFooter('CodeLabPython'), '--outfile=dist/extensions/python.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/extensions/python.ts', '--bundle', '--format=esm', '--outfile=dist/extensions/python.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabGuidedLab', umdFooter('CodeLabGuidedLab'), '--outfile=dist/extensions/guided-lab.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/guided-lab.ts', '--bundle', '--minify', '--format=esm', '--outfile=dist/extensions/guided-lab.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/javascript.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabJavaScript', umdFooter('CodeLabJavaScript'), '--outfile=dist/extensions/javascript.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/javascript.ts', '--bundle', '--minify', '--format=esm', '--outfile=dist/extensions/javascript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabTypeScript', umdFooter('CodeLabTypeScript'), '--outfile=dist/extensions/typescript.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/typescript.ts', '--bundle', '--minify', '--format=esm', '--outfile=dist/extensions/typescript.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabCpp', umdFooter('CodeLabCpp'), '--outfile=dist/extensions/cpp.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/cpp.ts', '--bundle', '--minify', '--format=esm', '--outfile=dist/extensions/cpp.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/python.ts', '--bundle', '--minify', '--format=iife', '--global-name=CodeLabPython', umdFooter('CodeLabPython'), '--outfile=dist/extensions/python.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/extensions/python.ts', '--bundle', '--minify', '--format=esm', '--outfile=dist/extensions/python.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
   console.log('✓ Built dist/extensions/{guided-lab,javascript,typescript,cpp,python}.{js,esm.js}');
 } catch (e) {
   console.error('Failed to bundle extensions:', e.message);
@@ -1897,8 +1894,8 @@ try {
 
 // 3b. Bundle Zod schemas (the `./schemas` subpath export)
 try {
-  execFileSync(localBin('esbuild'), ['src/schemas.ts', '--bundle', '--format=cjs', '--outfile=dist/schemas.js'], { stdio: 'inherit', cwd: PKG_DIR });
-  execFileSync(localBin('esbuild'), ['src/schemas.ts', '--bundle', '--format=esm', '--outfile=dist/schemas.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/schemas.ts', '--bundle', '--minify', '--format=cjs', '--outfile=dist/schemas.js'], { stdio: 'inherit', cwd: PKG_DIR });
+  execFileSync(localBin('esbuild'), ['src/schemas.ts', '--bundle', '--minify', '--format=esm', '--outfile=dist/schemas.esm.js'], { stdio: 'inherit', cwd: PKG_DIR });
   console.log('✓ Built dist/schemas.js & schemas.esm.js');
 } catch (e) {
   console.error('Failed to bundle schemas:', e.message);
@@ -1945,14 +1942,20 @@ try {
   process.exit(1);
 }
 
-// 5. Sync dist/ to examples/cloud-ide/public/dist
+// 5. Sync only the runtime assets Cloud IDE actually serves into examples/cloud-ide/public/dist
 const CLOUD_IDE_PUBLIC_ROOT = path.join(PKG_DIR, 'examples/cloud-ide/public');
 const CLOUD_IDE_PUBLIC_DIST = path.join(CLOUD_IDE_PUBLIC_ROOT, 'dist');
 if (fs.existsSync(CLOUD_IDE_PUBLIC_ROOT)) {
   fs.rmSync(CLOUD_IDE_PUBLIC_DIST, { recursive: true, force: true });
   fs.mkdirSync(CLOUD_IDE_PUBLIC_DIST, { recursive: true });
-  fs.cpSync(DIST_DIR, CLOUD_IDE_PUBLIC_DIST, { recursive: true });
-  console.log('✓ Synced dist/ into examples/cloud-ide/public/dist/');
+  const cloudIdeAssets = ['code-lab.js', 'code-lab.css', 'code-lab-sql.css', 'preview-sw.js'];
+  for (const asset of cloudIdeAssets) {
+    const srcAsset = path.join(DIST_DIR, asset);
+    if (fs.existsSync(srcAsset)) {
+      fs.copyFileSync(srcAsset, path.join(CLOUD_IDE_PUBLIC_DIST, asset));
+    }
+  }
+  console.log('✓ Synced runtime assets into examples/cloud-ide/public/dist/');
 }
 
 console.log('✓ Built dist/code-lab.js & dist/code-lab.umd.js (UMD/IIFE, ' + ( Buffer.byteLength(IIFE_BUNDLE) / 1024 ).toFixed(1) + ' KB)');

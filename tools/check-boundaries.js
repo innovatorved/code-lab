@@ -35,10 +35,6 @@ const PACKAGE_LAYERS = {
   '@code-lab/settings': { dir: 'packages/settings', rank: 1, label: 'platform' },
   '@code-lab/commands': { dir: 'packages/commands', rank: 1, label: 'platform' },
   '@code-lab/sql': { dir: 'packages/sql', rank: 2.0, label: 'services' },
-  '@code-lab/runtime': { dir: 'packages/runtime', rank: 2.1, label: 'services' },
-  '@code-lab/terminal': { dir: 'packages/terminal', rank: 2.1, label: 'services' },
-  '@code-lab/preview': { dir: 'packages/preview', rank: 2.1, label: 'services' },
-  '@code-lab/editor': { dir: 'packages/editor', rank: 2.2, label: 'services' },
   '@code-lab/ui': { dir: 'packages/ui', rank: 3, label: 'workbench' },
   '@code-lab/web': { dir: 'apps/web', rank: 4, label: 'apps' }
 };

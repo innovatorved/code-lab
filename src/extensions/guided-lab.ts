@@ -1,7 +1,6 @@
 import {
   GuidedLabExtensionOptions,
-  GuidedLabExtensionOptionsSchema,
-  GuidedStep
+  GuidedLabExtensionOptionsSchema
 } from '../schemas';
 
 /**
@@ -45,6 +44,11 @@ export function guidedLabExtension(workbench: any, options: Partial<GuidedLabExt
 
   if (parsed.cppStarterFiles || parsed.cppSolutionFiles || parsed.cppFiles) {
     workbench.enabledLanguages.add('cpp');
+    workbench.hasMultipleLanguages = true;
+  }
+
+  if (parsed.pyStarterFiles || parsed.pySolutionFiles || parsed.pyFiles) {
+    workbench.enabledLanguages.add('py');
     workbench.hasMultipleLanguages = true;
   }
 

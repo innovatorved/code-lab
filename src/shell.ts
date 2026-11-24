@@ -10504,6 +10504,8 @@
             vfs: this.vfs,
             portTable: this.portTable,
             gitState: this.gitState,
+            _initialBootRoot: this._initialBootRoot,
+            _initialBootSnapshot: this._initialBootSnapshot,
             env: Object.assign({}, this.env, innerCtx.env || {})
           });
           subShell.cwd = innerCtx.cwd || this.cwd;
@@ -10826,6 +10828,7 @@
         res = await this.commands[cmdName](args, cmdCtx);
         if (cmdName === 'export' || cmdName === 'unset' || cmdName === 'cd' || cmdName === 'read') {
           for (const k of Object.keys(context.env)) {
+            if (/^(\d+|#|@|\*)$/.test(k)) continue;
             if (!(k in this.env)) delete context.env[k];
           }
           Object.assign(context.env, this.env);

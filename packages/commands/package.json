@@ -1,6 +1,7 @@
 {
   "name": "@code-lab/commands",
-  "version": "0.7.0",
+  "version": "0.7.1",
+  "private": true,
   "description": "CommandRegistry, VS Code-style ContextKeyService (when-clause evaluator), and KeybindingService for CodeLab.",
   "type": "module",
   "main": "./src/index.ts",

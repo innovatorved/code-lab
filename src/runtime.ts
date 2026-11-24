@@ -6593,7 +6593,9 @@ function __initVirtualRuntime(rootScope) {
         },
         ref() {
           this._ref = true;
-          resourceTracker.activeTimers.add(rawId);
+          if (resourceTracker.allTimers.has(rawId)) {
+            resourceTracker.activeTimers.add(rawId);
+          }
           return this;
         },
         hasRef() {
@@ -8970,6 +8972,7 @@ function __initVirtualRuntime(rootScope) {
               'Python WebAssembly toolchain is not registered. Enable pythonExtension from "@innovatorved/code-lab/extensions/python" to run Python files.'
             );
           }
+          const pyTestResultsBefore = testResults.length;
           const pyRes = await pyCompiler({
             entry: entryAbs,
             vfs,
@@ -8977,13 +8980,14 @@ function __initVirtualRuntime(rootScope) {
             args: argv || [entryAbs],
             env: Object.assign({}, sandboxProcess.env, options.env || {}),
             stdin: options.stdin || '',
+            onRequestStdin: options.onRequestStdin,
             testFilter,
             onStdout: emitStdout,
             onStderr: emitStderr
           });
           if (pyRes) {
             exitCode = typeof pyRes.exitCode === 'number' ? pyRes.exitCode : (pyRes.ok ? 0 : 1);
-            if (pyRes.testResults && Array.isArray(pyRes.testResults)) {
+            if (testResults.length === pyTestResultsBefore && pyRes.testResults && Array.isArray(pyRes.testResults)) {
               for (const tr of pyRes.testResults) {
                 testResults.push(tr);
               }
@@ -9505,7 +9509,7 @@ function __initVirtualRuntime(rootScope) {
         const andParts = whereClause.split(/\s+AND\s+/i);
         for (const part of andParts) {
           const trimmed = part.trim();
-          const isNullMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s+IS\s+(NOT\s+)?NULL$/i);
+          const isNullMatch = trimmed.match(/^([a-zA-Z0-9_.]+)\s+IS\s+(NOT\s+)?NULL$/i);
           if (isNullMatch) {
             const col = isNullMatch[1];
             const isNot = Boolean(isNullMatch[2]);
@@ -9513,7 +9517,7 @@ function __initVirtualRuntime(rootScope) {
             if (isNot ? isNull : !isNull) return false;
             continue;
           }
-          const likeMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s+LIKE\s+(.+)$/i);
+          const likeMatch = trimmed.match(/^([a-zA-Z0-9_.]+)\s+LIKE\s+(.+)$/i);
           if (likeMatch) {
             const col = likeMatch[1];
             let pat = likeMatch[2].trim();
@@ -9523,7 +9527,7 @@ function __initVirtualRuntime(rootScope) {
             if (!re.test(String(row[col] ?? ''))) return false;
             continue;
           }
-          const eqMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s*(=|!=|<>|>=|<=|>|<)\s*(.*)$/);
+          const eqMatch = trimmed.match(/^([a-zA-Z0-9_.]+)\s*(=|!=|<>|>=|<=|>|<)\s*(.*)$/);
           if (eqMatch) {
             const col = eqMatch[1].trim();
             const op = eqMatch[2];
@@ -9670,6 +9674,37 @@ function __initVirtualRuntime(rootScope) {
         return null;
       }
 
+      _evalSelectExpr(expr, rows, fallbackRow) {
+        const trimmed = expr.trim();
+        const roundMatch = trimmed.match(/^ROUND\s*\(([\s\S]+),\s*(\d+)\s*\)$/i);
+        if (roundMatch) {
+          const innerVal = Number(this._evalSelectExpr(roundMatch[1], rows, fallbackRow));
+          const decimals = Number(roundMatch[2]);
+          const factor = Math.pow(10, decimals);
+          return Number.isFinite(innerVal) ? Math.round(innerVal * factor) / factor : null;
+        }
+        const arithMatch = trimmed.match(/^((?:AVG|SUM|COUNT|MIN|MAX)\s*\([^)]+\))\s*([/*+-])\s*([0-9.]+)$/i);
+        if (arithMatch) {
+          const base = Number(this._evalSelectExpr(arithMatch[1], rows, fallbackRow));
+          const rhs = Number(arithMatch[3]);
+          if (arithMatch[2] === '/') return rhs !== 0 ? base / rhs : null;
+          if (arithMatch[2] === '*') return base * rhs;
+          if (arithMatch[2] === '+') return base + rhs;
+          if (arithMatch[2] === '-') return base - rhs;
+        }
+        const aggMatch = trimmed.match(/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i);
+        if (aggMatch) {
+          return this._evalAggregate(aggMatch[1].toUpperCase(), aggMatch[2].trim(), rows);
+        }
+        if (fallbackRow && Object.prototype.hasOwnProperty.call(fallbackRow, trimmed)) {
+          return fallbackRow[trimmed];
+        }
+        if (rows[0] && Object.prototype.hasOwnProperty.call(rows[0], trimmed)) {
+          return rows[0][trimmed];
+        }
+        return null;
+      }
+
       _executeSelect(sql, params = []) {
         const s = stripSqlComments(sql).replace(/;$/, '').trim();
         if (!s) return [];
@@ -9733,7 +9768,7 @@ function __initVirtualRuntime(rootScope) {
           return [];
         }
 
-        const match = s.match(/^SELECT\s+(?:DISTINCT\s+)?([\s\S]*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+([\s\S]*?))?(?:\s+GROUP\s+BY\s+([\s\S]*?))?(?:\s+ORDER\s+BY\s+([\s\S]*?))?(?:\s+LIMIT\s+(\d+|\?)(?:\s+OFFSET\s+(\d+|\?))?)?$/i);
+        const match = s.match(/^SELECT\s+(?:DISTINCT\s+)?([\s\S]*?)\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+(?:AS\s+)?(?!WHERE\b|JOIN\b|INNER\b|LEFT\b|RIGHT\b|FULL\b|CROSS\b|GROUP\b|ORDER\b|LIMIT\b)([a-zA-Z0-9_]+))?((?:\s+(?:(?:INNER|LEFT(?:\s+OUTER)?)\s+)?JOIN\s+[a-zA-Z0-9_]+(?:\s+(?:AS\s+)?(?!ON\b)[a-zA-Z0-9_]+)?\s+ON\s+[a-zA-Z0-9_.]+\s*=\s*[a-zA-Z0-9_.]+)*)(?:\s+WHERE\s+([\s\S]*?))?(?:\s+GROUP\s+BY\s+([\s\S]*?))?(?:\s+ORDER\s+BY\s+([\s\S]*?))?(?:\s+LIMIT\s+(\d+|\?)(?:\s+OFFSET\s+(\d+|\?))?)?$/i);
         if (!match) {
           const noFromMatch = s.match(/^SELECT\s+([\s\S]+)$/i);
           if (noFromMatch) {
@@ -9754,17 +9789,69 @@ function __initVirtualRuntime(rootScope) {
         }
         const selectColsRaw = match[1].trim();
         const tableName = match[2].trim();
-        const whereClause = match[3] ? match[3].trim() : null;
-        const groupByClause = match[4] ? match[4].trim() : null;
-        const orderByClause = match[5] ? match[5].trim() : null;
-        const limitRaw = match[6] ? match[6].trim() : null;
-        const offsetRaw = match[7] ? match[7].trim() : null;
+        const tableAlias = (match[3] || tableName).trim();
+        const joinsRaw = (match[4] || '').trim();
+        const whereClause = match[5] ? match[5].trim() : null;
+        const groupByClause = match[6] ? match[6].trim() : null;
+        const orderByClause = match[7] ? match[7].trim() : null;
+        const limitRaw = match[8] ? match[8].trim() : null;
+        const offsetRaw = match[9] ? match[9].trim() : null;
 
         const table = this.tables.get(tableName);
         if (!table) return [];
 
+        const qualifyRow = (rawRow, tblName, aliasName) => {
+          const out = Object.assign({}, rawRow);
+          for (const [k, v] of Object.entries(rawRow)) {
+            out[`${tblName}.${k}`] = v;
+            if (aliasName && aliasName !== tblName) out[`${aliasName}.${k}`] = v;
+          }
+          return out;
+        };
+
+        let workingRows = table.rows.map((r) => qualifyRow(r, tableName, tableAlias));
+        if (joinsRaw) {
+          const joinRe = /(?:(INNER|LEFT(?:\s+OUTER)?)\s+)?JOIN\s+([a-zA-Z0-9_]+)(?:\s+(?:AS\s+)?(?!ON\b)([a-zA-Z0-9_]+))?\s+ON\s+([a-zA-Z0-9_.]+)\s*=\s*([a-zA-Z0-9_.]+)/gi;
+          let jm;
+          while ((jm = joinRe.exec(joinsRaw)) !== null) {
+            const isLeft = Boolean(jm[1] && /^LEFT/i.test(jm[1]));
+            const joinTblName = jm[2];
+            const joinAlias = jm[3] || joinTblName;
+            const leftKey = jm[4];
+            const rightKey = jm[5];
+            const joinTbl = this.tables.get(joinTblName);
+            if (!joinTbl) {
+              workingRows = [];
+              break;
+            }
+            const nextRows = [];
+            for (const baseRow of workingRows) {
+              let matchedAny = false;
+              for (const jr of joinTbl.rows) {
+                const qJr = qualifyRow(jr, joinTblName, joinAlias);
+                const merged = Object.assign({}, baseRow, qJr);
+                const lv = Object.prototype.hasOwnProperty.call(baseRow, leftKey) ? baseRow[leftKey] : qJr[leftKey];
+                const rv = Object.prototype.hasOwnProperty.call(qJr, rightKey) ? qJr[rightKey] : baseRow[rightKey];
+                if (lv !== undefined && rv !== undefined && String(lv) === String(rv)) {
+                  nextRows.push(merged);
+                  matchedAny = true;
+                }
+              }
+              if (!matchedAny && isLeft) {
+                const nullPad = Object.assign({}, baseRow);
+                for (const colDef of joinTbl.columns) {
+                  nullPad[`${joinTblName}.${colDef.name}`] = null;
+                  if (joinAlias !== joinTblName) nullPad[`${joinAlias}.${colDef.name}`] = null;
+                }
+                nextRows.push(nullPad);
+              }
+            }
+            workingRows = nextRows;
+          }
+        }
+
         const pList = Array.isArray(params) ? [...params] : [params];
-        const filteredRows = table.rows.filter((row) => {
+        const filteredRows = workingRows.filter((row) => {
           const rowParams = [...pList];
           return this._matchWhere(row, whereClause, rowParams);
         });
@@ -9778,12 +9865,17 @@ function __initVirtualRuntime(rootScope) {
         if (selectColsRaw !== '*') {
           const parts = splitCsvRespectingQuotes(selectColsRaw);
           for (const p of parts) {
-            const asMatch = p.match(/^([\s\S]*?)\s+(?:AS\s+)?([a-zA-Z0-9_]+)$/i);
-            const isFuncWithSpace = /^(AVG|SUM|COUNT|MIN|MAX)\s*\([^)]+\)$/i.test(p.trim());
-            const spec = (asMatch && !isFuncWithSpace)
-              ? { expr: asMatch[1].trim(), alias: asMatch[2].trim() }
-              : { expr: p.trim(), alias: p.trim() };
-            if (/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i.test(spec.expr)) {
+            const asMatch = p.match(/^([\s\S]*?)\s+AS\s+([a-zA-Z0-9_]+)$/i) ||
+              (!/\)/.test(p.trim()) ? p.match(/^([a-zA-Z0-9_.]+)\s+([a-zA-Z0-9_]+)$/) : null);
+            const rawExpr = (asMatch ? asMatch[1] : p).trim();
+            const defaultAlias = rawExpr.includes('.') && !/[()\s]/.test(rawExpr)
+              ? rawExpr.split('.').pop()
+              : rawExpr;
+            const spec = {
+              expr: rawExpr,
+              alias: asMatch ? asMatch[2].trim() : defaultAlias
+            };
+            if (/\b(AVG|SUM|COUNT|MIN|MAX)\s*\(/i.test(spec.expr)) {
               hasAggregate = true;
             }
             colSpecs.push(spec);
@@ -9792,49 +9884,41 @@ function __initVirtualRuntime(rootScope) {
 
         let outputRows = [];
         if (groupByClause) {
-          const groupCol = groupByClause.trim();
+          const groupCols = groupByClause.split(',').map((c) => c.trim()).filter(Boolean);
           const groups = new Map();
           for (const row of filteredRows) {
-            const key = row[groupCol];
+            const key = groupCols.length === 1
+              ? row[groupCols[0]]
+              : JSON.stringify(groupCols.map((gc) => row[gc]));
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(row);
           }
 
-          for (const [key, rows] of groups.entries()) {
+          for (const [, rows] of groups.entries()) {
             const outRow = {};
             for (const col of colSpecs) {
-              const expr = col.expr;
-              const alias = col.alias;
-              const aggMatch = expr.match(/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i);
-              if (aggMatch) {
-                outRow[alias] = this._evalAggregate(aggMatch[1].toUpperCase(), aggMatch[2].trim(), rows);
-              } else if (expr === groupCol) {
-                outRow[alias] = key;
-              } else {
-                outRow[alias] = rows[0] ? rows[0][expr] : null;
-              }
+              outRow[col.alias] = this._evalSelectExpr(col.expr, rows, rows[0]);
             }
             outputRows.push(outRow);
           }
         } else if (hasAggregate) {
           const outRow = {};
           for (const col of colSpecs) {
-            const aggMatch = col.expr.match(/^(AVG|SUM|COUNT|MIN|MAX)\s*\(([^)]+)\)$/i);
-            if (aggMatch) {
-              outRow[col.alias] = this._evalAggregate(aggMatch[1].toUpperCase(), aggMatch[2].trim(), filteredRows);
-            } else {
-              outRow[col.alias] = filteredRows[0] ? filteredRows[0][col.expr] : null;
-            }
+            outRow[col.alias] = this._evalSelectExpr(col.expr, filteredRows, filteredRows[0]);
           }
           outputRows.push(outRow);
         } else {
           for (const row of filteredRows) {
             if (selectColsRaw === '*') {
-              outputRows.push(Object.assign({}, row));
+              const clean = {};
+              for (const [k, v] of Object.entries(row)) {
+                if (!k.includes('.')) clean[k] = v;
+              }
+              outputRows.push(clean);
             } else {
               const outRow = {};
               for (const col of colSpecs) {
-                outRow[col.alias] = row[col.expr];
+                outRow[col.alias] = this._evalSelectExpr(col.expr, [row], row);
               }
               outputRows.push(outRow);
             }
@@ -10283,6 +10367,7 @@ _hostRuntime.executeInWorker = async function executeInWorker(options = {}) {
       if (options.signal.aborted) {
         const job = _activeWorkerJobs.get(requestId);
         if (job) job.cancel('SIGINT: Interrupted by user (Ctrl+C)');
+        return;
       } else {
         abortListener = () => {
           const job = _activeWorkerJobs.get(requestId);

@@ -185,15 +185,19 @@ export class ContextKeyService implements IContextKeyService {
         const rhsTok = tokens[pos++];
         const lhsVal = resolveScalar(tok);
         if (next.value === '=~' && rhsTok) {
-          const patternRaw = rhsTok.value.replace(/^\/|\/[gimsuy]*$/g, '');
+          const reMatch = rhsTok.value.match(/^\/([\s\S]*)\/([gimsuy]*)$/);
+          const patternRaw = reMatch ? reMatch[1] : rhsTok.value;
+          const flags = reMatch ? reMatch[2] : '';
           try {
-            return new RegExp(patternRaw).test(String(lhsVal ?? ''));
+            return new RegExp(patternRaw, flags).test(String(lhsVal ?? ''));
           } catch {
             return false;
           }
         }
         const rhsVal = resolveScalar(rhsTok);
-        const eq = String(lhsVal ?? '') === String(rhsVal ?? '');
+        const eq = lhsVal === undefined || rhsVal === undefined
+          ? lhsVal === rhsVal
+          : String(lhsVal) === String(rhsVal);
         return next.value === '==' ? eq : !eq;
       }
       return Boolean(resolveScalar(tok));
@@ -372,7 +376,8 @@ export function eventToChord(event: KeyboardEventLike): string {
 
 export function formatShortcutBadge(rawKey: string, isMac = false): string {
   const norm = normalizeKeyChord(rawKey);
-  const parts = norm.split('+');
+  if (!norm) return '';
+  const parts = norm.split('+').filter(Boolean);
   return parts
     .map((p) => {
       if (p === 'mod') return isMac ? '⌘' : 'Ctrl';

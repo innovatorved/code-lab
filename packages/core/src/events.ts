@@ -18,14 +18,16 @@ export interface EventTraceRecord {
 
 export type EventMonitorHook = (record: EventTraceRecord) => void;
 
-let globalEventMonitor: EventMonitorHook | null = null;
+const globalEventMonitors = new Set<EventMonitorHook>();
 
 export function setGlobalEventMonitor(hook: EventMonitorHook | null): IDisposable {
-  globalEventMonitor = hook;
+  if (!hook) {
+    globalEventMonitors.clear();
+    return toDisposable(() => {});
+  }
+  globalEventMonitors.add(hook);
   return toDisposable(() => {
-    if (globalEventMonitor === hook) {
-      globalEventMonitor = null;
-    }
+    globalEventMonitors.delete(hook);
   });
 }
 
@@ -93,13 +95,16 @@ export class Emitter<T> implements IDisposable {
 
   public fire(payload: T): void {
     if (this.disposed) return;
-    if (globalEventMonitor) {
-      globalEventMonitor({
+    if (globalEventMonitors.size > 0) {
+      const record: EventTraceRecord = {
         channel: this.channelName,
         timestamp: Date.now(),
         listenerCount: this.listeners.size,
         payloadSummary: summarizePayload(payload)
-      });
+      };
+      for (const monitor of globalEventMonitors) {
+        monitor(record);
+      }
     }
     if (this.listeners.size === 0) return;
     const snapshot = Array.from(this.listeners);

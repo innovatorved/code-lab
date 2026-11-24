@@ -14,6 +14,12 @@ export interface CodeLabEmbedProps {
   height?: string;
 }
 
+const DEFAULT_SETTINGS: Record<string, unknown> = {
+  'workbench.colorTheme': 'dark',
+  'editor.fontSize': 14,
+  'terminal.fontSize': 13
+};
+
 /**
  * Minimal React / Next.js client component wrapper around `CodeLab.mount`.
  */
@@ -23,11 +29,7 @@ export function CodeLabEmbed({
   lang = 'ts',
   entry = 'index.ts',
   files,
-  settings = {
-    'workbench.colorTheme': 'dark',
-    'editor.fontSize': 14,
-    'terminal.fontSize': 13
-  },
+  settings = DEFAULT_SETTINGS,
   overrides,
   showLanguageSelector = true,
   height = '640px'
@@ -55,7 +57,7 @@ export function CodeLabEmbed({
       instanceRef.current?.destroy?.();
       instanceRef.current = null;
     };
-  }, [id, title, lang, entry, showLanguageSelector]);
+  }, [id, title, lang, entry, files, settings, overrides, showLanguageSelector]);
 
   return <div ref={hostRef} style={{ width: '100%', height }} />;
 }

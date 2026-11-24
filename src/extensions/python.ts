@@ -1042,7 +1042,10 @@ export class PythonToolchainManager {
   private _loadingPromise: Promise<any> | null = null;
 
   constructor(options: ExtendedPythonExtensionOptions = {}) {
-    this.options = PythonExtensionOptionsSchema.parse(options);
+    const parsed = PythonExtensionOptionsSchema.parse(options);
+    this.options = (options as any).headlessMock !== undefined
+      ? { ...parsed, headlessMock: (options as any).headlessMock }
+      : parsed;
   }
 
   public isLoaded(): boolean {
@@ -1081,7 +1084,7 @@ export class PythonToolchainManager {
 
         // Browser environment: load pyodide.js from CDN (deduplicated across concurrent instances)
         if (typeof window !== 'undefined' && typeof document !== 'undefined' && !(this.options as any).headlessMock) {
-          const cdn = this.options.cdnBaseUrl || DEFAULT_PYTHON_CDN_BASE_URL;
+          const cdn = this.options.cdnBaseUrl || this.options.indexUrl || this.options.pyodideIndexUrl || DEFAULT_PYTHON_CDN_BASE_URL;
           const scriptUrl = `${cdn.replace(/\/+$/, '')}/pyodide.js`;
           if (!(window as any).loadPyodide) {
             let scriptPromise = PythonToolchainManager._scriptPromises.get(scriptUrl);
@@ -1559,7 +1562,10 @@ export function seedPythonModulesIntoVfs(vfs: any) {
         void err;
       }
     }
-    if (vfs.files && typeof vfs.files === 'object') {
+    if (vfs.files instanceof Map) {
+      vfs.files.set(p, content);
+      vfs.files.set(withoutSlash, content);
+    } else if (vfs.files && typeof vfs.files === 'object') {
       vfs.files[p] = content;
       vfs.files[withoutSlash] = content;
     }

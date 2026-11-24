@@ -21,10 +21,6 @@
       "@code-lab/settings": ["./packages/settings/src/index.ts"],
       "@code-lab/commands": ["./packages/commands/src/index.ts"],
       "@code-lab/sql": ["./packages/sql/src/index.ts"],
-      "@code-lab/editor": ["./packages/editor/src/index.ts"],
-      "@code-lab/runtime": ["./packages/runtime/src/index.ts"],
-      "@code-lab/terminal": ["./packages/terminal/src/index.ts"],
-      "@code-lab/preview": ["./packages/preview/src/index.ts"],
       "@code-lab/ui": ["./packages/ui/src/index.ts"]
     }
   },

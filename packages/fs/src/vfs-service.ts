@@ -39,6 +39,9 @@ export class FileSystemService implements IFileSystemService {
     let current = '';
     for (let i = 0; i < parts.length - 1; i++) {
       current += '/' + parts[i];
+      if (this.files.has(current)) {
+        throw new CodeLabError('ERR_FS_NOT_DIR', `ENOTDIR: not a directory, '${current}'`);
+      }
       this.dirs.add(current);
     }
   }
@@ -142,10 +145,16 @@ export class FileSystemService implements IFileSystemService {
     const src = this.normalize(oldPath);
     const dst = this.normalize(newPath);
     if (src === dst) return;
+    if (src === '/') {
+      throw new CodeLabError('ERR_INVALID_ARGUMENT', `Cannot rename root directory '/'`);
+    }
     if (this.files.has(src)) {
+      if (this.dirs.has(dst)) {
+        throw new CodeLabError('ERR_FS_IS_DIR', `EISDIR: cannot overwrite directory '${newPath}' with file '${oldPath}'`);
+      }
       const node = this.files.get(src)!;
-      this.files.delete(src);
       this.ensureParentDirs(dst);
+      this.files.delete(src);
       const copy = new Uint8Array(node.bytes);
       this.files.set(dst, { bytes: copy, mtimeMs: Date.now() });
       this.schedulePersist(async () => {
@@ -157,9 +166,15 @@ export class FileSystemService implements IFileSystemService {
     }
     if (this.dirs.has(src)) {
       const prefix = src + '/';
+      if (dst.startsWith(prefix)) {
+        throw new CodeLabError('ERR_INVALID_ARGUMENT', `Cannot rename directory '${oldPath}' into its own descendant '${newPath}'`);
+      }
+      if (this.files.has(dst)) {
+        throw new CodeLabError('ERR_FS_NOT_DIR', `ENOTDIR: cannot overwrite file '${newPath}' with directory '${oldPath}'`);
+      }
+      this.ensureParentDirs(dst);
       this.dirs.delete(src);
       this.dirs.add(dst);
-      this.ensureParentDirs(dst);
       for (const d of Array.from(this.dirs)) {
         if (d.startsWith(prefix)) {
           this.dirs.delete(d);

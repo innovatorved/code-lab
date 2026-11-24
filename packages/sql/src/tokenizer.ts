@@ -35,7 +35,7 @@ const COMMON_KEYWORDS = new Set([
   'EACH', 'ROW', 'FOR', 'BEGIN', 'COMMIT', 'ROLLBACK', 'SAVEPOINT', 'RELEASE', 'TRANSACTION',
   'EXPLAIN', 'QUERY', 'PLAN', 'OVER', 'PARTITION', 'RANGE', 'GROUPS', 'UNBOUNDED', 'PRECEDING',
   'FOLLOWING', 'CURRENT', 'EXCLUDE', 'TIES', 'OTHERS', 'NO', 'ACTION', 'CONFLICT', 'DO', 'NOTHING',
-  'REPLACE', 'ABORT', 'FAIL', 'IGNORE', 'CAST', 'COLLATE', 'ESCAPE', 'HAVING', 'ANY', 'SOME'
+  'REPLACE', 'ABORT', 'FAIL', 'IGNORE', 'CAST', 'COLLATE', 'ESCAPE', 'ANY', 'SOME'
 ]);
 
 const POSTGRES_KEYWORDS = new Set([
@@ -76,11 +76,11 @@ const SQL_FUNCTIONS = new Set([
   'PRINTF', 'TYPEOF', 'TOTAL', 'CHANGES'
 ]);
 
+const POSTGRES_DIALECT_KEYWORDS: ReadonlySet<string> = new Set([...COMMON_KEYWORDS, ...POSTGRES_KEYWORDS]);
+const SQLITE_DIALECT_KEYWORDS: ReadonlySet<string> = new Set([...COMMON_KEYWORDS, ...SQLITE_KEYWORDS]);
+
 export function getDialectKeywords(dialect: SqlDialect): ReadonlySet<string> {
-  const out = new Set<string>(COMMON_KEYWORDS);
-  const extra = dialect === 'postgres' ? POSTGRES_KEYWORDS : SQLITE_KEYWORDS;
-  for (const k of extra) out.add(k);
-  return out;
+  return dialect === 'postgres' ? POSTGRES_DIALECT_KEYWORDS : SQLITE_DIALECT_KEYWORDS;
 }
 
 export function getSqlBuiltinFunctions(): ReadonlySet<string> {
@@ -202,11 +202,12 @@ export function tokenizeSql(sql: string, dialect: SqlDialect = 'postgres'): SqlT
       continue;
     }
 
-    // 7. Single-quoted string (or Postgres E'...' / X'...')
+    // 7. Single-quoted string (or Postgres E'...' / SQLite X'...' hex literal)
     if (ch === '\'' || ((ch === 'E' || ch === 'e' || ch === 'X' || ch === 'x') && next === '\'')) {
       const start = i;
-      const isEscaped = ch !== '\'';
-      i += isEscaped ? 2 : 1;
+      const hasPrefix = ch !== '\'';
+      const isEscaped = ch === 'E' || ch === 'e';
+      i += hasPrefix ? 2 : 1;
       while (i < len) {
         if (isEscaped && sql[i] === '\\' && i + 1 < len) {
           i += 2;

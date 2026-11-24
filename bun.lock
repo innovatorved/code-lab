@@ -22,83 +22,48 @@
     },
     "apps/web": {
       "name": "@code-lab/web",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@code-lab/commands": "workspace:*",
         "@code-lab/core": "workspace:*",
-        "@code-lab/editor": "workspace:*",
         "@code-lab/fs": "workspace:*",
-        "@code-lab/preview": "workspace:*",
-        "@code-lab/runtime": "workspace:*",
         "@code-lab/settings": "workspace:*",
         "@code-lab/sql": "workspace:*",
-        "@code-lab/terminal": "workspace:*",
         "@code-lab/ui": "workspace:*",
       },
     },
     "packages/commands": {
       "name": "@code-lab/commands",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/core": {
       "name": "@code-lab/core",
-      "version": "0.6.0",
-    },
-    "packages/editor": {
-      "name": "@code-lab/editor",
-      "version": "0.6.0",
-      "dependencies": {
-        "@code-lab/core": "workspace:*",
-        "@code-lab/settings": "workspace:*",
-        "@code-lab/sql": "workspace:*",
-      },
+      "version": "0.7.0",
     },
     "packages/fs": {
       "name": "@code-lab/fs",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
-      },
-    },
-    "packages/preview": {
-      "name": "@code-lab/preview",
-      "version": "0.6.0",
-      "dependencies": {
-        "@code-lab/core": "workspace:*",
-      },
-    },
-    "packages/runtime": {
-      "name": "@code-lab/runtime",
-      "version": "0.6.0",
-      "dependencies": {
-        "@code-lab/core": "workspace:*",
-        "@code-lab/fs": "workspace:*",
       },
     },
     "packages/settings": {
       "name": "@code-lab/settings",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@code-lab/core": "workspace:*",
       },
     },
     "packages/sql": {
       "name": "@code-lab/sql",
-      "version": "0.6.0",
-    },
-    "packages/terminal": {
-      "name": "@code-lab/terminal",
-      "version": "0.6.0",
-      "dependencies": {
-        "@code-lab/core": "workspace:*",
-      },
+      "version": "0.7.0",
     },
     "packages/ui": {
       "name": "@code-lab/ui",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@code-lab/commands": "workspace:*",
         "@code-lab/core": "workspace:*",
@@ -111,19 +76,11 @@
 
     "@code-lab/core": ["@code-lab/core@workspace:packages/core"],
 
-    "@code-lab/editor": ["@code-lab/editor@workspace:packages/editor"],
-
     "@code-lab/fs": ["@code-lab/fs@workspace:packages/fs"],
-
-    "@code-lab/preview": ["@code-lab/preview@workspace:packages/preview"],
-
-    "@code-lab/runtime": ["@code-lab/runtime@workspace:packages/runtime"],
 
     "@code-lab/settings": ["@code-lab/settings@workspace:packages/settings"],
 
     "@code-lab/sql": ["@code-lab/sql@workspace:packages/sql"],
-
-    "@code-lab/terminal": ["@code-lab/terminal@workspace:packages/terminal"],
 
     "@code-lab/ui": ["@code-lab/ui@workspace:packages/ui"],
 

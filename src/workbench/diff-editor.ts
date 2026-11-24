@@ -131,6 +131,7 @@ export class CodeLabDiffEditorManager {
     const welcomeHost = this.workbench.container?.querySelector('#cl-welcome-host');
     if (welcomeHost) welcomeHost.style.display = 'none';
 
+    diffContainer.hidden = false;
     diffContainer.style.display = 'flex';
     editorHost.style.display = 'none';
     if (fallbackTextarea) fallbackTextarea.style.display = 'none';
@@ -455,6 +456,7 @@ export class CodeLabDiffEditorManager {
     this.isActive = false;
     const diffContainer = this.workbench.container?.querySelector('#cl-inline-diff-container');
     if (diffContainer) {
+      diffContainer.hidden = true;
       diffContainer.style.display = 'none';
     }
     const isWelcomeActive = this.workbench.activeFile === '__welcome__';

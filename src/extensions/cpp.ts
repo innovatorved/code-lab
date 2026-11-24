@@ -1205,33 +1205,17 @@ export class CppToolchainManager {
     const primarySource = vfs.readFileSync(sourceFiles[0], 'utf8');
     let outText = '';
 
-    if (primarySource.includes('solveAkraBazziExponent') || primarySource.includes('Akra-Bazzi') || primarySource.includes('RecurrenceTerm')) {
-      outText = [
-        '[C++20 Akra-Bazzi Characteristic Exponent Solver]',
-        'Evaluating recurrence: T(n) = T(n/5) + T(7n/10) + Theta(n) [BFPRT Median-of-Medians]',
-        '  Terms: a1=1.0, b1=0.20 | a2=1.0, b2=0.70',
-        '  Characteristic equation: (0.2)^p + (0.7)^p = 1.0',
-        '  Solved characteristic exponent p = 0.839780 (tolerance: 1e-12)',
-        '  Linear-work sum: sum(b_i) = 0.900000 < 1.0  ==>  p < 1',
-        '  Closed-form asymptotic bound: T(n) = Theta(n)\n',
-        'Evaluating recurrence: T(n) = T(n/10) + T(9n/10) + Theta(n) [Quicksort]',
-        '  Linear-work sum: sum(b_i) = 1.000000 == 1.0  ==>  p = 1',
-        '  Closed-form asymptotic bound: T(n) = Theta(n log n)\n',
-        'All recurrence tests completed successfully (exit code 0).'
-      ].join('\n') + '\n';
+    const coutMatches = primarySource.match(/std::cout\s*<<\s*("[^"]*")/g);
+    if (coutMatches && coutMatches.length > 0) {
+      const extracted = coutMatches
+        .map((m: string) => {
+          const strMatch = m.match(/"([^"]*)"/);
+          return strMatch ? strMatch[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t') : '';
+        })
+        .join('');
+      outText = extracted ? (extracted.endsWith('\n') ? extracted : extracted + '\n') : 'C++20 program executed successfully.\n';
     } else {
-      const coutMatches = primarySource.match(/std::cout\s*<<\s*("[^"]*")/g);
-      if (coutMatches && coutMatches.length > 0) {
-        const extracted = coutMatches
-          .map((m: string) => {
-            const strMatch = m.match(/"([^"]*)"/);
-            return strMatch ? strMatch[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t') : '';
-          })
-          .join('');
-        outText = extracted ? (extracted.endsWith('\n') ? extracted : extracted + '\n') : 'C++20 program executed successfully.\n';
-      } else {
-        outText = 'Compiled and executed with C++20 (Virtual WASI Runtime)!\n';
-      }
+      outText = 'Compiled and executed with C++20 (Virtual WASI Runtime)!\n';
     }
 
     const wasmBinary = buildWasiPrintWasm(outText, 0);
@@ -1240,14 +1224,12 @@ export class CppToolchainManager {
       try { vfs.chmodSync(outputPath, 0o755); } catch (err) { if (err) void err; }
     }
 
-    handleOut(outText);
-
     return {
       ok: true,
       exitCode: 0,
       wasmBinary,
       outputPath,
-      stdout: stdoutAcc,
+      stdout: outText,
       stderr: stderrAcc
     };
   }

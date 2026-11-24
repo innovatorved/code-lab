@@ -4,6 +4,26 @@ All notable changes to `@innovatorved/code-lab` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-11-24
+
+### Fixed
+- **SQL Studio `JOIN`, Table Alias, Multi-Column `GROUP BY` & `ROUND` Engine (`src/runtime.ts`)**: Fixed `createSqliteDatabase._executeSelect` falling through to literal-echo mode on aliased `FROM`/`JOIN` queries; SQL Studio now evaluates `INNER`/`LEFT JOIN`, qualified columns (`c.name`), multi-column `GROUP BY`, and `ROUND(SUM(...) / ...)` expressions.
+- **Workbench UI Bugs & Memory Leaks (`src/workbench.ts`, `src/workbench/diff-editor.ts`, `src/workbench/icons.ts`, `src/workbench/intellisense.ts`)**:
+  - Fixed Inline Diff Editor staying hidden (`#cl-inline-diff-container[hidden]`).
+  - Fixed breadcrumb symbol detection (`extractDocumentSymbols` before `findEnclosingSymbolAtLine`), IndexedDB Git hydration (`hydrateFromIsoGitRepo`), and `kernel.fs.writeFile` sync.
+  - Restored diagonal fullscreen icon, uniform `24×24` Activity Bar icons, and Status Bar info-diagnostic count parity with the `PROBLEMS` badge.
+  - Tracked and removed all 13 `this.container` listeners and `_diagnosticsStore` subscription on `destroy()`, added a `disposed` guard to `WorkspaceAtaController`, and replaced the stale Monaco IntelliSense closure with a `WeakMap` lookup.
+- **Runtime, Shell, Terminal & Extension Fixes (`src/runtime.ts`, `src/shell.ts`, `src/terminal.ts`, `src/extensions/*`, `packages/*`)**:
+  - Fixed worker post-abort `postMessage`, `timer.ref()` event-loop hang, Python double-counted test results & missing `onRequestStdin`/`headlessMock`/`indexUrl`, C++ offline fallback double-stdout, missing `ansi256ToColor` ESM/CJS export, macOS `Cmd+A` hijack, shell subshell full-VFS snapshot perf bug, and function positional args wiped on `cd`/`export`.
+  - Fixed `IndexedDbBackend` `tx.onabort` hang, `FileSystemService` ancestor-file and `rename` guards, multi-kernel `setGlobalEventMonitor`, SQL `readOnly` completion early return & `X'...'` hex literal escaping, `CommandRegistry` regex flags & empty shortcut badges, and plugin activation failure cleanup.
+- **Examples & Cloud IDE (`examples/cloud-ide/src/pages/index.astro`, `examples/guided-lab-embed.html`, `examples/index.html`, `examples/react-embed.tsx`)**: Fixed Cloud IDE close-button blank-screen trap, grouped landing modal chips into Interactive Sandboxes vs Sample GitHub Repositories, fixed Guided Lab embed step schema, and removed redundant `<script>` tags.
+
+### Changed & Removed
+- **UI Hierarchy & Density (`src/workbench.ts`, `src/code-lab.css`)**: Removed duplicate topbar Settings gear and duplicate breadcrumb Command Palette button; tightened bottom drawer tab labels/padding so tabs fit cleanly at `1440px` without clipping.
+- **Bundle & Workspace Cleanup (`tools/bundle.js`, `package.json`, `packages/*`, `src/workbench/*`)**:
+  - Deleted 4 unused workspace packages (`packages/{editor,runtime,terminal,preview}`), 5 orphaned `src/workbench/*.ts` files, ~500 lines of overridden legacy CSS, 324 lines of duplicate `NODE_AMBIENT_DTS`, ~300 lines of dead `.app-header` code, hardcoded C++ demo fixture, and stale root/research scratchpads (4,000+ net lines removed).
+  - Eliminated duplicate 2.15 MB `dist/code-lab.umd.js` copy, minified `dist/extensions/*` and `dist/schemas.*` (~50% smaller), and synced only the 4 runtime assets Cloud IDE serves.
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

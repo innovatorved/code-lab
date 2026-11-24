@@ -227,6 +227,8 @@ export class PluginRegistry implements IPluginRegistry {
         }
       } catch (err) {
         record.active = false;
+        record.runtimeDisposables.dispose();
+        record.runtimeDisposables = new DisposableStore();
         this.logger.error(`Plugin "${id}" failed to activate`, err);
         throw err;
       }
